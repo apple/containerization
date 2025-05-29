@@ -1,0 +1,26 @@
+additionalHeaders = ["scripts/cz-header-style.toml"]
+
+headerPath = "scripts/license-header.txt"
+
+includes = [
+    "Makefile",
+    "*.swift",
+    "*.h",
+    "*.cpp",
+    "*.c",
+    "*.sh",
+]
+
+excludes = [
+    "Sources/ContainerizationArchive/CArchive/include",
+]
+
+[git]
+attrs = 'enable'
+ignore = 'enable'
+
+[properties]
+copyrightOwner = "Apple Inc. and the containerization project authors"
+
+[mapping.SWIFT_STYLE]
+extensions = ["swift"]

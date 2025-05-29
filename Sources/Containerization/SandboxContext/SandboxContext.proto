@@ -1,0 +1,249 @@
+syntax = "proto3";
+
+package com.apple.containerization.sandbox.v3;
+
+// Context for interacting with a container's runtime environment.
+service SandboxContext {
+  // Mount a filesystem.
+  rpc Mount(MountRequest) returns (MountResponse);
+  // Unmount a filesystem.
+  rpc Umount(UmountRequest) returns (UmountResponse);
+  // Set an environment variable on the init process.
+  rpc Setenv(SetenvRequest) returns (SetenvResponse);
+  // Get an environment variable from the init process.
+  rpc Getenv(GetenvRequest) returns (GetenvResponse);
+  // Create a new directory inside the sandbox.
+  rpc Mkdir(MkdirRequest) returns (MkdirResponse);
+  // Set sysctls in the context of the sandbox.
+  rpc Sysctl(SysctlRequest) returns (SysctlResponse);
+  // Set time in the guest.
+  rpc SetTime(SetTimeRequest) returns (SetTimeResponse);
+  // Set up an emulator in the guest for a specific binary format.
+  rpc SetupEmulator(SetupEmulatorRequest) returns (SetupEmulatorResponse);
+
+  // Create a new process inside the container.
+  rpc CreateProcess(CreateProcessRequest) returns (CreateProcessResponse);
+  // Delete an existing process inside the container.
+  rpc DeleteProcess(DeleteProcessRequest) returns (DeleteProcessResponse);
+  // Start the provided process.
+  rpc StartProcess(StartProcessRequest) returns (StartProcessResponse);
+  // Send a signal to the provided process.
+  rpc KillProcess(KillProcessRequest) returns (KillProcessResponse);
+  // Wait for a process to exit and return the exit code.
+  rpc WaitProcess(WaitProcessRequest) returns (WaitProcessResponse);
+  // Resize the tty of a given process. This will error if the process does
+  // not have a pty allocated.
+  rpc ResizeProcess(ResizeProcessRequest) returns (ResizeProcessResponse);
+
+  // Proxy a vsock port to a unix domain socket in the guest, or vice versa.
+  rpc ProxyVsock(ProxyVsockRequest) returns (ProxyVsockResponse);
+  // Stop a vsock proxy to a unix domain socket.
+  rpc StopVsockProxy(StopVsockProxyRequest) returns (StopVsockProxyResponse);
+
+  // Set the link state of a network interface.
+  rpc IpLinkSet(IpLinkSetRequest) returns (IpLinkSetResponse);
+  // Add an IPv4 address to a network interface.
+  rpc IpAddrAdd(IpAddrAddRequest) returns (IpAddrAddResponse);
+  // Add an IP route for a network interface.
+  rpc IpRouteAddLink(IpRouteAddLinkRequest) returns (IpRouteAddLinkResponse);
+  // Add an IP route for a network interface.
+  rpc IpRouteAddDefault(IpRouteAddDefaultRequest) returns (IpRouteAddDefaultResponse);
+  // Configure DNS resolver.
+  rpc ConfigureDns(ConfigureDnsRequest) returns (ConfigureDnsResponse);
+  // Perform the sync syscall.
+  rpc Sync(SyncRequest) returns (SyncResponse);
+  // Send a signal to a process via the PID.
+  rpc Kill(KillRequest) returns (KillResponse);
+}
+
+message Stdio {
+  optional int32 stdinPort = 1;
+  optional int32 stdoutPort = 2;
+  optional int32 stderrPort = 3;
+}
+
+message SetupEmulatorRequest {
+  string binary_path = 1;
+  string name = 2;
+  string type = 3;
+  string offset = 4;
+  string magic = 5;
+  string mask = 6;
+  string flags = 7;
+}
+
+message SetupEmulatorResponse {}
+
+message SetTimeRequest {
+  int64 sec = 1;
+  int32 usec = 2;
+}
+
+message SetTimeResponse {}
+
+message SysctlRequest { map<string, string> settings = 1; }
+
+message SysctlResponse {}
+
+message ProxyVsockRequest {
+  enum Action {
+    INTO = 0;
+    OUT_OF = 1;
+  }
+  string id = 1;
+  uint32 vsock_port = 2;
+  string guestPath = 3;
+  optional uint32 guestSocketPermissions = 4;
+  Action action = 5;
+}
+
+message ProxyVsockResponse {}
+
+message StopVsockProxyRequest { string id = 1; }
+
+message StopVsockProxyResponse {}
+
+message MountRequest {
+  string type = 1;
+  string source = 2;
+  string destination = 3;
+  repeated string options = 4;
+}
+
+message MountResponse {}
+
+message UmountRequest {
+  string path = 1;
+  int32 flags = 2;
+}
+
+message UmountResponse {}
+
+message SetenvRequest {
+  string key = 1;
+  optional string value = 2;
+}
+
+message SetenvResponse {}
+
+message GetenvRequest { string key = 1; }
+
+message GetenvResponse { optional string value = 1; }
+
+message CreateProcessRequest {
+  string id = 1;
+  optional string containerID = 2;
+  optional uint32 stdin = 3;
+  optional uint32 stdout = 4;
+  optional uint32 stderr = 5;
+  bytes configuration = 6;
+  optional bytes options = 7;
+}
+
+message CreateProcessResponse {}
+
+message AttachProcessRequest {
+  string id = 1;
+  optional string containerID = 2;
+}
+
+message AttachProcessResponse {
+  Stdio ports = 1;
+}
+
+message WaitProcessRequest {
+  string id = 1;
+  optional string containerID = 2;
+}
+
+message WaitProcessResponse {
+  int32 exitCode = 1;
+}
+
+message ResizeProcessRequest {
+  string id = 1;
+  optional string containerID = 2;
+  uint32 rows = 3;
+  uint32 columns = 4;
+}
+
+message ResizeProcessResponse {}
+
+message DeleteProcessRequest {
+  string id = 1;
+  optional string containerID = 2;
+}
+
+message DeleteProcessResponse {}
+
+message StartProcessRequest { 
+  string id = 1;
+  optional string containerID = 2;
+}
+
+message StartProcessResponse { int32 pid = 1; }
+
+message KillProcessRequest {
+  string id = 1;
+  optional string containerID = 2;
+  int32 signal = 3;
+}
+
+message KillProcessResponse { int32 result = 1; }
+
+message MkdirRequest {
+  string path = 1;
+  bool all = 2;
+  uint32 perms = 3;
+}
+
+message MkdirResponse {}
+
+message IpLinkSetRequest {
+  string interface = 1;
+  bool up = 2;
+}
+
+message IpLinkSetResponse {}
+
+message IpAddrAddRequest {
+  string interface = 1;
+  string address = 2;
+}
+
+message IpAddrAddResponse {}
+
+message IpRouteAddLinkRequest {
+  string interface = 1;
+  string address = 2;
+  string srcAddr = 3;
+}
+
+message IpRouteAddLinkResponse {}
+
+message IpRouteAddDefaultRequest {
+  string interface = 1;
+  string gateway = 2;
+}
+
+message IpRouteAddDefaultResponse {}
+
+message ConfigureDnsRequest {
+  string location = 1;
+  repeated string nameservers = 2;
+  optional string domain = 3;
+  repeated string searchDomains = 4;
+  repeated string options = 5;
+}
+
+message ConfigureDnsResponse {}
+
+message SyncRequest {}
+message SyncResponse {}
+
+message KillRequest {
+  int32 pid = 1;
+  int32 signal = 3;
+}
+
+message KillResponse { int32 result = 1; }

@@ -1,0 +1,22 @@
+This file contains a list of contributors who have made meaningful changes to this repository.   
+Please add your name to this file as an optional step in the contribution process for attribution.   
+Email is not required.
+
+### Contributors
+
+Aditya Ramani 
+Agam Dua 
+Danny Canter 
+Dmitry Kovba 
+Eric (ASE) Ernst 
+Evan Hazlett
+Gilbert Song 
+Hugh Bussell
+John (ASE) Logan 
+Kathryn Baldauf
+Madhu Venugopal 
+Michael Crosby 
+Sidhartha Mani 
+Tanweer Noor 
+Ximena Perez Diaz
+Yibo Zhuang

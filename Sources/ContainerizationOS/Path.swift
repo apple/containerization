@@ -1,0 +1,72 @@
+//===----------------------------------------------------------------------===//
+// Copyright © 2025 Apple Inc. and the containerization project authors. All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//   https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//===----------------------------------------------------------------------===//
+
+import Foundation
+
+public struct Path {
+    /// lookPath looks up an executable's path from $PATH
+    public static func lookPath(_ name: String) -> URL? {
+        lookup(name, path: getPath())
+    }
+
+    // getEnv returns the default environment of the process
+    // with the default $PATH added for the context of a macOS application bundle
+    public static func getEnv() -> [String: String] {
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = getPath()
+        return env
+    }
+
+    private static func lookup(_ name: String, path: String) -> URL? {
+        if name.contains("/") {
+            if findExec(name) {
+                return URL(fileURLWithPath: name)
+            }
+            return nil
+        }
+
+        for var lookdir in path.split(separator: ":") {
+            if lookdir.isEmpty {
+                lookdir = "."
+            }
+            let file = URL(fileURLWithPath: String(lookdir)).appendingPathComponent(name)
+            if findExec(file.path) {
+                return file
+            }
+        }
+        return nil
+    }
+
+    /// getPath returns $PATH for the current process
+    private static func getPath() -> String {
+        let env = ProcessInfo.processInfo.environment
+        return env["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    }
+
+    // findPath returns a string containing the 'PATH' environment variable
+    private static func findPath(_ env: [String]) -> String? {
+        env.first(where: { path in
+            let split = path.split(separator: "=")
+            return split.count == 2 && split[0] == "PATH"
+        })
+    }
+
+    // findExec returns true if the provided path is an executable
+    private static func findExec(_ path: String) -> Bool {
+        let fm = FileManager.default
+        return fm.isExecutableFile(atPath: path)
+    }
+}

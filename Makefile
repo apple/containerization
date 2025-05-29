@@ -1,0 +1,133 @@
+# Copyright © 2024-2025 Apple Inc. and the containerization project authors. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#   https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Version and build configuration variables
+# The default version ID 0.0.0 indicates a local development build or PRB
+BUILD_CONFIGURATION ?= debug
+
+# Commonly used locations
+SWIFT := "/usr/bin/swift"
+ROOT_DIR := $(shell git rev-parse --show-toplevel)
+BUILD_BIN_DIR := $(shell $(SWIFT) build -c $(BUILD_CONFIGURATION) --show-bin-path)
+
+# Variables for libarchive integration
+LIBARCHIVE_UPSTREAM_REPO := https://github.com/libarchive/libarchive
+LIBARCHIVE_UPSTREAM_VERSION := v3.7.7
+LIBARCHIVE_LOCAL_DIR := workdir/libarchive
+
+include Protobuf.Makefile
+.DEFAULT_GOAL := all
+
+.PHONY: all
+all: containerization
+all: init
+
+.PHONY: release
+release: BUILD_CONFIGURATION = release
+release: all
+
+.PHONY: containerization
+containerization:
+	@echo Building containerization binaries...
+	@mkdir -p bin
+	@$(SWIFT) build -c $(BUILD_CONFIGURATION)
+
+	@echo Copying containerization binaries...
+	@install $(BUILD_BIN_DIR)/cctl ./bin/
+	@install $(BUILD_BIN_DIR)/containerization-integration ./bin/
+
+	@echo Signing containerization binaries...
+	@codesign --force --sign - --timestamp=none --entitlements=signing/vz.entitlements bin/cctl
+	@codesign --force --sign - --timestamp=none --entitlements=signing/vz.entitlements bin/containerization-integration
+
+.PHONY: init
+init: vminitd
+	@echo Creating init.ext4...
+	@rm -f bin/init.rootfs.tar.gz bin/init.block
+	@./bin/cctl rootfs create --vminitd vminitd/bin/vminitd --labels org.opencontainers.image.source=https://github.com/apple-uat/containerization --vmexec vminitd/bin/vmexec bin/init.rootfs.tar.gz vminit:latest
+
+.PHONY: cross-prep
+cross-prep:
+	@"$(MAKE)" -C vminitd cross-prep
+
+.PHONY: vminitd
+vminitd:
+	@mkdir -p ./bin
+	@"$(MAKE)" -C vminitd BUILD_CONFIGURATION=$(BUILD_CONFIGURATION)
+
+.PHONY: update-libarchive-source
+update-libarchive-source:
+	@echo Updating the libarchive source files...
+	@git clone $(LIBARCHIVE_UPSTREAM_REPO) --depth 1 --branch $(LIBARCHIVE_UPSTREAM_VERSION) $(LIBARCHIVE_LOCAL_DIR)
+	@cp $(LIBARCHIVE_LOCAL_DIR)/libarchive/archive_entry.h Sources/ContainerizationArchive/CArchive/include
+	@cp $(LIBARCHIVE_LOCAL_DIR)/libarchive/archive.h Sources/ContainerizationArchive/CArchive/include
+	@cp $(LIBARCHIVE_LOCAL_DIR)/COPYING Sources/ContainerizationArchive/CArchive/COPYING
+	@rm -rf $(LIBARCHIVE_LOCAL_DIR)
+
+.PHONY: test
+test:
+	@echo Testing all test targets...
+	@$(SWIFT) test --enable-code-coverage
+
+.PHONY: integration
+integration:
+	@echo Running the integration tests...
+	@./bin/containerization-integration --bootlog ./bin/boot.log
+
+.PHONY: fmt
+fmt:	swift-fmt update-licenses
+
+.PHONY: swift-fmt
+SWIFT_SRC = $(shell find . -type f -name '*.swift' -not -path "*/.*" -not -path "*.pb.swift" -not -path "*.grpc.swift" -not -path "*/checkouts/*")
+swift-fmt:
+	@echo Applying the standard code formatting...
+	@$(SWIFT) format --recursive --configuration .swift-format -i $(SWIFT_SRC)
+
+.PHONY: update-licenses
+update-licenses:
+	@echo Updating license headers...
+	@./scripts/ensure-hawkeye-exists.sh
+	@.local/bin/hawkeye format --fail-if-unknown --fail-if-updated false
+
+.PHONY: check-licenses
+check-licenses:
+	@echo Checking license headers existence in source files...
+	@./scripts/ensure-hawkeye-exists.sh
+	@.local/bin/hawkeye check --fail-if-unknown
+
+.PHONY: serve-docs
+serve-docs: site
+	@echo 'to browse: open http://127.0.0.1:8000/documentation/'
+	@python3 -m http.server --bind 127.0.0.1 --directory ./_site
+
+.PHONY: docs
+docs: _site
+
+_site:
+	@echo Updating API documentation...
+	rm -rf $@
+	@scripts/make-docs.sh $@
+
+.PHONY: cleancontent
+cleancontent:
+	@echo Cleaning the content...
+	@rm -rf ~/Library/Application\ Support/com.apple.containerization
+
+.PHONY: clean
+clean:
+	@echo Cleaning the build files...
+	@rm -rf bin/
+	@rm -rf _site/
+	@$(SWIFT) package clean
+	@"$(MAKE)" -C vminitd clean
