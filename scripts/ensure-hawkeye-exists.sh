@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 echo "Checking existence of hawkeye..."
 
 if command -v .local/bin/hawkeye >/dev/null 2>&1; then
