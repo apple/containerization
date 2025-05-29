@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 opts=()
 if [ ! -z "${CURRENT_SDK}" ] ; then
     opts+=("-Xswiftc" "-DCURRENT_SDK")
