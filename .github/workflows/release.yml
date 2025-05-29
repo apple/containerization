@@ -1,0 +1,17 @@
+name: Release containerization
+
+on: 
+  push: 
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+
+jobs: 
+  containerization:
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/containerization-build-template.yml
+    with: 
+      release: true
+      version: ${{  github.ref_name }}
+    secrets: inherit
