@@ -12,20 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-KSOURCE ?= https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.14.9.tar.xz
-KIMAGE ?= ghcr.io/apple/test-images/kernel-build:latest
+#!/bin/bash
 
-all:
-ifeq (,$(wildcard source.tar.xz))
-	curl -SsL -o source.tar.xz ${KSOURCE}
-endif
-	../bin/cctl run \
-		--cpus 8 \
-		--memory 16384 \
-		--fs-size 32768 \
-		--kernel ../bin/vmlinux \
-		--init ../bin/init.block \
-		--image ${KIMAGE} \
-		--mount .:/kernel \
-		--cwd /kernel \
-		-- /bin/bash -c "./build.sh"
+set -e
+
+mkdir -p /kbuild
+tar -xf /kernel/source.tar.xz -C /kbuild --strip-components=1
+cp /kernel/config-arm64 /kbuild/.config
+
+(
+  cd /kbuild
+  make olddefconfig && \
+    make -j$((`nproc`-1)) && \
+    cp arch/arm64/boot/Image /kernel/vmlinux
+)

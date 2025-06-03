@@ -63,7 +63,6 @@ struct Application: AsyncParsableCommand {
         version: "2.0.0",
         subcommands: [
             Images.self,
-            KernelCommand.self,
             Login.self,
             Rootfs.self,
             Run.self,

@@ -60,14 +60,29 @@ extension Application {
             transform: { str in
                 URL(fileURLWithPath: str, relativeTo: .currentDirectory()).absoluteURL.path(percentEncoded: false)
             })
-        public var kernel: String?
+        public var kernel: String
+
+        @Option(
+            name: .customLong("init"), help: "Init block path", completion: .file(),
+            transform: { str in
+                URL(fileURLWithPath: str, relativeTo: .currentDirectory()).absoluteURL.path(percentEncoded: false)
+            })
+        public var initBlock: String
+
+        @Option(name: .long, help: "Current working directory")
+        var cwd: String = "/"
 
         @Argument var arguments: [String] = ["/bin/sh"]
 
         func run() async throws {
+            let kernel = Kernel(
+                path: URL(fileURLWithPath: kernel),
+                platform: .linuxArm
+            )
             let store = try await ContainerStore(
                 root: Self.appRoot,
-                kernel: processKernel()
+                kernel: kernel,
+                initPath: .init(filePath: initBlock)
             )
             let sigwinch = setupSigwinchHandler()
 
@@ -89,6 +104,7 @@ extension Application {
                 "HOME=/",
                 "TERM=xterm",
             ])
+            container.workingDirectory = cwd
 
             for mount in self.mounts {
                 let paths = mount.split(separator: ":")
@@ -107,7 +123,6 @@ extension Application {
                 container.mounts.append(czMount)
             }
 
-            container.terminalDevice = current
             if let ip {
                 guard let gateway else {
                     throw ContainerizationError(.invalidArgument, message: "gateway must be specified")
@@ -148,14 +163,6 @@ extension Application {
             }
             sigwinch.resume()
             return stream
-        }
-
-        private func processKernel() -> Kernel? {
-            guard let kernel else { return nil }
-            return Kernel(
-                path: URL(fileURLWithPath: kernel),
-                platform: .linuxArm
-            )
         }
 
         private static let appRoot: URL = {

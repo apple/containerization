@@ -96,7 +96,7 @@ struct OCIClientTests: ~Copyable {
     @Test(.enabled(if: hasRegistryCredentials))
     func resolve() async throws {
         let client = RegistryClient(host: "ghcr.io", authentication: Self.authentication)
-        let descriptor = try await client.resolve(name: "apple-uat/test-images/alpine-arm64", tag: "v1")
+        let descriptor = try await client.resolve(name: "apple/containerization/dockermanifestimage", tag: "0.0.2")
         #expect(descriptor.mediaType == MediaTypes.dockerManifest)
         #expect(descriptor.size != 0)
         #expect(!descriptor.digest.isEmpty)
@@ -105,8 +105,9 @@ struct OCIClientTests: ~Copyable {
     @Test(.enabled(if: hasRegistryCredentials))
     func resolveSha() async throws {
         let client = RegistryClient(host: "ghcr.io", authentication: Self.authentication)
-        let descriptor = try await client.resolve(name: "apple-uat/test-images/alpine-arm64", tag: "sha256:d93f3925c65439895956e30e5944c79b2e3260ea7769ef0077e1568699f76e4e")
-        let namedDescriptor = try await client.resolve(name: "apple-uat/test-images/alpine-arm64", tag: "v1")
+        let descriptor = try await client.resolve(
+            name: "apple/containerization/dockermanifestimage", tag: "sha256:27bc227e516fd01daaf4c0146ea749ef7ecbc6586cbb715deac9a9bfb72b1ce8")
+        let namedDescriptor = try await client.resolve(name: "apple/containerization/dockermanifestimage", tag: "0.0.2")
         #expect(descriptor == namedDescriptor)
         #expect(descriptor.mediaType == MediaTypes.dockerManifest)
         #expect(descriptor.size != 0)
@@ -116,8 +117,8 @@ struct OCIClientTests: ~Copyable {
     @Test(.enabled(if: hasRegistryCredentials))
     func fetchManifest() async throws {
         let client = RegistryClient(host: "ghcr.io", authentication: Self.authentication)
-        let descriptor = try await client.resolve(name: "apple-uat/test-images/alpine-arm64", tag: "v1")
-        let manifest: Manifest = try await client.fetch(name: "apple-uat/test-images/alpine-arm64", descriptor: descriptor)
+        let descriptor = try await client.resolve(name: "apple/containerization/dockermanifestimage", tag: "0.0.2")
+        let manifest: Manifest = try await client.fetch(name: "apple/containerization/dockermanifestimage", descriptor: descriptor)
         #expect(manifest.schemaVersion == 2)
         #expect(manifest.layers.count == 1)
     }
@@ -125,8 +126,8 @@ struct OCIClientTests: ~Copyable {
     @Test(.enabled(if: hasRegistryCredentials))
     func fetchManifestAsData() async throws {
         let client = RegistryClient(host: "ghcr.io", authentication: Self.authentication)
-        let descriptor = try await client.resolve(name: "apple-uat/test-images/alpine-arm64", tag: "v1")
-        let manifestData = try await client.fetchData(name: "apple-uat/test-images/alpine-arm64", descriptor: descriptor)
+        let descriptor = try await client.resolve(name: "apple/containerization/dockermanifestimage", tag: "0.0.2")
+        let manifestData = try await client.fetchData(name: "apple/containerization/dockermanifestimage", descriptor: descriptor)
         let checksum = SHA256.hash(data: manifestData)
         #expect(descriptor.digest == checksum.digest)
     }
@@ -134,22 +135,22 @@ struct OCIClientTests: ~Copyable {
     @Test(.enabled(if: hasRegistryCredentials))
     func fetchConfig() async throws {
         let client = RegistryClient(host: "ghcr.io", authentication: Self.authentication)
-        let descriptor = try await client.resolve(name: "apple-uat/test-images/alpine-arm64", tag: "v1")
-        let manifest: Manifest = try await client.fetch(name: "apple-uat/test-images/alpine-arm64", descriptor: descriptor)
-        let image: Image = try await client.fetch(name: "apple-uat/test-images/alpine-arm64", descriptor: manifest.config)
-        // This is an alpine image - lets check its cmd and verify its set to /bin/sh
-        #expect(image.config?.cmd == ["/bin/sh"])
+        let descriptor = try await client.resolve(name: "apple/containerization/dockermanifestimage", tag: "0.0.2")
+        let manifest: Manifest = try await client.fetch(name: "apple/containerization/dockermanifestimage", descriptor: descriptor)
+        let image: Image = try await client.fetch(name: "apple/containerization/dockermanifestimage", descriptor: manifest.config)
+        // This is an empty image -- check that the image label is present in the image config
+        #expect(image.config?.labels?["org.opencontainers.image.source"] == "https://github.com/apple/containerization")
         #expect(image.rootfs.diffIDs.count == 1)
     }
 
     @Test(.enabled(if: hasRegistryCredentials))
     func fetchBlob() async throws {
         let client = RegistryClient(host: "ghcr.io", authentication: Self.authentication)
-        let descriptor = try await client.resolve(name: "apple-uat/test-images/alpine-arm64", tag: "v1")
-        let manifest: Manifest = try await client.fetch(name: "apple-uat/test-images/alpine-arm64", descriptor: descriptor)
+        let descriptor = try await client.resolve(name: "apple/containerization/dockermanifestimage", tag: "0.0.2")
+        let manifest: Manifest = try await client.fetch(name: "apple/containerization/dockermanifestimage", descriptor: descriptor)
         var called = false
         var done = false
-        try await client.fetchBlob(name: "apple-uat/test-images/alpine-arm64", descriptor: manifest.layers.first!) { (expected, body) in
+        try await client.fetchBlob(name: "apple/containerization/dockermanifestimage", descriptor: manifest.layers.first!) { (expected, body) in
             called = true
             #expect(expected != 0)
             var received = 0
@@ -167,12 +168,10 @@ struct OCIClientTests: ~Copyable {
     @Test(.enabled(if: hasRegistryCredentials))
     func pushIndex() async throws {
         let client = RegistryClient(host: "ghcr.io", authentication: Self.authentication)
-        let indexDescriptor = try await client.resolve(name: "apple-uat/test-images/alpine", tag: "3.21")
-        let index: Index = try await client.fetch(name: "apple-uat/test-images/alpine", descriptor: indexDescriptor)
+        let indexDescriptor = try await client.resolve(name: "apple/containerization/emptyimage", tag: "0.0.1")
+        let index: Index = try await client.fetch(name: "apple/containerization/emptyimage", descriptor: indexDescriptor)
 
-        let arch = Self.arch ?? "arm64"
-        let variant: String? = (arch == "arm64") ? "v8" : nil
-        let platform = Platform(arch: arch, os: "linux", variant: variant)
+        let platform = Platform(arch: "amd64", os: "linux")
 
         var manifestDescriptor: Descriptor?
         for m in index.manifests where m.platform == platform {
@@ -182,8 +181,8 @@ struct OCIClientTests: ~Copyable {
 
         #expect(manifestDescriptor != nil)
 
-        let manifest: Manifest = try await client.fetch(name: "apple-uat/test-images/alpine", descriptor: manifestDescriptor!)
-        let imgConfig: Image = try await client.fetch(name: "apple-uat/test-images/alpine", descriptor: manifest.config)
+        let manifest: Manifest = try await client.fetch(name: "apple/containerization/emptyimage", descriptor: manifestDescriptor!)
+        let imgConfig: Image = try await client.fetch(name: "apple/containerization/emptyimage", descriptor: manifest.config)
 
         let layer = try #require(manifest.layers.first)
         let blobPath = contentPath.appendingPathComponent(layer.digest)
@@ -191,7 +190,7 @@ struct OCIClientTests: ~Copyable {
         #expect(outputStream != nil)
 
         try await outputStream!.withThrowingOpeningStream {
-            try await client.fetchBlob(name: "apple-uat/test-images/alpine", descriptor: layer) { (expected, body) in
+            try await client.fetchBlob(name: "apple/containerization/emptyimage", descriptor: layer) { (expected, body) in
                 var received: Int64 = 0
                 for try await buffer in body {
                     received += Int64(buffer.readableBytes)
@@ -208,7 +207,7 @@ struct OCIClientTests: ~Copyable {
             }
         }
 
-        let name = "apple-uat/test-images/image-push"
+        let name = "apple/test-images/image-push"
         let ref = "latest"
 
         // Push the layer first.

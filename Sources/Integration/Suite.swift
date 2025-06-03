@@ -82,12 +82,13 @@ struct IntegrationSuite: AsyncParsableCommand {
         _contentStore
     }
 
-    static let kernelImage = "ghcr.io/apple-uat/kernel/linux:v6.1.68-1"
-
     static let initImage = "vminit:latest"
 
     @Option(name: .shortAndLong, help: "Path to a log file")
     var bootlog: String
+
+    @Option(name: .shortAndLong, help: "Path to a kernel binary")
+    var kernel: String = "./bin/vmlinux"
 
     static func binPath(name: String) -> URL {
         URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
@@ -96,10 +97,8 @@ struct IntegrationSuite: AsyncParsableCommand {
     }
 
     func bootstrap() async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager) {
-        let reference = "ghcr.io/apple-uat/test-images/alpine:3.21"
+        let reference = "ghcr.io/linuxcontainers/alpine:3.20"
         let store = Self.imageStore
-        let kernelImage = try await store.getKernel(reference: Self.kernelImage, auth: Self.authentication)
-        var kernel = try await kernelImage.kernel(for: .linuxArm)
 
         let initImage = try await store.getInitImage(reference: Self.initImage)
         let initfs = try await {
@@ -119,7 +118,8 @@ struct IntegrationSuite: AsyncParsableCommand {
             }
         }()
 
-        kernel.commandLine.addDebug()
+        var testKernel = Kernel(path: .init(filePath: kernel), platform: .linuxArm)
+        testKernel.commandLine.addDebug()
         let image = try await Self.fetchImage(reference: reference, store: store)
         let platform = Platform(arch: "arm64", os: "linux", variant: "v8")
 
@@ -147,7 +147,7 @@ struct IntegrationSuite: AsyncParsableCommand {
         return (
             cl,
             VZVirtualMachineManager(
-                kernel: kernel,
+                kernel: testKernel,
                 initialFilesystem: initfs,
                 bootlog: bootlog
             )

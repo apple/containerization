@@ -60,19 +60,19 @@ public class ImageStoreTests: ContainsAuth {
         guard let authentication = Self.authentication else {
             return
         }
-        let imageReference = "ghcr.io/apple-uat/test-images/busybox:1.37"
+        let imageReference = "ghcr.io/apple/containerization/dockermanifestimage:0.0.2"
         let busyboxImage = try await self.store.pull(reference: imageReference, auth: Self.authentication)
 
         let got = try await self.store.get(reference: imageReference)
         #expect(got.descriptor == busyboxImage.descriptor)
 
-        let newTag = "registry.local/integration-tests/busybox:latest"
+        let newTag = "registry.local/integration-tests/dockermanifestimage:latest"
         let _ = try await self.store.tag(existing: imageReference, new: newTag)
 
         let tempFile = self.dir.appending(path: "export.tar")
         try await self.store.save(references: [imageReference, expectedLoadedImage], out: tempFile)
 
-        let remoteImageName = "ghcr.io/apple-uat/test-images/image-push"
+        let remoteImageName = "ghcr.io/apple/test-images/image-push"
         let epoch = Int(Date().timeIntervalSince1970.description)
         let tag = epoch != nil ? String(epoch!) : "latest"
         let upstreamTag = "\(remoteImageName):\(tag)"

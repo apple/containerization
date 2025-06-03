@@ -60,7 +60,6 @@ public struct VZVirtualMachineManager: VirtualMachineManager {
                 if let bootlog {
                     config.bootlog = URL(filePath: bootlog)
                 }
-                config.gpu = c.gpu
                 config.rosetta = c.rosetta
                 config.nestedVirtualization = c.virtualization
 

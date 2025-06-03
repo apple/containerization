@@ -58,8 +58,6 @@ struct VZVirtualMachineInstance: VirtualMachineInstance, Sendable {
         public var initialFilesystem: Mount?
         /// File path to store the sandbox boot logs.
         public var bootlog: URL?
-        /// Enable GPU support.
-        public var gpu: Bool
 
         init() {
             self.cpus = 4
@@ -68,7 +66,6 @@ struct VZVirtualMachineInstance: VirtualMachineInstance, Sendable {
             self.nestedVirtualization = false
             self.mounts = []
             self.interfaces = []
-            self.gpu = false
         }
     }
 
@@ -295,16 +292,6 @@ extension VZVirtualMachineInstance.Configuration {
         for mount in self.mounts {
             try mount.configure(config: &config)
         }
-
-        #if !CURRENT_SDK
-        if #available(macOS 16.0, *), self.gpu {
-            let graphicsConfig = VZVirtioGraphicsDeviceConfiguration()
-            let scanOut = VZVirtioGraphicsScanoutConfiguration(widthInPixels: 1024, heightInPixels: 768)
-            graphicsConfig.scanouts = [scanOut]
-            graphicsConfig.isAccelerationEnabled = true
-            config.graphicsDevices = [graphicsConfig]
-        }
-        #endif
 
         #if arch(arm64)
 

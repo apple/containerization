@@ -45,7 +45,6 @@ public final class LinuxContainer: Container, Sendable {
         var memoryInBytes: UInt64 = 1024.mib()
         var interfaces: [any Interface] = []
         var sockets: [UnixSocketConfiguration] = []
-        var gpu: Bool = false
         var rosetta: Bool = false
         var virtualization: Bool = false
         var terminal: Terminal? = nil
@@ -332,16 +331,6 @@ extension LinuxContainer {
         }
         set {
             config.sockets = newValue
-        }
-    }
-
-    /// Enable/disable gpu accelaration in the container.
-    public var gpu: Bool {
-        get {
-            config.gpu
-        }
-        set {
-            config.gpu = newValue
         }
     }
 

@@ -84,21 +84,27 @@ extension ArchiveReader: Sequence {
             if result == ARCHIVE_EOF {
                 return nil
             }
-
-            var data = Data()
-            while true {
-                let capacity = Int(data.isEmpty ? (entry.size ?? 4096) : 4096)
-
-                var part = Data(count: capacity)
-                let c = part.withUnsafeMutableBytes { (buffer: UnsafeMutableRawBufferPointer) in
-                    archive_read_data(reader.underlying, buffer.baseAddress!, buffer.count)
-                }
-                guard c > 0 else { break }
-                part.count = c
-                data.append(part)
-            }
+            let data = reader.readDataForEntry(entry)
             return (entry, data)
         }
+    }
+
+    internal func readDataForEntry(_ entry: WriteEntry) -> Data {
+        let bufferSize = Int(Swift.min(entry.size ?? 4096, 4096))
+        var data = Data()
+        while true {
+            var part = Data(count: bufferSize)
+            let c = part.withUnsafeMutableBytes { buffer in
+                guard let baseAddress = buffer.baseAddress else {
+                    return 0
+                }
+                return archive_read_data(self.underlying, baseAddress, buffer.count)
+            }
+            guard c > 0 else { break }
+            part.count = c
+            data.append(part)
+        }
+        return data
     }
 }
 
@@ -106,9 +112,7 @@ extension ArchiveReader {
     public convenience init(name: String, bundle: Data, tempDirectoryBaseName: String? = nil) throws {
         let baseName = tempDirectoryBaseName ?? "Unarchiver"
         let url = createTemporaryDirectory(baseName: baseName)!.appendingPathComponent(name)
-
         try bundle.write(to: url, options: .atomic)
-
         try self.init(format: .zip, filter: .none, file: url)
     }
 
@@ -127,6 +131,11 @@ extension ArchiveReader {
                 try data.write(to: target, options: .atomic)
             case .directory:
                 try fm.createDirectory(at: target, withIntermediateDirectories: true)
+            case .symbolicLink:
+                guard let symlinkTarget = entry.symlinkTarget, let linkTargetURL = URL(string: symlinkTarget, relativeTo: target) else {
+                    continue
+                }
+                try fm.createSymbolicLink(at: target, withDestinationURL: linkTargetURL)
             default:
                 continue
             }
@@ -138,5 +147,24 @@ extension ArchiveReader {
         guard foundEntry else {
             throw ArchiveError.failedToExtractArchive("No entries found in archive")
         }
+    }
+
+    /// This method extracts a given file from the archive.
+    /// This operation modifies the underlying file descriptor's position within the archive,
+    /// meaning subsequent reads will start from a new location.
+    /// To reset the underlying file descriptor to the beginning of the archive, close and
+    /// reopen the archive.
+    public func extractFile(path: String) throws -> (WriteEntry, Data) {
+        let entry = WriteEntry()
+        while archive_read_next_header2(self.underlying, entry.underlying) != ARCHIVE_EOF {
+            guard let entryPath = entry.path else { continue }
+            let trimCharSet = CharacterSet(charactersIn: "./")
+            let trimmedEntry = entryPath.trimmingCharacters(in: trimCharSet)
+            let trimmedRequired = path.trimmingCharacters(in: trimCharSet)
+            guard trimmedEntry == trimmedRequired else { continue }
+            let data = readDataForEntry(entry)
+            return (entry, data)
+        }
+        throw ArchiveError.failedToExtractArchive(" \(path) not found in archive")
     }
 }
