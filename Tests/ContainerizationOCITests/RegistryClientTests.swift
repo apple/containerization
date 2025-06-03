@@ -106,7 +106,7 @@ struct OCIClientTests: ~Copyable {
     func resolveSha() async throws {
         let client = RegistryClient(host: "ghcr.io", authentication: Self.authentication)
         let descriptor = try await client.resolve(
-            name: "apple/containerization/dockermanifestimage", tag: "sha256:27bc227e516fd01daaf4c0146ea749ef7ecbc6586cbb715deac9a9bfb72b1ce8")
+            name: "apple/containerization/dockermanifestimage", tag: "sha256:c8d344d228b7d9a702a95227438ec0d71f953a9a483e28ffabc5704f70d2b61e")
         let namedDescriptor = try await client.resolve(name: "apple/containerization/dockermanifestimage", tag: "0.0.2")
         #expect(descriptor == namedDescriptor)
         #expect(descriptor.mediaType == MediaTypes.dockerManifest)
