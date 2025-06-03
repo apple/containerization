@@ -36,7 +36,6 @@ extension String {
 #endif
 
 public final class ContainerStore: Sendable {
-    private static let kernelImageReference: String = "ghcr.io/apple-uat/kernel/linux:v6.1.68-1"
     private static let initImage = "vminit:latest"
 
     private let content: ContentStore
@@ -44,9 +43,13 @@ public final class ContainerStore: Sendable {
     private let root: URL
 
     public let kernel: Kernel
+    public let initPath: URL
 
-    public init(root: URL, kernel: Kernel?) async throws {
+    public init(root: URL, kernel: Kernel, initPath: URL) async throws {
         self.root = root
+        self.kernel = kernel
+        self.initPath = initPath
+
         let content = try LocalContentStore(
             path: root.appendingPathComponent("content")
         )
@@ -55,18 +58,6 @@ public final class ContainerStore: Sendable {
             path: root,
             contentStore: content
         )
-        if let kernel {
-            self.kernel = kernel
-        } else {
-            self.kernel = try await Self.loadKernel(store: self.image)
-        }
-    }
-
-    private static func loadKernel(store: ImageStore) async throws -> Kernel {
-        let kernelImage = try await store.getKernel(
-            reference: Self.kernelImageReference
-        )
-        return try await kernelImage.kernel(for: .linuxArm)
     }
 
     public func fetch(reference: String) async throws -> Containerization.Image {
@@ -80,25 +71,18 @@ public final class ContainerStore: Sendable {
         }
     }
 
-    static func binPath(name: String) -> URL {
-        URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent("bin")
-            .appendingPathComponent(name)
-    }
-
     public func create(id: String, reference: String, fsSizeInBytes: UInt64) async throws -> LinuxContainer {
         let initImage = try await image.getInitImage(reference: Self.initImage)
         let initfs = try await {
-            let p = Self.binPath(name: "init.block")
             do {
-                return try await initImage.initBlock(at: p, for: .linuxArm)
+                return try await initImage.initBlock(at: initPath, for: .linuxArm)
             } catch let err as ContainerizationError {
                 guard err.code == .exists else {
                     throw err
                 }
                 return .block(
                     format: "ext4",
-                    source: p.absolutePath(),
+                    source: initPath.absolutePath(),
                     destination: "/",
                     options: ["ro"]
                 )

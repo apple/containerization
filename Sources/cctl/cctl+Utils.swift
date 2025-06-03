@@ -20,13 +20,6 @@ import ContainerizationOCI
 import Foundation
 
 extension Application {
-    static func fetchKernel(reference: String, store: ImageStore) async throws -> Kernel {
-        let image = try await store.getKernel(reference: reference)
-        var kernel = try await image.kernel(for: .linuxArm)
-        kernel.commandLine.addDebug()
-        return kernel
-    }
-
     static func fetchImage(reference: String, store: ImageStore) async throws -> Containerization.Image {
         do {
             return try await store.get(reference: reference)

@@ -215,21 +215,6 @@ extension ImageStore {
 }
 
 extension ImageStore {
-    /// Get the kernel image from the image store.
-    /// If the kernel image does not exist locally, pull the image.
-    public func getKernel(reference: String, auth: Authentication? = nil, progress: ProgressHandler? = nil) async throws -> KernelImage {
-        do {
-            let image = try await self.get(reference: reference)
-            return KernelImage(image: image)
-        } catch let error as ContainerizationError {
-            if error.code == .notFound {
-                let image = try await self.pull(reference: reference, auth: auth, progress: progress)
-                return KernelImage(image: image)
-            }
-            throw error
-        }
-    }
-
     /// Get the image for the init block from the image store.
     /// If the image does not exist locally, pull the image.
     public func getInitImage(reference: String, auth: Authentication? = nil, progress: ProgressHandler? = nil) async throws -> InitImage {

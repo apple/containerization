@@ -21,6 +21,9 @@ test_results/
 *.ext4
 *.pkg
 *.swp
+*.tar.gz
+*.tar.xz
+vmlinux
 
 # API docs for local preview only.
 _site/

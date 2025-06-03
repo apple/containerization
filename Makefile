@@ -26,6 +26,8 @@ LIBARCHIVE_UPSTREAM_REPO := https://github.com/libarchive/libarchive
 LIBARCHIVE_UPSTREAM_VERSION := v3.7.7
 LIBARCHIVE_LOCAL_DIR := workdir/libarchive
 
+KATA_BINARY_PACKAGE := https://github.com/kata-containers/kata-containers/releases/download/3.17.0/kata-static-3.17.0-arm64.tar.xz
+
 include Protobuf.Makefile
 .DEFAULT_GOAL := all
 
@@ -55,7 +57,7 @@ containerization:
 init: vminitd
 	@echo Creating init.ext4...
 	@rm -f bin/init.rootfs.tar.gz bin/init.block
-	@./bin/cctl rootfs create --vminitd vminitd/bin/vminitd --labels org.opencontainers.image.source=https://github.com/apple-uat/containerization --vmexec vminitd/bin/vmexec bin/init.rootfs.tar.gz vminit:latest
+	@./bin/cctl rootfs create --vminitd vminitd/bin/vminitd --labels org.opencontainers.image.source=https://github.com/apple/containerization --vmexec vminitd/bin/vmexec bin/init.rootfs.tar.gz vminit:latest
 
 .PHONY: cross-prep
 cross-prep:
@@ -81,9 +83,23 @@ test:
 	@$(SWIFT) test --enable-code-coverage
 
 .PHONY: integration
-integration:
+integration: kernel-bin
 	@echo Running the integration tests...
 	@./bin/containerization-integration --bootlog ./bin/boot.log
+
+.PHONY: kernel-bin
+kernel-bin:
+	@mkdir -p .local/
+ifeq (,$(wildcard .local/kata.tar.gz))
+	@curl -SsL -o .local/kata.tar.gz ${KATA_BINARY_PACKAGE}
+endif
+ifeq (,$(wildcard .local/vmlinux))
+	@tar -zxf .local/kata.tar.gz -C .local/ --strip-components=1
+	@cp -L .local/opt/kata/share/kata-containers/vmlinux.container .local/vmlinux
+endif
+ifeq (,$(wildcard bin/vmlinux))
+	@cp .local/vmlinux bin/vmlinux
+endif
 
 .PHONY: fmt
 fmt:	swift-fmt update-licenses
@@ -107,7 +123,7 @@ check-licenses:
 	@.local/bin/hawkeye check --fail-if-unknown
 
 .PHONY: serve-docs
-serve-docs: site
+serve-docs:
 	@echo 'to browse: open http://127.0.0.1:8000/documentation/'
 	@python3 -m http.server --bind 127.0.0.1 --directory ./_site
 

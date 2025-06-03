@@ -21,27 +21,32 @@ import ContainerizationOS
 import Foundation
 import GRPC
 import Logging
-import NIOCore
-import NIOPosix
+import Synchronization
 
-class ManagedProcess: @unchecked Sendable {
+final class ManagedProcess: Sendable {
     let id: String
 
     private let log: Logger
-    private let io: IO
     private let process: Command
-
-    private var waiters: [CheckedContinuation<Int32, Never>]
-    private var exitStatus: Int32?
-    private var closed: Bool
-    private let lock = NSLock()
+    private let lock: Mutex<State>
     private let syncfd: Pipe
     private let owningPid: Int32?
-    private var _pid: Int32 = 0
+
+    private struct State {
+        init(io: IO) {
+            self.io = io
+        }
+
+        let io: IO
+        var waiters: [CheckedContinuation<Int32, Never>] = []
+        var exitStatus: Int32? = nil
+        var closed: Bool = false
+        var pid: Int32 = 0
+    }
 
     var pid: Int32 {
-        self.lock.lock {
-            _pid
+        self.lock.withLock {
+            $0.pid
         }
     }
 
@@ -115,19 +120,18 @@ class ManagedProcess: @unchecked Sendable {
         }
 
         log.info("starting io")
+
         // Setup IO early. We expect the host to be listening already.
         try io.start()
 
-        self.io = io
         self.process = process
-        self.waiters = []
-        self.closed = false
+        self.lock = Mutex(State(io: io))
     }
 }
 
 extension ManagedProcess {
     func start() throws -> Int32 {
-        try self.lock.lock {
+        try self.lock.withLock {
             log.debug("starting managed process")
 
             // Start the underlying process.
@@ -135,7 +139,7 @@ extension ManagedProcess {
 
             // Close our side of any pipes.
             try syncfd.fileHandleForWriting.close()
-            try io.closeAfterExec()
+            try $0.io.closeAfterExec()
 
             guard let piddata = try syncfd.fileHandleForReading.readToEnd() else {
                 throw ContainerizationError(.internalError, message: "no pid data from sync pipe")
@@ -146,78 +150,79 @@ extension ManagedProcess {
             }
 
             log.info("got back pid data \(i)")
-            self._pid = i
+            $0.pid = i
 
             log.debug(
                 "started managed process",
                 metadata: [
-                    "pid": "\(_pid)"
+                    "pid": "\(i)"
                 ])
+
             return i
         }
     }
 
     func setExit(_ status: Int32) {
-        self.lock.lock {
+        self.lock.withLock {
             self.log.debug(
                 "managed process exit",
                 metadata: [
                     "status": "\(status)"
                 ])
 
-            self.exitStatus = status
+            $0.exitStatus = status
 
-            for waiter in self.waiters {
+            for waiter in $0.waiters {
                 waiter.resume(returning: status)
             }
 
-            self.log.debug("\(self.waiters.count) managed process waiters signaled")
-            self.waiters.removeAll()
+            self.log.debug("\($0.waiters.count) managed process waiters signaled")
+            $0.waiters.removeAll()
         }
     }
 
     /// Wait on the process to exit
     func wait() async -> Int32 {
         await withCheckedContinuation { cont in
-            self.lock.lock {
-                if let status = exitStatus {
+            self.lock.withLock {
+                if let status = $0.exitStatus {
                     cont.resume(returning: status)
                     return
                 }
-                self.waiters.append(cont)
+                $0.waiters.append(cont)
             }
         }
     }
 
     func kill(_ signal: Int32) throws {
-        try self.lock.lock {
-            guard exitStatus == nil else {
+        try self.lock.withLock {
+            guard $0.exitStatus == nil else {
                 return
             }
 
-            self.log.info("sending signal \(signal) to process \(_pid)")
-            guard Foundation.kill(_pid, signal) == 0 else {
+            self.log.info("sending signal \(signal) to process \($0.pid)")
+            guard Foundation.kill($0.pid, signal) == 0 else {
                 throw POSIXError.fromErrno()
             }
         }
     }
 
     func resize(size: Terminal.Size) throws {
-        try self.lock.lock {
-            if self.closed {
+        try self.lock.withLock {
+            if $0.closed {
                 return
             }
-            try self.io.resize(size: size)
+            try $0.io.resize(size: size)
         }
     }
 
     func close() throws {
-        try self.lock.lock {
-            if self.closed {
+        try self.lock.withLock {
+            if $0.closed {
                 return
             }
-            try self.io.close()
-            self.closed = true
+            try $0.io.close()
+            $0.closed = true
         }
     }
 }

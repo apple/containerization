@@ -1,0 +1,18 @@
+# Containerization Kernel Configuration
+
+This directory includes an optimized kernel configuration to produce a fast and light weight kernel for container use.
+
+
+- `config-arm64` includes the kernel `CONFIG_` options.
+- `Makefile` includes the kernel version and source package url.
+- `build.sh` scripts the kernel build process.
+- `image/` includes the configuration for an image with build tooling.
+
+## Building
+
+1. Build the `Containerization` project by running `make all kernel-bin` in the root of the repository.
+2. Place the kernel you want to use in `bin/vmlinux` directory of this repository.
+    a. This kernel will be used to launch the build container.
+4. Run `make` in the `/kernel` directory. 
+
+A `kernel/vmlinux` will be the result of the build.

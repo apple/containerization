@@ -45,14 +45,14 @@ final class ImageStoreImagePullTests: ContainsAuth {
 
     @Test(.enabled(if: hasRegistryCredentials))
     func testPullImageWithoutIndex() async throws {
-        let img = try await self.store.pull(reference: "ghcr.io/apple-uat/test-images/alpine-arm64:v1", auth: Self.authentication)
+        let img = try await self.store.pull(reference: "ghcr.io/apple/containerization/dockermanifestimage:0.0.2", auth: Self.authentication)
 
         let rootDescriptor = img.descriptor
         let index: ContainerizationOCI.Index = try await contentStore.get(digest: rootDescriptor.digest)!
 
         #expect(index.manifests.count == 1)
         let desc = index.manifests.first!
-        #expect(desc.platform!.architecture == "arm64")
+        #expect(desc.platform!.architecture == "amd64")
 
         await #expect(throws: Never.self) {
             let manifest: ContainerizationOCI.Manifest = try await self.contentStore.get(digest: desc.digest)!
@@ -71,7 +71,7 @@ final class ImageStoreImagePullTests: ContainsAuth {
             (nil, imagePullTestAllLayers),
         ])
     func testPullSinglePlatform(platform: Platform?, expectLayers: [String]) async throws {
-        let img = try await self.store.pull(reference: "ghcr.io/apple-uat/test-images/alpine:3.21", platform: platform, auth: Self.authentication)
+        let img = try await self.store.pull(reference: "ghcr.io/linuxcontainers/alpine:3.20", platform: platform, auth: Self.authentication)
         let rootDescriptor = img.descriptor
         let index: ContainerizationOCI.Index = try await contentStore.get(digest: rootDescriptor.digest)!
         var foundMatch = false
@@ -100,82 +100,78 @@ final class ImageStoreImagePullTests: ContainsAuth {
 
     @Test(.enabled(if: hasRegistryCredentials))
     func testPullWithSha() async throws {
-        let sha = "sha256:a8560b36e8b8210634f77d9f7f9efd7ffa463e380b75e2e74aff4511df3ef88c"
-        let r = "ghcr.io/apple-uat/test-images/alpine:3.21@\(sha)"
+        let sha = "sha256:0a6a86d44d7f93c4f2b8dea7f0eee64e72cb98635398779f3610949632508d57"
+        let r = "ghcr.io/linuxcontainers/alpine:3.20@\(sha)"
         let img = try await self.store.pull(reference: r, platform: .current, auth: Self.authentication)
         #expect(img.descriptor.digest == sha)
     }
 }
 
 let imagePullTestAllLayers = [
-    "09c8ec8bf0d43a250ba7fed2eb6f242935b2987be5ed921ee06c93008558f980",
-    "09de0793c07346ac2912153f6569af631291a9874dc94167d534cefc9c2d9c14",
-    "11c83b29fa7f49deca4c4c597571e882adce0146997c31c99461918816e4c420",
-    "159d7ed29e1fd01cbe33ccbfda619dfa93ff08349d2841e422b7c9e2d522c645",
-    "184b14480d317057da092a0994ad6baf4b2df588108f43969f8fd56f021af2c6",
-    "1960ae9fcc9fba89375bec92e8cbed41d5e4fab7e376ccad186084bbabf9db82",
-    "1bb6442072bc5b25e4cefeaab9aecb82267e5d7dbac412be934c416e68576534",
-    "1c4eef651f65e2f7daee7ee785882ac164b02b78fb74503052a26dc061c90474",
-    "1de5eb4a9a6735adb46b2c9c88674c0cfba3444dd4ac2341b3babf1261700529",
-    "2436f2b3b7d2537f4c5b622d7a820f00aaea1b6bd14c898142472947d5f02abe",
-    "2dbd13a29595c6492a46119969dcda7d2ac35daef926e45ab62c02adb12b5173",
-    "43c891410a7570c3f4ed3c1651b5e1aadd530c2d9bbc9c301ee4cb25c27d8d2f",
-    "45f2dc24282db1bb78967201087c1c0699411c580555a98d20107c26e0d915e5",
-    "491b6373df29cf24cfa36697aa6dd77baf5055cc7de7b7190fb07739836b2bb5",
-    "51dd5201df48b2831f5894c4a9f615aaba37c5dfed453a0335018807d4b390bf",
-    "5d2b0d8b1d1edede60a8e220f7b2f496b3e5341e939cf9f6d097ac1756066327",
-    "64cf7d2b5187c0a2d7cb5c7216edf3e6a691753b99f92f1c0d705799ab7df452",
-    "69aa61ccf55e5bf8e7a069b89e8afb42b4f3443b3785868795af8046d810d608",
-    "6e771e15690e2fabf2332d3a3b744495411d6e0b00b2aea64419b58b0066cf81",
-    "757d680068d77be46fd1ea20fb21db16f150468c5e7079a08a2e4705aec096ac",
-    "76099982f06682e28a60c3b774ef20931d07b0a2f551203484e633d8c0361ee7",
-    "7df33f7ad8beb367ac09bdd1b2f220db3ee2bbdda14a6310d1340e5628b5ba88",
-    "85f3b18f9f5a8655db86c6dfb02bb01011ffef63d10a173843c5c65c3e9137b7",
-    "8aa577c360a5f9b9dc36fddeace36e6c67f778d234b7fb8e8c9054a896d9ed66",
-    "8d591b0b7dea080ea3be9e12ae563eebf9869168ffced1cb25b2470a3d9fe15e",
-    "903bfe2ae9942c3e1520ef3b4085d3ed0ae7aa04d5b084a6b5f20c3a2bf54d37",
-    "92f735dd3e28788117021933ebab6e96ebdcce599d4afa971f178e23d79c2756",
-    "961e545c33866e778e904903540013b883da6d04e64ea40008ec6e0da9744d00",
-    "9c2d245b3c01c4d7da0d3319d278e7aa4dd899076721abd205b595b2d3b2383b",
-    "9ed449c437bfd0ca00973dbbc086fa310e8f7747d5ce78596ceeea177fdd61c8",
-    "9ed53fd3b83120f78b33685d930ce9bf5aa481f6e2d165c42cbbddbeaa196f6f",
-    "9fcbb9b67bffff680327c37206091da5606ca6e275adb6cfb676a3dde51255ef",
-    "a8560b36e8b8210634f77d9f7f9efd7ffa463e380b75e2e74aff4511df3ef88c",
-    "aded1e1a5b3705116fa0a92ba074a5e0b0031647d9c315983ccba2ee5428ec8b",
-    "ae871ff1c416b2496ea95b81b00ae446468c9cca84760a9c3fc29282268cec29",
-    "af368b80f6520eb3f1ea2686e4afd01ee6b827b232120e18c1d37ae13034985d",
-    "b5a8664a8878e813029c3f3601ba22443c4b8b4fdf18b0e7ef427103292a034a",
-    "c1a599607158512214777614f916f8193d29fd34b656d47dfc26314af01e2af4",
-    "c646c0556ac0609f784a201a810cc351dd3fd288e19cdd122f7c0674b207278a",
-    "c6ea79a5a9bfa5cfc32d338e81b456ccf9d96498ce6868fd15818fc8a2406221",
-    "cf2b3ffa5b1c87b26944dfe2005c7b9866ab5f3a91867e741e3a2e9a6f8c4152",
-    "cfc6f569b62a275453b0be6e36b09ffb5cccb3c692a1189ef9d046f9b354f40a",
-    "d0ec9a4a1b9b94293da606179cebe161abdecc29878e1fe9746b57c2a513c1c3",
-    "d16ce3c92d1f6191fe367beac3a22940c5fab48ebb4eed5d17a63db4e9afc3f0",
-    "d206c2e81af4647ceee34c716e73733e7eb60818b3ead7da067bc0825c50378c",
-    "d3219e1bef3a6bdf3fe0ee09abb1402a119b4ae596e287e876fce2efa9e777c7",
-    "d50b00ed88df2fd2cf92e5a9277529612d5b82156786c720efa2b13a638c8da6",
-    "d524c610e0d70e2c437be31245bad77dacc2584f5cdcbdee5e059b6e6a90ad87",
-    "db0ed8d0d16f8c62e6bb16440fb51de09b312c97998090fc5d13319bd7255920",
-    "e219d195bcda8c6cc772c55b0a253356f1474d07b747dfeaf236b720bafcde50",
-    "f18232174bc91741fdf3da96d85011092101a032a93a388b79e99e69c2d5c870",
-    "f2e784527661153e36bcd9ec666145b92690614eb3ec0e78275c463de118aeba",
-    "f5fb419236878e25e11358970412e1aa64413c412398739d747e1333d3e1f6d1",
-    "f9e950c3f91815fdba813dad362a3b4e508b964c9128817737b6bbde89c7ed31",
-    "fe0dcdd1f78341a54b6d08d0f45d91ae93eb212667d970ad15213a3168c410ee",
-    "fea1779822bb485f4f88c7736e39baf15e981e3423e7583af4852db45e3c04bb",
+    "013c522f9494ecda30dc8fbee7805b59c773573fd080c74e6835def22547bd07",
+    "037316e2a3a13e6d7e15057d3ede6ad063f15c92216778576ee88a74e6f7c6fc",
+    "0566dbe8e93e20dbfebc6b023399a6eb337719faf1d11dab57f975286c198a00",
+    "0928a8adc0d420ddda0d25c76e95282534a5b69b13ffcbb6ddbc41c50fc77550",
+    "0a6a86d44d7f93c4f2b8dea7f0eee64e72cb98635398779f3610949632508d57",
+    "0a9a5dfd008f05ebc27e4790db0709a29e527690c21bcbcd01481eaeb6bb49dc",
+    "0c11ea92e0d923e7812d258defbe6788642547fa347969a3dbd7bb7cbc0a9666",
+    "156724324a3250a38177b0328390d7efb4ba85d7e095ad7af9ca19a3cd46f855",
+    "1c2a87b1633d21ffcd8192bc84f9bed0c479bbcfbcd8b76b9ca1b8bf8bc61516",
+    "2803bd9fd5a5e53bc39c576b3e7eaf4839ec77dcc1274c6ad9f7d534ccc566c7",
+    "2d2e65d21b1f1a7cf14b99e54809bb4eee749fa9145d1e263279e18e246e5e1b",
+    "34bac5d0022b2997fdfd5c678521d6afe58a4ea6c65d5d31e3ece0be141158ea",
+    "3e6ec69548a14d7bf37b242f02f26dd41c69e9c510225078ca1f241ef249b3df",
+    "423949aec9a2fe60140a59926634f90979ac19878957becf9902dcc547592a44",
+    "4817c12fc96d333e818e9f56f22a7c8683bd3ca8b0c04ce45e188dc6aaf8e5c3",
+    "4e32c214e82a5d6ccb62b58fb42405fc961c69da5fe02c670f1e4c62c8eb6fbb",
+    "4ea6a163031004a9a61288b7a5ffbf73d84115d398abe5180caeb15442d1a5fe",
+    "4f0bb7ea5efffa5762fc231a403f232ca3ea43ef6db18d4bf52aeca8c15d7dec",
+    "55a8c211d2e969b7b7e9e4825853cf24a75cbbcaf7728db15840c1514838a23d",
+    "5c979effb79226e255a01eaeb2a525bd12019c02eba2b76f6e0726dd2701508e",
+    "63e2abc26a64dea41796995524777edc558e143bea4929f06954c52706363f33",
+    "6d8b5334139bdee0462dd4d6cc85fdec98ad4d97155075973432ec4ff67906c9",
+    "6f3c7dfa949497fb255d0a28c244e7add0d52ae6318b45947a8a2940d846b2e2",
+    "718fbe9a22ec3da853bdbd5d8112f2dc8ba41f30d46899b3792242f16a0f8b41",
+    "744d40c360fd0988b20b15ab845d3db943817b027f38ea6850361bab4ac916be",
+    "76a0ff976fd7cf0f21858535989ef59ac2ee64a3f1bf1b68d98d15138cd46afa",
+    "772078ddbdee5be52d429e08f953aaad6715a90d7e4d6496eb1cd4004efa8a95",
+    "7c6bf3be7c8016421fb3033e19b6a313f264093e1ac9e77c9f931ade0d61b3f7",
+    "7f608f0a59b5b3717cdd3cc61ef59c329d3c2c16c5fc6963b3b13360d43841c0",
+    "81fc5885a3ad37110bf576934de28326e1194bd943e020bc3924502335fdf181",
+    "84df3263e35ed35440625ae0ebb5b1c3d00f57ffcec61188015d5217988a8b35",
+    "85b46e4c8e4841ce7964ce897a07a4d9df7d589322593fb600dd428e47d635ae",
+    "872bd582507dfe35ccd496fcd128f61963620053a722b517353f3d9df46412e9",
+    "8a9fb51ac81600da44afb1c4a5df4745d23eca0cc5d924f989c074f3da7a9440",
+    "90bb43c8fe064682d965fe27b1ca0cf2b42cf0273914cc20a4e636e174ccdaf5",
+    "9368b67dac9dc00ca8dbbd25b6f148fd6229b01dac5ff3d89281bd296cf196c6",
+    "94e9d8af22013aabf0edcaf42950c88b0a1350c3a9ce076d61b98a535a673dd9",
+    "9cbaf16e9229ef1466c71cf97a75ddd7d2041522012dd1bcace0d56a9ad77688",
+    "9cfe406db828239417e29e2c00bdf196c32b39ffcead4c2e28cdf60ff8a8dd58",
+    "adc8e49a814d3e4f73ccdd1d26d4cbd3f1a338b4e136a55c092bdcca57863225",
+    "b1ca1bb0a5f203b48e1ca60861ae852f49b910ce8488c19c392a3bc7ee31b072",
+    "b3d7db73e90671cb6b7925cc878d43a2781451bed256cf0626110f5386cdd4dc",
+    "bfc9829f240e42bab6b756c64179b8e73317baf0e9a8940ea1571cb2f29efcc3",
+    "c70d93f05189a8a6a10ba5657b8e89e849f2c7491d76587178f75d9fca228bf1",
+    "c9813c0f5a2f289ea6175876fd973d6d8adcd495da4a23e9273600c8f0a761c5",
+    "c9aedc9d4e47fa9429e5c329420d8a93e16c433e361d0f9281565ed4da3c057e",
+    "d27e7628ef6e28a3e91cdc1ef1f998a703d356067ecedddfe9e9281e36d8c9f9",
+    "ef99f4640fe11015a03439935b827bff242d0db64db27db005a31ab4497db4a2",
+    "f2c7f3c3fecbf01204eccd798e2f77b0003a8567927a5d6242fd3ed81727fee9",
+    "f882dda529d0cd4b586a10a7f60048c7f8faaff26d6672008d0478b8b004bc63",
 ]
 
 let imagePullArm64Layers = [
-    "6e771e15690e2fabf2332d3a3b744495411d6e0b00b2aea64419b58b0066cf81",
-    "757d680068d77be46fd1ea20fb21db16f150468c5e7079a08a2e4705aec096ac",
-    "8d591b0b7dea080ea3be9e12ae563eebf9869168ffced1cb25b2470a3d9fe15e",
-    "a8560b36e8b8210634f77d9f7f9efd7ffa463e380b75e2e74aff4511df3ef88c",
+    "0a6a86d44d7f93c4f2b8dea7f0eee64e72cb98635398779f3610949632508d57",
+    "3e6ec69548a14d7bf37b242f02f26dd41c69e9c510225078ca1f241ef249b3df",
+    "423949aec9a2fe60140a59926634f90979ac19878957becf9902dcc547592a44",
+    "76a0ff976fd7cf0f21858535989ef59ac2ee64a3f1bf1b68d98d15138cd46afa",
+    "94e9d8af22013aabf0edcaf42950c88b0a1350c3a9ce076d61b98a535a673dd9",
 ]
 
 let imagePullAmd64Layers = [
-    "1c4eef651f65e2f7daee7ee785882ac164b02b78fb74503052a26dc061c90474",
-    "a8560b36e8b8210634f77d9f7f9efd7ffa463e380b75e2e74aff4511df3ef88c",
-    "aded1e1a5b3705116fa0a92ba074a5e0b0031647d9c315983ccba2ee5428ec8b",
-    "f18232174bc91741fdf3da96d85011092101a032a93a388b79e99e69c2d5c870",
+    "0a6a86d44d7f93c4f2b8dea7f0eee64e72cb98635398779f3610949632508d57",
+    "0a9a5dfd008f05ebc27e4790db0709a29e527690c21bcbcd01481eaeb6bb49dc",
+    "156724324a3250a38177b0328390d7efb4ba85d7e095ad7af9ca19a3cd46f855",
+    "1c2a87b1633d21ffcd8192bc84f9bed0c479bbcfbcd8b76b9ca1b8bf8bc61516",
+    "4ea6a163031004a9a61288b7a5ffbf73d84115d398abe5180caeb15442d1a5fe",
 ]

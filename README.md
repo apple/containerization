@@ -30,7 +30,7 @@ The API allows the runtime environment to be configured and containerized proces
 
 ## Requirements
 
-You need an Apple silicon Mac to build and run Containerization.
+You need an Apple Silicon Mac to build and run Containerization.
 
 To build the Containerization package, your system needs either:
 
@@ -40,7 +40,29 @@ To build the Containerization package, your system needs either:
 Applications built using the package will run on macOS Sequoia or later, but the following features are not available on macOS Sequoia:
 
 - Non-isolated container networking - with macOS Sequoia, containers on the same vmnet network cannot communicate with each other
-- Paravirtualized GPU support
+
+## Linux kernel
+
+A Linux kernel is required for spawning light weight virtual machines on macOS.
+Containerization provides an optimized kernel configuration located in the [kernel](./kernel) directory.
+
+This directory includes a containerized build environment to easily compile a kernel for use with Containerization.
+
+The kernel configuration is a minimal set of features to support fast start times and a light weight environment.
+
+While this configuration will work for the majority of workloads we understand that some will need extra features.
+To solve this Containerization provides first class APIs to use different kernel configurations and versions on a per container basis.
+This enables containers to be developed and validated across different kernel versions.
+
+See the [README](/kernel/README.md) in the kernel directory for instruction on how to compile the optimized kernel.
+
+### Pre-build Kernel
+
+If you wish to consume a pre-built kernel it must have `VIRTIO` drivers compiled into the kernel, not as modules.
+
+The [Kata Containers](https://github.com/kata-containers/kata-containers) project provides an optimized kernel for containers with all the required configuration options enabled provided on the [releases](https://github.com/kata-containers/kata-containers/releases/) page.
+
+A kernel image named `vmlinux.container` can be found in the `/opt/kata/share/kata-containers/` directory of the release artifacts.
 
 ## Build the package
 
@@ -72,14 +94,6 @@ Build Containerization from sources and run basic and integration tests:
 ```bash
 make all test integration
 ```
-
-## Visual Studio Code
-
-To make changes to [vminitd](/vminitd), we recommend installing the [Swift](https://marketplace.visualstudio.com/items?itemName=swiftlang.swift-vscode) extension for Visual Studio Code.
-
-Set "Swift: Path" in the Settings to `/Users/<USERNAME>/.swiftly/bin` (replace `<USERNAME>`) and "Swift: Swift SDK" to `x86_64-swift-linux-musl`. Restart Visual Studio Code to apply the settings.
-
-Open the folder [vminitd](/vminitd). Use "Run Task" - "Show All Tasks..." - "Build All" to build the package.
 
 ## Protobufs
 

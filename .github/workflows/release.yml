@@ -5,13 +5,53 @@ on:
     tags:
       - "[0-9]+.[0-9]+.[0-9]+"
 
+permissions:
+  contents: read
+  packages: write
+  pages: write
+
 jobs: 
   containerization:
-    permissions:
-      contents: read
-      packages: write
     uses: ./.github/workflows/containerization-build-template.yml
     with: 
       release: true
-      version: ${{  github.ref_name }}
+      version: ${{ github.ref_name }}
     secrets: inherit
+  deployDocs:
+    runs-on: ubuntu-latest
+    needs: containerization
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+  release: 
+    name: Publish release
+    timeout-minutes: 30
+    needs: containerization
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4 
+        with:
+          fetch-depth: 0
+      - name: Package sources
+        run: |
+          mkdir -p outputs
+          tar --exclude="./outputs" -czf outputs/sources.tar.gz .
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          name: ${{ github.ref_name }}-prerelease
+          draft: true
+          make_latest: false
+          prerelease: true
+          fail_on_unmatched_files: true
+          files: |
+            outputs/sources.tar.gz
