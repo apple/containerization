@@ -30,6 +30,20 @@ To make a pull request, use [GitHub](https://github.com/apple/containerization/c
 > You can do this by filing a [GitHub issue](https://github.com/apple/containerization/issues/new)
 > This will save time and increases the chance of your pull request being accepted.
 
+We use a "squash and merge" strategy to keep our `main` branch history clean and easy to follow. When your pull request
+is merged, all of your commits will be combined into a single commit.
+
+With the "squash and merge" strategy, the *title* and *body* of your pull request is extremely important. It will become the commit message
+for the squashed commit. Think of it as the single, definitive description of your contribution.
+
+Before merging, we'll review the pull request title and body to ensure it:
+
+*   Clearly and concisely describes the changes.
+*   Uses the imperative mood (e.g., "Add feature," "Fix bug").
+*   Provides enough context for future developers to understand the purpose of the change.
+
+The pull request description should be concise and accurately describe the *what* and *why* of your changes.
+
 #### Fomatting Contributions
 
 Make sure your contributions are consistent with the rest of the project's formatting. You can do this using our Makefile:
