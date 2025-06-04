@@ -36,14 +36,6 @@ jobs:
       contents: write
       packages: read
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4 
-        with:
-          fetch-depth: 0
-      - name: Package sources
-        run: |
-          mkdir -p outputs
-          tar --exclude="./outputs" -czf outputs/sources.tar.gz .
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
@@ -53,5 +45,3 @@ jobs:
           make_latest: false
           prerelease: true
           fail_on_unmatched_files: true
-          files: |
-            outputs/sources.tar.gz
