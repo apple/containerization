@@ -27,8 +27,8 @@ jobs:
     needs: [checkBranch, buildSite]
     permissions:
       contents: read
-      packages: write
       pages: write
+      id-token: write
 
     environment:
       name: github-pages
