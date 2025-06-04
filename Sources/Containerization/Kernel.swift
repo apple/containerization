@@ -16,7 +16,9 @@
 
 import Foundation
 
-/// A kernel used to boot a sandbox.
+/// An object representing a Linux kernel used to boot a virtual machine.
+/// In addition to a path to the kernel itself, this type stores relevant
+/// data such as the commandline to pass to the kernel, and init arguments.
 public struct Kernel: Sendable, Codable {
     /// The command line arguments passed to the kernel on boot.
     public struct CommandLine: Sendable, Codable {

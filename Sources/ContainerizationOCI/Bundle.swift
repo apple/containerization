@@ -27,6 +27,8 @@ private let _mount = Glibc.mount
 private let _umount = Glibc.umount2
 #endif
 
+/// `Bundle` represents an OCI runtime spec bundle for running
+/// a container.
 public struct Bundle: Sendable {
     public let path: URL
 

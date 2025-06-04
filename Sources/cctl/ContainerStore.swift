@@ -35,7 +35,7 @@ extension String {
 
 #endif
 
-public final class ContainerStore: Sendable {
+struct ContainerStore: Sendable {
     private static let initImage = "vminit:latest"
 
     private let content: ContentStore

@@ -17,6 +17,8 @@
 import ContainerizationError
 import Foundation
 
+/// `User` provides utilities to ensure that a given username exists in
+/// /etc/passwd (and /etc/group).
 public enum User {
     private static let passwdFile = "/etc/passwd"
     private static let groupFile = "/etc/group"

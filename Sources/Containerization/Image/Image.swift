@@ -26,6 +26,7 @@ import SystemPackage
 import ContainerizationExtras
 #endif
 
+/// Type representing an OCI container image.
 public struct Image: Sendable {
 
     private let contentStore: ContentStore

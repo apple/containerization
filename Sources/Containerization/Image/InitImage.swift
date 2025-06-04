@@ -18,6 +18,9 @@ import ContainerizationError
 import ContainerizationOCI
 import Foundation
 
+/// Data representing the image to use as the root filesystem for a virtual machine.
+/// Typically this image would contain the guest agent used to facilitate container
+/// workloads, as well as any extras that may be useful to have in the guest.
 public struct InitImage: Sendable {
     public var name: String { image.reference }
 

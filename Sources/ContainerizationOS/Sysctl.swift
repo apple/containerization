@@ -16,6 +16,7 @@
 
 import Foundation
 
+/// Helper type to deal with system control functionalities.
 public struct Sysctl {
     #if os(macOS)
     /// Simple `sysctlbyname` wrapper.

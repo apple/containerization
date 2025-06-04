@@ -18,6 +18,9 @@ import ContainerizationExtras
 import ContainerizationOS
 import Logging
 
+/// `NetlinkSession` facilitates interacting with netlink via a provided
+/// `NetlinkSocket`. This is the core high level type offered to perform
+/// actions to the netlink surface in the kernel.
 public struct NetlinkSession {
     private static let receiveDataLength = 65536
 

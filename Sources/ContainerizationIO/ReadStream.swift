@@ -18,6 +18,8 @@ import ContainerizationOS
 import Foundation
 import NIO
 
+/// `ReadStream` is a utility type for streaming data from a `URL`
+/// or `Data` blob.
 public class ReadStream {
     public static let bufferSize = Int(1.mib())
 

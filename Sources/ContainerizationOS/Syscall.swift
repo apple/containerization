@@ -24,6 +24,7 @@ import Darwin
 #error("retryingSyscall not supported on this platform.")
 #endif
 
+/// Helper type to deal with running system calls.
 public struct Syscall {
     /// Retry a syscall on EINTR.
     public static func retrying<T: FixedWidthInteger>(_ closure: () -> T) -> T {

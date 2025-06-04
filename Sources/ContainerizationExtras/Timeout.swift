@@ -16,7 +16,11 @@
 
 import Foundation
 
+/// `Timeout` contains helpers to run an operation and error out if
+/// the operation does not finish within a provided time.
 public struct Timeout {
+    /// Performs the passed in `operation` and throws a `CancellationError` if the operation
+    /// doesn't finish in the provided `seconds` amount.
     public static func run<T: Sendable>(
         seconds: UInt32,
         operation: @escaping @Sendable () async -> T

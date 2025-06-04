@@ -16,6 +16,7 @@
 
 import Foundation
 
+/// Abstraction for returning a token needed for logging into an OCI compliant registry.
 public protocol Authentication: Sendable {
     func token() async throws -> String
 }

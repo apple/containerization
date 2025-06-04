@@ -18,12 +18,14 @@
 import Foundation
 import ContainerizationOS
 
+/// Helper type to lookup registry related values in the macOS keychain.
 public struct KeychainHelper: Sendable {
     private let id: String
     public init(id: String) {
         self.id = id
     }
 
+    /// Lookup authorization data for a given registry domain.
     public func lookup(domain: String) throws -> Authentication {
         let kq = KeychainQuery()
 
@@ -40,22 +42,28 @@ public struct KeychainHelper: Sendable {
         )
     }
 
+    /// Delete authorization data for a given domain from the keychain.
     public func delete(domain: String) throws {
         let kq = KeychainQuery()
         try kq.delete(id: self.id, host: domain)
     }
 
+    /// Save authorization data for a given domain to the keychain.
     public func save(domain: String, username: String, password: String) throws {
         let kq = KeychainQuery()
         try kq.save(id: self.id, host: domain, user: username, token: password)
     }
 
+    /// Prompt for authorization data for a given domain to be saved to the keychain.
+    /// This will cause the current terminal to enter a password prompt state where
+    /// key strokes are hidden.
     public func credentialPrompt(domain: String) throws -> Authentication {
         let username = try userPrompt(domain: domain)
         let password = try passwordPrompt()
         return BasicAuthentication(username: username, password: password)
     }
 
+    /// Prompts the current stdin for a username entry and then returns the value.
     public func userPrompt(domain: String) throws -> String {
         print("Provide registry username \(domain): ", terminator: "")
         guard let username = readLine() else {
@@ -64,6 +72,9 @@ public struct KeychainHelper: Sendable {
         return username
     }
 
+    /// Prompts the current stdin for a password entry and then returns the value.
+    /// This will cause the current stdin (if it is a terminal) to hide keystrokes
+    /// by disabling echo.
     public func passwordPrompt() throws -> String {
         print("Provide registry password: ", terminator: "")
         let console = try Terminal.current

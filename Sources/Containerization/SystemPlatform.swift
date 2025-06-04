@@ -16,6 +16,9 @@
 
 import ContainerizationOCI
 
+/// `SystemPlatform` describes an operating system and architecture pair.
+/// This is primarily used to choose what kind of OCI image to pull from a
+/// registry.
 public struct SystemPlatform: Sendable, Codable {
     public enum OS: String, CaseIterable, Sendable, Codable {
         case linux

@@ -16,6 +16,7 @@
 
 import Foundation
 
+/// Trivial type to discover information about a given file (uid, gid, mode...).
 public struct File: Sendable {
     public enum Error: Swift.Error, CustomStringConvertible {
         case errno(_ e: Int32)

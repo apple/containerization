@@ -27,7 +27,8 @@ import Glibc
 import Foundation
 import Synchronization
 
-/// Register file descriptors to receive events.
+/// Register file descriptors to receive events via Linux's
+/// epoll syscall surface.
 public final class Epoll: Sendable {
     public typealias Mask = Int32
     public typealias Handler = (@Sendable (Mask) -> Void)

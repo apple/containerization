@@ -22,6 +22,8 @@ import ContainerizationError
 import Foundation
 import Synchronization
 
+/// An interface that uses NAT to provide an IP address for a given
+/// container/virtual machine.
 @available(macOS 16, *)
 public final class NATNetworkInterface: Interface, Sendable {
     public var address: String {

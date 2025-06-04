@@ -26,10 +26,10 @@ private let _mount = Glibc.mount
 private let _umount = Glibc.umount2
 #endif
 
-/// Mount package modeled closely from containerd's: https://github.com/containerd/containerd/tree/main/core/mount
-/// Technically, this would be fine in the Linux subdirectory as it's Linux specific for now, but that
-/// might not always be the case.
+// Mount package modeled closely from containerd's: https://github.com/containerd/containerd/tree/main/core/mount
 
+/// `Mount` models a Linux mount (although potentially could be used on other unix platforms), and
+/// provides a simple interface to mount what the type describes.
 public struct Mount: Sendable {
     // Type specifies the host-specific of the mount.
     public var type: String
@@ -99,6 +99,7 @@ extension Mount {
         }
     }
 
+    /// Whether the mount is read only.
     public var readOnly: Bool {
         for option in self.options {
             if option == "ro" {
@@ -106,6 +107,23 @@ extension Mount {
             }
         }
         return false
+    }
+
+    /// Mount the mount relative to `root` with the current set of data in the object.
+    /// Optionally provide `createWithPerms` to set the permissions for the directory that
+    /// it will be mounted at.
+    public func mount(root: String, createWithPerms: Int16? = nil) throws {
+        var rootURL = URL(fileURLWithPath: root)
+        rootURL = rootURL.resolvingSymlinksInPath()
+        rootURL = rootURL.appendingPathComponent(self.target)
+        try self.mountToTarget(target: rootURL.path, createWithPerms: createWithPerms)
+    }
+
+    /// Mount the mount with the current set of data in the object. Optionally
+    /// provide `createWithPerms` to set the permissions for the directory that
+    /// it will be mounted at.
+    public func mount(createWithPerms: Int16? = nil) throws {
+        try self.mountToTarget(target: self.target, createWithPerms: createWithPerms)
     }
 
     private func mountToTarget(target: String, createWithPerms: Int16?) throws {
@@ -152,17 +170,6 @@ extension Mount {
                 throw Error.errno(errno, "failed bind mount")
             }
         }
-    }
-
-    public func mount(root: String, createWithPerms: Int16? = nil) throws {
-        var rootURL = URL(fileURLWithPath: root)
-        rootURL = rootURL.resolvingSymlinksInPath()
-        rootURL = rootURL.appendingPathComponent(self.target)
-        try self.mountToTarget(target: rootURL.path, createWithPerms: createWithPerms)
-    }
-
-    public func mount(createWithPerms: Int16? = nil) throws {
-        try self.mountToTarget(target: self.target, createWithPerms: createWithPerms)
     }
 
     private func mkdirAll(_ name: String, _ perm: Int16) throws {

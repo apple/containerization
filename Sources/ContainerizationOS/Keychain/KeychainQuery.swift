@@ -17,6 +17,7 @@
 #if os(macOS)
 import Foundation
 
+/// Holds the result of a query to the keychain.
 public struct KeychainQueryResult {
     public var account: String
     public var data: String
@@ -24,9 +25,11 @@ public struct KeychainQueryResult {
     public var createdDate: Date
 }
 
+/// Type that facilitates interacting with the macOS keychain.
 public struct KeychainQuery {
     public init() {}
 
+    /// Save a value to the keychain.
     public func save(id: String, host: String, user: String, token: String) throws {
         if try exists(id: id, host: host) {
             try delete(id: id, host: host)
@@ -48,6 +51,7 @@ public struct KeychainQuery {
         guard status == errSecSuccess else { throw Self.Error.unhandledError(status: status) }
     }
 
+    /// Delete a value from the keychain.
     public func delete(id: String, host: String) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassInternetPassword,
@@ -61,6 +65,7 @@ public struct KeychainQuery {
         }
     }
 
+    /// Retrieve a value from the keychain.
     public func get(id: String, host: String) throws -> KeychainQueryResult? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassInternetPassword,
@@ -113,6 +118,7 @@ public struct KeychainQuery {
         return true
     }
 
+    /// Check if a value exists in the keychain.
     public func exists(id: String, host: String) throws -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassInternetPassword,
