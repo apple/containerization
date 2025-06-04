@@ -32,31 +32,37 @@ jobs:
       contents: read
       packages: write 
     steps:
-    - name: Check inputs
-      run: |
-        if [ ${{ inputs.image }} == 'dockermanifestimage' ] && [ ${{ inputs.useBuildx }} == true ]; then
-          echo "dockermanifestimage cannot be built with buildx"
-          exit 1
-        fi 
+      - name: Check branch 
+        run: |
+          if [ '${{ github.ref }}' != 'refs/heads/main' ] && [[ '${{ github.ref }}' != 'refs/heads/release*' ]] && [ ${{ inputs.publish }} == true ]; then
+            echo "Cannot publish an image if we are not on main or a release branch."
+            exit 1
+          fi
+      - name: Check inputs
+        run: |
+          if [ ${{ inputs.image }} == 'dockermanifestimage' ] && [ ${{ inputs.useBuildx }} == true ]; then
+            echo "dockermanifestimage cannot be built with buildx"
+            exit 1
+          fi 
 
-        if [ ${{ inputs.image }} == 'emptyimage' ] && [ ${{ inputs.useBuildx}} != true ]; then
-          echo "emptyimage should be built with buildx"
-          exit 1
-        fi 
-    - name: Checkout repository
-      uses: actions/checkout@v4 
-    - name: Login to GitHub Container Registry
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-    - name: Set up Docker Buildx
-      if: ${{ inputs.useBuildx }} 
-      uses: docker/setup-buildx-action@v3
-    - name: Build dockerfile and push image
-      uses: docker/build-push-action@v6
-      with:
-        push: ${{ inputs.publish }}
-        context: Tests/TestImages/${{ inputs.image }}
-        tags: ghcr.io/apple/containerization/${{ inputs.image }}:${{ inputs.version }}
+          if [ ${{ inputs.image }} == 'emptyimage' ] && [ ${{ inputs.useBuildx}} != true ]; then
+            echo "emptyimage should be built with buildx"
+            exit 1
+          fi 
+      - name: Checkout repository
+        uses: actions/checkout@v4 
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        if: ${{ inputs.useBuildx }} 
+        uses: docker/setup-buildx-action@v3
+      - name: Build dockerfile and push image
+        uses: docker/build-push-action@v6
+        with:
+          push: ${{ inputs.publish }}
+          context: Tests/TestImages/${{ inputs.image }}
+          tags: ghcr.io/apple/containerization/${{ inputs.image }}:${{ inputs.version }}

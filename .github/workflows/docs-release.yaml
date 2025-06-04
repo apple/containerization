@@ -4,15 +4,10 @@ name: Deploy application website
 on: 
   workflow_dispatch:
 
-permissions:
-  contents: read
-  packages: write
-  pages: write
-
 jobs: 
   checkBranch:
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'ref/heads/release')
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release')
     steps:
       - name: Branch validation 
         run: echo "Branch ${{ github.ref_name }} is allowed"
@@ -22,10 +17,18 @@ jobs:
     needs: checkBranch
     uses: ./.github/workflows/containerization-build-template.yml
     secrets: inherit
+    permissions:
+      contents: read
+      packages: write
+      pages: write
 
   deployDocs:
     runs-on: ubuntu-latest
     needs: [checkBranch, buildSite]
+    permissions:
+      contents: read
+      packages: write
+      pages: write
 
     environment:
       name: github-pages
