@@ -133,7 +133,7 @@ extension VZVirtualMachineInstance {
 
             try await self.vm.start(queue: self.queue)
 
-            let agent = Vminitd(
+            let agent = try Vminitd(
                 connection: try await self.vm.waitForAgent(queue: self.queue),
                 group: self.group
             )
@@ -143,7 +143,7 @@ extension VZVirtualMachineInstance {
                     try await agent.enableRosetta()
                 }
             } catch {
-                try await agent.close()
+                await agent.close()
                 throw error
             }
 
@@ -172,7 +172,7 @@ extension VZVirtualMachineInstance {
 
     public func dialAgent() async throws -> Vminitd {
         let conn = try await dial(Vminitd.port)
-        return Vminitd(connection: conn, group: self.group)
+        return try Vminitd(connection: conn, group: self.group)
     }
 }
 

@@ -505,6 +505,7 @@ extension LinuxContainer {
                 try await agent.configureDNS(config: dns, location: rootfs.destination)
             }
 
+            try await agent.close()
             try state.setCreated(vm: vm, relayManager: relayManager)
         } catch {
             try? await agent.close()
@@ -714,11 +715,17 @@ extension LinuxContainer {
         let state = try self.state.startedState("relayUnixSocket")
 
         let agent = try await state.vm.dialAgent()
-        try await self.relayUnixSocket(
-            socket: socket,
-            relayManager: state.relayManager,
-            agent: agent
-        )
+        do {
+            try await self.relayUnixSocket(
+                socket: socket,
+                relayManager: state.relayManager,
+                agent: agent
+            )
+            try await agent.close()
+        } catch {
+            try? await agent.close()
+            throw error
+        }
     }
 
     private func relayUnixSocket(
@@ -755,7 +762,7 @@ extension VirtualMachineInstance {
             try await fn(agent)
             try await agent.close()
         } catch {
-            try await agent.close()
+            try? await agent.close()
             throw error
         }
     }

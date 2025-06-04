@@ -20,7 +20,8 @@ import ContainerizationNetlink
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
-import GRPC
+import GRPCCore
+import GRPCProtobuf
 import Logging
 import NIOCore
 import NIOPosix
@@ -42,10 +43,10 @@ private let _kill = Glibc.kill
 private let _sync = Glibc.sync
 #endif
 
-extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvider {
+extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServiceProtocol {
     func setTime(
         request: Com_Apple_Containerization_Sandbox_V3_SetTimeRequest,
-        context: GRPC.GRPCAsyncServerCallContext
+        context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_SetTimeResponse {
         log.debug(
             "setTime",
@@ -62,7 +63,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 metadata: [
                     "error": "\(error)"
                 ])
-            throw GRPCStatus(code: .internalError, message: "failed to settimeofday: \(error)")
+            throw RPCError(code: .internalError, message: "settimeofday", cause: error)
         }
 
         return .init()
@@ -70,7 +71,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
 
     func setupEmulator(
         request: Com_Apple_Containerization_Sandbox_V3_SetupEmulatorRequest,
-        context: GRPC.GRPCAsyncServerCallContext
+        context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_SetupEmulatorResponse {
         log.debug(
             "setupEmulator",
@@ -79,7 +80,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             ])
 
         if !Binfmt.mounted() {
-            throw GRPCStatus(
+            throw RPCError(
                 code: .internalError,
                 message: "\(Binfmt.path) is not mounted"
             )
@@ -101,9 +102,10 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 metadata: [
                     "error": "\(error)"
                 ])
-            throw GRPCStatus(
+            throw RPCError(
                 code: .internalError,
-                message: "setupEmulator: failed to register binfmt_misc entry: \(error)"
+                message: "setupEmulator: failed to register binfmt_misc entry",
+                cause: error
             )
         }
 
@@ -112,7 +114,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
 
     func sysctl(
         request: Com_Apple_Containerization_Sandbox_V3_SysctlRequest,
-        context: GRPC.GRPCAsyncServerCallContext
+        context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_SysctlResponse {
         log.debug(
             "sysctl",
@@ -124,7 +126,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             let sysctlPath = URL(fileURLWithPath: "/proc/sys/")
             for (k, v) in request.settings {
                 guard let data = v.data(using: .ascii) else {
-                    throw GRPCStatus(code: .internalError, message: "failed to convert \(v) to data buffer for sysctl write")
+                    throw RPCError(code: .internalError, message: "failed to convert \(v) to data buffer for sysctl write")
                 }
 
                 let setting =
@@ -141,9 +143,10 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 metadata: [
                     "error": "\(error)"
                 ])
-            throw GRPCStatus(
+            throw RPCError(
                 code: .internalError,
-                message: "sysctl: failed to set sysctl: \(error)"
+                message: "sysctl",
+                cause: error
             )
         }
 
@@ -152,7 +155,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
 
     func proxyVsock(
         request: Com_Apple_Containerization_Sandbox_V3_ProxyVsockRequest,
-        context: GRPC.GRPCAsyncServerCallContext
+        context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_ProxyVsockResponse {
         log.debug(
             "proxy vsock",
@@ -181,9 +184,10 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 metadata: [
                     "error": "\(error)"
                 ])
-            throw GRPCStatus(
+            throw RPCError(
                 code: .internalError,
-                message: "proxyVsock: failed to setup vsock proxy: \(error)"
+                message: "proxyVsock",
+                cause: error
             )
         }
 
@@ -192,7 +196,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
 
     func stopVsockProxy(
         request: Com_Apple_Containerization_Sandbox_V3_StopVsockProxyRequest,
-        context: GRPC.GRPCAsyncServerCallContext
+        context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_StopVsockProxyResponse {
         log.debug(
             "stop vsock proxy",
@@ -209,16 +213,17 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 metadata: [
                     "error": "\(error)"
                 ])
-            throw GRPCStatus(
+            throw RPCError(
                 code: .internalError,
-                message: "stopVsockProxy: failed to stop vsock proxy: \(error)"
+                message: "stopVsockProxy",
+                cause: error
             )
         }
 
         return .init()
     }
 
-    func mkdir(request: Com_Apple_Containerization_Sandbox_V3_MkdirRequest, context: GRPC.GRPCAsyncServerCallContext)
+    func mkdir(request: Com_Apple_Containerization_Sandbox_V3_MkdirRequest, context: GRPCCore.ServerContext)
         async throws -> Com_Apple_Containerization_Sandbox_V3_MkdirResponse
     {
         log.debug(
@@ -239,13 +244,13 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 metadata: [
                     "error": "\(error)"
                 ])
-            throw GRPCStatus(code: .internalError, message: "mkdir: \(error)")
+            throw RPCError(code: .internalError, message: "mkdir", cause: error)
         }
 
         return .init()
     }
 
-    func mount(request: Com_Apple_Containerization_Sandbox_V3_MountRequest, context: GRPC.GRPCAsyncServerCallContext)
+    func mount(request: Com_Apple_Containerization_Sandbox_V3_MountRequest, context: GRPCCore.ServerContext)
         async throws -> Com_Apple_Containerization_Sandbox_V3_MountResponse
     {
         log.debug(
@@ -277,11 +282,11 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 metadata: [
                     "error": "\(error)"
                 ])
-            throw GRPCStatus(code: .internalError, message: "mount: \(error)")
+            throw RPCError(code: .internalError, message: "mount", cause: error)
         }
     }
 
-    func umount(request: Com_Apple_Containerization_Sandbox_V3_UmountRequest, context: GRPC.GRPCAsyncServerCallContext)
+    func umount(request: Com_Apple_Containerization_Sandbox_V3_UmountRequest, context: GRPCCore.ServerContext)
         async throws -> Com_Apple_Containerization_Sandbox_V3_UmountResponse
     {
         log.debug(
@@ -307,7 +312,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                     metadata: [
                         "error": "\(error)"
                     ])
-                throw GRPCStatus(code: .invalidArgument, message: "umount: \(error)")
+                throw RPCError(code: .invalidArgument, message: "umount", cause: error)
             }
             break
         }
@@ -317,7 +322,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         #endif
     }
 
-    func setenv(request: Com_Apple_Containerization_Sandbox_V3_SetenvRequest, context: GRPC.GRPCAsyncServerCallContext)
+    func setenv(request: Com_Apple_Containerization_Sandbox_V3_SetenvRequest, context: GRPCCore.ServerContext)
         async throws -> Com_Apple_Containerization_Sandbox_V3_SetenvResponse
     {
         log.debug(
@@ -336,12 +341,12 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                     "error": "\(error)"
                 ])
 
-            throw GRPCStatus(code: .invalidArgument, message: "setenv: \(error)")
+            throw RPCError(code: .invalidArgument, message: "setenv", cause: error)
         }
         return .init()
     }
 
-    func getenv(request: Com_Apple_Containerization_Sandbox_V3_GetenvRequest, context: GRPC.GRPCAsyncServerCallContext)
+    func getenv(request: Com_Apple_Containerization_Sandbox_V3_GetenvRequest, context: GRPCCore.ServerContext)
         async throws -> Com_Apple_Containerization_Sandbox_V3_GetenvResponse
     {
         log.debug(
@@ -359,7 +364,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
     }
 
     func createProcess(
-        request: Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest, context: GRPC.GRPCAsyncServerCallContext
+        request: Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest, context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_CreateProcessResponse {
         log.debug(
             "create process",
@@ -440,16 +445,16 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 metadata: [
                     "error": "\(error)"
                 ])
-            if error is GRPCStatus {
+            if error is RPCError {
                 throw error
             }
-            throw GRPCStatus(code: .internalError, message: "create managed process: \(error)")
+            throw RPCError(code: .internalError, message: "createProcess", cause: error)
         }
     }
 
     func killProcess(
         request: Com_Apple_Containerization_Sandbox_V3_KillProcessRequest,
-        context: GRPC.GRPCAsyncServerCallContext
+        context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_KillProcessResponse {
         log.debug(
             "kill process",
@@ -482,7 +487,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
     }
 
     func deleteProcess(
-        request: Com_Apple_Containerization_Sandbox_V3_DeleteProcessRequest, context: GRPC.GRPCAsyncServerCallContext
+        request: Com_Apple_Containerization_Sandbox_V3_DeleteProcessRequest, context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_DeleteProcessResponse {
         log.debug("delete process on port \(request.id)")
 
@@ -505,7 +510,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
     }
 
     func startProcess(
-        request: Com_Apple_Containerization_Sandbox_V3_StartProcessRequest, context: GRPCAsyncServerCallContext
+        request: Com_Apple_Containerization_Sandbox_V3_StartProcessRequest, context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_StartProcessResponse {
         log.debug("starting process \(request.id)")
 
@@ -535,15 +540,16 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 metadata: [
                     "error": "\(error)"
                 ])
-            throw GRPCStatus(
+            throw RPCError(
                 code: .internalError,
-                message: "startProcess: failed to start process: \(error)"
+                message: "startProcess",
+                cause: error
             )
         }
     }
 
     func resizeProcess(
-        request: Com_Apple_Containerization_Sandbox_V3_ResizeProcessRequest, context: GRPCAsyncServerCallContext
+        request: Com_Apple_Containerization_Sandbox_V3_ResizeProcessRequest, context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_ResizeProcessResponse {
         log.debug("resizing process pty \(request.id)")
 
@@ -567,9 +573,10 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 metadata: [
                     "error": "\(error)"
                 ])
-            throw GRPCStatus(
+            throw RPCError(
                 code: .internalError,
-                message: "resizeProcess: failed to resize process: \(error)"
+                message: "resizeProcess",
+                cause: error
             )
         }
 
@@ -577,7 +584,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
     }
 
     func waitProcess(
-        request: Com_Apple_Containerization_Sandbox_V3_WaitProcessRequest, context: GRPCAsyncServerCallContext
+        request: Com_Apple_Containerization_Sandbox_V3_WaitProcessRequest, context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_WaitProcessResponse {
         log.debug("waiting on process \(request.id)")
 
@@ -605,15 +612,16 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 metadata: [
                     "error": "\(error)"
                 ])
-            throw GRPCStatus(
+            throw RPCError(
                 code: .internalError,
-                message: "waitProcess: failed to wait on process: \(error)"
+                message: "waitProcess",
+                cause: error
             )
         }
     }
 
     func ipLinkSet(
-        request: Com_Apple_Containerization_Sandbox_V3_IpLinkSetRequest, context: GRPC.GRPCAsyncServerCallContext
+        request: Com_Apple_Containerization_Sandbox_V3_IpLinkSetRequest, context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_IpLinkSetResponse {
         log.debug(
             "ip-link-set",
@@ -632,14 +640,14 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 metadata: [
                     "error": "\(error)"
                 ])
-            throw GRPCStatus(code: .internalError, message: "ip-link-set: \(error)")
+            throw RPCError(code: .internalError, message: "ip-link-set", cause: error)
         }
 
         return .init()
     }
 
     func ipAddrAdd(
-        request: Com_Apple_Containerization_Sandbox_V3_IpAddrAddRequest, context: GRPC.GRPCAsyncServerCallContext
+        request: Com_Apple_Containerization_Sandbox_V3_IpAddrAddRequest, context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_IpAddrAddResponse {
         log.debug(
             "ip-addr-add",
@@ -658,14 +666,14 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 metadata: [
                     "error": "\(error)"
                 ])
-            throw GRPCStatus(code: .internalError, message: "ip-addr-add: \(error)")
+            throw RPCError(code: .internalError, message: "ip-addr-add", cause: error)
         }
 
         return .init()
     }
 
     func ipRouteAddLink(
-        request: Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest, context: GRPC.GRPCAsyncServerCallContext
+        request: Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest, context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkResponse {
         log.debug(
             "ip-route-add-link",
@@ -689,7 +697,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 metadata: [
                     "error": "\(error)"
                 ])
-            throw GRPCStatus(code: .internalError, message: "ip-route-add-link: \(error)")
+            throw RPCError(code: .internalError, message: "ip-route-add-link", cause: error)
         }
 
         return .init()
@@ -697,7 +705,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
 
     func ipRouteAddDefault(
         request: Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRequest,
-        context: GRPC.GRPCAsyncServerCallContext
+        context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultResponse {
         log.debug(
             "ip-route-add-default",
@@ -716,7 +724,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 metadata: [
                     "error": "\(error)"
                 ])
-            throw GRPCStatus(code: .internalError, message: "ip-route-add-default: \(error)")
+            throw RPCError(code: .internalError, message: "ip-route-add-default", cause: error)
         }
 
         return .init()
@@ -724,7 +732,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
 
     func configureDns(
         request: Com_Apple_Containerization_Sandbox_V3_ConfigureDnsRequest,
-        context: GRPC.GRPCAsyncServerCallContext
+        context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_ConfigureDnsResponse {
         let domain = request.hasDomain ? request.domain : nil
         log.debug(
@@ -755,7 +763,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 metadata: [
                     "error": "\(error)"
                 ])
-            throw GRPCStatus(code: .internalError, message: "configure-dns: \(error)")
+            throw RPCError(code: .internalError, message: "configure-dns", cause: error)
         }
 
         return .init()
@@ -773,7 +781,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
 
     func sync(
         request: Com_Apple_Containerization_Sandbox_V3_SyncRequest,
-        context: GRPC.GRPCAsyncServerCallContext
+        context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_SyncResponse {
         log.debug("sync")
 
@@ -783,7 +791,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
 
     func kill(
         request: Com_Apple_Containerization_Sandbox_V3_KillRequest,
-        context: GRPCAsyncServerCallContext
+        context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_KillResponse {
         log.debug(
             "kill",

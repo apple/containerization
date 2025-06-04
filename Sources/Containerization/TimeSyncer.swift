@@ -60,7 +60,7 @@ actor TimeSyncer: Sendable {
         }
 
         task.cancel()
-        try await self.context?.close()
+        await self.context?.close()
         self.task = nil
         self.context = nil
     }

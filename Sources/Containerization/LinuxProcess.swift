@@ -333,5 +333,7 @@ extension LinuxProcess {
             $0.stdinRelay?.cancel()
             try $0.stdio.close()
         }
+
+        try await agent.close()
     }
 }

@@ -16,7 +16,9 @@
 
 import ContainerizationError
 import Foundation
-import GRPC
+import GRPCCore
+import GRPCNIOTransportHTTP2
+import GRPCProtobuf
 import Logging
 import Musl
 import NIOCore
@@ -99,21 +101,23 @@ final class Initd: Sendable {
                 metadata: [
                     "port": "\(port)"
                 ])
-            let server = try await Server.start(
-                configuration: .default(
-                    target: .vsockAddress(.init(cid: .any, port: .init(port))),
-                    eventLoopGroup: self.group,
-                    serviceProviders: [self])
-            ).get()
+
+            let server = GRPCServer(
+                transport: .http2NIOPosix(
+                    address: .vsock(contextID: .any, port: .init(port)),
+                    transportSecurity: .plaintext
+                ),
+                services: [self]
+            )
+
             log.info(
                 "grpc api serving on vsock",
                 metadata: [
                     "port": "\(port)"
                 ])
 
-            group.addTask {
-                try await server.onClose.get()
-            }
+            group.addTask { try await server.serve() }
+
             try await group.next()
             group.cancelAll()
         }

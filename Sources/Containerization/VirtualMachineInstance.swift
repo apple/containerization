@@ -33,7 +33,7 @@ public protocol VirtualMachineInstance: Sendable {
     var state: VirtualMachineInstanceState { get }
 
     var mounts: [AttachedFilesystem] { get }
-    /// Dial the Agent. It's up the VirtualMachineInstance to determine
+    /// Dial the Agent. It's up to the VirtualMachineInstance to determine
     /// what port the agent is listening on.
     func dialAgent() async throws -> Agent
     /// Dial a vsock port in the guest.
