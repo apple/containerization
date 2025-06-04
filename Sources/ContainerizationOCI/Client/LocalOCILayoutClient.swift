@@ -72,7 +72,8 @@ package final class LocalOCILayoutClient: ContentClient {
     ) async throws where T.Element == ByteBuffer {
         let input = try streamGenerator()
 
-        try await self.cs.ingest { dir in
+        let (id, dir) = try await self.cs.newIngestSession()
+        do {
             let into = dir.appendingPathComponent(descriptor.digest.trimmingDigestPrefix)
             guard FileManager.default.createFile(atPath: into.path, contents: nil) else {
                 throw Error.cannotCreateFile
@@ -95,6 +96,9 @@ package final class LocalOCILayoutClient: ContentClient {
                     }
                 }
             }
+            try await self.cs.completeIngestSession(id)
+        } catch {
+            try await self.cs.cancelIngestSession(id)
         }
     }
 }
