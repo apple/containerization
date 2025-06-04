@@ -110,6 +110,10 @@ let package = Package(
                 .target(name: "ContainerizationArchive", condition: .when(platforms: [.macOS])),
                 .product(name: "SystemPackage", package: "swift-system"),
                 "ContainerizationOS",
+            ],
+            path: "Sources/ContainerizationEXT4",
+            exclude: [
+                "README.md"
             ]
         ),
         .testTarget(
