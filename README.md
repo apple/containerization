@@ -18,10 +18,7 @@ Please view the [API documentation]() for information on the Swift packages that
 
 ## Design
 
-Containerization executes each Linux container inside of its own lightweight virtual machine.
-Provide a dedicated IP address to the container to remove the need for individual port forwarding.
-
-Containers achieve sub-second start times using an optimized [Linux kernel configuration](/kernel) and a small init system.
+Containerization executes each Linux container inside of its own lightweight virtual machine. Clients can create dedicated IP addresses for every container to remove the need for individual port forwarding. Containers achieve sub-second start times using an optimized [Linux kernel configuration](/kernel) and a minimal root filesystem with a lightweight init system.
 
 [vminitd](/vminitd) is a small init system, which is a subproject within Containerization.
 `vminitd` is spawned as the initial process inside of the virtual machine and provides a GRPC API over vsock.
