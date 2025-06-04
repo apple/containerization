@@ -73,6 +73,24 @@ extension UInt32 {
             indexToAddress: { lower + UInt32($0) }
         )
     }
+
+    /// Creates a rotating allocator for vsock ports, or any UInt32 values.
+    public static func rotatingAllocator(lower: UInt32, size: UInt32) throws -> any AddressAllocator<UInt32> {
+        guard 0xffff_ffff - lower + 1 >= size else {
+            throw AllocatorError.rangeExceeded
+        }
+
+        return RotatingAddressAllocator(
+            size: size,
+            addressToIndex: { address in
+                guard address >= lower && address <= lower + UInt32(size) else {
+                    return nil
+                }
+                return Int(address - lower)
+            },
+            indexToAddress: { lower + UInt32($0) }
+        )
+    }
 }
 
 extension Character {
