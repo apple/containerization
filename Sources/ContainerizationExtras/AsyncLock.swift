@@ -16,6 +16,10 @@
 
 import Foundation
 
+/// `AsyncLock` provides a familiar locking API, with the main benefit being that it
+/// is safe to call async methods while holding the lock. This is primarily used in spots
+/// where an actor makes sense, but we may need to ensure we don't fall victim to actor
+/// reentrancy issues.
 public actor AsyncLock {
     private var busy = false
     private var queue: ArraySlice<CheckedContinuation<(), Never>> = []

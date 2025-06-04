@@ -163,7 +163,7 @@ public final class LinuxProcess: Sendable {
 }
 
 extension LinuxProcess {
-    func setupIO(streams: [ConnectionStream?]) async throws -> [FileHandle?] {
+    func setupIO(streams: [VsockConnectionStream?]) async throws -> [FileHandle?] {
         let handles = try await Timeout.run(seconds: 3) {
             await withTaskGroup(of: (Int, FileHandle?).self) { group in
                 var results = [FileHandle?](repeating: nil, count: 3)
@@ -231,7 +231,7 @@ extension LinuxProcess {
     public func start() async throws {
         let spec = self.state.withLock { $0.spec }
 
-        var streams = [ConnectionStream?](repeating: nil, count: 3)
+        var streams = [VsockConnectionStream?](repeating: nil, count: 3)
         if let stdin = self.ioSetup.stdin {
             streams[0] = try self.vm.listen(stdin.port)
         }

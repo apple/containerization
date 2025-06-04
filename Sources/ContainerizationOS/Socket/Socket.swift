@@ -44,6 +44,7 @@ let sysConnect = connect
 let sysIoctl: @convention(c) (CInt, CUnsignedLong, UnsafeMutableRawPointer) -> CInt = ioctl
 #endif
 
+/// Thread-safe socket wrapper.
 public final class Socket: Sendable {
     public enum TimeoutOption {
         case send

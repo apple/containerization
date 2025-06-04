@@ -16,6 +16,7 @@
 
 import Foundation
 
+/// Helper type with utilities to parse and manipulate unix signals.
 public struct Signals {
     public static func allNumeric() -> [Int32] {
         Array(Signals.all.values)

@@ -16,6 +16,8 @@
 
 import Foundation
 
+/// `Path` provides utilities to look for binaries in the current PATH,
+/// or to return the current PATH.
 public struct Path {
     /// lookPath looks up an executable's path from $PATH
     public static func lookPath(_ name: String) -> URL? {

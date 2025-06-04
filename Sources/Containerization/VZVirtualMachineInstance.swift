@@ -184,8 +184,8 @@ extension VZVirtualMachineInstance {
         ).dupHandle()
     }
 
-    func listen(_ port: UInt32) throws -> ConnectionStream {
-        let stream = ConnectionStream(port: port)
+    func listen(_ port: UInt32) throws -> VsockConnectionStream {
+        let stream = VsockConnectionStream(port: port)
         let listener = VZVirtioSocketListener()
         listener.delegate = stream
 

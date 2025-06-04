@@ -16,6 +16,8 @@
 
 import Foundation
 
+/// `Terminal` provides a clean interface to deal with terminal
+/// interactions on Unix platforms.
 public struct Terminal: Sendable {
     private let initState: termios?
 

@@ -20,12 +20,14 @@ import Foundation
 import Virtualization
 #endif
 
-public final class ConnectionStream: NSObject, Sendable {
+/// A stream of vsock connections.
+public final class VsockConnectionStream: NSObject, Sendable {
     /// A stream of connections dialed from the remote.
     public let connections: AsyncStream<FileHandle>
+    /// The port the connections are for.
+    public let port: UInt32
 
     private let cont: AsyncStream<FileHandle>.Continuation
-    private let port: UInt32
 
     public init(port: UInt32) {
         self.port = port
@@ -41,7 +43,7 @@ public final class ConnectionStream: NSObject, Sendable {
 
 #if os(macOS)
 
-extension ConnectionStream: VZVirtioSocketListenerDelegate {
+extension VsockConnectionStream: VZVirtioSocketListenerDelegate {
     public func listener(
         _: VZVirtioSocketListener, shouldAcceptNewConnection conn: VZVirtioSocketConnection,
         from _: VZVirtioSocketDevice

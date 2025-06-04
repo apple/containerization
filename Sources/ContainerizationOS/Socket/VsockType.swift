@@ -26,6 +26,7 @@ import Darwin
 #error("VsockType not supported on this platform.")
 #endif
 
+/// Vsock variant of `SocketType`.
 public struct VsockType: SocketType, Sendable {
     public var domain: Int32 { AF_VSOCK }
     public var type: Int32 { _SOCK_STREAM }

@@ -24,6 +24,7 @@ import Darwin
 #error("SocketType not supported on this platform.")
 #endif
 
+/// Protocol used to describe the family of socket to be created with `Socket`.
 public protocol SocketType: Sendable, CustomStringConvertible {
     var domain: Int32 { get }
     var type: Int32 { get }

@@ -27,6 +27,7 @@ let _SOCK_STREAM = SOCK_STREAM
 #error("UnixType not supported on this platform.")
 #endif
 
+/// Unix domain socket variant of `SocketType`.
 public struct UnixType: SocketType, Sendable, CustomStringConvertible {
     public var domain: Int32 { AF_UNIX }
     public var type: Int32 { _SOCK_STREAM }

@@ -240,7 +240,7 @@ More details can be found here https://ext4.wiki.kernel.org/index.php/Ext4_Disk_
 ```
 */
 
-/// A class for interacting with ext4 file systems.
+/// A type for interacting with ext4 file systems.
 ///
 /// The `Ext4` class provides functionality to read the superblock of an existing ext4 block device
 /// and format a new block device with the ext4 file system.

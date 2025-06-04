@@ -14,6 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+/// DNS configuration for a container. The values will be used to
+/// construct /etc/resolv.conf for a given container.
 public struct DNS: Sendable {
     public static let defaultNameservers = ["1.1.1.1"]
 
