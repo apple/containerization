@@ -18,6 +18,7 @@ import Foundation
 import SystemPackage
 
 extension EXT4 {
+    /// The `EXT4Reader` opens a block device, parses the superblock, and loads group descriptors & inodes.
     public class EXT4Reader {
         let handle: FileHandle
         let superBlock: EXT4.SuperBlock
