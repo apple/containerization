@@ -34,7 +34,7 @@ jobs:
     steps:
       - name: Check branch 
         run: |
-          if [ '${{ github.ref }}' != 'refs/heads/main' ] && [[ '${{ github.ref }}' != 'refs/heads/release*' ]] && [ ${{ inputs.publish }} == true ]; then
+          if [ '${{ github.ref }}' != 'refs/heads/main' ] && [[ '${{ github.ref }}' != refs/heads/release* ]] && [ ${{ inputs.publish }} == true ]; then
             echo "Cannot publish an image if we are not on main or a release branch."
             exit 1
           fi
