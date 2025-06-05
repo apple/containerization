@@ -28,10 +28,10 @@ extension Vminitd: SocketRelayAgent {
 
             switch configuration.direction {
             case .into:
-                $0.guestPath = configuration.to.path
+                $0.guestPath = configuration.destination.path
                 $0.action = .into
             case .outOf:
-                $0.guestPath = configuration.from.path
+                $0.guestPath = configuration.source.path
                 $0.action = .outOf
             }
         }

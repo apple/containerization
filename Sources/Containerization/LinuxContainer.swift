@@ -738,9 +738,9 @@ extension LinuxContainer {
         let rootInGuest = URL(filePath: self.root)
 
         if socket.direction == .into {
-            socket.to = rootInGuest.appending(path: socket.to.path)
+            socket.destination = rootInGuest.appending(path: socket.destination.path)
         } else {
-            socket.from = rootInGuest.appending(path: socket.from.path)
+            socket.source = rootInGuest.appending(path: socket.source.path)
         }
 
         let port = self.hostVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue

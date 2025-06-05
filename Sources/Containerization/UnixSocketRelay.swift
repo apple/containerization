@@ -144,14 +144,14 @@ extension SocketRelay {
         case .outOf:
             // If we created the host conn, lets unlink it also. It's possible it was
             // already unlinked if the relay failed earlier.
-            try? FileManager.default.removeItem(at: self.configuration.to)
+            try? FileManager.default.removeItem(at: self.configuration.destination)
         case .into:
             try self.vm.stopListen(self.port)
         }
     }
 
     private func setupHostVsockDial() async throws {
-        let hostConn = self.configuration.to
+        let hostConn = self.configuration.destination
 
         let socketType = try UnixType(
             path: hostConn.path,
@@ -181,7 +181,7 @@ extension SocketRelay {
     }
 
     private func setupHostVsockListener() throws {
-        let hostPath = self.configuration.from
+        let hostPath = self.configuration.source
         let port = self.port
         let log = self.log
 
