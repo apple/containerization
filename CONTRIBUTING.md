@@ -17,7 +17,7 @@ We would love your contributions in the form of:
 
 ### Issues
 
-To file a bug or feature request, use [GitHub](https://github.com/apple/containerization/issues/new)
+To file a bug or feature request, use [GitHub issues](https://github.com/apple/containerization/issues/new).
 
 🚧 For unexpected behavior or usability limitations, detailed instructions on how to reproduce the issue are appreciated. This will greatly help the priority setting and speed of which maintainers can get to your issue. 
 
@@ -27,7 +27,7 @@ To make a pull request, use [GitHub](https://github.com/apple/containerization/c
 
 > [!IMPORTANT]
 > If you plan to make substantial changes or add new features, we encourage you to first discuss them with the wider containerization developer community.
-> You can do this by filing a [GitHub issue](https://github.com/apple/containerization/issues/new)
+> You can do this by filing a [GitHub issue](https://github.com/apple/containerization/issues/new).
 > This will save time and increases the chance of your pull request being accepted.
 
 We use a "squash and merge" strategy to keep our `main` branch history clean and easy to follow. When your pull request
@@ -59,3 +59,7 @@ If you submit a contribution that adds a new file, please add the license header
 ```bash
 $ make update-licenses
 ```
+
+## Code of Conduct
+
+To clarify of what is expected of our contributors and community members, the Containerization team has adopted the code of conduct defined by the Contributor Covenant. This document is used across many open source communities and articulates our values well. For more detail, please read the [Code of Conduct](/CODE-OF-CONDUCT.MD).
