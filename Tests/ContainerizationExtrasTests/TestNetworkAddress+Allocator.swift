@@ -182,4 +182,68 @@ final class TestAddressAllocators {
         let value = try allocator.allocate()
         #expect(value == address)
     }
+
+    @Test
+    func testRotatingUInt32PortAllocator() throws {
+        var allocations = Set<UInt32>()
+        let lower = UInt32(5000)
+        let allocator = try UInt32.rotatingAllocator(lower: lower, size: 3)
+        allocations.insert(try allocator.allocate())
+        allocations.insert(try allocator.allocate())
+        allocations.insert(try allocator.allocate())
+        do {
+            _ = try allocator.allocate()
+            #expect(Bool(false), "Expected AllocatorError.allocatorFull to be thrown")
+        } catch {
+            #expect(error as? AllocatorError == .allocatorFull, "Unexpected error thrown: \(error)")
+        }
+
+        let address = UInt32(5001)
+        try allocator.release(address)
+        let value = try allocator.allocate()
+        #expect(value == address)
+    }
+
+    @Test
+    func testRotatingFIFOUInt32PortAllocator() throws {
+        let lower = UInt32(5000)
+        let allocator = try UInt32.rotatingAllocator(lower: lower, size: 3)
+        let first = try allocator.allocate()
+        #expect(first == 5000)
+        let second = try allocator.allocate()
+        #expect(second == 5001)
+
+        try allocator.release(first)
+        let third = try allocator.allocate()
+        // even after a release, it should continue to allocate in the range
+        // before reusing an previous allocation on the stack.
+        #expect(third == 5002)
+
+        // now the next allocation should be our first port
+        let reused = try allocator.allocate()
+        #expect(reused == first)
+
+        try allocator.release(third)
+        let thirdReused = try allocator.allocate()
+        #expect(thirdReused == third)
+    }
+
+    @Test
+    func testRotatingReservedUInt32PortAllocator() throws {
+        let lower = UInt32(5000)
+        let allocator = try UInt32.rotatingAllocator(lower: lower, size: 3)
+
+        try allocator.reserve(5001)
+        let first = try allocator.allocate()
+        #expect(first == 5000)
+        // this should skip the reserved 5001
+        let second = try allocator.allocate()
+        #expect(second == 5002)
+
+        // no release our reserved
+        try allocator.release(5001)
+
+        let third = try allocator.allocate()
+        #expect(third == 5001)
+    }
 }

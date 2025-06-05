@@ -244,6 +244,13 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
             ]
         ),
+        .testTarget(
+            name: "ContainerizationExtrasTests",
+            dependencies: [
+                "ContainerizationExtras",
+                "CShim",
+            ]
+        ),
         .target(
             name: "CShim"
         ),
