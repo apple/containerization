@@ -68,6 +68,7 @@ public struct NetlinkSession {
     ///   - interface: The name of the interface.
     ///   - up: The value to set the interface state to.
     public func linkSet(interface: String, up: Bool) throws {
+        // ip link set dev [interface] [up|down]
         let interfaceIndex = try getInterfaceIndex(interface)
         let requestSize = NetlinkMessageHeader.size + InterfaceInfo.size
         var requestBuffer = [UInt8](repeating: 0, count: requestSize)
@@ -103,6 +104,7 @@ public struct NetlinkSession {
     /// Returns information about the interface.
     /// - Parameter interface: The name of the interface to query.
     public func linkGet(interface: String? = nil) throws -> [LinkResponse] {
+        // ip link ip show
         let maskAttr = RTAttribute(
             len: UInt16(RTAttribute.size + MemoryLayout<UInt32>.size), type: LinkAttributeType.IFLA_EXT_MASK)
         let interfaceName = try interface.map { try getInterfaceName($0) }
@@ -171,6 +173,16 @@ public struct NetlinkSession {
     ///   - interface: The name of the interface.
     ///   - address: The IPv4 address to add.
     public func addressAdd(interface: String, address: String) throws {
+        // ip addr add [addr] dev [interface]
+        // ip address {add|change|replace} IFADDR dev IFNAME [ LIFETIME ] [ CONFFLAG-LIST ]
+        // IFADDR := PREFIX | ADDR peer PREFIX
+        //           [ broadcast ADDR ] [ anycast ADDR ]
+        //           [ label IFNAME ] [ scope SCOPE-ID ] [ metric METRIC ]
+        // SCOPE-ID := [ host | link | global | NUMBER ]
+        // CONFFLAG-LIST := [ CONFFLAG-LIST ] CONFFLAG
+        // CONFFLAG  := [ home | nodad | mngtmpaddr | noprefixroute | autojoin ]
+        // LIFETIME := [ valid_lft LFT ] [ preferred_lft LFT ]
+        // LFT := forever | SECONDS
         let parsed = try parseCIDR(cidr: address)
         let interfaceIndex = try getInterfaceIndex(interface)
         let ipAddressBytes = try IPv4Address(parsed.address).networkBytes
@@ -244,6 +256,7 @@ public struct NetlinkSession {
         destinationAddress: String,
         srcAddr: String
     ) throws {
+        // ip route add [dest-cidr] dev [interface] src [src-addr] proto kernel
         let parsed = try parseCIDR(cidr: destinationAddress)
         let interfaceIndex = try getInterfaceIndex(interface)
         let dstAddrBytes = try IPv4Address(parsed.address).networkBytes
@@ -318,6 +331,7 @@ public struct NetlinkSession {
         interface: String,
         gateway: String
     ) throws {
+        // ip route add default via [dst-address] src [src-address]
         let dstAddrBytes = try IPv4Address(gateway).networkBytes
         let dstAddrAttrSize = RTAttribute.size + dstAddrBytes.count
 
