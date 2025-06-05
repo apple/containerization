@@ -15,14 +15,17 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+/// A protocol for interacting with a netlink socket.
 public protocol NetlinkSocket {
     var pid: UInt32 { get }
     func send(buf: UnsafeRawPointer!, len: Int, flags: Int32) throws -> Int
     func recv(buf: UnsafeMutableRawPointer!, len: Int, flags: Int32) throws -> Int
 }
 
+/// A netlink socket provider.
 public typealias NetlinkSocketProvider = () throws -> any NetlinkSocket
 
+/// Errors thrown when interacting with a netlink socket.
 public enum NetlinkSocketError: Swift.Error, CustomStringConvertible, Equatable {
     case socketFailure(rc: Int32)
     case bindFailure(rc: Int32)
@@ -30,6 +33,7 @@ public enum NetlinkSocketError: Swift.Error, CustomStringConvertible, Equatable 
     case recvFailure(rc: Int32)
     case notImplemented
 
+    /// The description of the errors.
     public var description: String {
         switch self {
         case .socketFailure(let rc):
@@ -53,11 +57,14 @@ let osBind = Musl.bind
 let osSend = Musl.send
 let osRecv = Musl.recv
 
+/// A default implementation of `NetlinkSocket`.
 public class DefaultNetlinkSocket: NetlinkSocket {
     private let sockfd: Int32
 
+    /// The process identifier of the process creating this socket.
     public let pid: UInt32
 
+    /// Creates a new instance.
     public init() throws {
         pid = UInt32(getpid())
         sockfd = osSocket(Int32(AddressFamily.AF_NETLINK), SocketType.SOCK_RAW, NetlinkProtocol.NETLINK_ROUTE)
@@ -80,6 +87,12 @@ public class DefaultNetlinkSocket: NetlinkSocket {
         close(sockfd)
     }
 
+    /// Sends a request to a netlink socket.
+    /// Returns the number of bytes sent.
+    /// - Parameters:
+    ///   - buf: The buffer to send.
+    ///   - len: The length of the buffer to send.
+    ///   - flags: The send flags.
     public func send(buf: UnsafeRawPointer!, len: Int, flags: Int32) throws -> Int {
         let count = osSend(sockfd, buf, len, flags)
         guard count >= 0 else {
@@ -89,6 +102,12 @@ public class DefaultNetlinkSocket: NetlinkSocket {
         return count
     }
 
+    /// Receives a response from a netlink socket.
+    /// Returns the number of bytes received.
+    /// - Parameters:
+    ///   - buf: The buffer to receive into.
+    ///   - len: The maximum number of bytes to receive.
+    ///   - flags: The receive flags.
     public func recv(buf: UnsafeMutableRawPointer!, len: Int, flags: Int32) throws -> Int {
         let count = osRecv(sockfd, buf, len, flags)
         guard count >= 0 else {

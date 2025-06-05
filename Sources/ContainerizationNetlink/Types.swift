@@ -519,6 +519,7 @@ struct RouteInfo: Bindable {
     }
 }
 
+/// A route information.
 public struct RTAttribute: Bindable {
     static let size = 4
 
@@ -557,22 +558,26 @@ public struct RTAttribute: Bindable {
     }
 }
 
+/// A route information with data.
 public struct RTAttributeData {
     public let attribute: RTAttribute
     public let data: [UInt8]
 }
 
+/// A response from the get link command.
 public struct LinkResponse {
     public let interfaceIndex: Int32
     public let attrDatas: [RTAttributeData]
 }
 
+/// Errors thrown when parsing netlink data.
 public enum NetlinkDataError: Swift.Error, CustomStringConvertible, Equatable {
     case sendMarshalFailure
     case recvUnmarshalFailure
     case responseError(rc: Int32)
     case unsupportedPlatform
 
+    /// The description of the errors.
     public var description: String {
         switch self {
         case .sendMarshalFailure:
