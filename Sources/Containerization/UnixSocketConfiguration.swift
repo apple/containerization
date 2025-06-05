@@ -31,12 +31,12 @@ public struct UnixSocketConfiguration: Sendable {
     /// direction this should be the path on the host to a unix socket.
     /// For direction .outOf this should be the path in the container/guest
     /// to a unix socket.
-    public var from: URL
+    public var source: URL
 
     /// The path you'd like the socket to be relayed to. For .into
-    /// direction this should be ther path in the container/guest. For
+    /// direction this should be the path in the container/guest. For
     /// direction .outOf this should be the path on your host.
-    public var to: URL
+    public var destination: URL
 
     /// What to set the file permissions of the unix socket being created
     /// to. For .into direction this will be the socket in the guest. For
@@ -57,13 +57,13 @@ public struct UnixSocketConfiguration: Sendable {
     }
 
     public init(
-        host: URL,
+        source: URL,
         destination: URL,
         permissions: FilePermissions? = nil,
         direction: Direction = .into
     ) {
-        self.from = host
-        self.to = destination
+        self.source = source
+        self.destination = destination
         self.permissions = permissions
         self.direction = direction
     }
