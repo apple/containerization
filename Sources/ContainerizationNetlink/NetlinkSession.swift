@@ -19,20 +19,23 @@ import ContainerizationExtras
 import ContainerizationOS
 import Logging
 
-/// `NetlinkSession` facilitates interacting with netlink via a provided
-/// `NetlinkSocket`. This is the core high level type offered to perform
-/// actions to the netlink surface in the kernel.
+/// `NetlinkSession` facilitates interacting with netlink via a provided `NetlinkSocket`. This is the
+/// core high-level type offered to perform actions to the netlink surface in the kernel.
 public struct NetlinkSession {
     private static let receiveDataLength = 65536
-
     private let socket: any NetlinkSocket
-
     private let log: Logger
+    
+    /// Creates a new `NetlinkSession`.
+    /// - Parameters:
+    ///   - socket: The `NetlinkSocket` to use for netlink interaction.
+    ///   - log: The logger to use. The default value is `nil`.
     public init(socket: any NetlinkSocket, log: Logger? = nil) {
         self.socket = socket
         self.log = log ?? Logger(label: "com.apple.containerization.netlink")
     }
-
+    
+    /// Errors that may occur during netlink interaction.
     public enum Error: Swift.Error, CustomStringConvertible, Equatable {
         case invalidIpAddress
         case invalidPrefixLength
@@ -40,7 +43,8 @@ public struct NetlinkSession {
         case unexpectedOffset(offset: Int, size: Int)
         case unexpectedResidualPackets
         case unexpectedResultSet(count: Int, expected: Int)
-
+        
+        /// The description of the errors.
         public var description: String {
             switch self {
             case .invalidIpAddress:
@@ -58,8 +62,11 @@ public struct NetlinkSession {
             }
         }
     }
-
-    /// ip link set dev [interface] [up|down]
+    
+    /// Performs a link set command on an interface.
+    /// - Parameters:
+    ///   - interface: The name of the interface.
+    ///   - up: The value to set the interface state to.
     public func linkSet(interface: String, up: Bool) throws {
         let interfaceIndex = try getInterfaceIndex(interface)
         let requestSize = NetlinkMessageHeader.size + InterfaceInfo.size
@@ -91,8 +98,10 @@ public struct NetlinkSession {
             throw Error.unexpectedResultSet(count: infos.count, expected: 0)
         }
     }
-
-    /// ip link ip show
+    
+    /// Performs a link get command on an interface.
+    /// Returns information about the interface.
+    /// - Parameter interface: The name of the interface to query.
     public func linkGet(interface: String? = nil) throws -> [LinkResponse] {
         let maskAttr = RTAttribute(
             len: UInt16(RTAttribute.size + MemoryLayout<UInt32>.size), type: LinkAttributeType.IFLA_EXT_MASK)
@@ -156,17 +165,11 @@ public struct NetlinkSession {
 
         return linkResponses
     }
-
-    /// ip addr add [addr] dev [interface]
-    /// ip address {add|change|replace} IFADDR dev IFNAME [ LIFETIME ] [ CONFFLAG-LIST ]
-    /// IFADDR := PREFIX | ADDR peer PREFIX
-    ///           [ broadcast ADDR ] [ anycast ADDR ]
-    ///           [ label IFNAME ] [ scope SCOPE-ID ] [ metric METRIC ]
-    /// SCOPE-ID := [ host | link | global | NUMBER ]
-    /// CONFFLAG-LIST := [ CONFFLAG-LIST ] CONFFLAG
-    /// CONFFLAG  := [ home | nodad | mngtmpaddr | noprefixroute | autojoin ]
-    /// LIFETIME := [ valid_lft LFT ] [ preferred_lft LFT ]
-    /// LFT := forever | SECONDS
+    
+    /// Adds an IPv4 address to an interface.
+    /// - Parameters:
+    ///   - interface: The name of the interface.
+    ///   - address: The IPv4 address to add.
     public func addressAdd(interface: String, address: String) throws {
         let parsed = try parseCIDR(cidr: address)
         let interfaceIndex = try getInterfaceIndex(interface)
@@ -230,8 +233,12 @@ public struct NetlinkSession {
         }
         return (address, prefixLength)
     }
-
-    /// ip route add [dest-cidr] dev [interface] src [src-addr] proto kernel
+    
+    /// Adds a route to an interface.
+    /// - Parameters:
+    ///   - interface: The name of the interface.
+    ///   - destinationAddress: The destination address to route to.
+    ///   - srcAddr: The source address to route from.
     public func routeAdd(
         interface: String,
         destinationAddress: String,
@@ -302,8 +309,11 @@ public struct NetlinkSession {
             throw Error.unexpectedResultSet(count: infos.count, expected: 0)
         }
     }
-
-    /// ip route add default via [dst-address] src [src-address]
+    
+    /// Adds a default route to an interface.
+    /// - Parameters:
+    ///   - interface: The name of the interface.
+    ///   - gateway: The gateway address.
     public func routeAddDefault(
         interface: String,
         gateway: String
