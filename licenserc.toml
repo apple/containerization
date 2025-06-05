@@ -20,7 +20,7 @@ attrs = 'enable'
 ignore = 'enable'
 
 [properties]
-copyrightOwner = "Apple Inc. and the containerization project authors"
+copyrightOwner = "Apple Inc. and the Containerization project authors"
 
 [mapping.SWIFT_STYLE]
 extensions = ["swift"]
