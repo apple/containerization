@@ -576,7 +576,7 @@ public enum NetlinkDataError: Swift.Error, CustomStringConvertible, Equatable {
     case recvUnmarshalFailure
     case responseError(rc: Int32)
     case unsupportedPlatform
-    
+
     /// The description of the errors.
     public var description: String {
         switch self {

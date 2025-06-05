@@ -32,7 +32,7 @@ public enum NetlinkSocketError: Swift.Error, CustomStringConvertible, Equatable 
     case sendFailure(rc: Int32)
     case recvFailure(rc: Int32)
     case notImplemented
-    
+
     /// The description of the errors.
     public var description: String {
         switch self {
@@ -60,10 +60,10 @@ let osRecv = Musl.recv
 /// A default implementation of `NetlinkSocket`.
 public class DefaultNetlinkSocket: NetlinkSocket {
     private let sockfd: Int32
-    
+
     /// The process identifier of the process creating this socket.
     public let pid: UInt32
-    
+
     /// Creates a new instance.
     public init() throws {
         pid = UInt32(getpid())
@@ -86,7 +86,7 @@ public class DefaultNetlinkSocket: NetlinkSocket {
     deinit {
         close(sockfd)
     }
-    
+
     /// Sends a request to a netlink socket.
     /// Returns the number of bytes sent.
     /// - Parameters:
@@ -101,7 +101,7 @@ public class DefaultNetlinkSocket: NetlinkSocket {
 
         return count
     }
-    
+
     /// Receives a response from a netlink socket.
     /// Returns the number of bytes received.
     /// - Parameters:

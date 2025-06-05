@@ -25,7 +25,7 @@ public struct NetlinkSession {
     private static let receiveDataLength = 65536
     private let socket: any NetlinkSocket
     private let log: Logger
-    
+
     /// Creates a new `NetlinkSession`.
     /// - Parameters:
     ///   - socket: The `NetlinkSocket` to use for netlink interaction.
@@ -34,7 +34,7 @@ public struct NetlinkSession {
         self.socket = socket
         self.log = log ?? Logger(label: "com.apple.containerization.netlink")
     }
-    
+
     /// Errors that may occur during netlink interaction.
     public enum Error: Swift.Error, CustomStringConvertible, Equatable {
         case invalidIpAddress
@@ -43,7 +43,7 @@ public struct NetlinkSession {
         case unexpectedOffset(offset: Int, size: Int)
         case unexpectedResidualPackets
         case unexpectedResultSet(count: Int, expected: Int)
-        
+
         /// The description of the errors.
         public var description: String {
             switch self {
@@ -62,7 +62,7 @@ public struct NetlinkSession {
             }
         }
     }
-    
+
     /// Performs a link set command on an interface.
     /// - Parameters:
     ///   - interface: The name of the interface.
@@ -99,7 +99,7 @@ public struct NetlinkSession {
             throw Error.unexpectedResultSet(count: infos.count, expected: 0)
         }
     }
-    
+
     /// Performs a link get command on an interface.
     /// Returns information about the interface.
     /// - Parameter interface: The name of the interface to query.
@@ -167,7 +167,7 @@ public struct NetlinkSession {
 
         return linkResponses
     }
-    
+
     /// Adds an IPv4 address to an interface.
     /// - Parameters:
     ///   - interface: The name of the interface.
@@ -245,7 +245,7 @@ public struct NetlinkSession {
         }
         return (address, prefixLength)
     }
-    
+
     /// Adds a route to an interface.
     /// - Parameters:
     ///   - interface: The name of the interface.
@@ -322,7 +322,7 @@ public struct NetlinkSession {
             throw Error.unexpectedResultSet(count: infos.count, expected: 0)
         }
     }
-    
+
     /// Adds a default route to an interface.
     /// - Parameters:
     ///   - interface: The name of the interface.
