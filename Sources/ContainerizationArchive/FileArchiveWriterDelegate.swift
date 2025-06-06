@@ -18,8 +18,7 @@
 import Foundation
 import SystemPackage
 
-public final class FileArchiveWriterDelegate: ArchiveWriterDelegate {
-
+internal final class FileArchiveWriterDelegate {
     public let path: FilePath
     private var fd: FileDescriptor!
 
@@ -52,15 +51,5 @@ public final class FileArchiveWriterDelegate: ArchiveWriterDelegate {
         if let fd = self.fd {
             try? fd.close()
         }
-    }
-}
-
-extension ArchiveWriter {
-    public convenience init(configuration: ArchiveWriterConfiguration, file: URL) throws {
-        try self.init(configuration: configuration, delegate: FileArchiveWriterDelegate(url: file))
-    }
-    public convenience init(format: Format, filter: Filter, options: [Options] = [], file: URL) throws {
-        try self.init(
-            configuration: .init(format: format, filter: filter), delegate: FileArchiveWriterDelegate(url: file))
     }
 }

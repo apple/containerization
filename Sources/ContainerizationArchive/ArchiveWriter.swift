@@ -21,7 +21,7 @@ import Foundation
 /// A class responsible for writing archives in various formats.
 public final class ArchiveWriter {
     var underlying: OpaquePointer!
-    var delegate: ArchiveWriterDelegate?
+    var delegate: FileArchiveWriterDelegate?
     
     /// Initialize a new `ArchiveWriter` with the given configuration.
     /// This method attempts to initialize an empty archive in memory, failing which it throws a `unableToCreateArchive` error.
@@ -38,11 +38,22 @@ public final class ArchiveWriter {
     }
     
     /// Initialize a new `ArchiveWriter` with the given configuration and specifed delegate.
-    public convenience init(configuration: ArchiveWriterConfiguration, delegate: ArchiveWriterDelegate) throws {
+    private convenience init(configuration: ArchiveWriterConfiguration, delegate: FileArchiveWriterDelegate) throws {
         try self.init(configuration: configuration)
         self.delegate = delegate
         try self.open()
     }
+
+    private convenience init(configuration: ArchiveWriterConfiguration, file: URL) throws {
+        try self.init(configuration: configuration, delegate: FileArchiveWriterDelegate(url: file))
+    }
+    
+    /// Initialize a new `ArchiveWriter` for writing into the specified file with the given configuration options.
+    public convenience init(format: Format, filter: Filter, options: [Options] = [], file: URL) throws {
+        try self.init(
+            configuration: .init(format: format, filter: filter), delegate: FileArchiveWriterDelegate(url: file))
+    }
+
     
     /// Opens the given file for writing data into
     public func open(file: URL) throws {
