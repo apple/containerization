@@ -18,15 +18,24 @@
 import CArchive
 import Foundation
 
+/// A class responsible for reading entries from an archive file.
 public final class ArchiveReader {
+    /// A pointer to the underlying `archive` C structure.
     var underlying: OpaquePointer?
+    /// The file handle associated with the archive file being read.
     let fileHandle: FileHandle?
 
+    /// Initializes an `ArchiveReader` to read from a specified file URL with an explicit `Format` and `Filter`.
+    /// Note: This method must be used when it is known that the archive at the specified URL follows the specifed
+    /// `Format` and `Filter`.
     public convenience init(format: Format, filter: Filter, file: URL) throws {
         let fileHandle = try FileHandle(forReadingFrom: file)
         try self.init(format: format, filter: filter, fileHandle: fileHandle)
     }
 
+    /// Initializes an `ArchiveReader` to read from the provided file descriptor with an explicit `Format` and `Filter`.
+    /// Note: This method must be used when it is known that the archive pointed to by the file descriptor follows the specifed
+    /// `Format` and `Filter`.
     public init(format: Format, filter: Filter, fileHandle: FileHandle) throws {
         self.underlying = archive_read_new()
         self.fileHandle = fileHandle
@@ -41,7 +50,8 @@ public final class ArchiveReader {
             .checkOk(elseThrow: { .unableToOpenArchive($0) })
     }
 
-    /// Initialize the archive reader by trying to auto detect the archive and compression format
+    /// Initialize the `ArchiveReader` to read from a specified file URL
+    /// by trying to auto determine the archives `Format` and `Filter`.
     public init(file: URL) throws {
         self.underlying = archive_read_new()
         let fileHandle = try FileHandle(forReadingFrom: file)

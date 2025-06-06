@@ -18,6 +18,8 @@
 import CArchive
 import Foundation
 
+/// Represents a single entry (e.g., a file, directory, symbolic link)
+/// that is to be read/written into an archive.
 public final class WriteEntry {
     let underlying: OpaquePointer
 
@@ -35,6 +37,7 @@ public final class WriteEntry {
 }
 
 extension WriteEntry {
+    /// The size of the entry in bytes.
     public var size: Int64? {
         get {
             guard archive_entry_size_is_set(underlying) != 0 else { return nil }
@@ -48,7 +51,8 @@ extension WriteEntry {
             }
         }
     }
-
+    
+    /// The mode of the entry.
     public var permissions: mode_t {
         get {
             archive_entry_perm(underlying)
@@ -57,7 +61,8 @@ extension WriteEntry {
             archive_entry_set_perm(underlying, newValue)
         }
     }
-
+    
+    /// The owner id of the entry.
     public var owner: uid_t? {
         get {
             uid_t(exactly: archive_entry_uid(underlying))
@@ -67,6 +72,7 @@ extension WriteEntry {
         }
     }
 
+    /// The group id of the entry
     public var group: gid_t? {
         get {
             gid_t(exactly: archive_entry_gid(underlying))
@@ -75,7 +81,8 @@ extension WriteEntry {
             archive_entry_set_gid(underlying, Int64(newValue ?? 0))
         }
     }
-
+    
+    /// The path of file this entry hardlinks to
     public var hardlink: String? {
         get {
             guard let cstr = archive_entry_hardlink(underlying) else {
@@ -93,7 +100,8 @@ extension WriteEntry {
             }
         }
     }
-
+    
+    /// The UTF-8 encoded path of file this entry hardlinks to
     public var hardlinkUtf8: String? {
         get {
             guard let cstr = archive_entry_hardlink_utf8(underlying) else {
@@ -111,14 +119,16 @@ extension WriteEntry {
             }
         }
     }
-
+    
+    /// The string representation of the permissions of the entry
     public var strmode: String? {
         if let cstr = archive_entry_strmode(underlying) {
             return String(cString: cstr)
         }
         return nil
     }
-
+    
+    /// The type of file this entry represents.
     public var fileType: URLFileResourceType {
         get {
             switch archive_entry_filetype(underlying) {
@@ -145,7 +155,8 @@ extension WriteEntry {
             }
         }
     }
-
+    
+    /// The date that the entry was last accessed
     public var contentAccessDate: Date? {
         get {
             Date(
@@ -162,6 +173,7 @@ extension WriteEntry {
         }
     }
 
+    /// The date that the entry was created
     public var creationDate: Date? {
         get {
             Date(
@@ -177,7 +189,8 @@ extension WriteEntry {
                 archive_entry_unset_ctime)
         }
     }
-
+    
+    /// The date that the entry was modified
     public var modificationDate: Date? {
         get {
             Date(
@@ -193,7 +206,8 @@ extension WriteEntry {
                 archive_entry_unset_mtime)
         }
     }
-
+    
+    /// The file path of the entry
     public var path: String? {
         get {
             guard let pathname = archive_entry_pathname(underlying) else {
@@ -212,6 +226,7 @@ extension WriteEntry {
         }
     }
 
+    /// The UTF-8 encoded file path of the entry
     public var pathUtf8: String? {
         get {
             guard let pathname = archive_entry_pathname_utf8(underlying) else {
@@ -230,6 +245,7 @@ extension WriteEntry {
         }
     }
 
+    /// The symlink target that the entry points to
     public var symlinkTarget: String? {
         get {
             guard let target = archive_entry_symlink(underlying) else {
@@ -248,6 +264,7 @@ extension WriteEntry {
         }
     }
 
+    /// The extended attributes of the entry
     public var xattrs: [String: Data] {
         get {
             archive_entry_xattr_reset(self.underlying)

@@ -18,7 +18,7 @@
 import ContainerizationExtras
 import Foundation
 
-func createTemporaryDirectory(baseName: String) -> URL? {
+internal func createTemporaryDirectory(baseName: String) -> URL? {
     let url = FileManager.default.uniqueTemporaryDirectory().appendingPathComponent(
         "\(baseName).XXXXXX")
     guard let templatePathData = (url.absoluteURL.path as NSString).utf8String else {
