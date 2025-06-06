@@ -18,10 +18,13 @@
 import CArchive
 import Foundation
 
+/// A class responsible for writing archives in various formats.
 public final class ArchiveWriter {
     var underlying: OpaquePointer!
     var delegate: ArchiveWriterDelegate?
-
+    
+    /// Initialize a new `ArchiveWriter` with the given configuration.
+    /// This method attempts to initialize an empty archive in memory, failing which it throws a `unableToCreateArchive` error.
     public init(configuration: ArchiveWriterConfiguration) throws {
         // because for some bizarre reason, UTF8 paths won't work unless this process explicitly sets a locale like en_US.UTF-8
         try Self.attemptSetLocales(locales: configuration.locales)
@@ -33,25 +36,29 @@ public final class ArchiveWriter {
         try addFilter(configuration.filter)
         try setOptions(configuration.options)
     }
-
+    
+    /// Initialize a new `ArchiveWriter` with the given configuration and specifed delegate.
     public convenience init(configuration: ArchiveWriterConfiguration, delegate: ArchiveWriterDelegate) throws {
         try self.init(configuration: configuration)
         self.delegate = delegate
         try self.open()
     }
-
+    
+    /// Opens the given file for writing data into
     public func open(file: URL) throws {
         guard let underlying = underlying else { throw ArchiveError.noUnderlyingArchive }
         let res = archive_write_open_filename(underlying, file.path)
         try wrap(res, ArchiveError.unableToOpenArchive, underlying: underlying)
     }
-
+    
+    /// Opens the given fd for writing data into
     public func open(fileDescriptor: Int32) throws {
         guard let underlying = underlying else { throw ArchiveError.noUnderlyingArchive }
         let res = archive_write_open_fd(underlying, fileDescriptor)
         try wrap(res, ArchiveError.unableToOpenArchive, underlying: underlying)
     }
-
+        
+    /// Performs any necessary finalizations on the archive and releases resources.
     public func finishEncoding() throws {
         if let u = underlying {
             let r = archive_free(u)
@@ -72,7 +79,7 @@ public final class ArchiveWriter {
         }
     }
 
-    public static func attemptSetLocales(locales: [String]) throws {
+    private static func attemptSetLocales(locales: [String]) throws {
         for locale in locales {
             if setlocale(LC_ALL, locale) != nil {
                 return
@@ -195,12 +202,29 @@ extension ArchiveWriter {
         ArchiveWriterTransaction(writer: self)
     }
 
+    /// Create a new entry in the archive with the given properties.
+    /// - Parameters:
+    ///   - entry: A `WriteEntry` object describing the metadata of the entry to be created
+    ///            (e.g., name, modification date, permissions).
+    ///   - data: The `Data` object containing the content for the new entry.
     public func writeEntry(entry: WriteEntry, data: Data) throws {
         try data.withUnsafeBytes { bytes in
             try writeEntry(entry: entry, data: bytes)
         }
     }
 
+    /// Creates a new entry in the archive with the given properties.
+    ///
+    /// This method performs the following:
+    /// 1. Writes the archive header using the provided `WriteEntry` metadata.
+    /// 2. Writes the content from the `UnsafeRawBufferPointer` into the archive.
+    /// 3. Finalizes the entry in the archive.
+    ///
+    /// - Parameters:
+    ///   - entry: A `WriteEntry` object describing the metadata of the entry to be created
+    ///            (e.g., name, modification date, permissions, type).
+    ///   - data: An optional `UnsafeRawBufferPointer` containing the raw bytes for the new entry's
+    ///           content. Pass `nil` for entries that do not have content data (e.g., directories, symlinks).
     public func writeEntry(entry: WriteEntry, data: UnsafeRawBufferPointer?) throws {
         try writeHeader(entry: entry)
         if let data = data {
@@ -234,7 +258,7 @@ extension ArchiveWriter {
 }
 
 extension ArchiveWriter {
-    /// Recursively archives the content of a directory. Regular files, symlinks and directories are added to the archive.
+    /// Recursively archives the content of a directory. Regular files, symlinks and directories are added into the archive.
     /// Note: Symlinks are added to the archive if both the source and target for the symlink are both contained in the top level directory.
     public func archiveDirectory(_ dir: URL) throws {
         let fm = FileManager.default

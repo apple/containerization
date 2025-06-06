@@ -18,6 +18,7 @@
 import CArchive
 import Foundation
 
+/// An enumeration of the errors that can be thrown while interacting with an archive.
 public enum ArchiveError: Error, CustomStringConvertible {
     case unableToCreateArchive
     case noUnderlyingArchive
@@ -37,6 +38,7 @@ public enum ArchiveError: Error, CustomStringConvertible {
     case failedToDetectFormat
     case failedToExtractArchive(String)
 
+    /// Description of the error
     public var description: String {
         switch self {
         case .unableToCreateArchive:

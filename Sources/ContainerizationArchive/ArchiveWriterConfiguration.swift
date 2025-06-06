@@ -17,12 +17,25 @@
 
 import CArchive
 
+/// Represents the configuration settings for an `ArchiveWriter`.
+///
+/// This struct allows specifying the archive format, compression filter,
+/// various format-specific options, and preferred locales for string encoding.
 public struct ArchiveWriterConfiguration {
+     /// The desired archive format
     public var format: Format
+    /// The compression filter to apply to the archive
     public var filter: Filter
+    /// An array of format-specific options to apply to the archive.
+    /// This includes options like compression level and extended attribute format.
     public var options: [Options]
+    /// An array of preferred locale identifiers for string encoding
     public var locales: [String]
 
+
+    /// Initializes a new `ArchiveWriterConfiguration`.
+    ///
+    /// Sets up the configuration with the specified format, filter, options, and locales.
     public init(
         format: Format, filter: Filter, options: [Options] = [], locales: [String] = ["en_US.UTF-8", "C.UTF-8"]
     ) {
@@ -34,19 +47,19 @@ public struct ArchiveWriterConfiguration {
 }
 
 extension ArchiveWriter {
-    func setFormat(_ format: Format) throws {
+     internal func setFormat(_ format: Format) throws {
         guard let underlying = self.underlying else { throw ArchiveError.noUnderlyingArchive }
         let r = archive_write_set_format(underlying, format.code)
         guard r == ARCHIVE_OK else { throw ArchiveError.unableToSetFormat(r, format) }
     }
 
-    func addFilter(_ filter: Filter) throws {
+    internal func addFilter(_ filter: Filter) throws {
         guard let underlying = self.underlying else { throw ArchiveError.noUnderlyingArchive }
         let r = archive_write_add_filter(underlying, filter.code)
         guard r == ARCHIVE_OK else { throw ArchiveError.unableToAddFilter(r, filter) }
     }
 
-    func setOptions(_ options: [Options]) throws {
+    internal func setOptions(_ options: [Options]) throws {
         try options.forEach {
             switch $0 {
             case .compressionLevel(let level):
@@ -99,6 +112,7 @@ public enum Options {
     }
 }
 
+/// An enumeration of the supported archive formats.
 public enum Format: String, Sendable {
     /// POSIX-standard `ustar` archives
     case ustar
@@ -126,7 +140,7 @@ public enum Format: String, Sendable {
     /// XAR archives
     case xar
 
-    var code: CInt {
+    internal var code: CInt {
         switch self {
         case .ustar: return ARCHIVE_FORMAT_TAR_USTAR
         case .pax: return ARCHIVE_FORMAT_TAR_PAX_INTERCHANGE
@@ -147,7 +161,7 @@ public enum Format: String, Sendable {
     }
 }
 
-/// A filter (compression / encoding) to use when writing.
+/// An enumreration of the supported filters (compression / encoding standards) for an archive.
 public enum Filter: String, Sendable {
     case none
     case gzip
@@ -163,7 +177,7 @@ public enum Filter: String, Sendable {
     case grzip
     case lz4
 
-    var code: CInt {
+    internal var code: CInt {
         switch self {
         case .none: return ARCHIVE_FILTER_NONE
         case .gzip: return ARCHIVE_FILTER_GZIP

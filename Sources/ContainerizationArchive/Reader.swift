@@ -41,7 +41,7 @@ public final class ArchiveReader {
             .checkOk(elseThrow: { .unableToOpenArchive($0) })
     }
 
-    // Initialize the archive reader by trying to auto detect the archive and compression format
+    /// Initialize the archive reader by trying to auto detect the archive and compression format
     public init(file: URL) throws {
         self.underlying = archive_read_new()
         let fileHandle = try FileHandle(forReadingFrom: file)
