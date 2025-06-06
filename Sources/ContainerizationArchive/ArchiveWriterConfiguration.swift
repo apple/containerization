@@ -22,7 +22,7 @@ import CArchive
 /// This struct allows specifying the archive format, compression filter,
 /// various format-specific options, and preferred locales for string encoding.
 public struct ArchiveWriterConfiguration {
-     /// The desired archive format
+    /// The desired archive format
     public var format: Format
     /// The compression filter to apply to the archive
     public var filter: Filter
@@ -31,7 +31,6 @@ public struct ArchiveWriterConfiguration {
     public var options: [Options]
     /// An array of preferred locale identifiers for string encoding
     public var locales: [String]
-
 
     /// Initializes a new `ArchiveWriterConfiguration`.
     ///
@@ -47,7 +46,7 @@ public struct ArchiveWriterConfiguration {
 }
 
 extension ArchiveWriter {
-     internal func setFormat(_ format: Format) throws {
+    internal func setFormat(_ format: Format) throws {
         guard let underlying = self.underlying else { throw ArchiveError.noUnderlyingArchive }
         let r = archive_write_set_format(underlying, format.code)
         guard r == ARCHIVE_OK else { throw ArchiveError.unableToSetFormat(r, format) }

@@ -22,7 +22,7 @@ import Foundation
 public final class ArchiveWriter {
     var underlying: OpaquePointer!
     var delegate: FileArchiveWriterDelegate?
-    
+
     /// Initialize a new `ArchiveWriter` with the given configuration.
     /// This method attempts to initialize an empty archive in memory, failing which it throws a `unableToCreateArchive` error.
     public init(configuration: ArchiveWriterConfiguration) throws {
@@ -36,7 +36,7 @@ public final class ArchiveWriter {
         try addFilter(configuration.filter)
         try setOptions(configuration.options)
     }
-    
+
     /// Initialize a new `ArchiveWriter` with the given configuration and specifed delegate.
     private convenience init(configuration: ArchiveWriterConfiguration, delegate: FileArchiveWriterDelegate) throws {
         try self.init(configuration: configuration)
@@ -47,28 +47,27 @@ public final class ArchiveWriter {
     private convenience init(configuration: ArchiveWriterConfiguration, file: URL) throws {
         try self.init(configuration: configuration, delegate: FileArchiveWriterDelegate(url: file))
     }
-    
+
     /// Initialize a new `ArchiveWriter` for writing into the specified file with the given configuration options.
     public convenience init(format: Format, filter: Filter, options: [Options] = [], file: URL) throws {
         try self.init(
             configuration: .init(format: format, filter: filter), delegate: FileArchiveWriterDelegate(url: file))
     }
 
-    
     /// Opens the given file for writing data into
     public func open(file: URL) throws {
         guard let underlying = underlying else { throw ArchiveError.noUnderlyingArchive }
         let res = archive_write_open_filename(underlying, file.path)
         try wrap(res, ArchiveError.unableToOpenArchive, underlying: underlying)
     }
-    
+
     /// Opens the given fd for writing data into
     public func open(fileDescriptor: Int32) throws {
         guard let underlying = underlying else { throw ArchiveError.noUnderlyingArchive }
         let res = archive_write_open_fd(underlying, fileDescriptor)
         try wrap(res, ArchiveError.unableToOpenArchive, underlying: underlying)
     }
-        
+
     /// Performs any necessary finalizations on the archive and releases resources.
     public func finishEncoding() throws {
         if let u = underlying {

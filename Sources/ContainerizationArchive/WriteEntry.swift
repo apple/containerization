@@ -51,7 +51,7 @@ extension WriteEntry {
             }
         }
     }
-    
+
     /// The mode of the entry.
     public var permissions: mode_t {
         get {
@@ -61,7 +61,7 @@ extension WriteEntry {
             archive_entry_set_perm(underlying, newValue)
         }
     }
-    
+
     /// The owner id of the entry.
     public var owner: uid_t? {
         get {
@@ -81,7 +81,7 @@ extension WriteEntry {
             archive_entry_set_gid(underlying, Int64(newValue ?? 0))
         }
     }
-    
+
     /// The path of file this entry hardlinks to
     public var hardlink: String? {
         get {
@@ -100,7 +100,7 @@ extension WriteEntry {
             }
         }
     }
-    
+
     /// The UTF-8 encoded path of file this entry hardlinks to
     public var hardlinkUtf8: String? {
         get {
@@ -119,7 +119,7 @@ extension WriteEntry {
             }
         }
     }
-    
+
     /// The string representation of the permissions of the entry
     public var strmode: String? {
         if let cstr = archive_entry_strmode(underlying) {
@@ -127,7 +127,7 @@ extension WriteEntry {
         }
         return nil
     }
-    
+
     /// The type of file this entry represents.
     public var fileType: URLFileResourceType {
         get {
@@ -155,7 +155,7 @@ extension WriteEntry {
             }
         }
     }
-    
+
     /// The date that the entry was last accessed
     public var contentAccessDate: Date? {
         get {
@@ -189,7 +189,7 @@ extension WriteEntry {
                 archive_entry_unset_ctime)
         }
     }
-    
+
     /// The date that the entry was modified
     public var modificationDate: Date? {
         get {
@@ -206,7 +206,7 @@ extension WriteEntry {
                 archive_entry_unset_mtime)
         }
     }
-    
+
     /// The file path of the entry
     public var path: String? {
         get {
