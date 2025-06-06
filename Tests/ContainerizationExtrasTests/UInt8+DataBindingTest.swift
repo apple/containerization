@@ -17,8 +17,6 @@
 
 import Testing
 
-@testable import ContainerizationNetlink
-
 struct BufferTest {
     @Test func testBufferBind() throws {
         let expectedValue: UInt64 = 0x0102_0304_0506_0708
