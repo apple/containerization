@@ -52,8 +52,9 @@ struct IntegrationSuite: AsyncParsableCommand {
     }()
 
     private static var authentication: Authentication? {
-        guard let password = ProcessInfo.processInfo.environment["REGISTRY_TOKEN"],
-            let username = ProcessInfo.processInfo.environment["REGISTRY_USERNAME"]
+        let env = ProcessInfo.processInfo.environment
+        guard let password = env["REGISTRY_TOKEN"],
+            let username = env["REGISTRY_USERNAME"]
         else {
             return nil
         }

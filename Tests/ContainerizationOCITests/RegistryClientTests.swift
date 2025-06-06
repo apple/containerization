@@ -308,8 +308,8 @@ struct OCIClientTests: ~Copyable {
 
     static var authentication: Authentication? {
         let env = ProcessInfo.processInfo.environment
-        guard let password = ProcessInfo.processInfo.environment["REGISTRY_TOKEN"],
-            let username = ProcessInfo.processInfo.environment["REGISTRY_USERNAME"]
+        guard let password = env["REGISTRY_TOKEN"],
+            let username = env["REGISTRY_USERNAME"]
         else {
             return nil
         }
