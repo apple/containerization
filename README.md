@@ -101,6 +101,16 @@ Build Containerization from sources and run basic and integration tests:
 make all test integration
 ```
 
+A kernel is required to run integration tests.
+If you do not have a kernel locally for use a default kernel can be fetched using the `make fetch-default-kernel` target.
+
+Fetching the default kernel only needs to happen after an initial build or after a `make clean`.
+
+```bash
+make fetch-default-kernel
+make all test integration
+```
+
 ## Protobufs
 
 Containerization depends on specific versions of `grpc-swift` and `swift-protobuf`. You can install them and re-generate RPC interfaces with:

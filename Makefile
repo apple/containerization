@@ -84,13 +84,17 @@ test:
 	@$(SWIFT) test --enable-code-coverage
 
 .PHONY: integration
-integration: kernel-bin
+integration:
+ifeq (,$(wildcard bin/vmlinux))
+	@echo No bin/vmlinux kernel found. See fetch-default-kernel target.
+	@exit 1
+endif
 	@echo Running the integration tests...
 	@./bin/containerization-integration --bootlog ./bin/boot.log
 
-.PHONY: kernel-bin
-kernel-bin:
-	@mkdir -p .local/
+.PHONY: fetch-default-kernel
+fetch-default-kernel:
+	@mkdir -p .local/ bin/
 ifeq (,$(wildcard .local/kata.tar.gz))
 	@curl -SsL -o .local/kata.tar.gz ${KATA_BINARY_PACKAGE}
 endif

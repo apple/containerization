@@ -60,7 +60,8 @@ jobs:
           CURRENT_SDK: y
       - name: Test containerization
         run: | 
-          make test integration 
+          make fetch-default-kernel
+          make test integration
         env:
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REGISTRY_USERNAME: ${{ github.actor }}
