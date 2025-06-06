@@ -4,19 +4,19 @@ Email is not required.
 
 ### Contributors
 
-Aditya Ramani 
-Agam Dua 
-Danny Canter 
-Dmitry Kovba 
-Eric (ASE) Ernst 
-Evan Hazlett
-Gilbert Song 
-Hugh Bussell
-John (ASE) Logan 
-Kathryn Baldauf
-Madhu Venugopal 
-Michael Crosby 
-Sidhartha Mani 
-Tanweer Noor 
-Ximena Perez Diaz
-Yibo Zhuang
+Aditya Ramani (adityaramani)
+Agam Dua (agamdua)
+Danny Canter (dcantah)
+Dmitry Kovba (dkovba)
+Eric (ASE) Ernst (egernst)
+Evan Hazlett (ehazlett)
+Gilbert Song (gilbert88)
+Hugh Bussell (hughbussell)
+John (ASE) Logan (jglogan)
+Kathryn Baldauf (katiewasnothere)
+Madhu Venugopal (mavenugo)
+Michael Crosby (crosbymichael)
+Sidhartha Mani (wlan0)
+Tanweer Noor (tanweernoor)
+Ximena Perez Diaz (ximenanperez)
+Yibo Zhuang (yibozhuang)
