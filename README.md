@@ -4,6 +4,7 @@ The Containerization package allows applications to use Linux containers.
 Containerization is written in [Swift](https://www.swift.org) and uses [Virtualization.framework](https://developer.apple.com/documentation/virtualization) on Apple Silicon.
 
 Containerization provides APIs to:
+
 - Manage OCI images.
 - Interact with remote registries.
 - Create and populate ext4 file systems.
@@ -79,18 +80,21 @@ make cross-prep
 ```
 
 If you use a custom terminal application, you may need to move this command from `.zprofile` to `.zshrc` (replace `<USERNAME>`):
+
 ```bash
 # Added by swiftly
 . "/Users/<USERNAME>/.swiftly/env.sh"
 ```
 
 Restart the terminal application. Ensure this command returns `/Users/<USERNAME>/.swiftly/bin/swift` (replace `<USERNAME>`):
+
 ```bash
 which swift
 ```
 
 If you've installed or used a Static Linux SDK previously, you may need to remove older SDK versions from the system (replace `<SDK-ID>`):
-```
+
+```bash
 swift sdk list
 swift sdk remove <SDK-ID>
 ```
@@ -124,6 +128,6 @@ Preview the documentation by running in another terminal:
 open http://localhost:8000/documentation/
 ```
 
-## Contributing 
+## Contributing
 
 Contributions to Containerization are welcomed and encouraged. Please see [CONTRIBUTING.md](/CONTRIBUTING.md) for more information.
