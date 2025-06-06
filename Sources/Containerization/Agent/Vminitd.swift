@@ -42,12 +42,15 @@ public struct Vminitd: Sendable {
         self.client = .init(connection: connection, group: group)
     }
 
+    /// Close the connection to the guest agent.
     public func close() async throws {
         try await client.close()
     }
 }
 
 extension Vminitd: VirtualMachineAgent {
+    /// Perform the standard guest setup necessary for vminitd to be able to
+    /// run containers.
     public func standardSetup() async throws {
         try await up(name: "lo")
 

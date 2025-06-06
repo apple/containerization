@@ -16,6 +16,7 @@
 //===----------------------------------------------------------------------===//
 
 extension String {
+    /// Removes any prefix (sha256:) from a digest string.
     public var trimmingDigestPrefix: String {
         let split = self.split(separator: ":")
         if split.count == 2 {

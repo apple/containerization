@@ -19,11 +19,13 @@ import Crypto
 import Foundation
 
 extension SHA256.Digest {
+    /// Returns the digest as a string.
     public var digestString: String {
         let parts = self.description.split(separator: ": ")
         return "sha256:\(parts[1])"
     }
 
+    /// Returns the digest without a 'sha256:' prefix.
     public var encoded: String {
         let parts = self.description.split(separator: ": ")
         return String(parts[1])

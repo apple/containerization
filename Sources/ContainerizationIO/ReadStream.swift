@@ -56,6 +56,8 @@ public class ReadStream {
         self._data = data
     }
 
+    /// Resets the read stream. This either reassigns
+    /// the data buffer or url to a new InputStream internally.
     public func reset() throws {
         self._stream.close()
         if let url = self._url {
@@ -69,6 +71,7 @@ public class ReadStream {
         self._stream = InputStream(data: data)
     }
 
+    /// Get access to an `AsyncStream` of `ByteBuffer`'s from the input source.
     public var stream: AsyncStream<ByteBuffer> {
         AsyncStream { cont in
             self._stream.open()
@@ -91,6 +94,7 @@ public class ReadStream {
         }
     }
 
+    /// Get access to an `AsyncStream` of `Data` objects from the input source.
     public var dataStream: AsyncStream<Data> {
         AsyncStream { cont in
             self._stream.open()
@@ -113,11 +117,12 @@ public class ReadStream {
 }
 
 extension ReadStream {
-    enum Error: Swift.Error, CustomStringConvertible {
+    /// Errors that can be encountered while using a `ReadStream`.
+    public enum Error: Swift.Error, CustomStringConvertible {
         case failedToCreateStream
         case noSuchFileOrDirectory(_ p: URL)
 
-        var description: String {
+        public var description: String {
             switch self {
             case .failedToCreateStream:
                 return "failed to create stream"

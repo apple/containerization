@@ -147,6 +147,7 @@ public struct UnixType: SocketType, Sendable, CustomStringConvertible {
 }
 
 extension UnixType {
+    /// `UnixType` errors.
     public enum Error: Swift.Error, CustomStringConvertible {
         case nameTooLong(_: String)
 

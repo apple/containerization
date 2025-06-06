@@ -29,15 +29,19 @@ import ContainerizationExtras
 
 /// Type representing an OCI container image.
 public struct Image: Sendable {
-
     private let contentStore: ContentStore
     /// The description for the image that comprises of its name and a reference to its root descriptor.
     public let description: Description
 
+    /// A description of the OCI image.
     public struct Description: Sendable {
+        /// The string reference of the image.
         public let reference: String
+        /// The descriptor identifying the image.
         public let descriptor: Descriptor
+        /// The digest for the image.
         public var digest: String { descriptor.digest }
+        /// The media type of the image.
         public var mediaType: String { descriptor.mediaType }
 
         public init(reference: String, descriptor: Descriptor) {
@@ -46,9 +50,13 @@ public struct Image: Sendable {
         }
     }
 
+    /// The descriptor for the image.
     public var descriptor: Descriptor { description.descriptor }
+    /// The digest of the image.
     public var digest: String { description.digest }
+    /// The media type of the image.
     public var mediaType: String { description.mediaType }
+    /// The string reference for the image.
     public var reference: String { description.reference }
 
     public init(description: Description, contentStore: ContentStore) {
@@ -79,6 +87,8 @@ public struct Image: Sendable {
         return try content.decode()
     }
 
+    /// Returns the descriptor for the given platform. If it does not exist
+    /// will throw a ContainerizationError with the code set to .invalidArgument.
     public func descriptor(for platform: Platform) async throws -> Descriptor {
         let index = try await self.index()
         let desc = index.manifests.first { $0.platform == platform }

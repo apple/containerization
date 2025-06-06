@@ -34,6 +34,8 @@ public struct BasicAuthentication: Authentication {
         self.password = password
     }
 
+    /// Get a token using the provided username and password. This will be a
+    /// base64 encoded string of the username and password delimited by a colon.
     public func token() async throws -> String {
         let credentials = "\(username):\(password)"
         if let authenticationData = credentials.data(using: .utf8)?.base64EncodedString() {
@@ -42,6 +44,7 @@ public struct BasicAuthentication: Authentication {
         throw Error.invalidCredentials
     }
 
+    /// `BasicAuthentication` errors.
     public enum Error: Swift.Error {
         case invalidCredentials
     }

@@ -28,7 +28,7 @@ public protocol Content: Sendable {
     /// sha256 of content
     func digest() throws -> SHA256.Digest
 
-    /// size of content
+    /// Size of content
     func size() throws -> UInt64
 
     /// Data represenatation of entire content

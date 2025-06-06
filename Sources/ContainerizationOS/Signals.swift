@@ -19,10 +19,13 @@ import Foundation
 
 /// Helper type with utilities to parse and manipulate unix signals.
 public struct Signals {
+    /// Returns the numeric values of all known signals.
     public static func allNumeric() -> [Int32] {
         Array(Signals.all.values)
     }
 
+    /// Parses a string representation of a signal (SIGKILL) and returns
+    // the 32 bit integer representation (9).
     public static func parseSignal(_ signal: String) throws -> Int32 {
         if let sig = Int32(signal) {
             if !Signals.all.values.contains(sig) {
@@ -38,6 +41,7 @@ public struct Signals {
         return sig
     }
 
+    /// Errors that can be encountered for converting signals.
     public enum Error: Swift.Error, CustomStringConvertible {
         case invalidSignal(String)
 
@@ -53,7 +57,7 @@ public struct Signals {
 #if os(macOS)
 
 extension Signals {
-    /// all returns all signals for the current platform.
+    /// `all` returns all signals for the current platform.
     public static let all: [String: Int32] = [
         "ABRT": SIGABRT,
         "ALRM": SIGALRM,
@@ -95,7 +99,10 @@ extension Signals {
 #if os(Linux)
 
 extension Signals {
-    /// all returns all signals for the current platform.
+    /// `all` returns all signals for the current platform.
+    ///
+    /// For Linux this isn't actually exhaustive as it excludes
+    /// rtmin/rtmax entries.
     public static let all: [String: Int32] = [
         "ABRT": SIGABRT,
         "ALRM": SIGALRM,

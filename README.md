@@ -38,6 +38,15 @@ Applications built using the package will run on macOS Sequoia or later, but the
 
 - Non-isolated container networking - with macOS Sequoia, containers on the same vmnet network cannot communicate with each other
 
+## Example Usage
+
+For examples of how to use some of the libraries surface, the cctl executable is a good start. This tools primary job is as a playground to trial out the API. It contains commands that exercise some of the core functionality of the various products, such as:
+
+1. [Manipulating OCI images](./Sources/cctl/ImageCommand.swift)
+2. [Logging in to container registries](./Sources/cctl/LoginCommand.swift)
+3. [Creating root filesystem blocks](./Sources/cctl/RootfsCommand.swift)
+4. [Running simple Linux containers](./Sources/cctl/RunCommand.swift)
+
 ## Linux kernel
 
 A Linux kernel is required for spawning light weight virtual machines on macOS.

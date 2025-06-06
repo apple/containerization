@@ -18,7 +18,7 @@
 import Foundation
 
 extension URL {
-    /// returns the unescaped absolutePath of a URL joined by separator
+    /// Returns the unescaped absolutePath of a URL joined by separator.
     public func absolutePath() -> String {
         #if os(macOS)
         return self.path(percentEncoded: false)
@@ -27,6 +27,7 @@ extension URL {
         #endif
     }
 
+    /// Returns the domain name of a registry.
     public var domain: String? {
         guard let host = self.absoluteString.split(separator: ":").first else {
             return nil

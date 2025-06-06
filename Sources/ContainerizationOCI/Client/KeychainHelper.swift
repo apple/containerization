@@ -90,6 +90,7 @@ public struct KeychainHelper: Sendable {
 }
 
 extension KeychainHelper {
+    /// `KeychainHelper` errors.
     public enum Error: Swift.Error {
         case keyNotFound
         case invalidInput

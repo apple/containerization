@@ -20,8 +20,11 @@
 /// Most API surfaces for the core container/process/agent types will
 /// return a ContainerizationError.
 public struct ContainerizationError: Swift.Error, Sendable {
+    /// A code describing the error encountered.
     public var code: Code
+    /// A description of the error.
     public var message: String
+    /// The original error which led to this error being thrown.
     public var cause: (any Error)?
 
     /// Creates a new error.
@@ -48,21 +51,25 @@ public struct ContainerizationError: Swift.Error, Sendable {
         self.cause = cause
     }
 
+    /// Provides a unique hash of the error.
     public func hash(into hasher: inout Hasher) {
         hasher.combine(self.code)
         hasher.combine(self.message)
     }
 
+    /// Equality operator for the error. Uses the code and message.
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.code == rhs.code && lhs.message == rhs.message
     }
 
+    /// Checks if the given error has the provided code.
     public func isCode(_ code: Code) -> Bool {
         self.code == code
     }
 }
 
 extension ContainerizationError: CustomStringConvertible {
+    /// Description of the error.
     public var description: String {
         guard let cause = self.cause else {
             return "\(self.code): \"\(self.message)\""
@@ -72,6 +79,7 @@ extension ContainerizationError: CustomStringConvertible {
 }
 
 extension ContainerizationError {
+    /// Codes for a `ContainerizationError`.
     public struct Code: Sendable, Hashable {
         private enum Value: Hashable, Sendable, CaseIterable {
             case unknown

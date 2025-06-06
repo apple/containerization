@@ -27,10 +27,15 @@ import NIOHTTP1
 import Network
 #endif
 
+/// Data used to control retry behavior for `RegistryClient`.
 public struct RetryOptions: Sendable {
-    let maxRetries: Int
-    let retryInterval: UInt64
-    let shouldRetry: (@Sendable (HTTPClientResponse) -> Bool)?
+    /// The maximum number of retries to attempt before failing.
+    public var maxRetries: Int
+    /// The retry interval in nanoseconds.
+    public var retryInterval: UInt64
+    /// A provided closure to handle if a given HTTP response should be
+    /// retried.
+    public var shouldRetry: (@Sendable (HTTPClientResponse) -> Bool)?
 
     public init(maxRetries: Int, retryInterval: UInt64, shouldRetry: (@Sendable (HTTPClientResponse) -> Bool)? = nil) {
         self.maxRetries = maxRetries
@@ -39,6 +44,7 @@ public struct RetryOptions: Sendable {
     }
 }
 
+/// A client for interacting with OCI compliant container registries.
 public final class RegistryClient: ContentClient {
     private static let defaultRetryOptions = RetryOptions(
         maxRetries: 3,

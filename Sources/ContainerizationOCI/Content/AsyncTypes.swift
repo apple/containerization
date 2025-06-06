@@ -15,43 +15,43 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-public actor AsyncStore<T> {
+package actor AsyncStore<T> {
     private var _value: T?
 
-    public init(_ value: T? = nil) {
+    package init(_ value: T? = nil) {
         self._value = value
     }
 
-    public func get() -> T? {
+    package func get() -> T? {
         self._value
     }
 
-    public func set(_ value: T) {
+    package func set(_ value: T) {
         self._value = value
     }
 }
 
-public actor AsyncSet<T: Hashable> {
+package actor AsyncSet<T: Hashable> {
     private var buffer: Set<T>
 
-    public init<S: Sequence>(_ elements: S) where S.Element == T {
+    package init<S: Sequence>(_ elements: S) where S.Element == T {
         buffer = Set(elements)
     }
 
-    public var count: Int {
+    package var count: Int {
         buffer.count
     }
 
-    public func insert(_ element: T) {
+    package func insert(_ element: T) {
         buffer.insert(element)
     }
 
     @discardableResult
-    public func remove(_ element: T) -> T? {
+    package func remove(_ element: T) -> T? {
         buffer.remove(element)
     }
 
-    public func contains(_ element: T) -> Bool {
+    package func contains(_ element: T) -> Bool {
         buffer.contains(element)
     }
 }

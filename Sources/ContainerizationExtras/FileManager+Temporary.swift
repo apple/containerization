@@ -18,6 +18,7 @@
 import Foundation
 
 extension FileManager {
+    /// Returns a unique temporary directory to use.
     public func uniqueTemporaryDirectory(create: Bool = true) -> URL {
         let tempDirectoryURL = temporaryDirectory
         let uniqueDirectoryURL = tempDirectoryURL.appendingPathComponent(UUID().uuidString)

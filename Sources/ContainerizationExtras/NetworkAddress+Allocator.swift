@@ -96,6 +96,7 @@ extension UInt32 {
 extension Character {
     private static let deviceLetters = Array("abcdefghijklmnopqrstuvwxyz")
 
+    /// Creates an allocator for block device tags, or any character values.
     public static func blockDeviceTagAllocator() -> any AddressAllocator<Character> {
         IndexedAddressAllocator(
             size: Self.deviceLetters.count,

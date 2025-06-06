@@ -27,17 +27,19 @@ import Darwin
 
 /// Protocol used to describe the family of socket to be created with `Socket`.
 public protocol SocketType: Sendable, CustomStringConvertible {
+    /// The domain for the socket (AF_UNIX, AF_VSOCK etc.)
     var domain: Int32 { get }
+    /// The type of socket (SOCK_STREAM).
     var type: Int32 { get }
 
-    // Different socket types may want to expose things to do
-    // before bind and listen. UDS for example may want to change
-    // the permissions of the socket prior to bind/listen and also
-    // possibly unlink an existing socket before bind.
+    /// Actions to perform before calling bind(2).
     func beforeBind(fd: Int32) throws
+    /// Actions to perform before calling listen(2).
     func beforeListen(fd: Int32) throws
 
+    /// Handle accept(2) for an implementation of a socket type.
     func accept(fd: Int32) throws -> (Int32, SocketType)
+    /// Provide a sockaddr pointer (by casting a socket specific type like sockaddr_un for example).
     func withSockAddr(_ closure: (_ ptr: UnsafePointer<sockaddr>, _ len: UInt32) throws -> Void) throws
 }
 

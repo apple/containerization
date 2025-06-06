@@ -18,9 +18,11 @@
 import NIOHTTP1
 
 extension RegistryClient {
+    /// `RegistryClient` errors.
     public enum Error: Swift.Error, CustomStringConvertible {
         case invalidStatus(url: String, HTTPResponseStatus)
 
+        /// Description of the errors.
         public var description: String {
             switch self {
             case .invalidStatus(let u, let response):

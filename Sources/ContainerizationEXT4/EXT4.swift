@@ -297,6 +297,7 @@ public enum EXT4 {
 }
 
 extension EXT4 {
+    // `EXT4` errors.
     public enum Error: Swift.Error, CustomStringConvertible, Sendable, Equatable {
         case notFound(_ path: String)
         case couldNotReadSuperBlock(_ path: String, _ offset: UInt64, _ size: Int)

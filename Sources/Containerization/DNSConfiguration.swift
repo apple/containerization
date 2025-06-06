@@ -18,11 +18,17 @@
 /// DNS configuration for a container. The values will be used to
 /// construct /etc/resolv.conf for a given container.
 public struct DNS: Sendable {
+    /// The set of default nameservers to use if none are provided
+    /// in the constructor.
     public static let defaultNameservers = ["1.1.1.1"]
 
+    /// The nameservers a container should use.
     public var nameservers: [String]
+    /// The DNS domain to use.
     public var domain: String?
+    /// The DNS search domains to use.
     public var searchDomains: [String]
+    /// The DNS options to use.
     public var options: [String]
 
     public init(

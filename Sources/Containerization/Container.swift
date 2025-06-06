@@ -17,10 +17,12 @@
 
 /// The core protocol container implementations must implement.
 public protocol Container {
+    /// ID for the container.
     var id: String { get }
-
+    /// The amount of cpus assigned to the container.
     var cpus: Int { get }
+    /// The memory in bytes assigned to the container.
     var memoryInBytes: UInt64 { get }
-
+    /// The network interfaces assigned to the container.
     var interfaces: [any Interface] { get }
 }

@@ -197,6 +197,7 @@ extension Mount {
         return mountOpts
     }
 
+    /// `Mount` errors
     public enum Error: Swift.Error, CustomStringConvertible {
         case errno(Int32, String)
         case validation(String)

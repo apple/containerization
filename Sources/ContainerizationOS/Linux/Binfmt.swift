@@ -25,10 +25,14 @@ import Glibc
 private let _mount = Glibc.mount
 #endif
 
-/// Small utility to mount or create new binfmt_misc entries.
+/// `Binfmt` is a utlity type that contains static helpers and types for
+/// mounting the Linux binfmt_misc filesystem, and creating new binfmt entries.
 public struct Binfmt: Sendable {
+    /// Default mount path for binfmt_misc.
     public static let path = "/proc/sys/fs/binfmt_misc"
 
+    /// Entry models a binfmt_misc entry.
+    /// https://docs.kernel.org/admin-guide/binfmt-misc.html
     public struct Entry {
         public var name: String
         public var type: String
@@ -53,6 +57,7 @@ public struct Binfmt: Sendable {
             self.flags = flags
         }
 
+        /// Returns a binfmt `Entry` for amd64 ELF binaries.
         public static func amd64() -> Self {
             Binfmt.Entry(
                 name: "x86_64",
@@ -62,6 +67,7 @@ public struct Binfmt: Sendable {
         }
 
         #if os(Linux)
+        /// Register the passed in `binaryPath` as the interpreter for a new binfmt_misc entry.
         public func register(binaryPath: String) throws {
             let registration = ":\(self.name):\(self.type):\(self.offset):\(self.magic):\(self.mask):\(binaryPath):\(self.flags)"
 
@@ -72,7 +78,8 @@ public struct Binfmt: Sendable {
             )
         }
 
-        public func unregister() throws {
+        /// Deregister the binfmt_misc entry described by the current object.
+        public func deregister() throws {
             let data = "-1"
             try data.write(
                 to: URL(fileURLWithPath: Binfmt.path).appendingPathComponent(self.name),
@@ -89,6 +96,7 @@ public struct Binfmt: Sendable {
         FileManager.default.fileExists(atPath: "\(Self.path)/register")
     }
 
+    /// Mount the binfmt_misc filesystem.
     public static func mount() throws {
         guard _mount("binfmt_misc", Self.path, "binfmt_misc", 0, "") == 0 else {
             throw POSIXError.fromErrno()

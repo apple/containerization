@@ -32,6 +32,7 @@ public protocol AddressAllocator<AddressType>: Sendable {
     func disableAllocator() -> Bool
 }
 
+/// Errors that a type implementing AddressAllocator should throw.
 public enum AllocatorError: Swift.Error, CustomStringConvertible, Equatable {
     case allocatorDisabled
     case allocatorFull

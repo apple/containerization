@@ -18,10 +18,10 @@
 import Foundation
 import Synchronization
 
-/// Async friendly wrapper around DispatchSourceSignal. Provides an AsyncStream
+/// Async friendly wrapper around `DispatchSourceSignal`. Provides an `AsyncStream`
 /// interface to get notified of received signals.
 public final class AsyncSignalHandler: Sendable {
-    /// An async stream that returns the signal that was caught, if ever
+    /// An async stream that returns the signal that was caught, if ever.
     public var signals: AsyncStream<Int32> {
         let (stream, cont) = AsyncStream.makeStream(of: Int32.self)
         self.state.withLock {

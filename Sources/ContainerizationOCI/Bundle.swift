@@ -31,24 +31,43 @@ private let _umount = Glibc.umount2
 /// `Bundle` represents an OCI runtime spec bundle for running
 /// a container.
 public struct Bundle: Sendable {
+    /// The path to the bundle.
     public let path: URL
 
+    /// The path to the OCI runtime spec config.json file.
     public var configPath: URL {
         self.path.appending(path: "config.json")
     }
 
+    /// The path to a rootfs mount inside the bundle.
     public var rootfsPath: URL {
         self.path.appending(path: "rootfs")
     }
 
+    /// Create the OCI bundle.
+    ///
+    /// - Parameters:
+    ///   - path: A URL pointing to where to create the bundle on the filesystem.
+    ///   - spec: A data blob that should contain an OCI runtime spec. This will be written
+    ///           to the bundle as a "config.json" file.
     public static func create(path: URL, spec: Data) throws -> Bundle {
         try self.init(path: path, spec: spec)
     }
 
+    /// Create the OCI bundle.
+    ///
+    /// - Parameters:
+    ///   - path: A URL pointing to where to create the bundle on the filesystem.
+    ///   - spec: An OCI runtime spec that will be written to the bundle as a "config.json"
+    ///           file.
     public static func create(path: URL, spec: ContainerizationOCI.Spec) throws -> Bundle {
         try self.init(path: path, spec: spec)
     }
 
+    /// Load an OCI bundle from the provided path.
+    ///
+    /// - Parameters:
+    ///   - path: A URL pointing to where to load the bundle from on the filesystem.
     public static func load(path: URL) throws -> Bundle {
         try self.init(path: path)
     }
@@ -88,6 +107,7 @@ public struct Bundle: Sendable {
         try specData.write(to: self.configPath)
     }
 
+    /// Delete the OCI bundle from the filesystem.
     public func delete() throws {
         // Unmount, and then blow away the dir.
         #if os(Linux)
@@ -101,6 +121,7 @@ public struct Bundle: Sendable {
         try fm.removeItem(at: self.path)
     }
 
+    /// Load and return the OCI runtime spec written to the bundle.
     public func loadConfig() throws -> ContainerizationOCI.Spec {
         let data = try Data(contentsOf: self.configPath)
         return try JSONDecoder().decode(ContainerizationOCI.Spec.self, from: data)

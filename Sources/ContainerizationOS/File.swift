@@ -19,6 +19,7 @@ import Foundation
 
 /// Trivial type to discover information about a given file (uid, gid, mode...).
 public struct File: Sendable {
+    /// `File` errors.
     public enum Error: Swift.Error, CustomStringConvertible {
         case errno(_ e: Int32)
 
@@ -29,10 +30,17 @@ public struct File: Sendable {
             }
         }
     }
+
+    /// Returns a `FileInfo` struct with information about the file.
+    /// - Parameters:
+    ///   - url: The path to the file.
     public static func info(_ url: URL) throws -> FileInfo {
         try info(url.path)
     }
 
+    /// Returns a `FileInfo` struct with information about the file.
+    /// - Parameters:
+    ///   - path: The path to the file as a string.
     public static func info(_ path: String) throws -> FileInfo {
         var st = stat()
         guard stat(path, &st) == 0 else {
@@ -42,6 +50,8 @@ public struct File: Sendable {
     }
 }
 
+/// `FileInfo` holds and provides easy access to stat(2) data
+/// for a file.
 public struct FileInfo: Sendable {
     private let _stat_t: Foundation.stat
     private let _path: String
@@ -51,58 +61,72 @@ public struct FileInfo: Sendable {
         self._stat_t = stat
     }
 
+    /// mode_t for the file.
     public var mode: mode_t {
         self._stat_t.st_mode
     }
 
+    /// The files uid.
     public var uid: Int {
         Int(self._stat_t.st_uid)
     }
 
+    /// The files gid.
     public var gid: Int {
         Int(self._stat_t.st_gid)
     }
 
+    /// The filesystem ID the file belongs to.
     public var dev: Int {
         Int(self._stat_t.st_dev)
     }
 
+    /// The files inode number.
     public var ino: Int {
         Int(self._stat_t.st_ino)
     }
 
+    /// The size of the file.
     public var size: Int {
         Int(self._stat_t.st_size)
     }
 
+    /// The path to the file.
     public var path: String {
         self._path
     }
 
+    /// Returns if the file is a directory.
     public var isDirectory: Bool {
         mode & S_IFMT == S_IFDIR
     }
 
+    /// Returns if the file is a pipe.
     public var isPipe: Bool {
         mode & S_IFMT == S_IFIFO
     }
 
+    /// Returns if the file is a socket.
     public var isSocket: Bool {
         mode & S_IFMT == S_IFSOCK
     }
 
+    /// Returns if the file is a link.
     public var isLink: Bool {
         mode & S_IFMT == S_IFLNK
     }
 
+    /// Returns if the file is a regular file.
     public var isRegularFile: Bool {
         mode & S_IFMT == S_IFREG
     }
 
+    /// Returns if the file is a block device.
     public var isBlock: Bool {
         mode & S_IFMT == S_IFBLK
     }
 
+    /// Returns if the file is a character device.
     public var isChar: Bool {
         mode & S_IFMT == S_IFCHR
     }
