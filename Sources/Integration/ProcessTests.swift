@@ -155,6 +155,71 @@ extension IntegrationSuite {
         }
     }
 
+    func testMultipleConcurrentProcessesOutput() async throws {
+        let id = "test-concurrent-processes-output"
+
+        let bs = try await bootstrap()
+        let container = LinuxContainer(
+            id,
+            rootfs: bs.rootfs,
+            vmm: bs.vmm
+        )
+        container.arguments = ["/bin/sleep", "1000"]
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let execConfig = ContainerizationOCI.Process(
+                args: ["/bin/echo", "hi"],
+                env: ["PATH=\(LinuxContainer.defaultPath)"]
+            )
+
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for i in 0...80 {
+                    let idx = i
+                    group.addTask {
+                        let buffer = BufferWriter()
+
+                        var config = execConfig
+                        config.args[1] = "hi\(idx)"
+
+                        let exec = try await container.exec(
+                            "exec-\(idx)",
+                            configuration: config,
+                            stdout: buffer,
+                        )
+                        try await exec.start()
+
+                        let status = try await exec.wait()
+                        if status != 0 {
+                            throw IntegrationError.assert(msg: "process status \(status) != 0")
+                        }
+
+                        let output = String(data: buffer.data, encoding: .utf8)
+                        guard output == "hi\(idx)\n" else {
+                            throw IntegrationError.assert(
+                                msg: "process should have returned on stdout 'hi\(idx)' != '\(output!))")
+                        }
+                        try await exec.delete()
+                    }
+                }
+
+                // wait for all the exec'd processes.
+                try await group.waitForAll()
+                print("all group processes exit")
+
+                // kill the init process.
+                try await container.kill(SIGKILL)
+                let status = try await container.wait()
+                try await container.stop()
+                print("\(status)")
+            }
+        } catch {
+            throw error
+        }
+    }
+
     func testProcessUser() async throws {
         let id = "test-process-user"
 

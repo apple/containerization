@@ -201,10 +201,11 @@ struct IntegrationSuite: AsyncParsableCommand {
             "process false": testProcessFalse,
             "process echo hi": testProcessEchoHi,
             "process user": testProcessUser,
-            "test multiple concurrent processes": testMultipleConcurrentProcesses,
-            "test container hostname": testHostname,
-            "test container mount": testMounts,
-            "test nested virt": testNestedVirtualizationEnabled,
+            "multiple concurrent processes": testMultipleConcurrentProcesses,
+            "multiple concurrent processes with output": testMultipleConcurrentProcessesOutput,
+            "container hostname": testHostname,
+            "container mount": testMounts,
+            "nested virt": testNestedVirtualizationEnabled,
         ]
 
         var passed = 0
