@@ -71,15 +71,21 @@ public final class LinuxProcess: Sendable {
         var stdout: FileHandle?
         var stderr: FileHandle?
 
-        func close() throws {
+        mutating func close() throws {
             if let stdin {
                 try stdin.close()
+                stdin.readabilityHandler = nil
+                self.stdin = nil
             }
             if let stdout {
                 try stdout.close()
+                stdout.readabilityHandler = nil
+                self.stdout = nil
             }
             if let stderr {
                 try stderr.close()
+                stderr.readabilityHandler = nil
+                self.stderr = nil
             }
         }
     }
@@ -194,6 +200,7 @@ extension LinuxProcess {
                                 try handle.write(contentsOf: data)
                             } catch {
                                 self.logger?.error("failed to write to stdin: \(error)")
+                                return
                             }
                         }
                     }
@@ -208,7 +215,12 @@ extension LinuxProcess {
                 // as it always allocates. We can likely do the read loop ourselves
                 // with a buffer we allocate once on creation of the process.
                 do {
-                    try stdout.writer.write(handle.availableData)
+                    let data = handle.availableData
+                    if data.isEmpty {
+                        handles[1]?.readabilityHandler = nil
+                        return
+                    }
+                    try stdout.writer.write(data)
                 } catch {
                     self.logger?.error("failed to write to stdout: \(error)")
                 }
@@ -218,7 +230,12 @@ extension LinuxProcess {
         if let stderr = self.ioSetup.stderr {
             handles[2]?.readabilityHandler = { handle in
                 do {
-                    try stderr.writer.write(handle.availableData)
+                    let data = handle.availableData
+                    if data.isEmpty {
+                        handles[2]?.readabilityHandler = nil
+                        return
+                    }
+                    try stderr.writer.write(data)
                 } catch {
                     self.logger?.error("failed to write to stderr: \(error)")
                 }
@@ -334,5 +351,8 @@ extension LinuxProcess {
             $0.stdinRelay?.cancel()
             try $0.stdio.close()
         }
+
+        // Finally, close our agent conn.
+        try await self.agent.close()
     }
 }
