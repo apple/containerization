@@ -1,7 +1,7 @@
 # Containerization
 
 The Containerization package allows applications to use Linux containers.
-Containerization is written in [Swift](https://www.swift.org) and uses [Virtualization.framework](https://developer.apple.com/documentation/virtualization) on Apple Silicon.
+Containerization is written in [Swift](https://www.swift.org) and uses [Virtualization.framework](https://developer.apple.com/documentation/virtualization) on Apple silicon.
 
 Containerization provides APIs to:
 
@@ -13,7 +13,7 @@ Containerization provides APIs to:
 - Spawn lightweight virtual machines.
 - Manage the runtime environment of virtual machines.
 - Spawn and interact with containerized processes.
-- Use Rosetta 2 for executing x86_64 processes on Apple Silicon.
+- Use Rosetta 2 for executing x86_64 processes on Apple silicon.
 
 Please view the [API documentation]() for information on the Swift packages that Containerization provides.
 
@@ -28,7 +28,7 @@ The API allows the runtime environment to be configured and containerized proces
 
 ## Requirements
 
-You need an Apple Silicon Mac to build and run Containerization.
+You need an Apple silicon Mac to build and run Containerization.
 
 To build the Containerization package, your system needs either:
 
