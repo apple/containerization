@@ -85,7 +85,7 @@ extension App {
         }
 
         guard execvpe(executable, argv, env) != -1 else {
-            throw App.Errno(stage: "execvpe(\(String(describing: executable)))", info: "Failed to exec [\(process.args[1...].joined(separator: " "))]")
+            throw App.Errno(stage: "execvpe(\(String(describing: executable)))", info: "Failed to exec [\(process.args.joined(separator: " "))]")
         }
         fatalError("execvpe failed")
     }
