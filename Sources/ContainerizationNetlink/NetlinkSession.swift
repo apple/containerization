@@ -23,6 +23,7 @@ import Logging
 /// core high-level type offered to perform actions to the netlink surface in the kernel.
 public struct NetlinkSession {
     private static let receiveDataLength = 65536
+    private static let mtu: UInt32 = 1280
     private let socket: any NetlinkSocket
     private let log: Logger
 
@@ -70,7 +71,9 @@ public struct NetlinkSession {
     public func linkSet(interface: String, up: Bool) throws {
         // ip link set dev [interface] [up|down]
         let interfaceIndex = try getInterfaceIndex(interface)
-        let requestSize = NetlinkMessageHeader.size + InterfaceInfo.size
+        let mtuAttr = RTAttribute(
+            len: UInt16(RTAttribute.size + MemoryLayout<UInt32>.size), type: LinkAttributeType.IFLA_MTU)
+        let requestSize = NetlinkMessageHeader.size + InterfaceInfo.size + mtuAttr.paddedLen
         var requestBuffer = [UInt8](repeating: 0, count: requestSize)
         var requestOffset = 0
 
@@ -88,6 +91,17 @@ public struct NetlinkSession {
             flags: flags,
             change: InterfaceFlags.DEFAULT_CHANGE)
         requestOffset = try requestInfo.appendBuffer(&requestBuffer, offset: requestOffset)
+
+        requestOffset = try mtuAttr.appendBuffer(&requestBuffer, offset: requestOffset)
+        guard
+            let newRequestOffset = requestBuffer.copyIn(
+                as: UInt32.self,
+                value: Self.mtu,
+                offset: requestOffset)
+        else {
+            throw NetlinkDataError.sendMarshalFailure
+        }
+        requestOffset = newRequestOffset
 
         guard requestOffset == requestSize else {
             throw Error.unexpectedOffset(offset: requestOffset, size: requestSize)

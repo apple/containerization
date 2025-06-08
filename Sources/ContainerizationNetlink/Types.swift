@@ -78,6 +78,7 @@ struct InterfaceFlags {
 
 struct LinkAttributeType {
     static let IFLA_EXT_IFNAME: UInt16 = 3
+    static let IFLA_MTU: UInt16 = 4
     static let IFLA_EXT_MASK: UInt16 = 29
 }
 

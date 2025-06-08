@@ -36,7 +36,7 @@ struct NetlinkSessionTest {
         ])
 
         // Network down for interface.
-        let expectedDownRequest = "2000000010000500000000000cc00cc0110000000200000000000000ffffffff"
+        let expectedDownRequest = "2800000010000500000000000cc00cc0110000000200000000000000ffffffff0800040000050000"
         mockSocket.responses.append([
             0x24, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x01,
             0x00, 0x00, 0x00, 0x00, 0x0c, 0xc0, 0x0c, 0xc0,
@@ -71,7 +71,7 @@ struct NetlinkSessionTest {
         ])
 
         // Network up for interface.
-        let expectedUpRequest = "200000001000050000000000c00cc00c110000000200000001000000ffffffff"
+        let expectedUpRequest = "280000001000050000000000c00cc00c110000000200000001000000ffffffff0800040000050000"
         mockSocket.responses.append([
             0x24, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x01,
             0x00, 0x00, 0x00, 0x00, 0xc0, 0x0c, 0xc0, 0x0c,
