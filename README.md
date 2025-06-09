@@ -71,7 +71,7 @@ The [Kata Containers](https://github.com/kata-containers/kata-containers) projec
 
 A kernel image named `vmlinux.container` can be found in the `/opt/kata/share/kata-containers/` directory of the release artifacts.
 
-## Build the package
+## Prepare to build package
 
 Install Swiftly, [Swift](https://www.swift.org), and [Static Linux SDK](https://www.swift.org/documentation/articles/static-linux-getting-started.html):
 
@@ -99,10 +99,20 @@ swift sdk list
 swift sdk remove <SDK-ID>
 ```
 
-Build Containerization from sources and run basic and integration tests:
+## Build the package
+
+Build Containerization from sources:
 
 ```bash
-make all test integration
+make all
+```
+
+## Test the package
+
+After building, run basic and integration tests:
+
+```bash
+make test integration
 ```
 
 A kernel is required to run integration tests.
