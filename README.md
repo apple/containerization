@@ -35,9 +35,9 @@ To build the Containerization package, your system needs either:
 - macOS 15 or newer and Xcode 17 beta
 - macOS 16 Developer Preview.
 
-Applications built using the package will run on macOS Sequoia or later, but the following features are not available on macOS Sequoia:
+Applications built using the package will run on macOS 15 or later, but the following features are not available on macOS 15:
 
-- Non-isolated container networking - with macOS Sequoia, containers on the same vmnet network cannot communicate with each other
+- Non-isolated container networking - with macOS 15, containers on the same vmnet network cannot communicate with each other
 
 ## Example Usage
 
