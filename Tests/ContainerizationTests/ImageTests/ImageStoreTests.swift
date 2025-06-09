@@ -72,6 +72,14 @@ public class ImageStoreTests: ContainsAuth {
 
         let tempFile = self.dir.appending(path: "export.tar")
         try await self.store.save(references: [imageReference, expectedLoadedImage], out: tempFile)
+    }
+
+    @Test(.disabled("External users cannot push images, disable while we find a better solution"))
+    func testImageStorePush() async throws {
+        guard let authentication = Self.authentication else {
+            return
+        }
+        let imageReference = "ghcr.io/apple/containerization/dockermanifestimage:0.0.2"
 
         let remoteImageName = "ghcr.io/apple/test-images/image-push"
         let epoch = Int(Date().timeIntervalSince1970.description)

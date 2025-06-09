@@ -166,7 +166,7 @@ struct OCIClientTests: ~Copyable {
         #expect(done)
     }
 
-    @Test(.enabled(if: hasRegistryCredentials))
+    @Test(.disabled("External users cannot push images, disable while we find a better solution"))
     func pushIndex() async throws {
         let client = RegistryClient(host: "ghcr.io", authentication: Self.authentication)
         let indexDescriptor = try await client.resolve(name: "apple/containerization/emptyimage", tag: "0.0.1")
