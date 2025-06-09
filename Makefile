@@ -129,8 +129,11 @@ check-licenses:
 
 .PHONY: serve-docs
 serve-docs:
-	@echo 'to browse: open http://127.0.0.1:8000/documentation/'
-	@python3 -m http.server --bind 127.0.0.1 --directory ./_site
+	@echo 'to browse: open http://127.0.0.1:8000/containerization/documentation/'
+	@rm -rf _serve
+	@mkdir -p _serve
+	@cp -a _site _serve/containerization
+	@python3 -m http.server --bind 127.0.0.1 --directory ./_serve
 
 .PHONY: docs
 docs: _site
@@ -138,7 +141,7 @@ docs: _site
 _site:
 	@echo Updating API documentation...
 	rm -rf $@
-	@scripts/make-docs.sh $@
+	@scripts/make-docs.sh $@ containerization
 
 .PHONY: cleancontent
 cleancontent:
@@ -150,5 +153,6 @@ clean:
 	@echo Cleaning the build files...
 	@rm -rf bin/
 	@rm -rf _site/
+	@rm -rf _serve/
 	@$(SWIFT) package clean
 	@"$(MAKE)" -C vminitd clean
