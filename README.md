@@ -50,7 +50,7 @@ For examples of how to use some of the libraries surface, the cctl executable is
 
 ## Linux kernel
 
-A Linux kernel is required for spawning light weight virtual machines on macOS.
+A Linux kernel is required for spawning lightweight virtual machines on macOS.
 Containerization provides an optimized kernel configuration located in the [kernel](./kernel) directory.
 
 This directory includes a containerized build environment to easily compile a kernel for use with Containerization.
