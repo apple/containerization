@@ -76,7 +76,7 @@ xcode-cli:
 
 .PHONY: xcode
 xcode:
-	@echo Please install the latest version of Xcode 17.
+	@echo Please install the latest version of Xcode 26.
 
 .PHONY: clean
 clean:
