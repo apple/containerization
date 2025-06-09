@@ -63,7 +63,7 @@ This enables containers to be developed and validated across different kernel ve
 
 See the [README](/kernel/README.md) in the kernel directory for instruction on how to compile the optimized kernel.
 
-### Pre-build Kernel
+### Pre-built Kernel
 
 If you wish to consume a pre-built kernel it must have `VIRTIO` drivers compiled into the kernel, not as modules.
 
