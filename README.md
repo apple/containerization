@@ -33,7 +33,7 @@ You need an Apple silicon Mac to build and run Containerization.
 To build the Containerization package, your system needs either:
 
 - macOS 15 or newer and Xcode 26 Beta
-- macOS 26 Beta 1
+- macOS 26 Beta 1 or newer
 
 Applications built using the package will run on macOS 15 or later, but the following features are not available on macOS 15:
 
