@@ -24,7 +24,7 @@ To file a bug or feature request, use [GitHub issues](https://github.com/apple/c
 
 ### Pull Requests
 
-To make a pull request, use [GitHub](https://github.com/apple/containerization/compare). Please give the team a few days to review but it's ok to check in on occassion. We appreciate your contribution!
+To make a pull request, use [GitHub](https://github.com/apple/containerization/compare). Please give the team a few days to review but it's ok to check in on occasion. We appreciate your contribution!
 
 > [!IMPORTANT]
 > If you plan to make substantial changes or add new features, we encourage you to first discuss them with the wider containerization developer community.
@@ -45,7 +45,7 @@ Before merging, we'll review the pull request title and body to ensure it:
 
 The pull request description should be concise and accurately describe the *what* and *why* of your changes.
 
-#### Fomatting Contributions
+#### Formatting Contributions
 
 Make sure your contributions are consistent with the rest of the project's formatting. You can do this using our Makefile:
 

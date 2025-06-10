@@ -186,8 +186,8 @@ extension EXT4 {
             try Self.write(buffer: &buffer, attrs: attributes, start: UInt16(idx), delta: UInt16(idx), inline: false)
         }
 
-        /// Writes the specified list of extended atrribute entries and their values to the provided
-        /// This method does not fill in any headers (Inode inline / block level) that may be requried to parse these attributes
+        /// Writes the specified list of extended attribute entries and their values to the provided
+        /// This method does not fill in any headers (Inode inline / block level) that may be required to parse these attributes
         ///
         /// - Parameters:
         ///   - buffer: An array of [UInt8] where the data will be written into

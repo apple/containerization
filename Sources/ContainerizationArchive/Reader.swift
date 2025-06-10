@@ -26,7 +26,7 @@ public final class ArchiveReader {
     let fileHandle: FileHandle?
 
     /// Initializes an `ArchiveReader` to read from a specified file URL with an explicit `Format` and `Filter`.
-    /// Note: This method must be used when it is known that the archive at the specified URL follows the specifed
+    /// Note: This method must be used when it is known that the archive at the specified URL follows the specified
     /// `Format` and `Filter`.
     public convenience init(format: Format, filter: Filter, file: URL) throws {
         let fileHandle = try FileHandle(forReadingFrom: file)
@@ -34,7 +34,7 @@ public final class ArchiveReader {
     }
 
     /// Initializes an `ArchiveReader` to read from the provided file descriptor with an explicit `Format` and `Filter`.
-    /// Note: This method must be used when it is known that the archive pointed to by the file descriptor follows the specifed
+    /// Note: This method must be used when it is known that the archive pointed to by the file descriptor follows the specified
     /// `Format` and `Filter`.
     public init(format: Format, filter: Filter, fileHandle: FileHandle) throws {
         self.underlying = archive_read_new()

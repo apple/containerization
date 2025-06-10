@@ -40,26 +40,26 @@ struct OCITests {
     }
 
     @Test func index() {
-        var desciptors: [ContainerizationOCI.Descriptor] = []
+        var descriptors: [ContainerizationOCI.Descriptor] = []
         for i in 0..<5 {
             let descriptor = ContainerizationOCI.Descriptor(mediaType: MediaTypes.descriptor, digest: "\(i)", size: Int64(i))
-            desciptors.append(descriptor)
+            descriptors.append(descriptor)
         }
 
-        let index = ContainerizationOCI.Index(schemaVersion: 1, manifests: desciptors)
+        let index = ContainerizationOCI.Index(schemaVersion: 1, manifests: descriptors)
         #expect(index.manifests.count == 5)
     }
 
     @Test func manifests() {
-        var desciptors: [ContainerizationOCI.Descriptor] = []
+        var descriptors: [ContainerizationOCI.Descriptor] = []
         for i in 0..<5 {
             let descriptor = ContainerizationOCI.Descriptor(mediaType: MediaTypes.descriptor, digest: "\(i)", size: Int64(i))
-            desciptors.append(descriptor)
+            descriptors.append(descriptor)
         }
 
         let config = ContainerizationOCI.Descriptor(mediaType: MediaTypes.descriptor, digest: "123", size: 0)
 
-        let manifest = ContainerizationOCI.Manifest(schemaVersion: 1, config: config, layers: desciptors)
+        let manifest = ContainerizationOCI.Manifest(schemaVersion: 1, config: config, layers: descriptors)
         #expect(manifest.config.digest == "123")
         #expect(manifest.layers.count == 5)
     }

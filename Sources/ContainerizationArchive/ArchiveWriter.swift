@@ -37,7 +37,7 @@ public final class ArchiveWriter {
         try setOptions(configuration.options)
     }
 
-    /// Initialize a new `ArchiveWriter` with the given configuration and specifed delegate.
+    /// Initialize a new `ArchiveWriter` with the given configuration and specified delegate.
     private convenience init(configuration: ArchiveWriterConfiguration, delegate: FileArchiveWriterDelegate) throws {
         try self.init(configuration: configuration)
         self.delegate = delegate

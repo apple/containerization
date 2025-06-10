@@ -15,7 +15,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-/// AnnotationKeys contains a subset of "dictionary keys" for commonly used annotaions in an OCI Image Descriptor
+/// AnnotationKeys contains a subset of "dictionary keys" for commonly used annotations in an OCI Image Descriptor
 /// https://github.com/opencontainers/image-spec/blob/main/annotations.md
 public struct AnnotationKeys: Codable, Sendable {
     public static let containerizationImageName = "com.apple.containerization.image.name"

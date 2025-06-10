@@ -31,7 +31,7 @@ public protocol Content: Sendable {
     /// Size of content
     func size() throws -> UInt64
 
-    /// Data represenatation of entire content
+    /// Data representation of entire content
     func data() throws -> Data
 
     /// Data representation partial content

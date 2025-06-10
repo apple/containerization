@@ -133,7 +133,7 @@ public final class Epoll: Sendable {
         self.handlers.del(fd)
     }
 
-    // The errno's here are accepable and can happen if the caller
+    // The errno's here are acceptable and can happen if the caller
     // closed the underlying fd before calling delete().
     private func acceptableDeletionErrno() -> Bool {
         errno == ENOENT || errno == EBADF || errno == EPERM

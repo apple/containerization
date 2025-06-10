@@ -40,7 +40,7 @@ public struct Kernel: Sendable, Codable {
 
         /// Additional kernel arguments.
         public var kernelArgs: [String]
-        /// Additional arguments passsed to the Initial Process / Agent.
+        /// Additional arguments passed to the Initial Process / Agent.
         public var initArgs: [String]
 
         /// Initializes the kernel commandline using the mix of kernel arguments

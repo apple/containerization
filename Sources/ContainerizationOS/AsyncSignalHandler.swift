@@ -58,8 +58,8 @@ public final class AsyncSignalHandler: Sendable {
     }
 
     // We keep a reference to the continuation object that is created for
-    // our AsyncStream and tell our singal handler to yield a value to it
-    // returing a value to the consumer
+    // our AsyncStream and tell our signal handler to yield a value to it
+    // returning a value to the consumer
     private func handler(_ sig: Int32) {
         self.state.withLock {
             for cont in $0.conts {

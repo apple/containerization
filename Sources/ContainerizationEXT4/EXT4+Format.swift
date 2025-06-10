@@ -262,15 +262,15 @@ extension EXT4 {
         //
         //  - Parameters:
         //    - path: The FilePath representing the path where the file, directory, or symlink should be created.
-        //    - link: An optional FilePath representing the target path for a symlink. If `nil`, a regular file or directory will be created. Preceeding '/' should be ommitted
+        //    - link: An optional FilePath representing the target path for a symlink. If `nil`, a regular file or directory will be created. Preceding '/' should be omitted
         //    - mode: The permissions to set for the created file, directory, or symlink.
         //    - buf: An `InputStream` object providing the contents for the created file. Ignored when creating directories or symlinks.
         //
         //  - Note:
         //    - This function recursively creates parent directories if they don't already exist. The `uid` and `gid` of the created parent directories are set to the values of their parent's `uid` and `gid`.
-        //    - It is expected that the user sets the permissions explicity later
+        //    - It is expected that the user sets the permissions explicitly later
         //    - This function only supports creating files, directories, and symlinks. Attempting to create other types of file system objects will result in an error.
-        //    - In case of symlinks, the preceeding '/' should be omitted
+        //    - In case of symlinks, the preceding '/' should be omitted
         //
         //  - Example usage:
         //    ```swift

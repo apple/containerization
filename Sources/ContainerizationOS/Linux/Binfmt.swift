@@ -25,7 +25,7 @@ import Glibc
 private let _mount = Glibc.mount
 #endif
 
-/// `Binfmt` is a utlity type that contains static helpers and types for
+/// `Binfmt` is a utility type that contains static helpers and types for
 /// mounting the Linux binfmt_misc filesystem, and creating new binfmt entries.
 public struct Binfmt: Sendable {
     /// Default mount path for binfmt_misc.
