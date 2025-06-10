@@ -524,14 +524,12 @@ public struct NetlinkSession {
         switch header.type {
         case NetlinkType.NLMSG_ERROR:
             offset = try parseErrorResponse(buffer: &buffer, offset: offset)
-            break
         case NetlinkType.NLMSG_DONE:
             let rc: Int32
             (rc, offset) = try parseErrorCode(buffer: &buffer, offset: offset)
             guard rc == 0 else {
                 throw NetlinkDataError.responseError(rc: rc)
             }
-            break
         default:
             break
         }
