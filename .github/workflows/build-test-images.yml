@@ -34,19 +34,19 @@ jobs:
     steps:
       - name: Check branch 
         run: |
-          if [ '${{ github.ref }}' != 'refs/heads/main' ] && [[ '${{ github.ref }}' != refs/heads/release* ]] && [ ${{ inputs.publish }} == true ]; then
-            echo "Cannot publish an image if we are not on main or a release branch."
+          if [[ "${{ github.ref }}" != "refs/heads/main" ]] && [[ "${{ github.ref }}" != refs/heads/release* ]] && [[ "${{ inputs.publish }}" == "true" ]]; then
+            echo "❌ Cannot publish an image if we are not on main or a release branch."
             exit 1
           fi
       - name: Check inputs
         run: |
-          if [ ${{ inputs.image }} == 'dockermanifestimage' ] && [ ${{ inputs.useBuildx }} == true ]; then
-            echo "dockermanifestimage cannot be built with buildx"
+          if [[ "${{ inputs.image }}" == "dockermanifestimage" ]] && [[ "${{ inputs.useBuildx }}" == "true" ]]; then
+            echo "❌ dockermanifestimage cannot be built with buildx"
             exit 1
           fi 
 
-          if [ ${{ inputs.image }} == 'emptyimage' ] && [ ${{ inputs.useBuildx}} != true ]; then
-            echo "emptyimage should be built with buildx"
+          if [[ "${{ inputs.image }}" == "emptyimage" ]] && [[ "${{ inputs.useBuildx }}" != "true" ]]; then
+            echo "❌ emptyimage should be built with buildx"
             exit 1
           fi 
       - name: Checkout repository
