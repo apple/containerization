@@ -20,7 +20,7 @@ Anything else that could enhance the project!
 
 To file a bug or feature request, use [GitHub issues](https://github.com/apple/containerization/issues/new).
 
-🚧 For unexpected behavior or usability limitations, detailed instructions on how to reproduce the issue are appreciated. This will greatly help the priority setting and speed of which maintainers can get to your issue.
+🚧 For unexpected behavior or usability limitations, detailed instructions on how to reproduce the issue are appreciated. This will greatly help the priority setting and speed at which maintainers can get to your issue.
 
 ### Pull Requests
 
