@@ -155,6 +155,6 @@ Contributions to Containerization are welcomed and encouraged. Please see [CONTR
 
 Version 0.1.0 is the first official release of Containerization. Earlier versions have no source stability guarantees.
 
-Because the Containerization library is under active development, source stability is only guaranteed within minor versions (e.g. between 0.1.1 and 0.1.2). If you don't want potentially source-breaking package updates, you can specify your package dependency using .upToNextMinorVersion(from: "0.1.0") instead.
+Because the Containerization library is under active development, source stability is only guaranteed within minor versions (for example, between 0.1.1 and 0.1.2). If you don't want potentially source-breaking package updates, you can specify your package dependency using .upToNextMinorVersion(from: "0.1.0") instead.
 
 Future minor versions of the package may introduce changes to these rules as needed.
