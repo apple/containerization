@@ -15,7 +15,7 @@ Containerization provides APIs to:
 - Spawn and interact with containerized processes.
 - Use Rosetta 2 for executing x86_64 processes on Apple silicon.
 
-Please view the [API documentation]() for information on the Swift packages that Containerization provides.
+Please view the [API documentation](https://apple.github.io/containerization/documentation/) for information on the Swift packages that Containerization provides.
 
 ## Design
 
