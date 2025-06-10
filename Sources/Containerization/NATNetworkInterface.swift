@@ -25,7 +25,7 @@ import Synchronization
 
 /// An interface that uses NAT to provide an IP address for a given
 /// container/virtual machine.
-@available(macOS 16, *)
+@available(macOS 26, *)
 public final class NATNetworkInterface: Interface, Sendable {
     public var address: String {
         get { state.withLock { $0.address } }
@@ -92,7 +92,7 @@ public final class NATNetworkInterface: Interface, Sendable {
     #endif
 }
 
-@available(macOS 16, *)
+@available(macOS 26, *)
 extension NATNetworkInterface: VZInterface {
     public func device() throws -> VZVirtioNetworkDeviceConfiguration {
         let config = VZVirtioNetworkDeviceConfiguration()
