@@ -120,31 +120,43 @@ extension ImageStore {
 
         private func fetch(_ inDesc: [Descriptor]) async throws {
             try await withThrowingTaskGroup(of: Void.self) { group in
-                for chunk in inDesc.chunks(ofCount: 8) {
-                    for desc in chunk {
-                        if let found = try await self.contentStore.get(digest: desc.digest) {
-                            try FileManager.default.copyItem(at: found.path, to: ingestDir.appendingPathComponent(desc.digest.trimmingDigestPrefix))
-                            await progress?([
-                                // Count the size of the blob
-                                ProgressEvent(event: "add-size", value: desc.size),
-                                // Count the number of blobs
-                                ProgressEvent(event: "add-items", value: 1),
-                            ])
-                            continue
-                        }
-                        group.addTask {
-                            if desc.size > 1.mib() {
-                                try await self.fetchBlob(desc)
-                            } else {
-                                try await self.fetchData(desc)
-                            }
+                func _fetch(_ desc: Descriptor) async throws {
+                    if let found = try await self.contentStore.get(digest: desc.digest) {
+                        try FileManager.default.copyItem(at: found.path, to: ingestDir.appendingPathComponent(desc.digest.trimmingDigestPrefix))
+                        await progress?([
+                            // Count the size of the blob
+                            ProgressEvent(event: "add-size", value: desc.size),
                             // Count the number of blobs
-                            await progress?([
-                                ProgressEvent(event: "add-items", value: 1)
-                            ])
+                            ProgressEvent(event: "add-items", value: 1),
+                        ])
+                        return
+                    }
+
+                    if desc.size > 1.mib() {
+                        try await self.fetchBlob(desc)
+                    } else {
+                        try await self.fetchData(desc)
+                    }
+                    // Count the number of blobs
+                    await progress?([
+                        ProgressEvent(event: "add-items", value: 1)
+                    ])
+                }
+
+                var iterator = inDesc.makeIterator()
+                for _ in 0..<8 {
+                    if let desc = iterator.next() {
+                        group.addTask {
+                            try await _fetch(desc)
                         }
                     }
-                    try await group.waitForAll()
+                }
+                for try await _ in group {
+                    if let desc = iterator.next() {
+                        group.addTask {
+                            try await _fetch(desc)
+                        }
+                    }
                 }
             }
         }
