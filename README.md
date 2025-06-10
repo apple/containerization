@@ -27,12 +27,11 @@ The API allows the runtime environment to be configured and containerized proces
 
 ## Requirements
 
-You need an Apple silicon Mac to build and run Containerization.
+To build the Containerization package, you need:
 
-To build the Containerization package, your system needs either:
-
-- macOS 15 or newer and Xcode 26 Beta
-- macOS 26 Beta 1 or newer
+- Mac with Apple silicon
+- macOS 15 minimum, macOS 26 beta recommended
+- Xcode 26 beta
 
 Applications built using the package will run on macOS 15 or later, but the following features are not available on macOS 15:
 
