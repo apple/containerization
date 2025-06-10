@@ -138,7 +138,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             }
         } catch {
             log.error(
-                "deleteProcess",
+                "sysctl",
                 metadata: [
                     "error": "\(error)"
                 ])
@@ -156,7 +156,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         context: GRPC.GRPCAsyncServerCallContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_ProxyVsockResponse {
         log.debug(
-            "proxy vsock",
+            "proxyVsock",
             metadata: [
                 "id": "\(request.id)",
                 "port": "\(request.vsockPort)",
@@ -196,7 +196,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         context: GRPC.GRPCAsyncServerCallContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_StopVsockProxyResponse {
         log.debug(
-            "stop vsock proxy",
+            "stopVsockProxy",
             metadata: [
                 "id": "\(request.id)"
             ])
@@ -286,7 +286,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         async throws -> Com_Apple_Containerization_Sandbox_V3_UmountResponse
     {
         log.debug(
-            "unmount",
+            "umount",
             metadata: [
                 "path": "\(request.path)",
                 "flags": "\(request.flags)",
@@ -304,7 +304,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 let error = swiftErrno("umount")
 
                 log.error(
-                    "unmount",
+                    "umount",
                     metadata: [
                         "error": "\(error)"
                     ])
@@ -314,7 +314,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         }
         return .init()
         #else
-        fatalError("unmount not supported on platform")
+        fatalError("umount not supported on platform")
         #endif
     }
 
@@ -363,7 +363,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         request: Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest, context: GRPC.GRPCAsyncServerCallContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_CreateProcessResponse {
         log.debug(
-            "create process",
+            "createProcess",
             metadata: [
                 "id": "\(request.id)",
                 "containerID": "\(request.containerID)",
@@ -437,9 +437,11 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             return .init()
         } catch {
             log.error(
-                "create managed process",
+                "createProcess",
                 metadata: [
-                    "error": "\(error)"
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(error)",
                 ])
             if error is GRPCStatus {
                 throw error
@@ -453,9 +455,10 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         context: GRPC.GRPCAsyncServerCallContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_KillProcessResponse {
         log.debug(
-            "kill process",
+            "killProcess",
             metadata: [
                 "id": "\(request.id)",
+                "containerID": "\(request.containerID)",
                 "signal": "\(request.signal)",
             ])
 
@@ -472,20 +475,18 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             try proc.kill(request.signal)
         }
 
-        log.debug(
-            "kill process result",
-            metadata: [
-                "id": "\(request.id)",
-                "signal": "\(request.signal)",
-            ])
-
         return .init()
     }
 
     func deleteProcess(
         request: Com_Apple_Containerization_Sandbox_V3_DeleteProcessRequest, context: GRPC.GRPCAsyncServerCallContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_DeleteProcessResponse {
-        log.debug("delete process on port \(request.id)")
+        log.debug(
+            "deleteProcess",
+            metadata: [
+                "id": "\(request.id)",
+                "containerID": "\(request.containerID)",
+            ])
 
         if !request.hasContainerID {
             fatalError("processes in the root of the vm not implemented")
@@ -508,7 +509,12 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
     func startProcess(
         request: Com_Apple_Containerization_Sandbox_V3_StartProcessRequest, context: GRPCAsyncServerCallContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_StartProcessResponse {
-        log.debug("starting process \(request.id)")
+        log.debug(
+            "startProcess",
+            metadata: [
+                "id": "\(request.id)",
+                "containerID": "\(request.containerID)",
+            ])
 
         if !request.hasContainerID {
             fatalError("processes in the root of the vm not implemented")
@@ -534,7 +540,9 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             log.error(
                 "startProcess",
                 metadata: [
-                    "error": "\(error)"
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(error)",
                 ])
             throw GRPCStatus(
                 code: .internalError,
@@ -546,7 +554,12 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
     func resizeProcess(
         request: Com_Apple_Containerization_Sandbox_V3_ResizeProcessRequest, context: GRPCAsyncServerCallContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_ResizeProcessResponse {
-        log.debug("resizing process pty \(request.id)")
+        log.debug(
+            "resizeProcess",
+            metadata: [
+                "id": "\(request.id)",
+                "containerID": "\(request.containerID)",
+            ])
 
         if !request.hasContainerID {
             fatalError("processes in the root of the vm not implemented")
@@ -566,7 +579,9 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             log.error(
                 "resizeProcess",
                 metadata: [
-                    "error": "\(error)"
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(error)",
                 ])
             throw GRPCStatus(
                 code: .internalError,
@@ -580,7 +595,12 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
     func waitProcess(
         request: Com_Apple_Containerization_Sandbox_V3_WaitProcessRequest, context: GRPCAsyncServerCallContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_WaitProcessResponse {
-        log.debug("waiting on process \(request.id)")
+        log.debug(
+            "waitProcess",
+            metadata: [
+                "id": "\(request.id)",
+                "containerID": "\(request.containerID)",
+            ])
 
         if !request.hasContainerID {
             fatalError("processes in the root of the vm not implemented")
@@ -604,7 +624,9 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             log.error(
                 "waitProcess",
                 metadata: [
-                    "error": "\(error)"
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(error)",
                 ])
             throw GRPCStatus(
                 code: .internalError,
