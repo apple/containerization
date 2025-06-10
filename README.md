@@ -12,7 +12,7 @@ Containerization provides APIs to:
 - [Create an optimized Linux kernel for fast boot times](./kernel/).
 - [Spawn lightweight virtual machines and manage the runtime environment](./Sources/Containerization/LinuxContainer.swift).
 - [Spawn and interact with containerized processes](./Sources/Containerization/LinuxProcess.swift).
-- Use Rosetta 2 for executing x86_64 processes on Apple silicon.
+- Use Rosetta 2 for running linux/amd64 containers on Apple Silicon.
 
 Please view the [API documentation](https://apple.github.io/containerization/documentation/) for information on the Swift packages that Containerization provides.
 
