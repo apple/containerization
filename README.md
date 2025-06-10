@@ -5,14 +5,13 @@ Containerization is written in [Swift](https://www.swift.org) and uses [Virtuali
 
 Containerization provides APIs to:
 
-- Manage OCI images.
-- Interact with remote registries.
-- Create and populate ext4 file systems.
-- Interact with the Netlink socket family.
-- Create an optimized Linux kernel for fast boot times.
-- Spawn lightweight virtual machines.
-- Manage the runtime environment of virtual machines.
-- Spawn and interact with containerized processes.
+- [Manage OCI images](./Sources/ContainerizationOCI/).
+- [Interact with remote registries](./Sources/ContainerizationOCI/Client/).
+- [Create and populate ext4 file systems](./Sources/ContainerizationEXT4/).
+- [Interact with the Netlink socket family](./Sources/ContainerizationNetlink/).
+- [Create an optimized Linux kernel for fast boot times](./kernel/).
+- [Spawn lightweight virtual machines and manage the runtime environment](./Sources/Containerization/LinuxContainer.swift).
+- [Spawn and interact with containerized processes](./Sources/Containerization/LinuxProcess.swift).
 - Use Rosetta 2 for executing x86_64 processes on Apple silicon.
 
 Please view the [API documentation](https://apple.github.io/containerization/documentation/) for information on the Swift packages that Containerization provides.
