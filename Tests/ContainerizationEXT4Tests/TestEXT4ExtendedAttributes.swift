@@ -75,8 +75,8 @@ struct TestEXT4ExtendedAttribute {
         var blockAttrBuffer: [UInt8] = .init(repeating: 0, count: blockSize)
         try! state.writeInlineAttributes(buffer: &inlineAttrBuffer)
         try! state.writeBlockAttributes(buffer: &blockAttrBuffer)
-        let gotInlineXattrs = try! EXT4.EXT4Reader.readInlineExtenedAttributes(from: inlineAttrBuffer)
-        let gotBlockXattrs = try! EXT4.EXT4Reader.readBlockExtenedAttributes(from: blockAttrBuffer)
+        let gotInlineXattrs = try! EXT4.EXT4Reader.readInlineExtendedAttributes(from: inlineAttrBuffer)
+        let gotBlockXattrs = try! EXT4.EXT4Reader.readBlockExtendedAttributes(from: blockAttrBuffer)
 
         var gotXattrs: [String: Data] = [:]
         for attr in gotBlockXattrs + gotInlineXattrs {
