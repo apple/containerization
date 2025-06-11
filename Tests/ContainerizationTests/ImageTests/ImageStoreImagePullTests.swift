@@ -26,7 +26,7 @@ import Testing
 @testable import Containerization
 
 @Suite
-final class ImageStoreImagePullTests: ContainsAuth {
+final class ImageStoreImagePullTests {
     let store: ImageStore
     let dir: URL
     let contentStore: ContentStore
@@ -44,9 +44,8 @@ final class ImageStoreImagePullTests: ContainsAuth {
         try! FileManager.default.removeItem(at: self.dir)
     }
 
-    @Test(.enabled(if: hasRegistryCredentials))
-    func testPullImageWithoutIndex() async throws {
-        let img = try await self.store.pull(reference: "ghcr.io/apple/containerization/dockermanifestimage:0.0.2", auth: Self.authentication)
+    @Test func testPullImageWithoutIndex() async throws {
+        let img = try await self.store.pull(reference: "ghcr.io/apple/containerization/dockermanifestimage:0.0.2")
 
         let rootDescriptor = img.descriptor
         let index: ContainerizationOCI.Index = try await contentStore.get(digest: rootDescriptor.digest)!
@@ -65,14 +64,13 @@ final class ImageStoreImagePullTests: ContainsAuth {
     }
 
     @Test(
-        .enabled(if: hasRegistryCredentials),
         arguments: [
             (Platform(arch: "arm64", os: "linux", variant: "v8"), imagePullArm64Layers),
             (Platform(arch: "amd64", os: "linux"), imagePullAmd64Layers),
             (nil, imagePullTestAllLayers),
         ])
     func testPullSinglePlatform(platform: Platform?, expectLayers: [String]) async throws {
-        let img = try await self.store.pull(reference: "ghcr.io/linuxcontainers/alpine:3.20", platform: platform, auth: Self.authentication)
+        let img = try await self.store.pull(reference: "ghcr.io/linuxcontainers/alpine:3.20", platform: platform)
         let rootDescriptor = img.descriptor
         let index: ContainerizationOCI.Index = try await contentStore.get(digest: rootDescriptor.digest)!
         var foundMatch = false
@@ -99,11 +97,10 @@ final class ImageStoreImagePullTests: ContainsAuth {
         #expect(filesOnDisk == expectLayers)
     }
 
-    @Test(.enabled(if: hasRegistryCredentials))
-    func testPullWithSha() async throws {
+    @Test func testPullWithSha() async throws {
         let sha = "sha256:0a6a86d44d7f93c4f2b8dea7f0eee64e72cb98635398779f3610949632508d57"
         let r = "ghcr.io/linuxcontainers/alpine:3.20@\(sha)"
-        let img = try await self.store.pull(reference: r, platform: .current, auth: Self.authentication)
+        let img = try await self.store.pull(reference: r, platform: .current)
         #expect(img.descriptor.digest == sha)
     }
 }

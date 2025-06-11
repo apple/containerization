@@ -94,18 +94,16 @@ struct OCIClientTests: ~Copyable {
         try await client.ping()
     }
 
-    @Test(.enabled(if: hasRegistryCredentials))
-    func resolve() async throws {
-        let client = RegistryClient(host: "ghcr.io", authentication: Self.authentication)
+    @Test func resolve() async throws {
+        let client = RegistryClient(host: "ghcr.io")
         let descriptor = try await client.resolve(name: "apple/containerization/dockermanifestimage", tag: "0.0.2")
         #expect(descriptor.mediaType == MediaTypes.dockerManifest)
         #expect(descriptor.size != 0)
         #expect(!descriptor.digest.isEmpty)
     }
 
-    @Test(.enabled(if: hasRegistryCredentials))
-    func resolveSha() async throws {
-        let client = RegistryClient(host: "ghcr.io", authentication: Self.authentication)
+    @Test func resolveSha() async throws {
+        let client = RegistryClient(host: "ghcr.io")
         let descriptor = try await client.resolve(
             name: "apple/containerization/dockermanifestimage", tag: "sha256:c8d344d228b7d9a702a95227438ec0d71f953a9a483e28ffabc5704f70d2b61e")
         let namedDescriptor = try await client.resolve(name: "apple/containerization/dockermanifestimage", tag: "0.0.2")
@@ -115,27 +113,24 @@ struct OCIClientTests: ~Copyable {
         #expect(!descriptor.digest.isEmpty)
     }
 
-    @Test(.enabled(if: hasRegistryCredentials))
-    func fetchManifest() async throws {
-        let client = RegistryClient(host: "ghcr.io", authentication: Self.authentication)
+    @Test func fetchManifest() async throws {
+        let client = RegistryClient(host: "ghcr.io")
         let descriptor = try await client.resolve(name: "apple/containerization/dockermanifestimage", tag: "0.0.2")
         let manifest: Manifest = try await client.fetch(name: "apple/containerization/dockermanifestimage", descriptor: descriptor)
         #expect(manifest.schemaVersion == 2)
         #expect(manifest.layers.count == 1)
     }
 
-    @Test(.enabled(if: hasRegistryCredentials))
-    func fetchManifestAsData() async throws {
-        let client = RegistryClient(host: "ghcr.io", authentication: Self.authentication)
+    @Test func fetchManifestAsData() async throws {
+        let client = RegistryClient(host: "ghcr.io")
         let descriptor = try await client.resolve(name: "apple/containerization/dockermanifestimage", tag: "0.0.2")
         let manifestData = try await client.fetchData(name: "apple/containerization/dockermanifestimage", descriptor: descriptor)
         let checksum = SHA256.hash(data: manifestData)
         #expect(descriptor.digest == checksum.digest)
     }
 
-    @Test(.enabled(if: hasRegistryCredentials))
-    func fetchConfig() async throws {
-        let client = RegistryClient(host: "ghcr.io", authentication: Self.authentication)
+    @Test func fetchConfig() async throws {
+        let client = RegistryClient(host: "ghcr.io")
         let descriptor = try await client.resolve(name: "apple/containerization/dockermanifestimage", tag: "0.0.2")
         let manifest: Manifest = try await client.fetch(name: "apple/containerization/dockermanifestimage", descriptor: descriptor)
         let image: Image = try await client.fetch(name: "apple/containerization/dockermanifestimage", descriptor: manifest.config)
@@ -144,9 +139,8 @@ struct OCIClientTests: ~Copyable {
         #expect(image.rootfs.diffIDs.count == 1)
     }
 
-    @Test(.enabled(if: hasRegistryCredentials))
-    func fetchBlob() async throws {
-        let client = RegistryClient(host: "ghcr.io", authentication: Self.authentication)
+    @Test func fetchBlob() async throws {
+        let client = RegistryClient(host: "ghcr.io")
         let descriptor = try await client.resolve(name: "apple/containerization/dockermanifestimage", tag: "0.0.2")
         let manifest: Manifest = try await client.fetch(name: "apple/containerization/dockermanifestimage", descriptor: descriptor)
         var called = false
@@ -275,12 +269,10 @@ struct OCIClientTests: ~Copyable {
         )
     }
 
-    @Test(.enabled(if: hasRegistryCredentials))
-    func resolveWithRetry() async throws {
+    @Test func resolveWithRetry() async throws {
         let counter = Mutex(0)
         let client = RegistryClient(
             host: "ghcr.io",
-            authentication: Self.authentication,
             retryOptions: RetryOptions(
                 maxRetries: 3,
                 retryInterval: 500_000_000,

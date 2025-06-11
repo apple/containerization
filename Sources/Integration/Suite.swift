@@ -59,16 +59,6 @@ struct IntegrationSuite: AsyncParsableCommand {
         try! LocalContentStore(path: appRoot.appending(path: "content"))
     }()
 
-    private static var authentication: Authentication? {
-        let env = ProcessInfo.processInfo.environment
-        guard let password = env["REGISTRY_TOKEN"],
-            let username = env["REGISTRY_USERNAME"]
-        else {
-            return nil
-        }
-        return BasicAuthentication(username: username, password: password)
-    }
-
     private static let _imageStore: ImageStore = {
         try! ImageStore(
             path: appRoot,
@@ -169,7 +159,7 @@ struct IntegrationSuite: AsyncParsableCommand {
             return try await store.get(reference: reference)
         } catch let error as ContainerizationError {
             if error.code == .notFound {
-                return try await store.pull(reference: reference, auth: Self.authentication)
+                return try await store.pull(reference: reference)
             }
             throw error
         }
