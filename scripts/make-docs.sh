@@ -39,6 +39,6 @@ if [ ! -z "$2" ] ; then
     opts+=("--hosting-base-path" "$2")
 fi
 
-/usr/bin/swift package ${opts[@]}
+"$(command -v swift)" package "${opts[@]}"
 
 echo '{}' > "$1/theme-settings.json"

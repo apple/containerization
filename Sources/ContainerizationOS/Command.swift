@@ -242,7 +242,7 @@ extension Command {
 
     /// Create a posix_spawn file actions set of fds to pass to the new process
     private func createFileset() throws -> (null: FileHandle, handles: [FileHandle]) {
-        // grab dev null incase a handle passed by the user is nil
+        // grab dev null in case a handle passed by the user is nil
         let null = try openDevNull()
         var files = [FileHandle]()
         files.append(stdin ?? null)

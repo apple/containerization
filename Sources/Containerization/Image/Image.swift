@@ -115,8 +115,8 @@ public struct Image: Sendable {
         for manifest in index.manifests {
             referenced.append(manifest.digest.trimmingDigestPrefix)
             guard let m: Manifest = try? await contentStore.get(digest: manifest.digest) else {
-                // If the requested digest does not exist or is not a manifest. Skip.
-                // Its safe to skip processing this digest as it wont have any child layers.
+                // If the requested digest does not exist or is not a manifest, skip.
+                // It's safe to skip processing this digest as it won't have any child layers.
                 continue
             }
             let descs = m.layers + [m.config]
