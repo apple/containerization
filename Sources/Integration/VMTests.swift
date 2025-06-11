@@ -17,6 +17,7 @@
 
 import ArgumentParser
 import Containerization
+import ContainerizationError
 import ContainerizationOCI
 import Foundation
 import Logging
@@ -69,8 +70,16 @@ extension IntegrationSuite {
 
         container.virtualization = true
 
-        try await container.create()
-        try await container.start()
+        do {
+            try await container.create()
+            try await container.start()
+        } catch {
+            if let err = error as? ContainerizationError {
+                if err.code == .unsupported {
+                    throw SkipTest(reason: err.message)
+                }
+            }
+        }
 
         let status = try await container.wait()
         try await container.stop()

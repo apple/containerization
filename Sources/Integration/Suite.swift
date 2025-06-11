@@ -37,6 +37,14 @@ enum IntegrationError: Swift.Error {
     case noOutput
 }
 
+struct SkipTest: Swift.Error, CustomStringConvertible {
+    let reason: String
+
+    var description: String {
+        reason
+    }
+}
+
 @main
 struct IntegrationSuite: AsyncParsableCommand {
     static let appRoot: URL = {
@@ -209,6 +217,7 @@ struct IntegrationSuite: AsyncParsableCommand {
         ]
 
         var passed = 0
+        var skipped = 0
         for (name, test) in tests {
             do {
                 log.info("test \(name) started...")
@@ -218,15 +227,24 @@ struct IntegrationSuite: AsyncParsableCommand {
                 let lasted = CFAbsoluteTimeGetCurrent() - started
                 log.info("✅ test \(name) complete in \(lasted)s.")
                 passed += 1
+            } catch let err as SkipTest {
+                log.info("⏭️ skipped test: \(err)")
+                skipped += 1
             } catch {
                 log.error("❌ test \(name) failed: \(error)")
             }
         }
 
         let ended = CFAbsoluteTimeGetCurrent() - suiteStarted
-        log.info("\nintegration suite completed in \(ended)s with \(passed)/\(tests.count) passed!")
+        var finishingText = "\n\nIntegration suite completed in \(ended)s with \(passed)/\(tests.count) passed"
+        if skipped > 0 {
+            finishingText += " and \(skipped)/\(tests.count) skipped"
+        }
+        finishingText += "!"
 
-        if passed < tests.count {
+        log.info("\(finishingText)")
+
+        if passed + skipped < tests.count {
             log.error("❌")
             throw ExitCode(1)
         }

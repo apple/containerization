@@ -294,15 +294,17 @@ extension VZVirtualMachineInstance.Configuration {
             try mount.configure(config: &config)
         }
 
-        #if arch(arm64)
-
         let platform = VZGenericPlatformConfiguration()
-        if VZGenericPlatformConfiguration.isNestedVirtualizationSupported {
-            platform.isNestedVirtualizationEnabled = self.nestedVirtualization
+        // We shouldn't silently succeed if the user asked for virt and their hardware does
+        // not support it.
+        if !VZGenericPlatformConfiguration.isNestedVirtualizationSupported && self.nestedVirtualization {
+            throw ContainerizationError(
+                .unsupported,
+                message: "nested virtualization is not supported on the platform"
+            )
         }
+        platform.isNestedVirtualizationEnabled = self.nestedVirtualization
         config.platform = platform
-
-        #endif
 
         try config.validate()
         return config
