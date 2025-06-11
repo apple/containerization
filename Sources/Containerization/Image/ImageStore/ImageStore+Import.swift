@@ -56,7 +56,7 @@ extension ImageStore {
                     ])
                 }
 
-                try await self.fetch(toProcess)
+                try await self.fetchAll(toProcess)
                 let children = try await self.walk(toProcess)
                 let filtered = try filterPlatforms(matcher: matcher, children)
                 toProcess = filtered.uniqued { $0.digest }
@@ -118,35 +118,47 @@ extension ImageStore {
             return out
         }
 
-        private func fetch(_ inDesc: [Descriptor]) async throws {
+        private func fetchAll(_ descriptors: [Descriptor]) async throws {
             try await withThrowingTaskGroup(of: Void.self) { group in
-                for chunk in inDesc.chunks(ofCount: 8) {
-                    for desc in chunk {
-                        if let found = try await self.contentStore.get(digest: desc.digest) {
-                            try FileManager.default.copyItem(at: found.path, to: ingestDir.appendingPathComponent(desc.digest.trimmingDigestPrefix))
-                            await progress?([
-                                // Count the size of the blob
-                                ProgressEvent(event: "add-size", value: desc.size),
-                                // Count the number of blobs
-                                ProgressEvent(event: "add-items", value: 1),
-                            ])
-                            continue
-                        }
+                var iterator = descriptors.makeIterator()
+                for _ in 0..<8 {
+                    if let desc = iterator.next() {
                         group.addTask {
-                            if desc.size > 1.mib() {
-                                try await self.fetchBlob(desc)
-                            } else {
-                                try await self.fetchData(desc)
-                            }
-                            // Count the number of blobs
-                            await progress?([
-                                ProgressEvent(event: "add-items", value: 1)
-                            ])
+                            try await fetch(desc)
                         }
                     }
-                    try await group.waitForAll()
+                }
+                for try await _ in group {
+                    if let desc = iterator.next() {
+                        group.addTask {
+                            try await fetch(desc)
+                        }
+                    }
                 }
             }
+        }
+
+        private func fetch(_ descriptor: Descriptor) async throws {
+            if let found = try await self.contentStore.get(digest: descriptor.digest) {
+                try FileManager.default.copyItem(at: found.path, to: ingestDir.appendingPathComponent(descriptor.digest.trimmingDigestPrefix))
+                await progress?([
+                    // Count the size of the blob
+                    ProgressEvent(event: "add-size", value: descriptor.size),
+                    // Count the number of blobs
+                    ProgressEvent(event: "add-items", value: 1),
+                ])
+                return
+            }
+
+            if descriptor.size > 1.mib() {
+                try await self.fetchBlob(descriptor)
+            } else {
+                try await self.fetchData(descriptor)
+            }
+            // Count the number of blobs
+            await progress?([
+                ProgressEvent(event: "add-items", value: 1)
+            ])
         }
 
         private func fetchBlob(_ descriptor: Descriptor) async throws {

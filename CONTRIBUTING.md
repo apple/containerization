@@ -40,7 +40,7 @@ for the squashed commit. Think of it as the single, definitive description of yo
 Before merging, we'll review the pull request title and body to ensure it:
 
 * Clearly and concisely describes the changes.
-* Uses the imperative mood (e.g., "Add feature," "Fix bug").
+* Uses the imperative mood (for example, "Add feature," "Fix bug").
 * Provides enough context for future developers to understand the purpose of the change.
 
 The pull request description should be concise and accurately describe the *what* and *why* of your changes.

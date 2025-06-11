@@ -12,7 +12,7 @@ Containerization provides APIs to:
 - [Create an optimized Linux kernel for fast boot times](./kernel/).
 - [Spawn lightweight virtual machines and manage the runtime environment](./Sources/Containerization/LinuxContainer.swift).
 - [Spawn and interact with containerized processes](./Sources/Containerization/LinuxProcess.swift).
-- Use Rosetta 2 for running linux/amd64 containers on Apple Silicon.
+- Use Rosetta 2 for running linux/amd64 containers on Apple silicon.
 
 Please view the [API documentation](https://apple.github.io/containerization/documentation/) for information on the Swift packages that Containerization provides.
 
@@ -154,6 +154,6 @@ Contributions to Containerization are welcomed and encouraged. Please see [CONTR
 
 Version 0.1.0 is the first official release of Containerization. Earlier versions have no source stability guarantees.
 
-Because the Containerization library is under active development, source stability is only guaranteed within minor versions (e.g. between 0.1.1 and 0.1.2). If you don't want potentially source-breaking package updates, you can specify your package dependency using .upToNextMinorVersion(from: "0.1.0") instead.
+Because the Containerization library is under active development, source stability is only guaranteed within minor versions (for example, between 0.1.1 and 0.1.2). If you don't want potentially source-breaking package updates, you can specify your package dependency using .upToNextMinorVersion(from: "0.1.0") instead.
 
 Future minor versions of the package may introduce changes to these rules as needed.
