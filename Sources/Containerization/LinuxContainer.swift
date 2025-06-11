@@ -475,40 +475,43 @@ extension LinuxContainer {
 
         let vm = try vmm.create(container: self)
         try await vm.start()
-
-        let agent = try await vm.dialAgent()
         do {
-            let relayManager = UnixSocketRelayManager(vm: vm)
+            try await vm.withAgent { agent in
+                let relayManager = UnixSocketRelayManager(vm: vm)
 
-            try await agent.standardSetup()
+                try await agent.standardSetup()
 
-            // Mount the rootfs.
-            var rootfs = vm.mounts[0].to
-            rootfs.destination = Self.guestRootfsPath(self.id)
-            try await agent.mount(rootfs)
+                // Mount the rootfs.
+                var rootfs = vm.mounts[0].to
+                rootfs.destination = Self.guestRootfsPath(self.id)
+                try await agent.mount(rootfs)
 
-            // Start up our friendly unix socket relays.
-            for socket in self.sockets {
-                try await self.relayUnixSocket(
-                    socket: socket,
-                    relayManager: relayManager,
-                    agent: agent
-                )
+                // Start up our friendly unix socket relays.
+                for socket in self.sockets {
+                    try await self.relayUnixSocket(
+                        socket: socket,
+                        relayManager: relayManager,
+                        agent: agent
+                    )
+                }
+
+                // For every interface asked for:
+                // 1. Add the address requested
+                // 2. Online the adapter
+                // 3. Add the gateway address
+                for (index, i) in self.interfaces.enumerated() {
+                    let name = "eth\(index)"
+                    try await agent.addressAdd(name: name, address: i.address)
+                    try await agent.up(name: name)
+                    try await agent.routeAddDefault(name: name, gateway: i.gateway)
+                }
+                if let dns = self.dns {
+                    try await agent.configureDNS(config: dns, location: rootfs.destination)
+                }
+
+                try state.setCreated(vm: vm, relayManager: relayManager)
             }
-
-            for (index, i) in self.interfaces.enumerated() {
-                let name = "eth\(index)"
-                try await agent.addressAdd(name: name, address: i.address)
-                try await agent.up(name: name)
-                try await agent.routeAddDefault(name: name, gateway: i.gateway)
-            }
-            if let dns = self.dns {
-                try await agent.configureDNS(config: dns, location: rootfs.destination)
-            }
-
-            try state.setCreated(vm: vm, relayManager: relayManager)
         } catch {
-            try? await agent.close()
             try? await vm.stop()
 
             state.errored(error: error)
@@ -717,12 +720,13 @@ extension LinuxContainer {
     public func relayUnixSocket(socket: UnixSocketConfiguration) async throws {
         let state = try self.state.startedState("relayUnixSocket")
 
-        let agent = try await state.vm.dialAgent()
-        try await self.relayUnixSocket(
-            socket: socket,
-            relayManager: state.relayManager,
-            agent: agent
-        )
+        try await state.vm.withAgent { agent in
+            try await self.relayUnixSocket(
+                socket: socket,
+                relayManager: state.relayManager,
+                agent: agent
+            )
+        }
     }
 
     private func relayUnixSocket(
@@ -753,13 +757,15 @@ extension LinuxContainer {
 }
 
 extension VirtualMachineInstance {
+    /// Scoped access to an agent instance to ensure the resources are always freed (mostly close(2)'ing
+    /// the vsock fd)
     fileprivate func withAgent(fn: @Sendable (VirtualMachineAgent) async throws -> Void) async throws {
         let agent = try await self.dialAgent()
         do {
             try await fn(agent)
             try await agent.close()
         } catch {
-            try await agent.close()
+            try? await agent.close()
             throw error
         }
     }
