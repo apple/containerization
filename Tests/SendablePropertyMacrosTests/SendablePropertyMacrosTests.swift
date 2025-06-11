@@ -52,20 +52,13 @@ final class SendablePropertyMacrosTests: XCTestCase {
                             }
                         }
                         set {
-                            class Sending<T>: @unchecked Sendable {
-                                let wrappedValue: T
-                                init(_ value: T) {
-                                    wrappedValue = value
-                                }
-                            }
-                            let newValue = Sending(newValue)
                             _value.withLock {
-                                $0 = newValue.wrappedValue
+                                $0 = newValue
                             }
                         }
                     }
 
-                    private let _value = Mutex<Int?>(nil)
+                    internal let _value = Synchronized<Int?>(nil)
                 }
                 """,
             macros: testMacros
@@ -94,20 +87,13 @@ final class SendablePropertyMacrosTests: XCTestCase {
                             }
                         }
                         set {
-                            class Sending<T>: @unchecked Sendable {
-                                let wrappedValue: T
-                                init(_ value: T) {
-                                    wrappedValue = value
-                                }
-                            }
-                            let newValue = Sending(newValue)
                             _value.withLock {
-                                $0 = newValue.wrappedValue
+                                $0 = newValue
                             }
                         }
                     }
 
-                    private let _value = Mutex(0)
+                    internal let _value = Synchronized(0)
                 }
                 """,
             macros: testMacros
@@ -136,20 +122,13 @@ final class SendablePropertyMacrosTests: XCTestCase {
                             }
                         }
                         set {
-                            class Sending<T>: @unchecked Sendable {
-                                let wrappedValue: T
-                                init(_ value: T) {
-                                    wrappedValue = value
-                                }
-                            }
-                            let newValue = Sending(newValue)
                             _value.withLock {
-                                $0 = newValue.wrappedValue
+                                $0 = newValue
                             }
                         }
                     }
 
-                    private let _value = Mutex<Int>(0)
+                    internal let _value = Synchronized<Int>(0)
                 }
                 """,
             macros: testMacros
