@@ -54,7 +54,7 @@ public struct SendablePropertyMacro: PeerMacro {
         }
 
         let accessLevel = varDecl.modifiers.first(where: { ["open", "public", "internal", "fileprivate", "private"].contains($0.name.text) })?.name.text ?? "internal"
-        
+
         // Create a peer property
         let peerPropertyName = self.peerPropertyName(for: propertyName)
         let peerProperty: DeclSyntax =

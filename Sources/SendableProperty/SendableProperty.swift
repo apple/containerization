@@ -27,13 +27,13 @@ public macro SendableProperty() = #externalMacro(module: "SendablePropertyMacros
 public final class Synchronized<T>: @unchecked Sendable {
     private let lock = NSLock()
     private var value: T
-    
+
     /// Creates a new instance.
     /// - Parameter value: The initial value.
     public init(_ value: T) {
         self.value = value
     }
-    
+
     /// Calls the given closure after acquiring the lock and returns its value.
     /// - Parameter body: The body of code to execute while the lock is held.
     public func withLock<R>(_ body: (inout T) throws -> R) rethrows -> R {
