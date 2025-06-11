@@ -165,11 +165,11 @@ extension EXT4.EXT4Reader {
     fileprivate func getXattrsForInode(inode: EXT4.Inode) throws -> [String: Data] {
         var attributes: [EXT4.ExtendedAttribute] = []
         let buffer: [UInt8] = EXT4.tupleToArray(inode.inlineXattrs)
-        try attributes.append(contentsOf: Self.readInlineExtenedAttributes(from: buffer))
+        try attributes.append(contentsOf: Self.readInlineExtendedAttributes(from: buffer))
         let block = inode.xattrBlockLow
         try self.seek(block: block)
         let buf = try self.handle.read(upToCount: Int(self.blockSize))!
-        try attributes.append(contentsOf: Self.readBlockExtenedAttributes(from: [UInt8](buf)))
+        try attributes.append(contentsOf: Self.readBlockExtendedAttributes(from: [UInt8](buf)))
         var xattrs: [String: Data] = [:]
         for attribute in attributes {
             guard attribute.fullName != "system.data" else {
