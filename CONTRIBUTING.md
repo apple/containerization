@@ -24,6 +24,8 @@ To file a bug or feature request, use [GitHub issues](https://github.com/apple/c
 
 ### Pull Requests
 
+We require all commits be signed with any of GitHub's supported methods, such as GPG or SSH. Information on how to set this up can be found on [GitHub's docs](https://docs.github.com/en/authentication/managing-commit-signature-verification/about-commit-signature-verification#about-commit-signature-verification).
+
 To make a pull request, use [GitHub](https://github.com/apple/containerization/compare). Please give the team a few days to review but it's ok to check in on occasion. We appreciate your contribution!
 
 > [!IMPORTANT]
