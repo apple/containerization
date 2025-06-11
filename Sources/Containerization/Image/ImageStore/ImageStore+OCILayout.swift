@@ -62,7 +62,7 @@ extension ImageStore {
             client.setImageReferenceAnnotation(descriptor: &descriptor, reference: image.reference)
             saved.append(descriptor)
         }
-        try client.createOCILayoutStructre(directory: out, manifests: saved)
+        try client.createOCILayoutStructure(directory: out, manifests: saved)
     }
 
     /// Imports one or more images and their associated layers from an OCI Image Layout directory.

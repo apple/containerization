@@ -132,7 +132,7 @@ extension LocalOCILayoutClient {
         return index
     }
 
-    package func createOCILayoutStructre(directory: URL, manifests: [Descriptor]) throws {
+    package func createOCILayoutStructure(directory: URL, manifests: [Descriptor]) throws {
         let fm = FileManager.default
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.withoutEscapingSlashes]
