@@ -62,7 +62,7 @@ public class ImageStoreTests: ContainsAuth {
             return
         }
         let imageReference = "ghcr.io/apple/containerization/dockermanifestimage:0.0.2"
-        let busyboxImage = try await self.store.pull(reference: imageReference, auth: Self.authentication)
+        let busyboxImage = try await self.store.pull(reference: imageReference, auth: authentication)
 
         let got = try await self.store.get(reference: imageReference)
         #expect(got.descriptor == busyboxImage.descriptor)
