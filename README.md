@@ -71,7 +71,7 @@ A kernel image named `vmlinux.container` can be found in the `/opt/kata/share/ka
 
 ## Prepare to build package
 
-Install Swiftly, [Swift](https://www.swift.org), and [Static Linux SDK](https://www.swift.org/documentation/articles/static-linux-getting-started.html):
+Install [Swiftly](https://github.com/swiftlang/swiftly), [Swift](https://www.swift.org), and [Static Linux SDK](https://www.swift.org/documentation/articles/static-linux-getting-started.html):
 
 ```bash
 make cross-prep
