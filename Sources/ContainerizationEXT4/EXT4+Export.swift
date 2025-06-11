@@ -50,7 +50,7 @@ extension EXT4.EXT4Reader {
             var attributes: [EXT4.ExtendedAttribute] = []
             let buffer: [UInt8] = EXT4.tupleToArray(inode.inlineXattrs)
             if !buffer.allZeros {
-                try attributes.append(contentsOf: Self.readInlineExtenedAttributes(from: buffer))
+                try attributes.append(contentsOf: Self.readInlineExtendedAttributes(from: buffer))
             }
             if inode.xattrBlockLow != 0 {
                 let block = inode.xattrBlockLow
@@ -58,7 +58,7 @@ extension EXT4.EXT4Reader {
                 guard let buffer = try self.handle.read(upToCount: Int(self.blockSize)) else {
                     throw EXT4.Error.couldNotReadBlock(block)
                 }
-                try attributes.append(contentsOf: Self.readBlockExtenedAttributes(from: [UInt8](buffer)))
+                try attributes.append(contentsOf: Self.readBlockExtendedAttributes(from: [UInt8](buffer)))
             }
 
             var xattrs: [String: Data] = [:]
