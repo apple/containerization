@@ -17,7 +17,6 @@ SWIFT_CONFIGURATION := --swift-sdk aarch64-swift-linux-musl
 
 # The Static Linux SDK version should match the latest released version on https://www.swift.org/install/macos/
 SWIFT_SDK_URL = https://download.swift.org/swift-6.1-release/static-sdk/swift-6.1-RELEASE/swift-6.1-RELEASE_static-linux-0.0.1.artifactbundle.tar.gz
-SWIFT_SDK_CHECKSUM = 111c6f7d280a651208b8c74c0521dd99365d785c1976a6e23162f55f65379ac6
 SWIFT_SDK_PATH = /tmp/$(notdir $(SWIFT_SDK_URL))
 
 SWIFTLY_URL := https://download.swift.org/swiftly/darwin/swiftly.pkg
@@ -57,7 +56,7 @@ swiftly:
 linux-sdk:
 	@echo Installing Static Linux SDK...
 	@curl -L -o $(SWIFT_SDK_PATH) $(SWIFT_SDK_URL)
-	-@swift sdk install $(SWIFT_SDK_PATH) --checksum $(SWIFT_SDK_CHECKSUM)
+	-@swift sdk install $(SWIFT_SDK_PATH)
 	@rm $(SWIFT_SDK_PATH)
 
 .PHONY: macos-sdk
