@@ -366,22 +366,4 @@ extension Kernel {
     }
 }
 
-public protocol VZInterface {
-    func device() throws -> VZVirtioNetworkDeviceConfiguration
-}
-
-extension NATInterface: VZInterface {
-    public func device() throws -> VZVirtioNetworkDeviceConfiguration {
-        let config = VZVirtioNetworkDeviceConfiguration()
-        if let macAddress = self.macAddress {
-            guard let mac = VZMACAddress(string: macAddress) else {
-                throw ContainerizationError(.invalidArgument, message: "invalid mac address \(macAddress)")
-            }
-            config.macAddress = mac
-        }
-        config.attachment = VZNATNetworkDeviceAttachment()
-        return config
-    }
-}
-
 #endif

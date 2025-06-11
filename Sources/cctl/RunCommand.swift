@@ -128,7 +128,7 @@ extension Application {
                 guard let gateway else {
                     throw ContainerizationError(.invalidArgument, message: "gateway must be specified")
                 }
-                container.interfaces.append(NATInterface(address: ip, gateway: gateway))
+                container.interfaces.append(VZNATInterface(address: ip, gateway: gateway))
                 container.dns = .init(nameservers: [gateway])
                 if nameservers.count > 0 {
                     container.dns = .init(nameservers: nameservers)

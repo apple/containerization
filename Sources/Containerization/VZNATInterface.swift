@@ -15,7 +15,13 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-public struct NATInterface: Interface {
+#if os(macOS)
+
+import ContainerizationError
+import Virtualization
+
+/// Legacy NAT network interface backed by Virtualization.framework.
+public struct VZNATInterface: Interface {
     public var address: String
     public var gateway: String
     public var macAddress: String?
@@ -26,3 +32,24 @@ public struct NATInterface: Interface {
         self.macAddress = macAddress
     }
 }
+
+extension VZNATInterface: VZInterface {
+    /// Turns the provided data on the interface into a valid
+    /// Virtualization.framework `VZVirtioNetworkDeviceConfiguration`.
+    public func device() throws -> VZVirtioNetworkDeviceConfiguration {
+        let config = VZVirtioNetworkDeviceConfiguration()
+        if let macAddress = self.macAddress {
+            guard let mac = VZMACAddress(string: macAddress) else {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "invalid mac address \(macAddress)"
+                )
+            }
+            config.macAddress = mac
+        }
+        config.attachment = VZNATNetworkDeviceAttachment()
+        return config
+    }
+}
+
+#endif
