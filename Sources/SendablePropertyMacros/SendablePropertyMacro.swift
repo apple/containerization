@@ -54,12 +54,14 @@ public struct SendablePropertyMacro: PeerMacro {
             genericTypeAnnotation = "<\(typeName)\(hasInitializer ? "" : "?")>"
         }
 
+        let accessLevel = varDecl.modifiers.first(where: { ["open", "public", "internal", "fileprivate", "private"].contains($0.name.text) })?.name.text ?? "internal"
+        
         // Create a peer property
         let peerPropertyName = self.peerPropertyName(for: propertyName)
         // `Mutex` (requires macOS 15) and `OSAllocationUnfairLock` (requires macOS 13, unsupported on Linux) are more effective than `NSLock`.
         let peerProperty: DeclSyntax =
             """
-            private let \(raw: peerPropertyName) = Mutex\(raw: genericTypeAnnotation)(\(raw: initializerValue))
+            \(raw: accessLevel) let \(raw: peerPropertyName) = Mutex\(raw: genericTypeAnnotation)(\(raw: initializerValue))
             """
         return [peerProperty]
     }
