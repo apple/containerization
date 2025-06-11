@@ -177,10 +177,10 @@ extension RegistryClient {
                 while var buf = try await itr.next() {
                     let readBytes = Int64(buf.readableBytes)
                     received += readBytes
-                    await progress?([
-                        ProgressEvent(event: "add-size", value: readBytes)
-                    ])
                     let written = try await writer.write(contentsOf: buf)
+                    await progress?([
+                        ProgressEvent(event: "add-size", value: written)
+                    ])
                     guard written == readBytes else {
                         throw ContainerizationError(.internalError, message: "Could not write \(readBytes) bytes to file \(file)")
                     }
