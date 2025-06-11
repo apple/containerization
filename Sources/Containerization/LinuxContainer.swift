@@ -22,6 +22,7 @@ import ContainerizationOCI
 import Foundation
 import Logging
 import SendableProperty
+import Synchronization
 
 import struct ContainerizationOS.Terminal
 
