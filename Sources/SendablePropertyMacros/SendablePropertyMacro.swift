@@ -21,7 +21,6 @@ import SwiftParser
 import SwiftSyntax
 import SwiftSyntaxBuilder
 import SwiftSyntaxMacros
-import Synchronization
 
 /// A macro that allows to make a property thread-safe keeping the `Sendable` conformance of the type.
 public struct SendablePropertyMacro: PeerMacro {
@@ -58,10 +57,9 @@ public struct SendablePropertyMacro: PeerMacro {
         
         // Create a peer property
         let peerPropertyName = self.peerPropertyName(for: propertyName)
-        // `Mutex` (requires macOS 15) and `OSAllocationUnfairLock` (requires macOS 13, unsupported on Linux) are more effective than `NSLock`.
         let peerProperty: DeclSyntax =
             """
-            \(raw: accessLevel) let \(raw: peerPropertyName) = Mutex\(raw: genericTypeAnnotation)(\(raw: initializerValue))
+            \(raw: accessLevel) let \(raw: peerPropertyName) = Synchronized\(raw: genericTypeAnnotation)(\(raw: initializerValue))
             """
         return [peerProperty]
     }
@@ -95,18 +93,10 @@ extension SendablePropertyMacro: AccessorMacro {
                 \(raw: peerPropertyName).withLock { $0\(raw: hasInitializer ? "" : "!") }
             }
             """
-        // The `Sending` class is used as a temporary workaround for the error: "'inout sending' parameter '$0' cannot be task-isolated at end of function."
         let accessorSetter: AccessorDeclSyntax =
             """
             set {
-                class Sending<T>: @unchecked Sendable {
-                    let wrappedValue: T
-                    init(_ value: T) {
-                        wrappedValue = value
-                    }
-                }
-                let newValue = Sending(newValue)
-                \(raw: peerPropertyName).withLock { $0 = newValue.wrappedValue }
+                \(raw: peerPropertyName).withLock { $0 = newValue }
             }
             """
 

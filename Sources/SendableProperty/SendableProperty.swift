@@ -15,10 +15,32 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-// `Synchronization` will be automatically imported with `SendableProperty`
-@_exported import Synchronization
+// `Foundation` will be automatically imported with `SendableProperty`.
+@_exported import Foundation
 
 // A declaration of the `@SendableProperty` macro.
 @attached(peer, names: arbitrary)
 @attached(accessor)
 public macro SendableProperty() = #externalMacro(module: "SendablePropertyMacros", type: "SendablePropertyMacro")
+
+/// A synchronization primitive that protects shared mutable state via mutual exclusion.
+public final class Synchronized<T>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: T
+    
+    /// Creates a new instance.
+    /// - Parameter value: The initial value.
+    public init(_ value: T) {
+        self.value = value
+    }
+    
+    /// Calls the given closure after acquiring the lock and returns its value.
+    /// - Parameter body: The body of code to execute while the lock is held.
+    public func withLock<R>(_ body: (inout T) throws -> R) rethrows -> R {
+        lock.lock()
+        defer {
+            lock.unlock()
+        }
+        return try body(&value)
+    }
+}
