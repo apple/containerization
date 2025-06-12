@@ -46,7 +46,7 @@ For examples of how to use some of the libraries surface, the cctl executable is
 3. [Creating root filesystem blocks](./Sources/cctl/RootfsCommand.swift)
 4. [Running simple Linux containers](./Sources/cctl/RunCommand.swift)
 
-## Linux kernel
+## Linux Kernel
 
 A Linux kernel is required for spawning lightweight virtual machines on macOS.
 Containerization provides an optimized kernel configuration located in the [kernel](./kernel) directory.
@@ -61,7 +61,7 @@ This enables containers to be developed and validated across different kernel ve
 
 See the [README](/kernel/README.md) in the kernel directory for instruction on how to compile the optimized kernel.
 
-### Pre-build Kernel
+### Pre-Build Kernel
 
 If you wish to consume a pre-built kernel it must have `VIRTIO` drivers compiled into the kernel, not as modules.
 
@@ -69,7 +69,7 @@ The [Kata Containers](https://github.com/kata-containers/kata-containers) projec
 
 A kernel image named `vmlinux.container` can be found in the `/opt/kata/share/kata-containers/` directory of the release artifacts.
 
-## Prepare to build package
+## Prepare to Build Package
 
 Install [Swiftly](https://github.com/swiftlang/swiftly), [Swift](https://www.swift.org), and [Static Linux SDK](https://www.swift.org/documentation/articles/static-linux-getting-started.html):
 
@@ -97,7 +97,7 @@ swift sdk list
 swift sdk remove <SDK-ID>
 ```
 
-## Build the package
+## Build the Package
 
 Build Containerization from sources:
 
@@ -105,7 +105,7 @@ Build Containerization from sources:
 make all
 ```
 
-## Test the package
+## Test the Package
 
 After building, run basic and integration tests:
 
