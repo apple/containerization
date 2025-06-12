@@ -47,6 +47,14 @@ Before merging, we'll review the pull request title and body to ensure it:
 
 The pull request description should be concise and accurately describe the *what* and *why* of your changes.
 
+#### .gitignore contributions
+
+We do not currently accept contributions to add editor specific additions to the root .gitignore. We urge contributors to make a global .gitignore file with their rulesets they may want to add instead. A global .gitignore file can be set like so:
+
+```bash
+git config --global core.excludesfile ~/.gitignore
+```
+
 #### Formatting Contributions
 
 Make sure your contributions are consistent with the rest of the project's formatting. You can do this using our Makefile:

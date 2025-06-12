@@ -10,9 +10,6 @@ DerivedData/
 .swiftpm
 workdir/
 installer/
-.xcode/
-.vscode/
-.idea/
 .venv/
 test_results/
 *.pid
