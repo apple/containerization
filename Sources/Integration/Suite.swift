@@ -200,7 +200,7 @@ struct IntegrationSuite: AsyncParsableCommand {
             "process user": testProcessUser,
             "process home envvar": testProcessHomeEnvvar,
             "multiple concurrent processes": testMultipleConcurrentProcesses,
-            "multiple concurrent processes with output": testMultipleConcurrentProcessesOutput,
+            "multiple concurrent processes with output stress": testMultipleConcurrentProcessesOutputStress,
             "container hostname": testHostname,
             "container mount": testMounts,
             "nested virt": testNestedVirtualizationEnabled,

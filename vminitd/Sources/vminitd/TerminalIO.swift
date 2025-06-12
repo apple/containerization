@@ -96,10 +96,9 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
 
         try ProcessSupervisor.default.poller.add(readFromFd, mask: EPOLLIN) { mask in
             if mask.isHangup && !mask.readyToRead {
-                self.cleanup(readFromFd, buffer: buf, log: self.log)
+                self.cleanupRelay(readFd: readFromFd, writeFd: writeToFd, buffer: buf, log: self.log)
                 return
             }
-
             // Loop so that in the case that someone wrote > buf.count down the pipe
             // we properly will drain it fully.
             while true {
@@ -113,7 +112,7 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
                     let w = writeTo.write(view)
                     if w.wrote != r.read {
                         self.log?.error("stopping relay: short write for stdio")
-                        self.cleanup(readFromFd, buffer: buf, log: self.log)
+                        self.cleanupRelay(readFd: readFromFd, writeFd: writeToFd, buffer: buf, log: self.log)
                         return
                     }
                 }
@@ -123,13 +122,13 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
                     self.log?.error("failed with errno \(errno) while reading for fd \(readFromFd)")
                     fallthrough
                 case .eof:
-                    self.cleanup(readFromFd, buffer: buf, log: self.log)
+                    self.cleanupRelay(readFd: readFromFd, writeFd: writeToFd, buffer: buf, log: self.log)
                     self.log?.debug("closing relay for \(readFromFd)")
                     return
                 case .again:
                     // We read all we could, exit.
                     if mask.isHangup {
-                        self.cleanup(readFromFd, buffer: buf, log: self.log)
+                        self.cleanupRelay(readFd: readFromFd, writeFd: writeToFd, buffer: buf, log: self.log)
                     }
                     return
                 default:
@@ -139,15 +138,16 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
         }
     }
 
-    func cleanup(_ fd: Int32, buffer: UnsafeMutableBufferPointer<UInt8>, log: Logger?) {
+    func cleanupRelay(readFd: Int32, writeFd: Int32, buffer: UnsafeMutableBufferPointer<UInt8>, log: Logger?) {
         do {
             // We could alternatively just allocate buffers in the constructor, and free them
             // on close().
             buffer.deallocate()
-            try ProcessSupervisor.default.poller.delete(fd)
+            try ProcessSupervisor.default.poller.delete(readFd)
         } catch {
-            self.log?.error("failed to delete pipe fd from epoll \(fd): \(error)")
+            self.log?.error("failed to delete pipe fd from epoll \(readFd): \(error)")
         }
+        Foundation.close(writeFd)
     }
 
     func close() throws {

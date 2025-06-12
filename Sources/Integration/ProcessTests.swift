@@ -17,6 +17,7 @@
 import ArgumentParser
 import Containerization
 import ContainerizationOCI
+import Crypto
 import Foundation
 import Logging
 
@@ -154,9 +155,8 @@ extension IntegrationSuite {
         }
     }
 
-    func testMultipleConcurrentProcessesOutput() async throws {
-        let id = "test-concurrent-processes-output"
-
+    func testMultipleConcurrentProcessesOutputStress() async throws {
+        let id = "test-concurrent-processes-output-stress"
         let bs = try await bootstrap()
         let container = LinuxContainer(
             id,
@@ -169,36 +169,49 @@ extension IntegrationSuite {
             try await container.create()
             try await container.start()
 
-            let execConfig = ContainerizationOCI.Process(
-                args: ["/bin/echo", "hi"],
+            let baseExecConfig = ContainerizationOCI.Process(
+                args: ["sh", "-c", "dd if=/dev/random of=/tmp/bytes bs=1M count=20 status=none ; sha256sum /tmp/bytes"],
                 env: ["PATH=\(LinuxContainer.defaultPath)"]
             )
-
+            let buffer = BufferWriter()
+            let exec = try await container.exec(
+                "expected-value",
+                configuration: baseExecConfig,
+                stdout: buffer,
+            )
+            try await exec.start()
+            let status = try await exec.wait()
+            if status != 0 {
+                throw IntegrationError.assert(msg: "process status \(status) != 0")
+            }
+            let output = String(data: buffer.data, encoding: .utf8)!
+            let expected = String(output.split(separator: " ").first!)
             try await withThrowingTaskGroup(of: Void.self) { group in
+                let execConfig = ContainerizationOCI.Process(
+                    args: ["cat", "/tmp/bytes"],
+                    env: ["PATH=\(LinuxContainer.defaultPath)"]
+                )
                 for i in 0...80 {
                     let idx = i
                     group.addTask {
                         let buffer = BufferWriter()
-
-                        var config = execConfig
-                        config.args[1] = "hi\(idx)"
-
                         let exec = try await container.exec(
                             "exec-\(idx)",
-                            configuration: config,
+                            configuration: execConfig,
                             stdout: buffer,
                         )
                         try await exec.start()
 
                         let status = try await exec.wait()
                         if status != 0 {
-                            throw IntegrationError.assert(msg: "process status \(status) != 0")
+                            throw IntegrationError.assert(msg: "process \(idx) status for  \(status) != 0")
                         }
-
-                        let output = String(data: buffer.data, encoding: .utf8)
-                        guard output == "hi\(idx)\n" else {
+                        var hasher = SHA256()
+                        hasher.update(data: buffer.data)
+                        let hash = hasher.finalize().digestString.trimmingDigestPrefix
+                        guard hash == expected else {
                             throw IntegrationError.assert(
-                                msg: "process should have returned on stdout 'hi\(idx)' != '\(output!))")
+                                msg: "process \(idx) output \(hash) != expected \(expected)")
                         }
                         try await exec.delete()
                     }
@@ -210,12 +223,9 @@ extension IntegrationSuite {
 
                 // kill the init process.
                 try await container.kill(SIGKILL)
-                let status = try await container.wait()
+                try await container.wait()
                 try await container.stop()
-                print("\(status)")
             }
-        } catch {
-            throw error
         }
     }
 
