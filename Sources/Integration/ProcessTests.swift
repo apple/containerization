@@ -252,6 +252,44 @@ extension IntegrationSuite {
         }
     }
 
+    // Make sure we set HOME by default if we can find it in /etc/passwd in the guest.
+    func testProcessHomeEnvvar() async throws {
+        let id = "test-process-home-envvar"
+
+        let bs = try await bootstrap()
+        let container = LinuxContainer(
+            id,
+            rootfs: bs.rootfs,
+            vmm: bs.vmm
+        )
+        container.arguments = ["env"]
+        container.user = .init(uid: 0, gid: 0)
+
+        let buffer = BufferWriter()
+        container.stdout = buffer
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        guard let str = String(data: buffer.data, encoding: .utf8) else {
+            throw IntegrationError.assert(
+                msg: "failed to convert standard output to a UTF8 string")
+        }
+
+        let homeEnvvar = "HOME=/root"
+        guard str.contains(homeEnvvar) else {
+            throw IntegrationError.assert(
+                msg: "process should have HOME environment variable defined")
+        }
+    }
+
     func testHostname() async throws {
         let id = "test-container-hostname"
 

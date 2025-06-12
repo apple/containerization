@@ -209,6 +209,7 @@ struct IntegrationSuite: AsyncParsableCommand {
             "process false": testProcessFalse,
             "process echo hi": testProcessEchoHi,
             "process user": testProcessUser,
+            "process home envvar": testProcessHomeEnvvar,
             "multiple concurrent processes": testMultipleConcurrentProcesses,
             "multiple concurrent processes with output": testMultipleConcurrentProcessesOutput,
             "container hostname": testHostname,

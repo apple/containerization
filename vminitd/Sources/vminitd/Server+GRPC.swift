@@ -825,10 +825,16 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
 extension Initd {
     func ociAlterations(ociSpec: inout ContainerizationOCI.Spec) throws {
         guard var process = ociSpec.process else {
-            throw ContainerizationError(.invalidArgument, message: "runtime spec without process field present")
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "runtime spec without process field present"
+            )
         }
         guard let root = ociSpec.root else {
-            throw ContainerizationError(.invalidArgument, message: "runtime spec without root field present")
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "runtime spec without root field present"
+            )
         }
 
         try FileManager.default.createDirectory(
@@ -840,17 +846,15 @@ extension Initd {
             process.cwd = "/"
         }
 
-        // This is truthfully a Windows field, but it's fairly common for vm runtimes
-        // to fill this in as a way to defer username lookup until we hit the guest.
-        let username = process.user.username
-        if !username.isEmpty {
-            let parsedUser = try User.parseUser(root: root.path, userString: username)
-            process.user.uid = parsedUser.uid
-            process.user.gid = parsedUser.gid
-            process.user.additionalGids.append(contentsOf: parsedUser.sgids)
-            if !process.env.contains("HOME") {
-                process.env.append("HOME=\(parsedUser.home)")
-            }
+        // Username is truthfully a Windows field, but we use this as away to passthrough
+        // the exact string representation of a username a client may have given us.
+        let username = process.user.username.isEmpty ? "\(process.user.uid):\(process.user.gid)" : process.user.username
+        let parsedUser = try User.parseUser(root: root.path, userString: username)
+        process.user.uid = parsedUser.uid
+        process.user.gid = parsedUser.gid
+        process.user.additionalGids = parsedUser.sgids
+        if !process.env.contains("HOME") {
+            process.env.append("HOME=\(parsedUser.home)")
         }
         ociSpec.process = process
     }
