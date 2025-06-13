@@ -410,9 +410,7 @@ extension LinuxContainer {
         get { config.spec.process!.rlimits }
         set { config.spec.process!.rlimits = newValue }
     }
-}
 
-extension LinuxContainer {
     /// Set a pty device as the container's stdio.
     public var terminalDevice: Terminal? {
         get { config.terminal }
@@ -465,9 +463,7 @@ extension LinuxContainer {
         let process = ContainerizationOCI.Process(from: imageConfig)
         self.config.spec.process = process
     }
-}
 
-extension LinuxContainer {
     /// Create the underlying container's virtual machine
     /// and setup the runtime environment.
     public func create() async throws {
@@ -595,9 +591,7 @@ extension LinuxContainer {
             stderr: stderrSetup
         )
     }
-}
 
-extension LinuxContainer {
     /// Stop the container from executing.
     public func stop() async throws {
         let startedState = try state.stopping()
@@ -674,9 +668,7 @@ extension LinuxContainer {
         let state = try self.state.startedState("resize")
         try await state.process.resize(to: to)
     }
-}
 
-extension LinuxContainer {
     /// Execute a new process in the container.
     public func exec(
         _ id: String,
