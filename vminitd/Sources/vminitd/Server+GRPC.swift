@@ -257,7 +257,6 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             ])
 
         do {
-            // FIXME: Handle single file mounts.
             let mnt = ContainerizationOS.Mount(
                 type: request.type,
                 source: request.source,
@@ -836,11 +835,6 @@ extension Initd {
             )
         }
 
-        try FileManager.default.createDirectory(
-            atPath: root.path,
-            withIntermediateDirectories: true
-        )
-
         if process.cwd.isEmpty {
             process.cwd = "/"
         }
@@ -855,6 +849,7 @@ extension Initd {
         if !process.env.contains("HOME") {
             process.env.append("HOME=\(parsedUser.home)")
         }
+
         ociSpec.process = process
     }
 }
