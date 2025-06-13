@@ -19,39 +19,39 @@
 import Foundation
 
 extension EXT4 {
-    struct SuperBlock {
-        var inodesCount: UInt32 = 0
-        var blocksCountLow: UInt32 = 0
-        var rootBlocksCountLow: UInt32 = 0
-        var freeBlocksCountLow: UInt32 = 0
-        var freeInodesCount: UInt32 = 0
-        var firstDataBlock: UInt32 = 0
-        var logBlockSize: UInt32 = 0
-        var logClusterSize: UInt32 = 0
-        var blocksPerGroup: UInt32 = 0
-        var clustersPerGroup: UInt32 = 0
-        var inodesPerGroup: UInt32 = 0
-        var mtime: UInt32 = 0
-        var wtime: UInt32 = 0
-        var mountCount: UInt16 = 0
-        var maxMountCount: UInt16 = 0
-        var magic: UInt16 = 0
-        var state: UInt16 = 0
-        var errors: UInt16 = 0
-        var minorRevisionLevel: UInt16 = 0
-        var lastCheck: UInt32 = 0
-        var checkInterval: UInt32 = 0
-        var creatorOS: UInt32 = 0
-        var revisionLevel: UInt32 = 0
-        var defaultReservedUid: UInt16 = 0
-        var defaultReservedGid: UInt16 = 0
-        var firstInode: UInt32 = 0
-        var inodeSize: UInt16 = 0
-        var blockGroupNr: UInt16 = 0
-        var featureCompat: UInt32 = 0
-        var featureIncompat: UInt32 = 0
-        var featureRoCompat: UInt32 = 0
-        var uuid:
+    public struct SuperBlock {
+        public var inodesCount: UInt32 = 0
+        public var blocksCountLow: UInt32 = 0
+        public var rootBlocksCountLow: UInt32 = 0
+        public var freeBlocksCountLow: UInt32 = 0
+        public var freeInodesCount: UInt32 = 0
+        public var firstDataBlock: UInt32 = 0
+        public var logBlockSize: UInt32 = 0
+        public var logClusterSize: UInt32 = 0
+        public var blocksPerGroup: UInt32 = 0
+        public var clustersPerGroup: UInt32 = 0
+        public var inodesPerGroup: UInt32 = 0
+        public var mtime: UInt32 = 0
+        public var wtime: UInt32 = 0
+        public var mountCount: UInt16 = 0
+        public var maxMountCount: UInt16 = 0
+        public var magic: UInt16 = 0
+        public var state: UInt16 = 0
+        public var errors: UInt16 = 0
+        public var minorRevisionLevel: UInt16 = 0
+        public var lastCheck: UInt32 = 0
+        public var checkInterval: UInt32 = 0
+        public var creatorOS: UInt32 = 0
+        public var revisionLevel: UInt32 = 0
+        public var defaultReservedUid: UInt16 = 0
+        public var defaultReservedGid: UInt16 = 0
+        public var firstInode: UInt32 = 0
+        public var inodeSize: UInt16 = 0
+        public var blockGroupNr: UInt16 = 0
+        public var featureCompat: UInt32 = 0
+        public var featureIncompat: UInt32 = 0
+        public var featureRoCompat: UInt32 = 0
+        public var uuid:
             (
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8
@@ -59,7 +59,7 @@ extension EXT4 {
                 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0
             )
-        var volumeName:
+        public var volumeName:
             (
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8
@@ -67,7 +67,7 @@ extension EXT4 {
                 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0
             )
-        var lastMounted:
+        public var lastMounted:
             (
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
@@ -87,11 +87,11 @@ extension EXT4 {
                 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0
             )
-        var algorithmUsageBitmap: UInt32 = 0
-        var preallocBlocks: UInt8 = 0
-        var preallocDirBlocks: UInt8 = 0
-        var reservedGdtBlocks: UInt16 = 0
-        var journalUUID:
+        public var algorithmUsageBitmap: UInt32 = 0
+        public var preallocBlocks: UInt8 = 0
+        public var preallocDirBlocks: UInt8 = 0
+        public var reservedGdtBlocks: UInt16 = 0
+        public var journalUUID:
             (
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8
@@ -99,17 +99,17 @@ extension EXT4 {
                 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0
             )
-        var journalInum: UInt32 = 0
-        var journalDev: UInt32 = 0
-        var lastOrphan: UInt32 = 0
-        var hashSeed: (UInt32, UInt32, UInt32, UInt32) = (0, 0, 0, 0)
-        var defHashVersion: UInt8 = 0
-        var journalBackupType: UInt8 = 0
-        var descSize: UInt16 = UInt16(MemoryLayout<GroupDescriptor>.size)
-        var defaultMountOpts: UInt32 = 0
-        var firstMetaBg: UInt32 = 0
-        var mkfsTime: UInt32 = 0
-        var journalBlocks:
+        public var journalInum: UInt32 = 0
+        public var journalDev: UInt32 = 0
+        public var lastOrphan: UInt32 = 0
+        public var hashSeed: (UInt32, UInt32, UInt32, UInt32) = (0, 0, 0, 0)
+        public var defHashVersion: UInt8 = 0
+        public var journalBackupType: UInt8 = 0
+        public var descSize: UInt16 = UInt16(MemoryLayout<GroupDescriptor>.size)
+        public var defaultMountOpts: UInt32 = 0
+        public var firstMetaBg: UInt32 = 0
+        public var mkfsTime: UInt32 = 0
+        public var journalBlocks:
             (
                 UInt32, UInt32, UInt32, UInt32, UInt32, UInt32, UInt32, UInt32,
                 UInt32, UInt32, UInt32, UInt32, UInt32, UInt32, UInt32, UInt32,
@@ -119,29 +119,29 @@ extension EXT4 {
                 0, 0, 0, 0, 0, 0, 0, 0,
                 0
             )
-        var blocksCountHigh: UInt32 = 0
-        var rBlocksCountHigh: UInt32 = 0
-        var freeBlocksCountHigh: UInt32 = 0
-        var minExtraIsize: UInt16 = 0
-        var wantExtraIsize: UInt16 = 0
-        var flags: UInt32 = 0
-        var raidStride: UInt16 = 0
-        var mmpInterval: UInt16 = 0
-        var mmpBlock: UInt64 = 0
-        var raidStripeWidth: UInt32 = 0
-        var logGroupsPerFlex: UInt8 = 0
-        var checksumType: UInt8 = 0
-        var reservedPad: UInt16 = 0
-        var kbytesWritten: UInt64 = 0
-        var snapshotInum: UInt32 = 0
-        var snapshotID: UInt32 = 0
-        var snapshotRBlocksCount: UInt64 = 0
-        var snapshotList: UInt32 = 0
-        var errorCount: UInt32 = 0
-        var firstErrorTime: UInt32 = 0
-        var firstErrorInode: UInt32 = 0
-        var firstErrorBlock: UInt64 = 0
-        var firstErrorFunc:
+        public var blocksCountHigh: UInt32 = 0
+        public var rBlocksCountHigh: UInt32 = 0
+        public var freeBlocksCountHigh: UInt32 = 0
+        public var minExtraIsize: UInt16 = 0
+        public var wantExtraIsize: UInt16 = 0
+        public var flags: UInt32 = 0
+        public var raidStride: UInt16 = 0
+        public var mmpInterval: UInt16 = 0
+        public var mmpBlock: UInt64 = 0
+        public var raidStripeWidth: UInt32 = 0
+        public var logGroupsPerFlex: UInt8 = 0
+        public var checksumType: UInt8 = 0
+        public var reservedPad: UInt16 = 0
+        public var kbytesWritten: UInt64 = 0
+        public var snapshotInum: UInt32 = 0
+        public var snapshotID: UInt32 = 0
+        public var snapshotRBlocksCount: UInt64 = 0
+        public var snapshotList: UInt32 = 0
+        public var errorCount: UInt32 = 0
+        public var firstErrorTime: UInt32 = 0
+        public var firstErrorInode: UInt32 = 0
+        public var firstErrorBlock: UInt64 = 0
+        public var firstErrorFunc:
             (
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
@@ -153,12 +153,12 @@ extension EXT4 {
                 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0
             )
-        var firstErrorLine: UInt32 = 0
-        var lastErrorTime: UInt32 = 0
-        var lastErrorInode: UInt32 = 0
-        var lastErrorLine: UInt32 = 0
-        var lastErrorBlock: UInt64 = 0
-        var lastErrorFunc:
+        public var firstErrorLine: UInt32 = 0
+        public var lastErrorTime: UInt32 = 0
+        public var lastErrorInode: UInt32 = 0
+        public var lastErrorLine: UInt32 = 0
+        public var lastErrorBlock: UInt64 = 0
+        public var lastErrorFunc:
             (
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
@@ -170,7 +170,7 @@ extension EXT4 {
                 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0
             )
-        var mountOpts:
+        public var mountOpts:
             (
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
@@ -190,12 +190,12 @@ extension EXT4 {
                 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0
             )
-        var userQuotaInum: UInt32 = 0
-        var groupQuotaInum: UInt32 = 0
-        var overheadBlocks: UInt32 = 0
-        var backupBgs: (UInt32, UInt32) = (0, 0)
-        var encryptAlgos: (UInt8, UInt8, UInt8, UInt8) = (0, 0, 0, 0)
-        var encryptPwSalt:
+        public var userQuotaInum: UInt32 = 0
+        public var groupQuotaInum: UInt32 = 0
+        public var overheadBlocks: UInt32 = 0
+        public var backupBgs: (UInt32, UInt32) = (0, 0)
+        public var encryptAlgos: (UInt8, UInt8, UInt8, UInt8) = (0, 0, 0, 0)
+        public var encryptPwSalt:
             (
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8
@@ -203,17 +203,17 @@ extension EXT4 {
                 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0
             )
-        var lpfInode: UInt32 = 0
-        var projectQuotaInum: UInt32 = 0
-        var checksumSeed: UInt32 = 0
-        var wtimeHigh: UInt8 = 0
-        var mtimeHigh: UInt8 = 0
-        var mkfsTimeHigh: UInt8 = 0
-        var lastcheckHigh: UInt8 = 0
-        var firstErrorTimeHigh: UInt8 = 0
-        var lastErrorTimeHigh: UInt8 = 0
-        var pad: (UInt8, UInt8) = (0, 0)
-        var reserved:
+        public var lpfInode: UInt32 = 0
+        public var projectQuotaInum: UInt32 = 0
+        public var checksumSeed: UInt32 = 0
+        public var wtimeHigh: UInt8 = 0
+        public var mtimeHigh: UInt8 = 0
+        public var mkfsTimeHigh: UInt8 = 0
+        public var lastcheckHigh: UInt8 = 0
+        public var firstErrorTimeHigh: UInt8 = 0
+        public var lastErrorTimeHigh: UInt8 = 0
+        public var pad: (UInt8, UInt8) = (0, 0)
+        public var reserved:
             (
                 UInt32, UInt32, UInt32, UInt32, UInt32, UInt32, UInt32, UInt32,
                 UInt32, UInt32, UInt32, UInt32, UInt32, UInt32, UInt32, UInt32,
@@ -241,7 +241,7 @@ extension EXT4 {
                 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0
             )
-        var checksum: UInt32 = 0
+        public var checksum: UInt32 = 0
     }
 
     struct CompatFeature {
@@ -436,6 +436,7 @@ extension EXT4 {
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0
             )
+
         public static func Mode(_ mode: FileModeFlag, _ perm: UInt16) -> UInt16 {
             mode.rawValue | perm
         }

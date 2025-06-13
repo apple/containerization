@@ -17,44 +17,44 @@
 import Foundation
 
 public struct FileTimestamps {
-    private let access: Date
-    private let modification: Date
-    private let creation: Date
-    private let now: Date
+    public var access: Date
+    public var modification: Date
+    public var creation: Date
+    public var now: Date
 
-    var accessLo: UInt32 {
+    public var accessLo: UInt32 {
         access.fs().lo
     }
 
-    var accessHi: UInt32 {
+    public var accessHi: UInt32 {
         access.fs().hi
     }
 
-    var modificationLo: UInt32 {
+    public var modificationLo: UInt32 {
         modification.fs().lo
     }
 
-    var modificationHi: UInt32 {
+    public var modificationHi: UInt32 {
         modification.fs().hi
     }
 
-    var creationLo: UInt32 {
+    public var creationLo: UInt32 {
         creation.fs().lo
     }
 
-    var creationHi: UInt32 {
+    public var creationHi: UInt32 {
         creation.fs().hi
     }
 
-    var nowLo: UInt32 {
+    public var nowLo: UInt32 {
         now.fs().lo
     }
 
-    var nowHi: UInt32 {
+    public var nowHi: UInt32 {
         now.fs().hi
     }
 
-    init(access: Date?, modification: Date?, creation: Date?) {
+    public init(access: Date?, modification: Date?, creation: Date?) {
         now = Date()
         self.access = access ?? now
         self.modification = modification ?? now

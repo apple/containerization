@@ -20,8 +20,12 @@ import SystemPackage
 extension EXT4 {
     /// The `EXT4Reader` opens a block device, parses the superblock, and loads group descriptors & inodes.
     public class EXT4Reader {
+        public var superBlock: EXT4.SuperBlock {
+            self._superBlock
+        }
+
         let handle: FileHandle
-        let superBlock: EXT4.SuperBlock
+        let _superBlock: EXT4.SuperBlock
 
         private var groupDescriptors: [UInt32: EXT4.GroupDescriptor] = [:]
         private var inodes: [InodeNumber: EXT4.Inode] = [:]
@@ -29,12 +33,12 @@ extension EXT4 {
         var hardlinks: [FilePath: InodeNumber] = [:]
         var tree: EXT4.FileTree = EXT4.FileTree(EXT4.RootInode, ".")
         var blockSize: UInt64 {
-            UInt64(1024 * (1 << superBlock.logBlockSize))
+            UInt64(1024 * (1 << _superBlock.logBlockSize))
         }
 
         private var groupDescriptorSize: UInt16 {
-            if superBlock.featureIncompat & EXT4.IncompatFeature.bit64.rawValue != 0 {
-                return superBlock.descSize
+            if _superBlock.featureIncompat & EXT4.IncompatFeature.bit64.rawValue != 0 {
+                return _superBlock.descSize
             }
             return UInt16(MemoryLayout<EXT4.GroupDescriptor>.size)
         }
@@ -60,7 +64,7 @@ extension EXT4 {
             guard sb.magic == EXT4.SuperBlockMagic else {
                 throw EXT4.Error.invalidSuperBlock
             }
-            self.superBlock = sb
+            self._superBlock = sb
             var items: [(item: Ptr<EXT4.FileTree.FileTreeNode>, inode: InodeNumber)] = [
                 (self.tree.root, EXT4.RootInode)
             ]
@@ -116,7 +120,7 @@ extension EXT4 {
         }
 
         private func readGroupDescriptor(_ number: UInt32) throws -> GroupDescriptor {
-            let bs = UInt64(1024 * (1 << superBlock.logBlockSize))
+            let bs = UInt64(1024 * (1 << _superBlock.logBlockSize))
             let offset = bs + UInt64(number) * UInt64(self.groupDescriptorSize)
             try self.handle.seek(toOffset: offset)
             guard let data = try? self.handle.read(upToCount: MemoryLayout<EXT4.GroupDescriptor>.size) else {
@@ -129,13 +133,13 @@ extension EXT4 {
         }
 
         private func readInode(_ number: UInt32) throws -> Inode {
-            let inodeGroupNumber = ((number - 1) / self.superBlock.inodesPerGroup)
-            let numberInGroup = UInt64((number - 1) % self.superBlock.inodesPerGroup)
+            let inodeGroupNumber = ((number - 1) / self._superBlock.inodesPerGroup)
+            let numberInGroup = UInt64((number - 1) % self._superBlock.inodesPerGroup)
 
             let gd = try getGroupDescriptor(inodeGroupNumber)
             let inodeTableStart = UInt64(gd.inodeTableLow) * self.blockSize
 
-            let inodeOffset: UInt64 = inodeTableStart + numberInGroup * UInt64(superBlock.inodeSize)
+            let inodeOffset: UInt64 = inodeTableStart + numberInGroup * UInt64(_superBlock.inodeSize)
             try self.handle.seek(toOffset: inodeOffset)
             guard let inodeData = try self.handle.read(upToCount: MemoryLayout<EXT4.Inode>.size) else {
                 throw EXT4.Error.couldNotReadInode(number)
