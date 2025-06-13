@@ -150,7 +150,7 @@ extension EXT4 {
             // ensure that target is not a directory since hardlinks cannot be
             // created to directories
             if targetInode.mode.isDir() {
-                throw Error.cannotCreateHardlinkstoDirTarget(link)
+                throw Error.cannotCreateHardlinksToDirTarget(link)
             }
             targetInode.linksCount += 1
             targetInodePtr.initialize(to: targetInode)
@@ -1266,7 +1266,7 @@ extension EXT4 {
             case invalidName(_ name: String)
             case noSpaceForTrailingDEntry
             case insufficientSpaceForGroupDescriptorBlocks
-            case cannotCreateHardlinkstoDirTarget(_ path: FilePath)
+            case cannotCreateHardlinksToDirTarget(_ path: FilePath)
             case cannotTruncateFile(_ path: FilePath)
             case cannotCreateSparseFile(_ path: FilePath)
             case cannotResizeFS(_ size: UInt64)
@@ -1294,7 +1294,7 @@ extension EXT4 {
                     return "not enough space for trailing dentry"
                 case .insufficientSpaceForGroupDescriptorBlocks:
                     return "not enough space for group descriptor blocks"
-                case .cannotCreateHardlinkstoDirTarget(let path):
+                case .cannotCreateHardlinksToDirTarget(let path):
                     return "cannot create hard links to directory target: \(path)"
                 case .cannotTruncateFile(let path):
                     return "cannot truncate file: \(path)"
