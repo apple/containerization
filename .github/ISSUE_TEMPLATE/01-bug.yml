@@ -1,4 +1,4 @@
-name: Bug Report
+name: Bug report
 description: File a bug report.
 title: "[Bug]: "
 labels: ["bug", "triage"]
@@ -42,14 +42,14 @@ body:
     attributes:
       label: Environment 
       description: |
-        examples: 
+        Examples: 
           - **OS**: MacOS 26 Beta 1
-          - **swift**: Apple Swift version 6.2
-          - **xcode**: Xcode 26 Beta 17A5241e
+          - **Swift**: Apple Swift version 6.2
+          - **Xcode**: Xcode 26 Beta 17A5241e
       value: |
         - OS: 
-        - swift: 
-        - xcode: 
+        - Swift: 
+        - Xcode: 
       render: markdown
     validations:
       required: true
