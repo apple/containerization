@@ -715,6 +715,13 @@ extension LinuxContainer {
         return try await state.vm.dial(port)
     }
 
+    /// Close the containers standard input to signal no more input is
+    /// arriving.
+    public func closeStdin() async throws {
+        let state = try self.state.startedState("closeStdin")
+        return try await state.process.closeStdin()
+    }
+
     /// Relay a unix socket from in the container to the host, or from the host
     /// to inside the container.
     public func relayUnixSocket(socket: UnixSocketConfiguration) async throws {

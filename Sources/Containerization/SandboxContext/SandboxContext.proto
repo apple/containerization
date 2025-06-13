@@ -34,6 +34,8 @@ service SandboxContext {
   // Resize the tty of a given process. This will error if the process does
   // not have a pty allocated.
   rpc ResizeProcess(ResizeProcessRequest) returns (ResizeProcessResponse);
+  // Close IO for a given process.
+  rpc CloseProcessStdin(CloseProcessStdinRequest) returns (CloseProcessStdinResponse);
 
   // Proxy a vsock port to a unix domain socket in the guest, or vice versa.
   rpc ProxyVsock(ProxyVsockRequest) returns (ProxyVsockResponse);
@@ -181,6 +183,13 @@ message KillProcessRequest {
 }
 
 message KillProcessResponse { int32 result = 1; }
+
+message CloseProcessStdinRequest {
+  string id = 1;
+  optional string containerID = 2;
+}
+
+message CloseProcessStdinResponse {}
 
 message MkdirRequest {
   string path = 1;

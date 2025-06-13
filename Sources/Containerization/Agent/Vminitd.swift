@@ -198,6 +198,16 @@ extension Vminitd: VirtualMachineAgent {
         _ = try await client.deleteProcess(request)
     }
 
+    public func closeProcessStdin(id: String, containerID: String?) async throws {
+        let request = Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRequest.with {
+            $0.id = id
+            if let containerID {
+                $0.containerID = containerID
+            }
+        }
+        _ = try await client.closeProcessStdin(request)
+    }
+
     public func up(name: String, mtu: UInt32? = nil) async throws {
         let request = Com_Apple_Containerization_Sandbox_V3_IpLinkSetRequest.with {
             $0.interface = name

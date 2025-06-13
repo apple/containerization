@@ -74,6 +74,21 @@ extension IntegrationSuite {
         }
     }
 
+    final class StdinBuffer: ReaderStream {
+        let data: Data
+
+        init(data: Data) {
+            self.data = data
+        }
+
+        func stream() -> AsyncStream<Data> {
+            let (stream, cont) = AsyncStream<Data>.makeStream()
+            cont.yield(self.data)
+            cont.finish()
+            return stream
+        }
+    }
+
     func testProcessEchoHi() async throws {
         let id = "test-process-echo-hi"
         let bs = try await bootstrap()
@@ -398,6 +413,38 @@ extension IntegrationSuite {
         let expected = "foo-bar"
 
         guard String(data: buffer.data, encoding: .utf8) == "\(expected)\n" else {
+            throw IntegrationError.assert(
+                msg: "process should have returned on stdout '\(expected)' != '\(String(data: buffer.data, encoding: .utf8)!)'")
+        }
+    }
+
+    func testProcessStdin() async throws {
+        let id = "test-container-stdin"
+
+        let bs = try await bootstrap()
+        let container = LinuxContainer(
+            id,
+            rootfs: bs.rootfs,
+            vmm: bs.vmm
+        )
+        container.arguments = ["cat"]
+        container.stdin = StdinBuffer(data: "Hello from test".data(using: .utf8)!)
+
+        let buffer = BufferWriter()
+        container.stdout = buffer
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+        let expected = "Hello from test"
+
+        guard String(data: buffer.data, encoding: .utf8) == "\(expected)" else {
             throw IntegrationError.assert(
                 msg: "process should have returned on stdout '\(expected)' != '\(String(data: buffer.data, encoding: .utf8)!)'")
         }

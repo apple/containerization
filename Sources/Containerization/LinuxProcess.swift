@@ -211,8 +211,30 @@ extension LinuxProcess {
                                 try handle.write(contentsOf: data)
                             } catch {
                                 self.logger?.error("failed to write to stdin: \(error)")
+                                break
+                            }
+                        }
+
+                        do {
+                            self.logger?.debug("stdin relay finished, closing")
+
+                            // There's two ways we can wind up here:
+                            //
+                            // 1. The stream finished on its own (e.g. we wrote all the
+                            // data) and we will close the underlying stdin in the guest below.
+                            //
+                            // 2. The client explicitly called closeStdin() themselves
+                            // which will cancel this relay task AFTER actually closing
+                            // the fds. If the client did that, then this task will be
+                            // cancelled, and the fds are already gone so there's nothing
+                            // for us to do.
+                            if Task.isCancelled {
                                 return
                             }
+
+                            try await self._closeStdin()
+                        } catch {
+                            self.logger?.error("failed to close stdin: \(error)")
                         }
                     }
                 }
@@ -359,6 +381,28 @@ extension LinuxProcess {
                 cause: error
             )
         }
+    }
+
+    public func closeStdin() async throws {
+        do {
+            try await self._closeStdin()
+            self.state.withLock {
+                $0.stdinRelay?.cancel()
+            }
+        } catch {
+            throw ContainerizationError(
+                .internalError,
+                message: "failed to close stdin",
+                cause: error,
+            )
+        }
+    }
+
+    func _closeStdin() async throws {
+        try await self.agent.closeProcessStdin(
+            id: self.id,
+            containerID: self.owningContainer
+        )
     }
 
     /// Wait on the process to exit with an optional timeout. Returns the exit code of the process.

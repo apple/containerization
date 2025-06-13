@@ -216,4 +216,10 @@ extension ManagedProcess {
             try $0.io.resize(size: size)
         }
     }
+
+    func closeStdin() throws {
+        try self.lock.withLock {
+            try $0.io.closeStdin()
+        }
+    }
 }

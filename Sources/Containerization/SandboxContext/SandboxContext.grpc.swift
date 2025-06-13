@@ -104,6 +104,11 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtoc
     callOptions: CallOptions?
   ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_ResizeProcessRequest, Com_Apple_Containerization_Sandbox_V3_ResizeProcessResponse>
 
+  func closeProcessStdin(
+    _ request: Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRequest,
+    callOptions: CallOptions?
+  ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRequest, Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse>
+
   func proxyVsock(
     _ request: Com_Apple_Containerization_Sandbox_V3_ProxyVsockRequest,
     callOptions: CallOptions?
@@ -408,6 +413,24 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtocol {
     )
   }
 
+  /// Close IO for a given process.
+  ///
+  /// - Parameters:
+  ///   - request: Request to send to CloseProcessStdin.
+  ///   - callOptions: Call options.
+  /// - Returns: A `UnaryCall` with futures for the metadata, status and response.
+  public func closeProcessStdin(
+    _ request: Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRequest,
+    callOptions: CallOptions? = nil
+  ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRequest, Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse> {
+    return self.makeUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.closeProcessStdin.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeCloseProcessStdinInterceptors() ?? []
+    )
+  }
+
   /// Proxy a vsock port to a unix domain socket in the guest, or vice versa.
   ///
   /// - Parameters:
@@ -704,6 +727,11 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientP
     callOptions: CallOptions?
   ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_ResizeProcessRequest, Com_Apple_Containerization_Sandbox_V3_ResizeProcessResponse>
 
+  func makeCloseProcessStdinCall(
+    _ request: Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRequest,
+    callOptions: CallOptions?
+  ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRequest, Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse>
+
   func makeProxyVsockCall(
     _ request: Com_Apple_Containerization_Sandbox_V3_ProxyVsockRequest,
     callOptions: CallOptions?
@@ -925,6 +953,18 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientProtoco
       request: request,
       callOptions: callOptions ?? self.defaultCallOptions,
       interceptors: self.interceptors?.makeResizeProcessInterceptors() ?? []
+    )
+  }
+
+  public func makeCloseProcessStdinCall(
+    _ request: Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRequest,
+    callOptions: CallOptions? = nil
+  ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRequest, Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse> {
+    return self.makeAsyncUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.closeProcessStdin.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeCloseProcessStdinInterceptors() ?? []
     )
   }
 
@@ -1207,6 +1247,18 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientProtoco
     )
   }
 
+  public func closeProcessStdin(
+    _ request: Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRequest,
+    callOptions: CallOptions? = nil
+  ) async throws -> Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse {
+    return try await self.performAsyncUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.closeProcessStdin.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeCloseProcessStdinInterceptors() ?? []
+    )
+  }
+
   public func proxyVsock(
     _ request: Com_Apple_Containerization_Sandbox_V3_ProxyVsockRequest,
     callOptions: CallOptions? = nil
@@ -1377,6 +1429,9 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextClientInterc
   /// - Returns: Interceptors to use when invoking 'resizeProcess'.
   func makeResizeProcessInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_ResizeProcessRequest, Com_Apple_Containerization_Sandbox_V3_ResizeProcessResponse>]
 
+  /// - Returns: Interceptors to use when invoking 'closeProcessStdin'.
+  func makeCloseProcessStdinInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRequest, Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse>]
+
   /// - Returns: Interceptors to use when invoking 'proxyVsock'.
   func makeProxyVsockInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_ProxyVsockRequest, Com_Apple_Containerization_Sandbox_V3_ProxyVsockResponse>]
 
@@ -1424,6 +1479,7 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.killProcess,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.waitProcess,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.resizeProcess,
+      Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.closeProcessStdin,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.proxyVsock,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.stopVsockProxy,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.ipLinkSet,
@@ -1518,6 +1574,12 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
     public static let resizeProcess = GRPCMethodDescriptor(
       name: "ResizeProcess",
       path: "/com.apple.containerization.sandbox.v3.SandboxContext/ResizeProcess",
+      type: GRPCCallType.unary
+    )
+
+    public static let closeProcessStdin = GRPCMethodDescriptor(
+      name: "CloseProcessStdin",
+      path: "/com.apple.containerization.sandbox.v3.SandboxContext/CloseProcessStdin",
       type: GRPCCallType.unary
     )
 
@@ -1625,6 +1687,9 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider: Ca
   /// Resize the tty of a given process. This will error if the process does
   /// not have a pty allocated.
   func resizeProcess(request: Com_Apple_Containerization_Sandbox_V3_ResizeProcessRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_ResizeProcessResponse>
+
+  /// Close IO for a given process.
+  func closeProcessStdin(request: Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse>
 
   /// Proxy a vsock port to a unix domain socket in the guest, or vice versa.
   func proxyVsock(request: Com_Apple_Containerization_Sandbox_V3_ProxyVsockRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_ProxyVsockResponse>
@@ -1790,6 +1855,15 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider {
         responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_ResizeProcessResponse>(),
         interceptors: self.interceptors?.makeResizeProcessInterceptors() ?? [],
         userFunction: self.resizeProcess(request:context:)
+      )
+
+    case "CloseProcessStdin":
+      return UnaryServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRequest>(),
+        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse>(),
+        interceptors: self.interceptors?.makeCloseProcessStdinInterceptors() ?? [],
+        userFunction: self.closeProcessStdin(request:context:)
       )
 
     case "ProxyVsock":
@@ -1971,6 +2045,12 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvide
     request: Com_Apple_Containerization_Sandbox_V3_ResizeProcessRequest,
     context: GRPCAsyncServerCallContext
   ) async throws -> Com_Apple_Containerization_Sandbox_V3_ResizeProcessResponse
+
+  /// Close IO for a given process.
+  func closeProcessStdin(
+    request: Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRequest,
+    context: GRPCAsyncServerCallContext
+  ) async throws -> Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse
 
   /// Proxy a vsock port to a unix domain socket in the guest, or vice versa.
   func proxyVsock(
@@ -2172,6 +2252,15 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvider {
         wrapping: { try await self.resizeProcess(request: $0, context: $1) }
       )
 
+    case "CloseProcessStdin":
+      return GRPCAsyncServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRequest>(),
+        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse>(),
+        interceptors: self.interceptors?.makeCloseProcessStdinInterceptors() ?? [],
+        wrapping: { try await self.closeProcessStdin(request: $0, context: $1) }
+      )
+
     case "ProxyVsock":
       return GRPCAsyncServerHandler(
         context: context,
@@ -2317,6 +2406,10 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextServerInterc
   ///   Defaults to calling `self.makeInterceptors()`.
   func makeResizeProcessInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_ResizeProcessRequest, Com_Apple_Containerization_Sandbox_V3_ResizeProcessResponse>]
 
+  /// - Returns: Interceptors to use when handling 'closeProcessStdin'.
+  ///   Defaults to calling `self.makeInterceptors()`.
+  func makeCloseProcessStdinInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRequest, Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse>]
+
   /// - Returns: Interceptors to use when handling 'proxyVsock'.
   ///   Defaults to calling `self.makeInterceptors()`.
   func makeProxyVsockInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_ProxyVsockRequest, Com_Apple_Containerization_Sandbox_V3_ProxyVsockResponse>]
@@ -2373,6 +2466,7 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.killProcess,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.waitProcess,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.resizeProcess,
+      Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.closeProcessStdin,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.proxyVsock,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.stopVsockProxy,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.ipLinkSet,
@@ -2467,6 +2561,12 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
     public static let resizeProcess = GRPCMethodDescriptor(
       name: "ResizeProcess",
       path: "/com.apple.containerization.sandbox.v3.SandboxContext/ResizeProcess",
+      type: GRPCCallType.unary
+    )
+
+    public static let closeProcessStdin = GRPCMethodDescriptor(
+      name: "CloseProcessStdin",
+      path: "/com.apple.containerization.sandbox.v3.SandboxContext/CloseProcessStdin",
       type: GRPCCallType.unary
     )
 

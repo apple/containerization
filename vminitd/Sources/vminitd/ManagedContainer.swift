@@ -111,6 +111,11 @@ extension ManagedContainer {
         try proc.resize(size: size)
     }
 
+    func closeStdin(execID: String) throws {
+        let proc = try self.getExecOrInit(execID: execID)
+        try proc.closeStdin()
+    }
+
     func deleteExec(id: String) throws {
         try ensureExecExists(id)
         do {

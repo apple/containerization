@@ -14,6 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import ContainerizationError
 import ContainerizationOCI
 import Foundation
 
@@ -51,6 +52,7 @@ public protocol VirtualMachineAgent: Sendable {
     func resizeProcess(id: String, containerID: String?, columns: UInt32, rows: UInt32) async throws
     func waitProcess(id: String, containerID: String?, timeoutInSeconds: Int64?) async throws -> Int32
     func deleteProcess(id: String, containerID: String?) async throws
+    func closeProcessStdin(id: String, containerID: String?) async throws
 
     // Networking
     func up(name: String, mtu: UInt32?) async throws
@@ -58,4 +60,10 @@ public protocol VirtualMachineAgent: Sendable {
     func addressAdd(name: String, address: String) async throws
     func routeAddDefault(name: String, gateway: String) async throws
     func configureDNS(config: DNS, location: String) async throws
+}
+
+extension VirtualMachineAgent {
+    public func closeProcessStdin(id: String, containerID: String?) async throws {
+        throw ContainerizationError(.unsupported, message: "closeProcessStdin")
+    }
 }

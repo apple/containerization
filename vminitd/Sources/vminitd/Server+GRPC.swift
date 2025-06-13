@@ -609,6 +609,41 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         }
     }
 
+    func closeProcessStdin(
+        request: Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRequest, context: GRPCAsyncServerCallContext
+    ) async throws -> Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse {
+        log.debug(
+            "closeProcessStdin",
+            metadata: [
+                "id": "\(request.id)",
+                "containerID": "\(request.containerID)",
+            ])
+
+        if !request.hasContainerID {
+            fatalError("processes in the root of the vm not implemented")
+        }
+
+        do {
+            let ctr = try await self.state.get(container: request.containerID)
+
+            try await ctr.closeStdin(execID: request.id)
+
+            return .init()
+        } catch {
+            log.error(
+                "closeProcessStdin",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(error)",
+                ])
+            throw GRPCStatus(
+                code: .internalError,
+                message: "closeProcessStdin: failed to close process stdin: \(error)"
+            )
+        }
+    }
+
     func ipLinkSet(
         request: Com_Apple_Containerization_Sandbox_V3_IpLinkSetRequest, context: GRPC.GRPCAsyncServerCallContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_IpLinkSetResponse {
