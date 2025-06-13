@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for contributing to the container project!
+        Thanks for contributing to the containerization project!
   - type: textarea
     id: request
     attributes:
