@@ -54,7 +54,7 @@ jobs:
       - name: Make vminitd image
         run: | 
           source /opt/swiftly/env.sh
-          make -C vminitd linux-sdk
+          make -C vminitd swift linux-sdk
           make init
         env:
           CURRENT_SDK: y

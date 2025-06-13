@@ -40,7 +40,7 @@ all:
 	@install $(VMINITD_BIN_PATH)/vmexec ./bin/vmexec
 
 .PHONY: cross-prep
-cross-prep: swiftly linux-sdk macos-sdk
+cross-prep: swiftly swift linux-sdk macos-sdk
 
 .PHONY: swiftly
 swiftly:
@@ -53,6 +53,9 @@ swiftly:
 		hash -r && \
 		rm /var/tmp/$(SWIFTLY_FILENAME); \
 	fi
+	
+.PHONY: swift
+swift:
 	@echo Installing Swift $(SWIFT_VERSION)...
 	@~/.swiftly/bin/swiftly install $(SWIFT_VERSION)
 
