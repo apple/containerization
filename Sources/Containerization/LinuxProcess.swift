@@ -339,7 +339,7 @@ extension LinuxProcess {
                 containerID: self.owningContainer,
                 timeoutInSeconds: timeoutInSeconds
             )
-            try await self.waitIoComplete()
+            await self.waitIoComplete()
             return code
         } catch {
             if error is ContainerizationError {
@@ -354,7 +354,7 @@ extension LinuxProcess {
     }
 
     /// Wait until the standard output and standard error streams for the process have concluded.
-    private func waitIoComplete() async throws {
+    private func waitIoComplete() async {
         let ioTracker = self.state.withLock { $0.ioTracker }
         guard let ioTracker else {
             return
@@ -370,8 +370,8 @@ extension LinuxProcess {
                     }
                 }
             }
-        } catch let err as CancellationError {
-            self.logger?.error("Timeout waiting for IO to complete for process \(id): \(err)")
+        } catch {
+            self.logger?.error("Timeout waiting for IO to complete for process \(id): \(error)")
         }
         self.state.withLock {
             $0.ioTracker = nil
