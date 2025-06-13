@@ -43,7 +43,7 @@ void exec_command_attrs_init(struct exec_command_attrs *attrs) {
 }
 
 static void child_handler(const int sync_pipes[2], const char *executable,
-                          char *const args[], char *const environment[],
+                          const char *args[], const char *environment[],
                           const int file_handles[], const int file_handle_count,
                           const char *cwd, const sigset_t old_mask,
                           const struct exec_command_attrs attrs) {
@@ -237,8 +237,8 @@ fail:
   exit(127);
 }
 
-int exec_command(pid_t *result, const char *executable, char *const args[],
-                 char *const envp[], const int file_handles[],
+int exec_command(pid_t *result, const char *executable, const char *args[],
+                 const char *envp[], const int file_handles[],
                  const int file_handle_count, const char *working_directory,
                  struct exec_command_attrs *attrs) {
   pid_t pid = 0;

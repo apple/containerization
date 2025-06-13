@@ -41,8 +41,8 @@ struct exec_command_attrs {
 void exec_command_attrs_init(struct exec_command_attrs *attrs);
 
 /// spawn a new child process with the provided attrs
-int exec_command(pid_t *result, const char *executable, char *const argv[],
-                 char *const envp[], const int file_handles[],
+int exec_command(pid_t *result, const char *executable, const char *argv[],
+                 const char *envp[], const int file_handles[],
                  const int file_handle_count, const char *working_directory,
                  struct exec_command_attrs *attrs);
 
