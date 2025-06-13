@@ -78,7 +78,7 @@ xcode-cli:
 
 .PHONY: xcode
 xcode:
-	@echo Please install the latest version of Xcode 26.
+	@echo "Please install the latest version of Xcode 26 and set the path for the active developer directory using \`sudo xcode-select -s <PATH_TO_XCODE>\`".
 
 .PHONY: clean
 clean:
