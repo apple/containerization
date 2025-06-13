@@ -628,7 +628,7 @@ extension EXT4 {
             var diskSize = dataSize
             var minimumDiskSize = (blockGroupSize.blockGroups - 1) * self.blocksPerGroup + 1
             if blockGroupSize.blockGroups == 1 {
-                minimumDiskSize = self.blocksPerGroup  // atleast 1 block group
+                minimumDiskSize = self.blocksPerGroup  // at least 1 block group
             }
             if diskSize < minimumDiskSize {  // for data + metadata
                 diskSize = minimumDiskSize
