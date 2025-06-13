@@ -446,50 +446,6 @@ public struct Com_Apple_Containerization_Sandbox_V3_CreateProcessResponse: Senda
   public init() {}
 }
 
-public struct Com_Apple_Containerization_Sandbox_V3_AttachProcessRequest: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var id: String = String()
-
-  public var containerID: String {
-    get {return _containerID ?? String()}
-    set {_containerID = newValue}
-  }
-  /// Returns true if `containerID` has been explicitly set.
-  public var hasContainerID: Bool {return self._containerID != nil}
-  /// Clears the value of `containerID`. Subsequent reads from it will return its default value.
-  public mutating func clearContainerID() {self._containerID = nil}
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-
-  fileprivate var _containerID: String? = nil
-}
-
-public struct Com_Apple_Containerization_Sandbox_V3_AttachProcessResponse: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var ports: Com_Apple_Containerization_Sandbox_V3_Stdio {
-    get {return _ports ?? Com_Apple_Containerization_Sandbox_V3_Stdio()}
-    set {_ports = newValue}
-  }
-  /// Returns true if `ports` has been explicitly set.
-  public var hasPorts: Bool {return self._ports != nil}
-  /// Clears the value of `ports`. Subsequent reads from it will return its default value.
-  public mutating func clearPorts() {self._ports = nil}
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-
-  fileprivate var _ports: Com_Apple_Containerization_Sandbox_V3_Stdio? = nil
-}
-
 public struct Com_Apple_Containerization_Sandbox_V3_WaitProcessRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1601,84 +1557,6 @@ extension Com_Apple_Containerization_Sandbox_V3_CreateProcessResponse: SwiftProt
   }
 
   public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_CreateProcessResponse, rhs: Com_Apple_Containerization_Sandbox_V3_CreateProcessResponse) -> Bool {
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-extension Com_Apple_Containerization_Sandbox_V3_AttachProcessRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".AttachProcessRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "id"),
-    2: .same(proto: "containerID"),
-  ]
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.id) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self._containerID) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    if !self.id.isEmpty {
-      try visitor.visitSingularStringField(value: self.id, fieldNumber: 1)
-    }
-    try { if let v = self._containerID {
-      try visitor.visitSingularStringField(value: v, fieldNumber: 2)
-    } }()
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_AttachProcessRequest, rhs: Com_Apple_Containerization_Sandbox_V3_AttachProcessRequest) -> Bool {
-    if lhs.id != rhs.id {return false}
-    if lhs._containerID != rhs._containerID {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-extension Com_Apple_Containerization_Sandbox_V3_AttachProcessResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".AttachProcessResponse"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "ports"),
-  ]
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularMessageField(value: &self._ports) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    try { if let v = self._ports {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    } }()
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_AttachProcessResponse, rhs: Com_Apple_Containerization_Sandbox_V3_AttachProcessResponse) -> Bool {
-    if lhs._ports != rhs._ports {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

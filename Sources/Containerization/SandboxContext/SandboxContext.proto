@@ -142,15 +142,6 @@ message CreateProcessRequest {
 
 message CreateProcessResponse {}
 
-message AttachProcessRequest {
-  string id = 1;
-  optional string containerID = 2;
-}
-
-message AttachProcessResponse {
-  Stdio ports = 1;
-}
-
 message WaitProcessRequest {
   string id = 1;
   optional string containerID = 2;
