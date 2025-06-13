@@ -99,6 +99,7 @@ public final class LinuxProcess: Sendable {
         struct IoTracker {
             let stream: AsyncStream<Void>
             let cont: AsyncStream<Void>.Continuation
+            let configuredStreams: Int
         }
     }
 
@@ -213,18 +214,16 @@ extension LinuxProcess {
             }
         }
 
-        var setOutputRelay = false
+        var configuredStreams = 0
         let (stream, cc) = AsyncStream<Void>.makeStream()
         if let stdout = self.ioSetup.stdout {
-            setOutputRelay = true
+            configuredStreams += 1
             handles[1]?.readabilityHandler = { handle in
-                // NOTE: We need some way to know when this data is done being piped,
-                // so DispatchGroup or similar. `availableData` is also pretty poor,
-                // as it always allocates. We can likely do the read loop ourselves
-                // with a buffer we allocate once on creation of the process.
                 do {
                     let data = handle.availableData
                     if data.isEmpty {
+                        // This block is called when the producer (the guest) closes
+                        // the fd it is writing into.
                         handles[1]?.readabilityHandler = nil
                         cc.yield()
                         return
@@ -237,7 +236,7 @@ extension LinuxProcess {
         }
 
         if let stderr = self.ioSetup.stderr {
-            setOutputRelay = true
+            configuredStreams += 1
             handles[2]?.readabilityHandler = { handle in
                 do {
                     let data = handle.availableData
@@ -252,9 +251,9 @@ extension LinuxProcess {
                 }
             }
         }
-        if setOutputRelay {
+        if configuredStreams > 0 {
             self.state.withLock {
-                $0.ioTracker = .init(stream: stream, cont: cc)
+                $0.ioTracker = .init(stream: stream, cont: cc, configuredStreams: configuredStreams)
             }
         }
 
@@ -360,22 +359,9 @@ extension LinuxProcess {
         guard let ioTracker else {
             return
         }
-        let required = {
-            var num = 0
-            if self.ioSetup.stderr != nil {
-                num += 1
-            }
-            if self.ioSetup.stdout != nil {
-                num += 1
-            }
-            return num
-        }()
-        guard required > 0 else {
-            return
-        }
         do {
             try await Timeout.run(seconds: 3) {
-                var counter = required
+                var counter = ioTracker.configuredStreams
                 for await _ in ioTracker.stream {
                     counter -= 1
                     if counter == 0 {

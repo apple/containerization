@@ -181,7 +181,10 @@ final class StandardIO: ManagedProcess.IO & Sendable {
         } catch {
             self.log?.error("failed to delete pipe fd from epoll \(readFd): \(error)")
         }
-        Foundation.close(writeFd)
+        if Foundation.close(writeFd) != 0 {
+            let err = POSIXError.fromErrno()
+            self.log?.error("failed to close write fd for StandardIO relay: \(String(describing:err))")
+        }
     }
 
     func close() throws {
