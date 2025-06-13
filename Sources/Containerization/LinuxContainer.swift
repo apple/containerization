@@ -465,7 +465,7 @@ extension LinuxContainer {
     }
 
     /// Create the underlying container's virtual machine
-    /// and setup the runtime environment.
+    /// and set up the runtime environment.
     public func create() async throws {
         try state.setCreating()
 
