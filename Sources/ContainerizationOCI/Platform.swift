@@ -262,7 +262,7 @@ extension Platform: Hashable {
         //  then, there is a possibility that for arm64 architecture, the variant may be set to nil
         //  In that case, the variant should be assumed to v8
         if lhs.architecture == "arm64" && rhs.architecture == "arm64" {
-            // The following checks effictively verify
+            // The following checks effectively verify
             // that one operand has nil value and other has "v8"
             if lhs.variant == nil || rhs.variant == nil {
                 if lhs.variant == "v8" || rhs.variant == "v8" {
