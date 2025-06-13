@@ -49,7 +49,7 @@ swiftly:
 		echo "Installing Swiftly..."; \
 		curl -o /var/tmp/$(SWIFTLY_FILENAME) $(SWIFTLY_URL) && \
 		installer -pkg /var/tmp/$(SWIFTLY_FILENAME) -target CurrentUserHomeDirectory && \
-		${SWIFTLY_BIN_DIR}/swiftly init --quiet-shell-followup && \
+		${SWIFTLY_BIN_DIR}/swiftly init --quiet-shell-followup --skip-install && \
 		. ~/.swiftly/env.sh && \
 		hash -r && \
 		rm /var/tmp/$(SWIFTLY_FILENAME); \
