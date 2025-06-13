@@ -180,7 +180,7 @@ struct IntegrationSuite: AsyncParsableCommand {
     // Why does this exist?
     //
     // We need the virtualization entitlement to execute these tests.
-    // There currently does not exist a strightforward way to do this
+    // There currently does not exist a straightforward way to do this
     // in a pure swift package.
     //
     // In order to not have a dependency on xcode, we create an executable
