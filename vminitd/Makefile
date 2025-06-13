@@ -21,6 +21,7 @@ SWIFT_SDK_PATH = /tmp/$(notdir $(SWIFT_SDK_URL))
 
 SWIFTLY_URL := https://download.swift.org/swiftly/darwin/swiftly.pkg
 SWIFTLY_FILENAME = $(notdir $(SWIFTLY_URL))
+SWIFTLY_BIN_DIR ?= ~/.swiftly/bin/
 VMINITD_BIN_PATH := $(shell swift build -c $(BUILD_CONFIGURATION) $(SWIFT_CONFIGURATION) --show-bin-path)
 
 MACOS_VERSION := $(shell sw_vers -productVersion)
@@ -44,11 +45,11 @@ cross-prep: swiftly swift linux-sdk macos-sdk
 
 .PHONY: swiftly
 swiftly:
-	@if ! command -v swiftly > /dev/null 2>&1; then \
+	@if ! command -v ${SWIFTLY_BIN_DIR}/swiftly > /dev/null 2>&1; then \
 		echo "Installing Swiftly..."; \
 		curl -o /var/tmp/$(SWIFTLY_FILENAME) $(SWIFTLY_URL) && \
 		installer -pkg /var/tmp/$(SWIFTLY_FILENAME) -target CurrentUserHomeDirectory && \
-		~/.swiftly/bin/swiftly init --quiet-shell-followup && \
+		${SWIFTLY_BIN_DIR}/swiftly init --quiet-shell-followup && \
 		. ~/.swiftly/env.sh && \
 		hash -r && \
 		rm /var/tmp/$(SWIFTLY_FILENAME); \
@@ -57,7 +58,7 @@ swiftly:
 .PHONY: swift
 swift:
 	@echo Installing Swift $(SWIFT_VERSION)...
-	@~/.swiftly/bin/swiftly install $(SWIFT_VERSION)
+	@${SWIFTLY_BIN_DIR}/swiftly install $(SWIFT_VERSION)
 
 .PHONY: linux-sdk
 linux-sdk:
