@@ -839,7 +839,7 @@ extension Initd {
             process.cwd = "/"
         }
 
-        // Username is truthfully a Windows field, but we use this as away to passthrough
+        // Username is truthfully a Windows field, but we use this as away to pass through
         // the exact string representation of a username a client may have given us.
         let username = process.user.username.isEmpty ? "\(process.user.uid):\(process.user.gid)" : process.user.username
         let parsedUser = try User.parseUser(root: root.path, userString: username)
