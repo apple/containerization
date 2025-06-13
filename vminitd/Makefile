@@ -44,12 +44,14 @@ cross-prep: swiftly linux-sdk macos-sdk
 
 .PHONY: swiftly
 swiftly:
-	@curl -o /var/tmp/$(SWIFTLY_FILENAME) $(SWIFTLY_URL) && \
-	  installer -pkg /var/tmp/$(SWIFTLY_FILENAME) -target CurrentUserHomeDirectory && \
-	  ~/.swiftly/bin/swiftly init --quiet-shell-followup && \
-	  . ~/.swiftly/env.sh && \
-	  hash -r
-	@rm /var/tmp/$(SWIFTLY_FILENAME)
+	@if ! command -v swiftly > /dev/null 2>&1; then \
+		curl -o /var/tmp/$(SWIFTLY_FILENAME) $(SWIFTLY_URL) && \
+		installer -pkg /var/tmp/$(SWIFTLY_FILENAME) -target CurrentUserHomeDirectory && \
+		~/.swiftly/bin/swiftly init --quiet-shell-followup && \
+		. ~/.swiftly/env.sh && \
+		hash -r && \
+		rm /var/tmp/$(SWIFTLY_FILENAME); \
+	fi
 	@~/.swiftly/bin/swiftly install $(SWIFT_VERSION)
 
 .PHONY: linux-sdk
