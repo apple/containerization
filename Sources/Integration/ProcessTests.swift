@@ -17,6 +17,7 @@
 import ArgumentParser
 import Containerization
 import ContainerizationOCI
+import ContainerizationOS
 import Crypto
 import Foundation
 import Logging
@@ -258,6 +259,44 @@ extension IntegrationSuite {
         guard String(data: buffer.data, encoding: .utf8) == "\(expected)\n" else {
             throw IntegrationError.assert(
                 msg: "process should have returned on stdout '\(expected)' != '\(String(data: buffer.data, encoding: .utf8)!)'")
+        }
+    }
+
+    // Ensure if we ask for a terminal we set TERM.
+    func testProcessTtyEnvvar() async throws {
+        let id = "test-process-tty-envvar"
+
+        let bs = try await bootstrap()
+        let container = LinuxContainer(
+            id,
+            rootfs: bs.rootfs,
+            vmm: bs.vmm
+        )
+        container.arguments = ["env"]
+        container.terminal = true
+
+        let buffer = BufferWriter()
+        container.stdout = buffer
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        guard let str = String(data: buffer.data, encoding: .utf8) else {
+            throw IntegrationError.assert(
+                msg: "failed to convert standard output to a UTF8 string")
+        }
+
+        let homeEnvvar = "TERM=xterm"
+        guard str.contains(homeEnvvar) else {
+            throw IntegrationError.assert(
+                msg: "process should have TERM environment variable defined")
         }
     }
 

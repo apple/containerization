@@ -135,7 +135,12 @@ public final class LinuxProcess: Sendable {
     /// be attached to the Process's Standard I/O.
     public var terminal: Bool {
         get { state.withLock { $0.spec.process!.terminal } }
-        set { state.withLock { $0.spec.process!.terminal = newValue } }
+        set {
+            state.withLock {
+                $0.spec.process!.terminal = newValue
+                $0.spec.process!.env.append("TERM=xterm")
+            }
+        }
     }
 
     /// The User a Process should execute under.

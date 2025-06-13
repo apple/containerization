@@ -43,9 +43,12 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
         self.log = log
 
         let ptyHandle = child.handle
-        process.stdin = stdio.stdin != nil ? ptyHandle : nil
+        let useHandles = stdio.stdin != nil || stdio.stdout != nil
+        // We currently set stdin to the controlling terminal always, so
+        // it must be a valid pty descriptor.
+        process.stdin = useHandles ? ptyHandle : nil
 
-        let stdoutHandle = stdio.stdout != nil ? ptyHandle : nil
+        let stdoutHandle = useHandles ? ptyHandle : nil
         process.stdout = stdoutHandle
         process.stderr = stdoutHandle
     }

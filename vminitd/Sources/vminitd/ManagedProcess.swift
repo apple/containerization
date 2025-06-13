@@ -104,7 +104,6 @@ final class ManagedProcess: Sendable {
             log.info("setting up terminal IO")
             let attrs = Command.Attrs(setsid: false, setctty: false)
             process.attrs = attrs
-            process.environment.append("TERM=xterm")
             io = try TerminalIO(
                 process: &process,
                 stdio: stdio,

@@ -850,6 +850,15 @@ extension Initd {
             process.env.append("HOME=\(parsedUser.home)")
         }
 
+        // Defensive programming a tad, but ensure we have TERM set if
+        // the client requested a pty.
+        if process.terminal {
+            let termEnv = "TERM="
+            if !process.env.contains(where: { $0.hasPrefix(termEnv) }) {
+                process.env.append("TERM=xterm")
+            }
+        }
+
         ociSpec.process = process
     }
 }

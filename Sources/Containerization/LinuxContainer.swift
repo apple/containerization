@@ -411,12 +411,15 @@ extension LinuxContainer {
         set { config.spec.process!.rlimits = newValue }
     }
 
-    /// Set a pty device as the container's stdio.
+    /// Set a pty device as the container's stdio. This additionally will
+    /// set the TERM=xterm environment variable, and the OCI runtime specs
+    /// `process.terminal` field to true.
     public var terminalDevice: Terminal? {
         get { config.terminal }
         set {
             config.spec.process!.terminal = newValue != nil ? true : false
             config.terminal = newValue
+            config.spec.process!.env.append("TERM=xterm")
             config.ioHandlers.stdin = newValue
             config.ioHandlers.stdout = newValue
             config.ioHandlers.stderr = nil
@@ -426,7 +429,10 @@ extension LinuxContainer {
     /// If the container has a pty allocated.
     public var terminal: Bool {
         get { config.spec.process!.terminal }
-        set { config.spec.process!.terminal = newValue }
+        set {
+            config.spec.process!.terminal = newValue
+            config.spec.process!.env.append("TERM=xterm")
+        }
     }
 
     /// Set the stdin stream for the initial process of the container.
