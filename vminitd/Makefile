@@ -62,8 +62,9 @@ linux-sdk:
 
 .PHONY: macos-sdk
 macos-sdk:
+	# Consider switching back to `xcode-cli`, when possible.
 	@if [ $(MACOS_MAJOR) -gt 15 ] && [ "$(MACOS_RELEASE_TYPE)" = "" ]; then \
-	  "$(MAKE)" xcode-cli; \
+	  "$(MAKE)" xcode; \
 	else \
 	  "$(MAKE)" xcode; \
 	fi
