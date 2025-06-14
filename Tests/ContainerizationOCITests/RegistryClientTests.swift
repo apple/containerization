@@ -80,11 +80,9 @@ struct OCIClientTests: ~Copyable {
     @Test func pingWithInvalidCredentials() async throws {
         let authentication = BasicAuthentication(username: "foo", password: "bar")
         let client = RegistryClient(host: "ghcr.io", authentication: authentication)
-        let error = await #expect(throws: RegistryClient.Error.self) { try await client.ping() }
-        if case .invalidStatus = error {
-        } else {
-            Issue.record("encountered unexpected error \(error)")
-        }
+        let error = await #expect(throws: ContainerizationError.self) { try await client.ping() }
+        #expect(error?.code == .internalError)
+        #expect(error?.message == "HTTP request to https://ghcr.io/token?client_id=containerization-registry-client&service=ghcr.io&scope=repository:user/image:pull failed with response: 403 Forbidden. Access denied or wrong credentials.")
     }
 
     @Test(.enabled(if: hasRegistryCredentials))
