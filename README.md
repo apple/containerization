@@ -71,6 +71,13 @@ A kernel image named `vmlinux.container` can be found in the `/opt/kata/share/ka
 
 ## Prepare to build package
 
+Install the recommended version of Xcode.
+
+Set the active developer directory to the installed Xcode (replace `<PATH_TO_XCODE>`):
+```bash
+sudo xcode-select -s <PATH_TO_XCODE>
+``` 
+
 Install [Swiftly](https://github.com/swiftlang/swiftly), [Swift](https://www.swift.org), and [Static Linux SDK](https://www.swift.org/documentation/articles/static-linux-getting-started.html):
 
 ```bash
