@@ -15,7 +15,7 @@ on:
 jobs: 
   buildAndTest: 
     name: Build and Test repo
-    timeout-minutes: 90
+    timeout-minutes: 60
     runs-on: [self-hosted, macos, sequoia, ARM64]
     permissions:
       contents: read
