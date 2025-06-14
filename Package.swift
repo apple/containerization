@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 //===----------------------------------------------------------------------===//
 // Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
 //
@@ -54,7 +54,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.80.0"),
         .package(url: "https://github.com/swift-server/async-http-client.git", from: "1.20.1"),
         .package(url: "https://github.com/apple/swift-system.git", from: "1.4.0"),
-        .package(url: "https://github.com/swiftlang/swift-syntax.git", "600.0.0"..<"603.0.0"),
+        .package(url: "https://github.com/swiftlang/swift-syntax.git", "602.0.0-latest"..<"603.0.0"),
         .package(url: "https://github.com/swiftlang/swift-docc-plugin", from: "1.1.0"),
     ],
     targets: [

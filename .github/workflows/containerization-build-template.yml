@@ -15,7 +15,7 @@ on:
 jobs: 
   buildAndTest: 
     name: Build and Test repo
-    timeout-minutes: 90
+    timeout-minutes: 60
     runs-on: [self-hosted, macos, sequoia, ARM64]
     permissions:
       contents: read
@@ -36,25 +36,25 @@ jobs:
           git diff
           if ! git diff --quiet ; then echo the following files require formatting or license headers: ; git diff --name-only ; false ; fi
         env:
-          DEVELOPER_DIR: "/Applications/Xcode_16.3.app/Contents/Developer"
+          DEVELOPER_DIR: "/Applications/Xcode_26.b1.app/Contents/Developer"
       - name: Check protobufs
         run: | 
           make protos
           if ! git diff --quiet ; then echo the following files require formatting or license headers: ; git diff --name-only ; false ; fi
         env:
-          DEVELOPER_DIR: "/Applications/Xcode_16.3.app/Contents/Developer" 
+          DEVELOPER_DIR: "/Applications/Xcode_26.b1.app/Contents/Developer"
           CURRENT_SDK: y
       - name: Make containerization and docs
         run: | 
           make clean containerization docs
           tar cfz _site.tgz _site
         env:
-          DEVELOPER_DIR: "/Applications/Xcode_16.3.app/Contents/Developer" 
+          DEVELOPER_DIR: "/Applications/Xcode_26.b1.app/Contents/Developer"
           CURRENT_SDK: y
       - name: Make vminitd image
         run: | 
           source /opt/swiftly/env.sh
-          make -C vminitd linux-sdk
+          make -C vminitd swift linux-sdk
           make init
         env:
           CURRENT_SDK: y
@@ -65,7 +65,7 @@ jobs:
         env:
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REGISTRY_USERNAME: ${{ github.actor }}
-          DEVELOPER_DIR: "/Applications/Xcode_16.3.app/Contents/Developer" 
+          DEVELOPER_DIR: "/Applications/Xcode_26.b1.app/Contents/Developer"
           CURRENT_SDK: y
       - name: Push vminitd image
         if: ${{ inputs.release }}

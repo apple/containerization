@@ -15,13 +15,13 @@
 BUILD_CONFIGURATION := debug
 SWIFT_CONFIGURATION := --swift-sdk aarch64-swift-linux-musl
 
-# The Static Linux SDK version should match the latest released version on https://www.swift.org/install/macos/
-SWIFT_SDK_URL = https://download.swift.org/swift-6.1-release/static-sdk/swift-6.1-RELEASE/swift-6.1-RELEASE_static-linux-0.0.1.artifactbundle.tar.gz
-SWIFT_SDK_CHECKSUM = 111c6f7d280a651208b8c74c0521dd99365d785c1976a6e23162f55f65379ac6
+SWIFT_VERSION = 6.2-snapshot
+SWIFT_SDK_URL = https://download.swift.org/swift-6.2-branch/static-sdk/swift-6.2-DEVELOPMENT-SNAPSHOT-2025-06-12-a/swift-6.2-DEVELOPMENT-SNAPSHOT-2025-06-12-a_static-linux-0.0.1.artifactbundle.tar.gz
 SWIFT_SDK_PATH = /tmp/$(notdir $(SWIFT_SDK_URL))
 
 SWIFTLY_URL := https://download.swift.org/swiftly/darwin/swiftly.pkg
 SWIFTLY_FILENAME = $(notdir $(SWIFTLY_URL))
+SWIFTLY_BIN_DIR ?= ~/.swiftly/bin/
 VMINITD_BIN_PATH := $(shell swift build -c $(BUILD_CONFIGURATION) $(SWIFT_CONFIGURATION) --show-bin-path)
 
 MACOS_VERSION := $(shell sw_vers -productVersion)
@@ -41,23 +41,30 @@ all:
 	@install $(VMINITD_BIN_PATH)/vmexec ./bin/vmexec
 
 .PHONY: cross-prep
-cross-prep: swiftly linux-sdk macos-sdk
+cross-prep: swiftly swift linux-sdk macos-sdk
 
 .PHONY: swiftly
 swiftly:
-	@curl -o /var/tmp/$(SWIFTLY_FILENAME) $(SWIFTLY_URL) && \
-	  installer -pkg /var/tmp/$(SWIFTLY_FILENAME) -target CurrentUserHomeDirectory && \
-	  ~/.swiftly/bin/swiftly init --quiet-shell-followup && \
-	  . ~/.swiftly/env.sh && \
-	  hash -r
-	@rm /var/tmp/$(SWIFTLY_FILENAME)
-	@~/.swiftly/bin/swiftly install 6.1.0
+	@if ! command -v ${SWIFTLY_BIN_DIR}/swiftly > /dev/null 2>&1; then \
+		echo "Installing Swiftly..."; \
+		curl -o /var/tmp/$(SWIFTLY_FILENAME) $(SWIFTLY_URL) && \
+		installer -pkg /var/tmp/$(SWIFTLY_FILENAME) -target CurrentUserHomeDirectory && \
+		${SWIFTLY_BIN_DIR}/swiftly init --quiet-shell-followup --skip-install && \
+		. ~/.swiftly/env.sh && \
+		hash -r && \
+		rm /var/tmp/$(SWIFTLY_FILENAME); \
+	fi
+	
+.PHONY: swift
+swift:
+	@echo Installing Swift $(SWIFT_VERSION)...
+	@${SWIFTLY_BIN_DIR}/swiftly install $(SWIFT_VERSION)
 
 .PHONY: linux-sdk
 linux-sdk:
 	@echo Installing Static Linux SDK...
 	@curl -L -o $(SWIFT_SDK_PATH) $(SWIFT_SDK_URL)
-	-@swift sdk install $(SWIFT_SDK_PATH) --checksum $(SWIFT_SDK_CHECKSUM)
+	-@swift sdk install $(SWIFT_SDK_PATH)
 	@rm $(SWIFT_SDK_PATH)
 
 .PHONY: macos-sdk
@@ -76,7 +83,7 @@ xcode-cltools:
 
 .PHONY: xcode
 xcode:
-	@echo Please install the latest version of Xcode 26.
+	@echo "Please install the latest version of Xcode 26 and set the path for the active developer directory using \`sudo xcode-select -s <PATH_TO_XCODE>\`".
 
 .PHONY: clean
 clean:
