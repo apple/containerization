@@ -69,14 +69,15 @@ linux-sdk:
 
 .PHONY: macos-sdk
 macos-sdk:
+	# Consider switching back to `xcode-cltools`, when possible.
 	@if [ $(MACOS_MAJOR) -gt 15 ] && [ "$(MACOS_RELEASE_TYPE)" = "" ]; then \
-	  "$(MAKE)" xcode-cli; \
+	  "$(MAKE)" xcode; \
 	else \
 	  "$(MAKE)" xcode; \
 	fi
 
-.PHONY: xcode-cli
-xcode-cli:
+.PHONY: xcode-cltools
+xcode-cltools:
 	@echo Activating Xcode Command Line Tools...
 	@sudo xcode-select --switch /Library/Developer/CommandLineTools
 
