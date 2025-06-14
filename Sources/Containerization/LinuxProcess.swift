@@ -262,72 +262,98 @@ extension LinuxProcess {
 
     /// Start the process.
     public func start() async throws {
-        let spec = self.state.withLock { $0.spec }
-
-        var streams = [VsockConnectionStream?](repeating: nil, count: 3)
-        if let stdin = self.ioSetup.stdin {
-            streams[0] = try self.vm.listen(stdin.port)
-        }
-        if let stdout = self.ioSetup.stdout {
-            streams[1] = try self.vm.listen(stdout.port)
-        }
-        if let stderr = self.ioSetup.stderr {
-            if spec.process!.terminal {
-                throw ContainerizationError(
-                    .invalidArgument,
-                    message: "stderr should not be configured with terminal=true"
-                )
+        do {
+            let spec = self.state.withLock { $0.spec }
+            var streams = [VsockConnectionStream?](repeating: nil, count: 3)
+            if let stdin = self.ioSetup.stdin {
+                streams[0] = try self.vm.listen(stdin.port)
             }
-            streams[2] = try self.vm.listen(stderr.port)
-        }
+            if let stdout = self.ioSetup.stdout {
+                streams[1] = try self.vm.listen(stdout.port)
+            }
+            if let stderr = self.ioSetup.stderr {
+                if spec.process!.terminal {
+                    throw ContainerizationError(
+                        .invalidArgument,
+                        message: "stderr should not be configured with terminal=true"
+                    )
+                }
+                streams[2] = try self.vm.listen(stderr.port)
+            }
 
-        let t = Task {
-            try await self.setupIO(streams: streams)
-        }
+            let t = Task {
+                try await self.setupIO(streams: streams)
+            }
 
-        try await agent.createProcess(
-            id: self.id,
-            containerID: self.owningContainer,
-            stdinPort: self.ioSetup.stdin?.port,
-            stdoutPort: self.ioSetup.stdout?.port,
-            stderrPort: self.ioSetup.stderr?.port,
-            configuration: spec,
-            options: nil
-        )
-
-        let result = try await t.value
-        let pid = try await self.agent.startProcess(
-            id: self.id,
-            containerID: self.owningContainer
-        )
-
-        self.state.withLock {
-            $0.stdio = StdioHandles(
-                stdin: result[0],
-                stdout: result[1],
-                stderr: result[2]
+            try await agent.createProcess(
+                id: self.id,
+                containerID: self.owningContainer,
+                stdinPort: self.ioSetup.stdin?.port,
+                stdoutPort: self.ioSetup.stdout?.port,
+                stderrPort: self.ioSetup.stderr?.port,
+                configuration: spec,
+                options: nil
             )
-            $0.pid = pid
+
+            let result = try await t.value
+            let pid = try await self.agent.startProcess(
+                id: self.id,
+                containerID: self.owningContainer
+            )
+
+            self.state.withLock {
+                $0.stdio = StdioHandles(
+                    stdin: result[0],
+                    stdout: result[1],
+                    stderr: result[2]
+                )
+                $0.pid = pid
+            }
+        } catch {
+            if let err = error as? ContainerizationError {
+                throw err
+            }
+            throw ContainerizationError(
+                .internalError,
+                message: "failed to start process",
+                cause: error,
+            )
         }
     }
 
     /// Kill the process with the specified signal.
     public func kill(_ signal: Int32) async throws {
-        try await agent.signalProcess(
-            id: self.id,
-            containerID: self.owningContainer,
-            signal: signal
-        )
+        do {
+            try await agent.signalProcess(
+                id: self.id,
+                containerID: self.owningContainer,
+                signal: signal
+            )
+        } catch {
+            throw ContainerizationError(
+                .internalError,
+                message: "failed to kill process",
+                cause: error
+            )
+        }
     }
 
     /// Resize the processes pty (if requested).
     public func resize(to: Terminal.Size) async throws {
-        try await agent.resizeProcess(
-            id: self.id,
-            containerID: self.owningContainer,
-            columns: UInt32(to.width),
-            rows: UInt32(to.height)
-        )
+        do {
+            try await agent.resizeProcess(
+                id: self.id,
+                containerID: self.owningContainer,
+                columns: UInt32(to.width),
+                rows: UInt32(to.height)
+            )
+        } catch {
+            throw ContainerizationError(
+                .internalError,
+                message: "failed to resize process",
+                cause: error
+            )
+        }
     }
 
     /// Wait on the process to exit with an optional timeout. Returns the exit code of the process.
@@ -380,17 +406,42 @@ extension LinuxProcess {
 
     /// Cleans up guest state and waits on and closes any host resources (stdio handles).
     public func delete() async throws {
-        try await self.agent.deleteProcess(
-            id: self.id,
-            containerID: self.owningContainer
-        )
-        // Now free up stdio handles.
-        try self.state.withLock {
-            $0.stdinRelay?.cancel()
-            try $0.stdio.close()
+        do {
+            try await self.agent.deleteProcess(
+                id: self.id,
+                containerID: self.owningContainer
+            )
+        } catch {
+            self.logger?.error(
+                "process deletion",
+                metadata: [
+                    "id": "\(self.id)",
+                    "error": "\(error)",
+                ])
         }
 
-        // Finally, close our agent conn.
-        try await self.agent.close()
+        do {
+            try self.state.withLock {
+                $0.stdinRelay?.cancel()
+                try $0.stdio.close()
+            }
+        } catch {
+            self.logger?.error(
+                "closing process stdio",
+                metadata: [
+                    "id": "\(self.id)",
+                    "error": "\(error)",
+                ])
+        }
+
+        do {
+            try await self.agent.close()
+        } catch {
+            throw ContainerizationError(
+                .internalError,
+                message: "failed to close agent connection",
+                cause: error,
+            )
+        }
     }
 }
