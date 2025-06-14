@@ -552,6 +552,18 @@ extension LinuxContainer {
         }
     }
 
+    /// Run runs the container until the init process exits, and
+    /// tears down the container after. This is equivalent to:
+    /// create() + start() + wait() + stop().
+    public func run() async throws -> Int32 {
+        try await self.create()
+        try await self.start()
+        let status = try await self.wait()
+        try await self.stop()
+
+        return status
+    }
+
     private static func setupIO(
         portAllocator: borrowing Atomic<UInt32>,
         stdin: ReaderStream?,

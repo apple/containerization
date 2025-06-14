@@ -33,12 +33,7 @@ extension IntegrationSuite {
         )
         container.arguments = ["/bin/true"]
 
-        try await container.create()
-        try await container.start()
-
-        let status = try await container.wait()
-        try await container.stop()
-
+        let status = try await container.run()
         guard status == 0 else {
             throw IntegrationError.assert(msg: "process status \(status) != 0")
         }
@@ -51,12 +46,7 @@ extension IntegrationSuite {
         let container = LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm)
         container.arguments = ["/bin/false"]
 
-        try await container.create()
-        try await container.start()
-
-        let status = try await container.wait()
-        try await container.stop()
-
+        let status = try await container.run()
         guard status == 1 else {
             throw IntegrationError.assert(msg: "process status \(status) != 1")
         }
@@ -83,12 +73,7 @@ extension IntegrationSuite {
         container.stdout = buffer
 
         do {
-            try await container.create()
-            try await container.start()
-
-            let status = try await container.wait()
-            try await container.stop()
-
+            let status = try await container.run()
             guard status == 0 else {
                 throw IntegrationError.assert(msg: "process status \(status) != 1")
             }
@@ -244,12 +229,7 @@ extension IntegrationSuite {
         let buffer = BufferWriter()
         container.stdout = buffer
 
-        try await container.create()
-        try await container.start()
-
-        let status = try await container.wait()
-        try await container.stop()
-
+        let status = try await container.run()
         guard status == 0 else {
             throw IntegrationError.assert(msg: "process status \(status) != 0")
         }
@@ -277,12 +257,7 @@ extension IntegrationSuite {
         let buffer = BufferWriter()
         container.stdout = buffer
 
-        try await container.create()
-        try await container.start()
-
-        let status = try await container.wait()
-        try await container.stop()
-
+        let status = try await container.run()
         guard status == 0 else {
             throw IntegrationError.assert(msg: "process status \(status) != 0")
         }
@@ -314,17 +289,12 @@ extension IntegrationSuite {
         let buffer = BufferWriter()
         container.stdout = buffer
 
-        try await container.create()
-        try await container.start()
-
-        let status = try await container.wait()
-        try await container.stop()
-
+        let status = try await container.run()
         guard status == 0 else {
             throw IntegrationError.assert(msg: "process status \(status) != 0")
         }
-        let expected = "foo-bar"
 
+        let expected = "foo-bar"
         guard String(data: buffer.data, encoding: .utf8) == "\(expected)\n" else {
             throw IntegrationError.assert(
                 msg: "process should have returned on stdout '\(expected)' != '\(String(data: buffer.data, encoding: .utf8)!)")
