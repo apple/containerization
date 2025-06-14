@@ -17,9 +17,12 @@
 //
 
 import ContainerizationArchive
+import ContainerizationError
 import ContainerizationExtras
 import ContainerizationOCI
+import Crypto
 import Foundation
+import NIOCore
 import Testing
 
 @testable import Containerization
@@ -44,7 +47,7 @@ extension ImageStore {
 }
 
 // Helper class to create a mock ContentClient for testing
-final class MockRegistryClient: ContentClient {
+final class MockRegistryClient: ContentClient, @unchecked Sendable {
     private var pushedContent: [String: [Descriptor: Data]] = [:]
     private var fetchableContent: [String: [Descriptor: Data]] = [:]
 
@@ -82,7 +85,7 @@ final class MockRegistryClient: ContentClient {
         return try JSONDecoder().decode(T.self, from: data)
     }
 
-    func fetchBlob(name: String, descriptor: Descriptor, into file: URL, progress: ProgressHandler?) async throws -> (Int64, SHA256Digest) {
+    func fetchBlob(name: String, descriptor: Descriptor, into file: URL, progress: ProgressHandler?) async throws -> (Int64, SHA256.Digest) {
         guard let imageContent = fetchableContent[name],
             let data = imageContent[descriptor]
         else {
@@ -91,7 +94,7 @@ final class MockRegistryClient: ContentClient {
 
         try data.write(to: file)
         let digest = SHA256.hash(data: data)
-        return (Int64(data.count), SHA256Digest(digest: digest.hexString))
+        return (Int64(data.count), digest)
     }
 
     func fetchData(name: String, descriptor: Descriptor) async throws -> Data {
@@ -140,7 +143,7 @@ final class MockRegistryClient: ContentClient {
 
         // Simulate progress reporting
         if let progress = progress {
-            await progress(Int64(data.count), Int64(data.count))
+            await progress([ProgressEvent(event: "add-size", value: Int64(data.count))])
         }
     }
 }

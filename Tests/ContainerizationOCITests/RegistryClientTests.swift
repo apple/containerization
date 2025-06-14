@@ -17,9 +17,12 @@
 //
 
 import ContainerizationError
+import ContainerizationError
 import ContainerizationIO
 import Crypto
+import Crypto
 import Foundation
+import NIOCore
 import NIO
 import Synchronization
 import Testing
@@ -176,8 +179,8 @@ struct OCIClientTests: ~Copyable {
         let imageConfig = Image(
             architecture: "amd64",
             os: "linux",
-            config: Image.Config(labels: ["test": "value"]),
-            rootfs: Image.Rootfs(type: "layers", diffIDs: ["sha256:\(layerDigest.hexString)"])
+            config: ImageConfig(labels: ["test": "value"]),
+            rootfs: Rootfs(type: "layers", diffIDs: ["sha256:\(layerDigest.hexString)"])
         )
         let configData = try JSONEncoder().encode(imageConfig)
         let configDigest = SHA256.hash(data: configData)
@@ -222,7 +225,7 @@ struct OCIClientTests: ~Copyable {
             ref: ref,
             descriptor: layerDescriptor,
             streamGenerator: { layerStream },
-            progress: nil
+            progress: nil as ProgressHandler?
         )
 
         // Push config
@@ -232,7 +235,7 @@ struct OCIClientTests: ~Copyable {
             ref: ref,
             descriptor: configDescriptor,
             streamGenerator: { configStream },
-            progress: nil
+            progress: nil as ProgressHandler?
         )
 
         // Push manifest
@@ -242,7 +245,7 @@ struct OCIClientTests: ~Copyable {
             ref: ref,
             descriptor: manifestDescriptor,
             streamGenerator: { manifestStream },
-            progress: nil
+            progress: nil as ProgressHandler?
         )
 
         // Push index
@@ -260,7 +263,7 @@ struct OCIClientTests: ~Copyable {
             ref: ref,
             descriptor: indexDescriptor,
             streamGenerator: { indexStream },
-            progress: nil
+            progress: nil as ProgressHandler?
         )
 
         // Verify all push operations were recorded
@@ -348,7 +351,7 @@ struct OCIClientTests: ~Copyable {
             ref: ref,
             descriptor: descriptor,
             streamGenerator: generator,
-            progress: nil
+            progress: nil as ProgressHandler?
         )
         return descriptor
     }
@@ -408,7 +411,7 @@ struct TestByteBufferSequence: Sendable, AsyncSequence {
 }
 
 // Helper class to create a mock ContentClient for testing
-final class MockRegistryClient: ContentClient {
+final class MockRegistryClient: ContentClient, @unchecked Sendable {
     private var pushedContent: [String: [Descriptor: Data]] = [:]
     private var fetchableContent: [String: [Descriptor: Data]] = [:]
 
@@ -446,7 +449,7 @@ final class MockRegistryClient: ContentClient {
         return try JSONDecoder().decode(T.self, from: data)
     }
 
-    func fetchBlob(name: String, descriptor: Descriptor, into file: URL, progress: ProgressHandler?) async throws -> (Int64, SHA256Digest) {
+    func fetchBlob(name: String, descriptor: Descriptor, into file: URL, progress: ProgressHandler?) async throws -> (Int64, SHA256.Digest) {
         guard let imageContent = fetchableContent[name],
             let data = imageContent[descriptor]
         else {
@@ -455,7 +458,7 @@ final class MockRegistryClient: ContentClient {
 
         try data.write(to: file)
         let digest = SHA256.hash(data: data)
-        return (Int64(data.count), SHA256Digest(digest: digest.hexString))
+        return (Int64(data.count), digest)
     }
 
     func fetchData(name: String, descriptor: Descriptor) async throws -> Data {
