@@ -93,7 +93,8 @@ extension RegistryClient {
                 }
             } else if response.status != .notFound {
                 let url = components.url?.absoluteString ?? "unknown"
-                throw Error.invalidStatus(url: url, response.status)
+                let reason = await ErrorResponse.fromResponseBody(response.body)?.jsonString
+                throw Error.invalidStatus(url: url, response.status, reason: reason)
             }
         }
 
@@ -114,7 +115,8 @@ extension RegistryClient {
                     throw ContainerizationError(.exists, message: "Content already exists \(descriptor.digest)")
                 default:
                     let url = components.url?.absoluteString ?? "unknown"
-                    throw Error.invalidStatus(url: url, response.status)
+                    let reason = await ErrorResponse.fromResponseBody(response.body)?.jsonString
+                    throw Error.invalidStatus(url: url, response.status, reason: reason)
                 }
 
                 // Get the location to upload the blob.
@@ -149,7 +151,8 @@ extension RegistryClient {
                 break
             default:
                 let url = components.url?.absoluteString ?? "unknown"
-                throw Error.invalidStatus(url: url, response.status)
+                let reason = await ErrorResponse.fromResponseBody(response.body)?.jsonString
+                throw Error.invalidStatus(url: url, response.status, reason: reason)
             }
 
             guard descriptor.digest == response.headers.first(name: "Docker-Content-Digest") else {

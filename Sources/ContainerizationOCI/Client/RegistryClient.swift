@@ -235,7 +235,8 @@ public final class RegistryClient: ContentClient {
         try await request(components: components, method: .GET, headers: headers) { response in
             guard response.status == .ok else {
                 let url = components.url?.absoluteString ?? "unknown"
-                throw Error.invalidStatus(url: url, response.status)
+                let reason = await ErrorResponse.fromResponseBody(response.body)?.jsonString
+                throw Error.invalidStatus(url: url, response.status, reason: reason)
             }
 
             var body = try await response.body.collect(upTo: self.bufferSize)
@@ -263,7 +264,8 @@ public final class RegistryClient: ContentClient {
         try await request(components: components) { response in
             guard response.status == .ok else {
                 let url = components.url?.absoluteString ?? "unknown"
-                throw Error.invalidStatus(url: url, response.status)
+                let reason = await ErrorResponse.fromResponseBody(response.body)?.jsonString
+                throw Error.invalidStatus(url: url, response.status, reason: reason)
             }
         }
     }
