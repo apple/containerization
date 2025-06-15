@@ -95,6 +95,7 @@ public final class LinuxProcess: Sendable {
         var pid: Int32
         var stdio: StdioHandles
         var stdinRelay: Task<(), Never>?
+        var ioCompletionTask: Task<Void, Never>?
     }
 
     /// The process ID for the container process. This will be -1
@@ -170,20 +171,17 @@ public final class LinuxProcess: Sendable {
 }
 
 extension LinuxProcess {
-    func setupIO(streams: [VsockConnectionStream?]) async throws -> [FileHandle?] {
+    func setupIO(streams: [VsockConnectionStream?]) async throws -> (handles: [FileHandle?], ioGroup: DispatchGroup) {
         let handles = try await Timeout.run(seconds: 3) {
             await withTaskGroup(of: (Int, FileHandle?).self) { group in
                 var results = [FileHandle?](repeating: nil, count: 3)
-
                 for (index, stream) in streams.enumerated() {
                     guard let stream = stream else { continue }
-
                     group.addTask {
                         let first = await stream.connections.first(where: { _ in true })
                         return (index, first)
                     }
                 }
-
                 for await (index, fileHandle) in group {
                     results[index] = fileHandle
                 }
@@ -191,17 +189,30 @@ extension LinuxProcess {
             }
         }
 
+        let ioGroup = DispatchGroup()
+        var stdinRelayTask: Task<(), Never>?
+
+        defer {
+            if Task.isCancelled {
+                for handle in handles {
+                    handle?.readabilityHandler = nil
+                }
+                stdinRelayTask?.cancel()
+            }
+        }
+
         if let stdin = self.ioSetup.stdin {
             if let handle = handles[0] {
-                self.state.withLock {
-                    $0.stdinRelay = Task {
-                        for await data in stdin.reader.stream() {
-                            do {
-                                try handle.write(contentsOf: data)
-                            } catch {
-                                self.logger?.error("failed to write to stdin: \(error)")
-                                return
-                            }
+                ioGroup.enter()
+                let group = ioGroup
+                $0.stdinRelay = Task {
+                    defer { group.leave() }
+                    for await data in stdin.reader.stream() {
+                        do {
+                            try handle.write(contentsOf: data)
+                        } catch {
+                            self.logger?.error("failed to write to stdin: \(error)")
+                            return
                         }
                     }
                 }
@@ -209,40 +220,58 @@ extension LinuxProcess {
         }
 
         if let stdout = self.ioSetup.stdout {
+            ioGroup.enter()
+            let group = ioGroup
+            let didLeave = AtomicBoolean(false)
             handles[1]?.readabilityHandler = { handle in
-                // NOTE: We need some way to know when this data is done being piped,
-                // so DispatchGroup or similar. `availableData` is also pretty poor,
-                // as it always allocates. We can likely do the read loop ourselves
-                // with a buffer we allocate once on creation of the process.
+                guard !didLeave.load() else { return }
                 do {
                     let data = handle.availableData
                     if data.isEmpty {
-                        handles[1]?.readabilityHandler = nil
+                        if didLeave.compareAndSwap(expected: false, desired: true) {
+                            handles[1]?.readabilityHandler = nil
+                            group.leave()
+                        }
                         return
                     }
                     try stdout.writer.write(data)
                 } catch {
                     self.logger?.error("failed to write to stdout: \(error)")
+                    if didLeave.compareAndSwap(expected: false, desired: true) {
+                        handles[1]?.readabilityHandler = nil
+                        group.leave()
+                    }
                 }
             }
         }
 
         if let stderr = self.ioSetup.stderr {
+            ioGroup.enter()
+            let group = ioGroup
+            let didLeave = AtomicBoolean(false)
             handles[2]?.readabilityHandler = { handle in
+                guard !didLeave.load() else { return }
                 do {
                     let data = handle.availableData
                     if data.isEmpty {
-                        handles[2]?.readabilityHandler = nil
+                        if didLeave.compareAndSwap(expected: false, desired: true) {
+                            handles[2]?.readabilityHandler = nil
+                            group.leave()
+                        }
                         return
                     }
                     try stderr.writer.write(data)
                 } catch {
                     self.logger?.error("failed to write to stderr: \(error)")
+                    if didLeave.compareAndSwap(expected: false, desired: true) {
+                        handles[2]?.readabilityHandler = nil
+                        group.leave()
+                    }
                 }
             }
         }
 
-        return handles
+        return (handles, ioGroup)
     }
 
     /// Start the process.
@@ -280,19 +309,24 @@ extension LinuxProcess {
             options: nil
         )
 
-        let result = try await t.value
+        let (handles, ioGroup) = try await t.value
         let pid = try await self.agent.startProcess(
             id: self.id,
             containerID: self.owningContainer
         )
 
+        let ioCompletionTask = Task {
+            ioGroup.wait()
+        }
+
         self.state.withLock {
             $0.stdio = StdioHandles(
-                stdin: result[0],
-                stdout: result[1],
-                stderr: result[2]
+                stdin: handles[0],
+                stdout: handles[1],
+                stderr: handles[2]
             )
             $0.pid = pid
+            $0.ioCompletionTask = ioCompletionTask
         }
     }
 
@@ -343,8 +377,11 @@ extension LinuxProcess {
             containerID: self.owningContainer
         )
 
-        // FIXME: Add in IO drain waiting here. We can wait for 2-3 seconds or
-        // so and then just continue on.
+        if let ioCompletionTask = self.state.withLock({ $0.ioCompletionTask }) {
+            _ = try? await Timeout.run(seconds: 3) {
+                await ioCompletionTask.value
+            }
+        }
 
         // Now free up stdio handles.
         try self.state.withLock {
