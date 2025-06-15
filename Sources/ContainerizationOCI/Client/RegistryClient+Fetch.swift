@@ -49,7 +49,8 @@ extension RegistryClient {
         return try await request(components: components, method: .HEAD, headers: headers) { response in
             guard response.status == .ok else {
                 let url = components.url?.absoluteString ?? "unknown"
-                throw Error.invalidStatus(url: url, response.status)
+                let reason = await ErrorResponse.fromResponseBody(response.body)?.jsonString
+                throw Error.invalidStatus(url: url, response.status, reason: reason)
             }
 
             guard let digest = response.headers.first(name: "Docker-Content-Digest") else {
@@ -150,7 +151,8 @@ extension RegistryClient {
         try await request(components: components, headers: headers) { response in
             guard response.status == .ok else {
                 let url = components.url?.absoluteString ?? "unknown"
-                throw Error.invalidStatus(url: url, response.status)
+                let reason = await ErrorResponse.fromResponseBody(response.body)?.jsonString
+                throw Error.invalidStatus(url: url, response.status, reason: reason)
             }
 
             // How many bytes to expect
