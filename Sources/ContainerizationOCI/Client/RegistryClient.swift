@@ -200,10 +200,10 @@ public final class RegistryClient: ContentClient {
                         if status == .unauthorized || status == .forbidden {
                             throw ContainerizationError(.internalError, message: "\(String(describing: err)). Access denied or wrong credentials.")
                         }
-                        
+
                         throw err
                     }
-                    
+
                     continue
                 }
                 guard let retryOptions = self.retryOptions else {
