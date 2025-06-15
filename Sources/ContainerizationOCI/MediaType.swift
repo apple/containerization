@@ -65,5 +65,5 @@ public struct MediaTypes: Codable, Sendable {
     public static let dockerImageLayerZstd = "application/vnd.docker.image.rootfs.diff.tar.zstd"
 
     /// The media type used for in-toto attestations blobs.
-    public static let intototAttestationBlob = "application/vnd.in-toto+json"
+    public static let inTotoAttestationBlob = "application/vnd.in-toto+json"
 }

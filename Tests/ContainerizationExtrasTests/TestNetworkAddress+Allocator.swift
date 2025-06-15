@@ -215,7 +215,7 @@ final class TestAddressAllocators {
         try allocator.release(first)
         let third = try allocator.allocate()
         // even after a release, it should continue to allocate in the range
-        // before reusing an previous allocation on the stack.
+        // before reusing a previous allocation on the stack.
         #expect(third == 5002)
 
         // now the next allocation should be our first port

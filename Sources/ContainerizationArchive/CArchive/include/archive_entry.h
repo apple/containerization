@@ -564,7 +564,7 @@ __LA_DECL int	 archive_entry_acl_next(struct archive_entry *, int /* want_type *
  * ARCHIVE_ENTRY_ACL_STYLE_COMPACT - Do not output the minus character for
  *    unset permissions and flags in NFSv4 ACL permission and flag fields
  *
- * Flags for for archive entries with POSIX.1e ACL or NFSv4 ACL:
+ * Flags for archive entries with POSIX.1e ACL or NFSv4 ACL:
  * ARCHIVE_ENTRY_ACL_STYLE_EXTRA_ID - Include extra numeric ID field in
  *    each ACL entry.
  * ARCHIVE_ENTRY_ACL_STYLE_SEPARATOR_COMMA - Separate entries with comma

@@ -165,7 +165,7 @@ extension EXT4.EXT4Reader {
     }
 
     @available(*, deprecated, renamed: "readInlineExtendedAttributes(from:)")
-    public static func readInlineExtenedAttributes(from buffer: [UInt8]) throws -> [EXT4.ExtendedAttribute] {
+    public static func readInlineExtendedAttributes(from buffer: [UInt8]) throws -> [EXT4.ExtendedAttribute] {
         try readInlineExtendedAttributes(from: buffer)
     }
 
@@ -178,7 +178,7 @@ extension EXT4.EXT4Reader {
     }
 
     @available(*, deprecated, renamed: "readBlockExtendedAttributes(from:)")
-    public static func readBlockExtenedAttributes(from buffer: [UInt8]) throws -> [EXT4.ExtendedAttribute] {
+    public static func readBlockExtendedAttributes(from buffer: [UInt8]) throws -> [EXT4.ExtendedAttribute] {
         try readBlockExtendedAttributes(from: buffer)
     }
 

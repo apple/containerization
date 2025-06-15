@@ -74,8 +74,8 @@ static void child_handler(const int sync_pipes[2], const char *executable,
     goto fail;
   }
 
-  // start shuffeling fds.
-  // look at all the filehandles and find the highest one,
+  // start shuffling fds.
+  // look at all the file handles and find the highest one,
   // use that for our pipe,
   //
   // Then, we need to start dup2 the fds starting for the final process

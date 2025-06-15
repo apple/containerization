@@ -36,7 +36,7 @@ public struct VsockType: SocketType, Sendable {
 
     public static let anyCID: UInt32 = UInt32(bitPattern: -1)
     public static let hypervisorCID: UInt32 = 0x0
-    // Supported on Linux 5.6+, otherwise will need to use getLocalCID().
+    // Supported on Linux 5.6+; otherwise, will need to use getLocalCID().
     public static let localCID: UInt32 = 0x1
     public static let hostCID: UInt32 = 0x2
 

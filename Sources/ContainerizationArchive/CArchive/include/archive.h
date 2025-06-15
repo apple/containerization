@@ -613,7 +613,7 @@ __LA_DECL int archive_read_data_block(struct archive *a,
  * Some convenience functions that are built on archive_read_data:
  *  'skip': skips entire entry
  *  'into_buffer': writes data into memory buffer that you provide
- *  'into_fd': writes data to specified filedes
+ *  'into_fd': writes data to specified file descriptor
  */
 __LA_DECL int archive_read_data_skip(struct archive *);
 __LA_DECL int archive_read_data_into_fd(struct archive *, int fd);

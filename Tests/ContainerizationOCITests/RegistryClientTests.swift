@@ -285,7 +285,7 @@ struct OCIClientTests: ~Copyable {
             )
         )
         do {
-            _ = try await client.resolve(name: "conatinerization/not-exists", tag: "foo")
+            _ = try await client.resolve(name: "containerization/not-exists", tag: "foo")
         } catch {
             #expect(counter.withLock { $0 } <= 3)
         }

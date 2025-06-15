@@ -323,7 +323,7 @@ extension LinuxContainer {
     /// Unix sockets to share into or out of the container.
     ///
     /// The VirtualMachineAgent used to launch the container
-    /// MUST conform to `SocketRelayAgent` to support this, otherwise
+    /// MUST conform to `SocketRelayAgent` to support this; otherwise,
     /// a ContainerizationError will be returned on start with the code
     /// set to `.unsupported`.
     public var sockets: [UnixSocketConfiguration] {
@@ -465,7 +465,7 @@ extension LinuxContainer {
     }
 
     /// Create the underlying container's virtual machine
-    /// and setup the runtime environment.
+    /// and set up the runtime environment.
     public func create() async throws {
         try state.setCreating()
 
