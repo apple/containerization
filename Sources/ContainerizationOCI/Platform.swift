@@ -39,7 +39,7 @@ public struct Platform: Sendable, Equatable {
         }
     }
 
-    /// description is the processed value (eg. `linux/arm64/v8`)
+    /// The computed description, for example, `linux/arm64/v8`.
     public var description: String {
         let architecture = architecture
         if let variant = variant {
@@ -48,7 +48,7 @@ public struct Platform: Sendable, Equatable {
         return "\(os)/\(architecture)"
     }
 
-    /// architecture field specifies the CPU architecture, for example `amd64` or `ppc64`.
+    /// The CPU architecture, for example, `amd64` or `ppc64`.
     public var architecture: String {
         switch _rawArch {
         case "arm64", "arm", "aarch64", "armhf", "armel":
@@ -62,23 +62,23 @@ public struct Platform: Sendable, Equatable {
         }
     }
 
-    /// os specifies the operating system, for example `linux` or `windows`.
+    /// The operating system, for example, `linux` or `windows`.
     public var os: String {
         _rawOS
     }
 
-    /// osVersion is an optional field specifying the operating system version, for example on Windows `10.0.14393.1066`.
+    /// An optional field specifying the operating system version, for example on Windows `10.0.14393.1066`.
     public var osVersion: String?
 
-    /// osFeatures is an optional field specifying an array of strings, each listing a required OS feature (for example on Windows `win32k`).
+    /// An optional field specifying an array of strings, each listing a required OS feature (for example on Windows `win32k`).
     public var osFeatures: [String]?
 
-    /// variant is an optional field specifying a variant of the CPU, for example `v7` to specify ARMv7 when architecture is `arm`.
+    /// An optional field specifying a variant of the CPU, for example `v7` to specify ARMv7 when architecture is `arm`.
     public var variant: String?
 
-    /// rawOS is the operation system of the image (eg. `linux`)
+    /// The operation system of the image (eg. `linux`).
     private let _rawOS: String
-    /// rawArch is the CPU architecture (eg. `arm64`)
+    /// The CPU architecture (eg. `arm64`).
     private let _rawArch: String
 
     public init(arch: String, os: String, osVersion: String? = nil, osFeatures: [String]? = nil, variant: String? = nil) {
@@ -89,11 +89,11 @@ public struct Platform: Sendable, Equatable {
         self.variant = variant
     }
 
-    ///     Initializes new platform from string
+    ///     Initializes a new platform from a string.
     ///     - Parameters:
     ///        -  platform: A `string` value representing the platform.
     ///     ```swift
-    ///     // create a new ImagePlatform from string
+    ///     // Create a new `ImagePlatform` from string.
     ///     let platform = try Platform(from: "linux/amd64")
     ///     ```
     ///     ## Throws ##
@@ -255,7 +255,7 @@ extension Platform: Hashable {
         return false
     }
 
-    /// `==` compares if **lhs** and **rhs** are the exact same platforms
+    /// `==` compares if **lhs** and **rhs** are the exact same platforms.
     public static func == (lhs: Platform, rhs: Platform) -> Bool {
         //  NOTE:
         //  If the platform struct was created by setting the fields directly and not using (from: String)

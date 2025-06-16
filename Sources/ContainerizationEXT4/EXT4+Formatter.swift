@@ -22,7 +22,7 @@ import SystemPackage
 
 extension EXT4 {
     /// The `EXT4.Formatter` class provides methods to format a block device with the ext4 filesystem.
-    /// It allows customization of block size and maximum disk size
+    /// It allows customization of block size and maximum disk size.
     public class Formatter {
         private let blockSize: UInt32
         private var size: UInt64

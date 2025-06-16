@@ -22,7 +22,6 @@ import NIO
 
 extension RegistryClient {
     /// Pushes the content specified by a descriptor to a remote registry.
-    ///
     /// - Parameters:
     ///    - name:          The namespace which the descriptor should belong under.
     ///    - tag:           The tag or digest for uniquely identifying the manifest.

@@ -25,7 +25,6 @@ public class ContentWriter {
     private let encoder = JSONEncoder()
 
     /// Create a new ContentWriter.
-    ///
     /// - Parameters:
     ///   - base: The URL to write content to. If this is not a directory a
     ///           ContainerizationError will be thrown with a code of .internalError.
