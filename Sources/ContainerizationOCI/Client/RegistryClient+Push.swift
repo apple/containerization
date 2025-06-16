@@ -25,7 +25,7 @@ extension RegistryClient {
     ///
     /// - Parameters:
     ///    - name:          The namespace which the descriptor should belong under.
-    ///    - ref:           The tag or digest for uniquely identifying the manifest.
+    ///    - tag:           The tag or digest for uniquely identifying the manifest.
     ///                     By convention, any portion that may be a partial or whole digest
     ///                     will be proceeded by an `@`. Anything preceding the `@` will be referred
     ///                     to as "tag".

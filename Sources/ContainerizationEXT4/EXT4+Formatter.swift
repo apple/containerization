@@ -62,6 +62,7 @@ extension EXT4 {
         ///   - devicePath: The path to the block device where the ext4 filesystem will be created.
         ///   - blockSize: The block size of the ext4 filesystem, specified in bytes. Common values are
         ///                4096 (4KB) or 1024 (1KB). Default is 4096 (4KB)
+        ///   - minDiskSize: The minimum disk size required for the formatted filesystem.
         ///
         /// - Note: This ext4 formatter is designed for creating block devices out of container images and does not support all the
         ///         features and options available in the full ext4 filesystem implementation. It focuses

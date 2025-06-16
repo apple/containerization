@@ -119,7 +119,7 @@ extension Terminal {
 extension Terminal {
     /// resize the current pty from the size of the provided pty
     ///
-    ///  - Parameter from: a pty to resize from
+    ///  - Parameter pty: A pty to resize from.
     public func resize(from pty: Terminal) throws {
         var ws = try pty.size
         try fromSyscall(ioctl(descriptor, UInt(TIOCSWINSZ), &ws))

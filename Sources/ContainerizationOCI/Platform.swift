@@ -91,7 +91,7 @@ public struct Platform: Sendable, Equatable {
 
     ///     Initializes new platform from string
     ///     - Parameters:
-    ///        -  from: `string` value representing the platform
+    ///        -  platform: A `string` value representing the platform.
     ///     ```swift
     ///     // create a new ImagePlatform from string
     ///     let platform = try Platform(from: "linux/amd64")

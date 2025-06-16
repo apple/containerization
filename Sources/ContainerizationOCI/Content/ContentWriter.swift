@@ -27,8 +27,8 @@ public class ContentWriter {
     /// Create a new ContentWriter.
     ///
     /// - Parameters:
-    ///   - for: The URL to write content to. If this is not a directory a
-    ///          ContainerizationError will be thrown with a code of .internalError.
+    ///   - base: The URL to write content to. If this is not a directory a
+    ///           ContainerizationError will be thrown with a code of .internalError.
     public init(for base: URL) throws {
         self.base = base
         var isDirectory = ObjCBool(true)
@@ -52,16 +52,16 @@ public class ContentWriter {
 
     /// Reads the data present in the passed in URL and writes it to the base path.
     /// - Parameters:
-    ///   - from: The URL to read the data from.
+    ///   - url: The URL to read the data from.
     @discardableResult
-    public func create(from u: URL) throws -> (size: Int64, digest: SHA256.Digest) {
-        let data = try Data(contentsOf: u)
+    public func create(from url: URL) throws -> (size: Int64, digest: SHA256.Digest) {
+        let data = try Data(contentsOf: url)
         return try self.write(data)
     }
 
     /// Encodes the passed in type as a JSON blob and writes it to the base path.
     /// - Parameters:
-    ///   - from: The type to convert to JSON.
+    ///   - content: The type to convert to JSON.
     @discardableResult
     public func create<T: Encodable>(from content: T) throws -> (size: Int64, digest: SHA256.Digest) {
         let data = try self.encoder.encode(content)

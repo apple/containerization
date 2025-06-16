@@ -25,7 +25,7 @@ extension ImageStore {
     /// manifests and layer blobs, into a directory structure compliant with the OCI Image Layout specification at the given `out` URL.
     ///
     /// - Parameters:
-    ///   - references : A list image references that exists in the `ImageStore` that are to be saved in the OCI Image Layout format.
+    ///   - references: A list image references that exists in the `ImageStore` that are to be saved in the OCI Image Layout format.
     ///   - out: A URL to a directory on disk at which the OCI Image Layout structure will be created.
     ///   - platform: An optional parameter to indicate the platform to be saved for the images.
     ///               Defaults to `nil` signifying that layers for all supported platforms by the images will be saved.
@@ -67,7 +67,7 @@ extension ImageStore {
     /// Imports one or more images and their associated layers from an OCI Image Layout directory.
     ///
     /// - Parameters:
-    ///   - from : A URL to a directory on disk at that follows the OCI Image Layout structure.
+    ///   - directory: A URL to a directory on disk at that follows the OCI Image Layout structure.
     ///   - progress: An optional handler over which progress update events about the load operation can be received.
     /// - Returns: The list of images that were loaded into the `ImageStore`.
     ///
