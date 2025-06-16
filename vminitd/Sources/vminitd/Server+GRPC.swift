@@ -846,7 +846,7 @@ extension Initd {
         process.user.uid = parsedUser.uid
         process.user.gid = parsedUser.gid
         process.user.additionalGids = parsedUser.sgids
-        if !process.env.contains("HOME") {
+        if !process.env.contains(where: { $0.hasPrefix("HOME=") }) {
             process.env.append("HOME=\(parsedUser.home)")
         }
 
