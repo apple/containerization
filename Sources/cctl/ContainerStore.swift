@@ -96,11 +96,8 @@ struct ContainerStore: Sendable {
         let imageBlock: Containerization.Mount = try await {
             let source = self.root.appendingPathComponent(blockName)
             do {
-                return try await image.unpack(
-                    for: .current,
-                    at: source,
-                    blockSizeInBytes: fsSizeInBytes
-                )
+                let unpacker = EXT4Unpacker(blockSizeInBytes: fsSizeInBytes)
+                return try await unpacker.unpack(image, for: .current, at: source)
             } catch let err as ContainerizationError {
                 if err.code == .exists {
                     return .block(

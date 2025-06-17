@@ -125,7 +125,8 @@ struct IntegrationSuite: AsyncParsableCommand {
         let fs: Containerization.Mount = try await {
             let fsPath = Self.testDir.appending(component: "rootfs.ext4")
             do {
-                return try await image.unpack(for: platform, at: fsPath)
+                let unpacker = EXT4Unpacker(blockSizeInBytes: 2.gib())
+                return try await unpacker.unpack(image, for: platform, at: fsPath)
             } catch let err as ContainerizationError {
                 if err.code == .exists {
                     return .block(
