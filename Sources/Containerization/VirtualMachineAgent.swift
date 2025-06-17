@@ -60,5 +60,5 @@ public protocol VirtualMachineAgent: Sendable {
     func configureDNS(config: DNS, location: String) async throws
 
     // Stats
-    func stats(containerID: String) async throws -> StatsResponse
+    func stats(containerID: String) async throws -> Com_Apple_Containerization_Sandbox_V3_StatsResponse
 }

@@ -255,8 +255,8 @@ public final class LinuxContainer: Container, Sendable {
                 readonly: false
             ),
             linux: .init(
-                cgroupsPath: "/\(id)",
-                resources: .init()
+                resources: .init(),
+                cgroupsPath: "/\(id)"
             )
         )
     }
@@ -706,6 +706,14 @@ extension LinuxContainer {
     public func dialVsock(port: UInt32) async throws -> FileHandle {
         let state = try self.state.startedState("dialVsock")
         return try await state.vm.dial(port)
+    }
+
+    /// Get stats for a container
+    public func stats() async throws -> Com_Apple_Containerization_Sandbox_V3_StatsResponse {
+        let state = try self.state.startedState("stats")
+        return try await state.vm.withAgent { agent in
+            try await agent.stats(containerID: self.id)
+        }
     }
 
     /// Relay a unix socket from in the container to the host, or from the host
