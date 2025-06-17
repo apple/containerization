@@ -81,10 +81,11 @@ struct OCIClientTests: ~Copyable {
         let authentication = BasicAuthentication(username: "foo", password: "bar")
         let client = RegistryClient(host: "ghcr.io", authentication: authentication)
         let error = await #expect(throws: RegistryClient.Error.self) { try await client.ping() }
-        if case .invalidStatus = error {
-        } else {
-            Issue.record("encountered unexpected error \(error)")
+        guard case .invalidStatus(_, let status, let reason) = error else {
+            throw error!
         }
+        #expect(status == .unauthorized)
+        #expect(reason == "Access denied or wrong credentials")
     }
 
     @Test(.enabled(if: hasRegistryCredentials))

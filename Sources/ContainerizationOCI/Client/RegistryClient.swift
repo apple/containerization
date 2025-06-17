@@ -184,13 +184,26 @@ public final class RegistryClient: ContentClient {
                     if let ct = currentToken, ct.isValid(scope: tokenRequest.scope) {
                         break
                     }
-                    let _currentToken = try await fetchToken(request: tokenRequest)
-                    guard let token = _currentToken.getToken() else {
-                        throw ContainerizationError(.internalError, message: "Failed to fetch Bearer token")
+
+                    do {
+                        let _currentToken = try await fetchToken(request: tokenRequest)
+                        guard let token = _currentToken.getToken() else {
+                            throw ContainerizationError(.internalError, message: "Failed to fetch Bearer token")
+                        }
+                        currentToken = _currentToken
+                        request.headers.replaceOrAdd(name: "Authorization", value: token)
+                        retryCount += 1
+                    } catch let err as RegistryClient.Error {
+                        guard case .invalidStatus(_, let status, _) = err else {
+                            throw err
+                        }
+                        if status == .unauthorized || status == .forbidden {
+                            throw RegistryClient.Error.invalidStatus(url: path, _response.status, reason: "Access denied or wrong credentials")
+                        }
+
+                        throw err
                     }
-                    currentToken = _currentToken
-                    request.headers.replaceOrAdd(name: "Authorization", value: token)
-                    retryCount += 1
+
                     continue
                 }
                 guard let retryOptions = self.retryOptions else {
