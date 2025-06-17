@@ -818,6 +818,81 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             $0.result = r
         }
     }
+
+    func stats(
+        request: Com_Apple_Containerization_Sandbox_V3_StatsRequest,
+        context: GRPCAsyncServerCallContext
+    ) async throws -> Com_Apple_Containerization_Sandbox_V3_StatsResponse {
+        log.debug(
+            "stats",
+            metadata: [
+                "containerID": "\(request.containerID)"
+            ]
+        )
+
+        do {
+            let ctr = try await self.state.get(container: request.containerID)
+            let cgroupPath = URL(fileURLWithPath: "/sys/fs/cgroup").appendingPathComponent(ctr.spec.linux?.cgroupsPath)
+
+            let cpuStats = try await Self.readCPUStats(from: cgroupPath)
+            let memoryStats = try await Self.readMemoryStats(from: cgroupPath)
+            let pidsStats = try await Self.readPidsStats(from: cgroupPath)
+
+            return .with {
+                $0.cpuStats = cpuStats
+                $0.memoryStats = memoryStats
+                $0.pidsStats = pidsStats
+            }
+        } catch {
+            log.error("failed to read cgroup stats", metadata: ["error": "\(error)"])
+            throw GRPCStatus(code: .internalError, message: "failed to read cgroup stats: \(error)")
+        }
+    }
+
+    private static func readCPUStats(from cgroupPath: URL) async throws -> Com_Apple_Containerization_Sandbox_V3_CPUStats {
+        let cpuStatURL = cgroupPath.appendingPathComponent("cpu.stat")
+        let data = try String(contentsOf: cpuStatURL, encoding: .utf8)
+        let lines = data.split(separator: "\n")
+        for line in lines {
+            let parts = line.split(separator: " ")
+            if parts.count == 2 && parts[0] == "usage_usec" {
+                if let usageUsec = UInt64(parts[1]) {
+                    return .with {
+                        $0.totalUsage = usageUsec * 1000
+                    }
+                }
+            }
+        }
+    }
+
+    private static func readMemoryStats(from cgroupPath: URL) async throws -> Com_Apple_Containerization_Sandbox_V3_MemoryStats {
+        let usagePath = cgroupPath.appendingPathComponent("memory.current")
+        let limitPath = cgroupPath.appendingPathComponent("memory.max")
+
+        let usageBytes = try await Self.readUInt64(from: usagePath)
+        let limitBytes = try await Self.readUInt64(from: limitPath)
+
+        return .with {
+            $0.usageBytes = usageBytes
+            $0.limitBytes = limitBytes
+        }
+    }
+
+    private static func readPidsStats(from cgroupPath: URL) async throws -> Com_Apple_Containerization_Sandbox_V3_PidsStats {
+        let pidsPath = cgroupPath.appendingPathComponent("pids.current")
+        let currentPids = try await Self.readUInt64(from: pidsPath)
+        return .with {
+            $0.current = currentPids
+        }
+    }
+
+    private static func readUInt64(from url: URL) async throws -> UInt64 {
+        let data = try String(contentsOf: url, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let value = UInt64(data) else {
+            throw GRPCStatus(code: .internalError, message: "failed to parse value from \(url.path)")
+        }
+        return value
+    }
 }
 
 extension Initd {

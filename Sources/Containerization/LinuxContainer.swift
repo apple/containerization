@@ -255,6 +255,7 @@ public final class LinuxContainer: Container, Sendable {
                 readonly: false
             ),
             linux: .init(
+                cgroupsPath: "/\(id)",
                 resources: .init()
             )
         )

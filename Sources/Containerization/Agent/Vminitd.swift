@@ -231,6 +231,14 @@ extension Vminitd: VirtualMachineAgent {
                 $0.value = value
             })
     }
+
+    /// Returns stats for a container
+    public func stats(containerID: String) async throws -> StatsResponse {
+        let request = Com_Apple_Containerization_Sandbox_V3_StatsRequest.with {
+            $0.containerID = containerID
+        }
+        return try await client.stats(request)
+    }
 }
 
 /// Vminitd specific rpcs.

@@ -148,6 +148,11 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtoc
     _ request: Com_Apple_Containerization_Sandbox_V3_KillRequest,
     callOptions: CallOptions?
   ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_KillRequest, Com_Apple_Containerization_Sandbox_V3_KillResponse>
+
+  func stats(
+    _ request: Com_Apple_Containerization_Sandbox_V3_StatsRequest,
+    callOptions: CallOptions?
+  ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_StatsRequest, Com_Apple_Containerization_Sandbox_V3_StatsResponse>
 }
 
 extension Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtocol {
@@ -569,6 +574,24 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtocol {
       interceptors: self.interceptors?.makeKillInterceptors() ?? []
     )
   }
+
+  /// Get container stats.
+  ///
+  /// - Parameters:
+  ///   - request: Request to send to Stats.
+  ///   - callOptions: Call options.
+  /// - Returns: A `UnaryCall` with futures for the metadata, status and response.
+  public func stats(
+    _ request: Com_Apple_Containerization_Sandbox_V3_StatsRequest,
+    callOptions: CallOptions? = nil
+  ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_StatsRequest, Com_Apple_Containerization_Sandbox_V3_StatsResponse> {
+    return self.makeUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.stats.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeStatsInterceptors() ?? []
+    )
+  }
 }
 
 @available(*, deprecated)
@@ -748,6 +771,11 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientP
     _ request: Com_Apple_Containerization_Sandbox_V3_KillRequest,
     callOptions: CallOptions?
   ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_KillRequest, Com_Apple_Containerization_Sandbox_V3_KillResponse>
+
+  func makeStatsCall(
+    _ request: Com_Apple_Containerization_Sandbox_V3_StatsRequest,
+    callOptions: CallOptions?
+  ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_StatsRequest, Com_Apple_Containerization_Sandbox_V3_StatsResponse>
 }
 
 @available(macOS 10.15, iOS 13, tvOS 13, watchOS 6, *)
@@ -1035,6 +1063,18 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientProtoco
       interceptors: self.interceptors?.makeKillInterceptors() ?? []
     )
   }
+
+  public func makeStatsCall(
+    _ request: Com_Apple_Containerization_Sandbox_V3_StatsRequest,
+    callOptions: CallOptions? = nil
+  ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_StatsRequest, Com_Apple_Containerization_Sandbox_V3_StatsResponse> {
+    return self.makeAsyncUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.stats.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeStatsInterceptors() ?? []
+    )
+  }
 }
 
 @available(macOS 10.15, iOS 13, tvOS 13, watchOS 6, *)
@@ -1314,6 +1354,18 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientProtoco
       interceptors: self.interceptors?.makeKillInterceptors() ?? []
     )
   }
+
+  public func stats(
+    _ request: Com_Apple_Containerization_Sandbox_V3_StatsRequest,
+    callOptions: CallOptions? = nil
+  ) async throws -> Com_Apple_Containerization_Sandbox_V3_StatsResponse {
+    return try await self.performAsyncUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.stats.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeStatsInterceptors() ?? []
+    )
+  }
 }
 
 @available(macOS 10.15, iOS 13, tvOS 13, watchOS 6, *)
@@ -1403,6 +1455,9 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextClientInterc
 
   /// - Returns: Interceptors to use when invoking 'kill'.
   func makeKillInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_KillRequest, Com_Apple_Containerization_Sandbox_V3_KillResponse>]
+
+  /// - Returns: Interceptors to use when invoking 'stats'.
+  func makeStatsInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_StatsRequest, Com_Apple_Containerization_Sandbox_V3_StatsResponse>]
 }
 
 public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
@@ -1433,6 +1488,7 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.configureDns,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.sync,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.kill,
+      Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.stats,
     ]
   )
 
@@ -1574,6 +1630,12 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
       path: "/com.apple.containerization.sandbox.v3.SandboxContext/Kill",
       type: GRPCCallType.unary
     )
+
+    public static let stats = GRPCMethodDescriptor(
+      name: "Stats",
+      path: "/com.apple.containerization.sandbox.v3.SandboxContext/Stats",
+      type: GRPCCallType.unary
+    )
   }
 }
 
@@ -1652,6 +1714,9 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider: Ca
 
   /// Send a signal to a process via the PID.
   func kill(request: Com_Apple_Containerization_Sandbox_V3_KillRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_KillResponse>
+
+  /// Get container stats.
+  func stats(request: Com_Apple_Containerization_Sandbox_V3_StatsRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_StatsResponse>
 }
 
 extension Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider {
@@ -1873,6 +1938,15 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider {
         userFunction: self.kill(request:context:)
       )
 
+    case "Stats":
+      return UnaryServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_StatsRequest>(),
+        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_StatsResponse>(),
+        interceptors: self.interceptors?.makeStatsInterceptors() ?? [],
+        userFunction: self.stats(request:context:)
+      )
+
     default:
       return nil
     }
@@ -2025,6 +2099,12 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvide
     request: Com_Apple_Containerization_Sandbox_V3_KillRequest,
     context: GRPCAsyncServerCallContext
   ) async throws -> Com_Apple_Containerization_Sandbox_V3_KillResponse
+
+  /// Get container stats.
+  func stats(
+    request: Com_Apple_Containerization_Sandbox_V3_StatsRequest,
+    context: GRPCAsyncServerCallContext
+  ) async throws -> Com_Apple_Containerization_Sandbox_V3_StatsResponse
 }
 
 @available(macOS 10.15, iOS 13, tvOS 13, watchOS 6, *)
@@ -2253,6 +2333,15 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvider {
         wrapping: { try await self.kill(request: $0, context: $1) }
       )
 
+    case "Stats":
+      return GRPCAsyncServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_StatsRequest>(),
+        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_StatsResponse>(),
+        interceptors: self.interceptors?.makeStatsInterceptors() ?? [],
+        wrapping: { try await self.stats(request: $0, context: $1) }
+      )
+
     default:
       return nil
     }
@@ -2352,6 +2441,10 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextServerInterc
   /// - Returns: Interceptors to use when handling 'kill'.
   ///   Defaults to calling `self.makeInterceptors()`.
   func makeKillInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_KillRequest, Com_Apple_Containerization_Sandbox_V3_KillResponse>]
+
+  /// - Returns: Interceptors to use when handling 'stats'.
+  ///   Defaults to calling `self.makeInterceptors()`.
+  func makeStatsInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_StatsRequest, Com_Apple_Containerization_Sandbox_V3_StatsResponse>]
 }
 
 public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
@@ -2382,6 +2475,7 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.configureDns,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.sync,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.kill,
+      Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.stats,
     ]
   )
 
@@ -2521,6 +2615,12 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
     public static let kill = GRPCMethodDescriptor(
       name: "Kill",
       path: "/com.apple.containerization.sandbox.v3.SandboxContext/Kill",
+      type: GRPCCallType.unary
+    )
+
+    public static let stats = GRPCMethodDescriptor(
+      name: "Stats",
+      path: "/com.apple.containerization.sandbox.v3.SandboxContext/Stats",
       type: GRPCCallType.unary
     )
   }

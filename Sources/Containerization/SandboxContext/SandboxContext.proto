@@ -54,6 +54,8 @@ service SandboxContext {
   rpc Sync(SyncRequest) returns (SyncResponse);
   // Send a signal to a process via the PID.
   rpc Kill(KillRequest) returns (KillResponse);
+  // Get container stats.
+  rpc Stats(StatsRequest) returns (StatsResponse);
 }
 
 message Stdio {
@@ -238,3 +240,24 @@ message KillRequest {
 }
 
 message KillResponse { int32 result = 1; }
+
+message StatsRequest { string container_id = 1; }
+
+message CPUStats {
+  uint64 total_usage = 1;
+}
+
+message MemoryStats {
+  uint64 usage_bytes = 1;
+  uint64 limit_bytes = 2;
+}
+
+message PidsStats {
+  uint64 current = 1;
+}
+
+message StatsResponse {
+  CPUStats cpu_stats = 1;
+  MemoryStats memory_stats = 2;
+  PidsStats pids_stats = 3;
+}
