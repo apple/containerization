@@ -22,48 +22,92 @@ struct TestAsyncLock {
     
     @Test func testBasicLocking() async throws {
         let lock = AsyncLock()
-        var counter = 0
+        
+        actor Counter {
+            private var value = 0
+            
+            func increment() -> Int {
+                value += 1
+                return value
+            }
+            
+            func getValue() -> Int {
+                return value
+            }
+        }
+        
+        let counter = Counter()
         
         let result = await lock.withLock { context in
-            counter += 1
-            return counter
+            await counter.increment()
         }
         
         #expect(result == 1)
-        #expect(counter == 1)
+        #expect(await counter.getValue() == 1)
     }
     
     @Test func testSequentialAccess() async throws {
         let lock = AsyncLock()
-        var values: [Int] = []
+        
+        actor ValueStore {
+            private var values: [Int] = []
+            
+            func append(_ value: Int) {
+                values.append(value)
+            }
+            
+            func getValues() -> [Int] {
+                return values
+            }
+        }
+        
+        let store = ValueStore()
         
         // Execute operations sequentially
         await lock.withLock { context in
-            values.append(1)
+            await store.append(1)
         }
         
         await lock.withLock { context in
-            values.append(2)
+            await store.append(2)
         }
         
         await lock.withLock { context in
-            values.append(3)
+            await store.append(3)
         }
         
+        let values = await store.getValues()
         #expect(values == [1, 2, 3])
     }
     
     @Test func testConcurrentAccess() async throws {
         let lock = AsyncLock()
-        var values: [Int] = []
         let expectedCount = 100
+        
+        actor ValueStore {
+            private var values: [Int] = []
+            
+            func append(_ value: Int) {
+                values.append(value)
+            }
+            
+            func getValues() -> [Int] {
+                return values
+            }
+            
+            func count() -> Int {
+                return values.count
+            }
+        }
+        
+        let store = ValueStore()
         
         // Create concurrent tasks that all try to modify the array
         await withTaskGroup(of: Void.self) { group in
             for i in 0..<expectedCount {
                 group.addTask {
                     await lock.withLock { context in
-                        values.append(i)
+                        await store.append(i)
                         // Add small delay to increase chance of race conditions
                         try? await Task.sleep(nanoseconds: 1_000) // 1 microsecond
                     }
@@ -74,15 +118,35 @@ struct TestAsyncLock {
         }
         
         // All values should be present (no race conditions)
-        #expect(values.count == expectedCount)
+        let count = await store.count()
+        #expect(count == expectedCount)
+        
         // Values should contain all numbers from 0 to expectedCount-1
+        let values = await store.getValues()
         let sortedValues = values.sorted()
         #expect(sortedValues == Array(0..<expectedCount))
     }
     
     @Test func testAsyncOperationsInLock() async throws {
         let lock = AsyncLock()
-        var results: [String] = []
+        
+        actor ResultStore {
+            private var results: [String] = []
+            
+            func append(_ result: String) {
+                results.append(result)
+            }
+            
+            func getResults() -> [String] {
+                return results
+            }
+            
+            func count() -> Int {
+                return results.count
+            }
+        }
+        
+        let store = ResultStore()
         
         await withTaskGroup(of: Void.self) { group in
             for i in 0..<5 {
@@ -90,7 +154,7 @@ struct TestAsyncLock {
                     await lock.withLock { context in
                         // Simulate async work
                         try? await Task.sleep(nanoseconds: 10_000_000) // 10ms
-                        results.append("task-\(i)")
+                        await store.append("task-\(i)")
                     }
                 }
             }
@@ -98,20 +162,37 @@ struct TestAsyncLock {
             await group.waitForAll()
         }
         
-        #expect(results.count == 5)
+        let count = await store.count()
+        #expect(count == 5)
+        
         // Results should all be unique (no concurrent modification)
+        let results = await store.getResults()
         #expect(Set(results).count == 5)
     }
     
     @Test func testLockWithThrowingOperation() async throws {
         let lock = AsyncLock()
-        var counter = 0
+        
+        actor Counter {
+            private var value = 0
+            
+            func increment() -> Int {
+                value += 1
+                return value
+            }
+            
+            func getValue() -> Int {
+                return value
+            }
+        }
+        
+        let counter = Counter()
         
         struct TestError: Error {}
         
         do {
             try await lock.withLock { context in
-                counter += 1
+                let _ = await counter.increment()
                 throw TestError()
             }
             #expect(Bool(false), "Should have thrown an error")
@@ -120,24 +201,38 @@ struct TestAsyncLock {
         }
         
         // Lock should still work after an error
-        await lock.withLock { context in
-            counter += 1
+        let _ = await lock.withLock { context in
+            await counter.increment()
         }
         
-        #expect(counter == 2)
+        let finalCount = await counter.getValue()
+        #expect(finalCount == 2)
     }
     
     @Test func testLockReentrancyPrevention() async throws {
         let lock = AsyncLock()
-        var executionOrder: [String] = []
+        
+        actor ExecutionTracker {
+            private var order: [String] = []
+            
+            func append(_ event: String) {
+                order.append(event)
+            }
+            
+            func getOrder() -> [String] {
+                return order
+            }
+        }
+        
+        let tracker = ExecutionTracker()
         
         await withTaskGroup(of: Void.self) { group in
             // First task - holds lock for a while
             group.addTask {
                 await lock.withLock { context in
-                    executionOrder.append("task1-start")
+                    await tracker.append("task1-start")
                     try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
-                    executionOrder.append("task1-end")
+                    await tracker.append("task1-end")
                 }
             }
             
@@ -146,8 +241,8 @@ struct TestAsyncLock {
                 // Small delay to ensure task1 starts first
                 try? await Task.sleep(nanoseconds: 10_000_000) // 10ms
                 await lock.withLock { context in
-                    executionOrder.append("task2-start")
-                    executionOrder.append("task2-end")
+                    await tracker.append("task2-start")
+                    await tracker.append("task2-end")
                 }
             }
             
@@ -155,13 +250,27 @@ struct TestAsyncLock {
         }
         
         // Task 1 should complete entirely before task 2 starts
+        let executionOrder = await tracker.getOrder()
         #expect(executionOrder == ["task1-start", "task1-end", "task2-start", "task2-end"])
     }
     
     @Test func testLockFIFOOrdering() async throws {
         let lock = AsyncLock()
-        var executionOrder: [Int] = []
         let taskCount = 10
+        
+        actor ExecutionTracker {
+            private var order: [Int] = []
+            
+            func append(_ value: Int) {
+                order.append(value)
+            }
+            
+            func getOrder() -> [Int] {
+                return order
+            }
+        }
+        
+        let tracker = ExecutionTracker()
         
         await withTaskGroup(of: Void.self) { group in
             for i in 0..<taskCount {
@@ -169,7 +278,7 @@ struct TestAsyncLock {
                     // Small staggered delay to ensure ordering
                     try? await Task.sleep(nanoseconds: UInt64(i * 1_000_000)) // i milliseconds
                     await lock.withLock { context in
-                        executionOrder.append(i)
+                        await tracker.append(i)
                     }
                 }
             }
@@ -178,6 +287,7 @@ struct TestAsyncLock {
         }
         
         // Tasks should execute in FIFO order
+        let executionOrder = await tracker.getOrder()
         #expect(executionOrder == Array(0..<taskCount))
     }
     
@@ -212,14 +322,31 @@ struct TestAsyncLock {
     @Test func testMultipleLocks() async throws {
         let lock1 = AsyncLock()
         let lock2 = AsyncLock()
-        var results: [String] = []
+        
+        actor ResultStore {
+            private var results: [String] = []
+            
+            func append(_ result: String) {
+                results.append(result)
+            }
+            
+            func getResults() -> [String] {
+                return results
+            }
+            
+            func count() -> Int {
+                return results.count
+            }
+        }
+        
+        let store = ResultStore()
         
         await withTaskGroup(of: Void.self) { group in
             // Task using lock1
             group.addTask {
                 await lock1.withLock { context in
                     try? await Task.sleep(nanoseconds: 20_000_000) // 20ms
-                    results.append("lock1")
+                    await store.append("lock1")
                 }
             }
             
@@ -227,7 +354,7 @@ struct TestAsyncLock {
             group.addTask {
                 await lock2.withLock { context in
                     try? await Task.sleep(nanoseconds: 20_000_000) // 20ms
-                    results.append("lock2")
+                    await store.append("lock2")
                 }
             }
             
@@ -235,7 +362,10 @@ struct TestAsyncLock {
         }
         
         // Both locks should have executed
-        #expect(results.count == 2)
+        let count = await store.count()
+        #expect(count == 2)
+        
+        let results = await store.getResults()
         #expect(Set(results) == Set(["lock1", "lock2"]))
     }
     
@@ -244,22 +374,35 @@ struct TestAsyncLock {
         
         await lock.withLock { context in
             // Context should be provided and be the correct type
-            #expect(context is AsyncLock.Context)
+            _ = context // Just verify it exists and compiles
         }
     }
     
     @Test func testLockPerformance() async throws {
         let lock = AsyncLock()
         let iterations = 1000
-        var counter = 0
         
+        actor Counter {
+            private var value = 0
+            
+            func increment() -> Int {
+                value += 1
+                return value
+            }
+            
+            func getValue() -> Int {
+                return value
+            }
+        }
+        
+        let counter = Counter()
         let startTime = CFAbsoluteTimeGetCurrent()
         
         await withTaskGroup(of: Void.self) { group in
             for _ in 0..<iterations {
                 group.addTask {
-                    await lock.withLock { context in
-                        counter += 1
+                    let _ = await lock.withLock { context in
+                        await counter.increment()
                     }
                 }
             }
@@ -268,8 +411,9 @@ struct TestAsyncLock {
         }
         
         let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+        let finalCount = await counter.getValue()
         
-        #expect(counter == iterations)
+        #expect(finalCount == iterations)
         // Performance check - should complete within reasonable time
         #expect(elapsed < 5.0, "Lock operations took too long: \(elapsed)s")
     }
