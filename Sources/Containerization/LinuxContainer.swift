@@ -80,7 +80,7 @@ public final class LinuxContainer: Container, Sendable {
         case started(StartedState)
         /// The container is preparing to stop.
         case stopping(StoppingState)
-        /// The container has ran and fully stopped.
+        /// The container has run and fully stopped.
         case stopped
         /// An error occurred during the lifetime of this class.
         case errored(Swift.Error)

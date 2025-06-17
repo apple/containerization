@@ -23,7 +23,7 @@ Containerization executes each Linux container inside of its own lightweight vir
 [vminitd](/vminitd) is a small init system, which is a subproject within Containerization.
 `vminitd` is spawned as the initial process inside of the virtual machine and provides a GRPC API over vsock.
 The API allows the runtime environment to be configured and containerized processes to be launched.
-`vminitd` provides I/O, signals, and events to the calling process when a process is ran.
+`vminitd` provides I/O, signals, and events to the calling process when a process is run.
 
 ## Requirements
 
@@ -59,7 +59,7 @@ While this configuration will work for the majority of workloads we understand t
 To solve this Containerization provides first class APIs to use different kernel configurations and versions on a per container basis.
 This enables containers to be developed and validated across different kernel versions.
 
-See the [README](/kernel/README.md) in the kernel directory for instruction on how to compile the optimized kernel.
+See the [README](/kernel/README.md) in the kernel directory for instructions on how to compile the optimized kernel.
 
 ### Pre-build Kernel
 
