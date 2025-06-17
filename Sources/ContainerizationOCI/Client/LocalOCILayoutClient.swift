@@ -19,6 +19,7 @@ import ContainerizationExtras
 import Crypto
 import Foundation
 import NIOCore
+import NIOFoundationCompat
 
 package final class LocalOCILayoutClient: ContentClient {
     let cs: LocalContentStore
@@ -87,14 +88,8 @@ package final class LocalOCILayoutClient: ContentClient {
 
             for try await buffer in input {
                 wrote += buffer.readableBytes
-                try buffer.withUnsafeReadableBytes { pointer in
-                    let unsafeBufferPointer = pointer.bindMemory(to: [UInt8].self)
-                    if let addr = unsafeBufferPointer.baseAddress {
-                        let d = Data(bytes: addr, count: buffer.readableBytes)
-                        try fd.write(contentsOf: d)
-                        hasher.update(data: d)
-                    }
-                }
+                try fd.write(contentsOf: buffer.readableBytesView)
+                hasher.update(data: buffer.readableBytesView)
             }
             try await self.cs.completeIngestSession(id)
         } catch {
