@@ -850,8 +850,8 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
     }
 
     private static func readCPUStats(from cgroupPath: URL) async throws -> Com_Apple_Containerization_Sandbox_V3_CPUStats {
-        let cpuStatURL = cgroupPath.appendingPathComponent("cpu.stat")
-        let data = try String(contentsOf: cpuStatURL, encoding: .utf8)
+        let cpuStatPath = cgroupPath.appendingPathComponent("cpu.stat")
+        let data = try String(contentsOf: cpuStatPath, encoding: .utf8)
         let lines = data.split(separator: "\n")
         for line in lines {
             let parts = line.split(separator: " ")
