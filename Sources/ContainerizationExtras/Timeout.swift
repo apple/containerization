@@ -16,11 +16,83 @@
 
 import Foundation
 
-/// `Timeout` contains helpers to run an operation and error out if
-/// the operation does not finish within a provided time.
+/// Provides utilities for executing async operations with time constraints.
+///
+/// `Timeout` helps ensure that long-running async operations don't hang indefinitely
+/// by automatically canceling them after a specified duration. This is especially
+/// useful for network operations, file I/O, or any async task that might block.
+///
+/// ## Use Cases
+/// - Network requests that might hang
+/// - File operations on potentially slow storage
+/// - Container or VM operations with unpredictable execution times
+/// - Any async operation that needs guaranteed completion time
+///
+/// ## Example usage:
+/// ```swift
+/// // Timeout a network request after 30 seconds
+/// do {
+///     let data = try await Timeout.run(seconds: 30) {
+///         await networkClient.fetchData()
+///     }
+///     print("Request completed: \(data)")
+/// } catch is CancellationError {
+///     print("Request timed out after 30 seconds")
+/// }
+///
+/// // Timeout a container start operation
+/// do {
+///     let container = try await Timeout.run(seconds: 60) {
+///         await containerManager.startContainer(id: "abc123")
+///     }
+///     print("Container started successfully")
+/// } catch is CancellationError {
+///     print("Container start timed out")
+/// }
+/// ```
 public struct Timeout {
-    /// Performs the passed in `operation` and throws a `CancellationError` if the operation
-    /// doesn't finish in the provided `seconds` amount.
+    /// Executes an async operation with a timeout, canceling it if it doesn't complete in time.
+    ///
+    /// - Parameters:
+    ///   - seconds: The maximum number of seconds to wait for the operation to complete
+    ///   - operation: The async operation to execute with timeout protection
+    /// - Returns: The result of the operation if it completes within the timeout
+    /// - Throws: `CancellationError` if the operation doesn't complete within the specified time
+    ///
+    /// This method uses structured concurrency to race the provided operation against
+    /// a timer. If the operation completes first, its result is returned. If the timer
+    /// expires first, a `CancellationError` is thrown and any pending work is canceled.
+    ///
+    /// ## Implementation Details
+    /// - Uses `TaskGroup` for structured concurrency
+    /// - Automatically cancels remaining tasks when one completes
+    /// - The timeout precision is limited by the system's task scheduling
+    /// - Operations are not forcefully terminated - they receive a cancellation signal
+    ///
+    /// ## Example:
+    /// ```swift
+    /// // Simple timeout example
+    /// let result = try await Timeout.run(seconds: 5) {
+    ///     await someAsyncOperation()
+    /// }
+    ///
+    /// // Handling timeout errors
+    /// do {
+    ///     let data = try await Timeout.run(seconds: 10) {
+    ///         await longRunningOperation()
+    ///     }
+    ///     handleSuccess(data)
+    /// } catch is CancellationError {
+    ///     handleTimeout()
+    /// } catch {
+    ///     handleOtherError(error)
+    /// }
+    /// ```
+    ///
+    /// ## Performance Notes
+    /// - Minimal overhead when operations complete quickly
+    /// - Timer task is automatically cleaned up when operation completes
+    /// - Uses cooperative cancellation - operations must check for cancellation
     public static func run<T: Sendable>(
         seconds: UInt32,
         operation: @escaping @Sendable () async -> T
@@ -36,7 +108,7 @@ public struct Timeout {
             }
 
             guard let result = try await group.next() else {
-                fatalError()
+                fatalError("TaskGroup.next() unexpectedly returned nil")
             }
 
             group.cancelAll()
