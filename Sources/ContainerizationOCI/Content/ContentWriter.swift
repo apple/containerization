@@ -29,6 +29,8 @@ public class ContentWriter {
     ///   - base: The URL to write content to. If this is not a directory a
     ///           ContainerizationError will be thrown with a code of .internalError.
     public init(for base: URL) throws {
+        self.encoder.outputFormatting = [JSONEncoder.OutputFormatting.sortedKeys]
+
         self.base = base
         var isDirectory = ObjCBool(true)
         let exists = FileManager.default.fileExists(atPath: base.path, isDirectory: &isDirectory)
