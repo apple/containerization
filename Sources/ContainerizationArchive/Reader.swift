@@ -101,9 +101,9 @@ extension ArchiveReader: Sequence {
 
     internal func readDataForEntry(_ entry: WriteEntry) -> Data {
         let bufferSize = Int(Swift.min(entry.size ?? 4096, 4096))
-        var data = Data()
+        var entry = Data()
+        var part = Data(count: bufferSize)
         while true {
-            var part = Data(count: bufferSize)
             let c = part.withUnsafeMutableBytes { buffer in
                 guard let baseAddress = buffer.baseAddress else {
                     return 0
@@ -112,9 +112,9 @@ extension ArchiveReader: Sequence {
             }
             guard c > 0 else { break }
             part.count = c
-            data.append(part)
+            entry.append(part)
         }
-        return data
+        return entry
     }
 }
 

@@ -260,12 +260,27 @@ public final class RegistryClient: ContentClient {
         }
     }
 
+    internal func requestBuffer(
+        components: URLComponents,
+        headers: [(String, String)]? = nil
+    ) async throws -> ByteBuffer {
+        try await request(components: components, method: .GET, headers: headers) { response in
+            guard response.status == .ok else {
+                let url = components.url?.absoluteString ?? "unknown"
+                let reason = await ErrorResponse.fromResponseBody(response.body)?.jsonString
+                throw Error.invalidStatus(url: url, response.status, reason: reason)
+            }
+
+            return try await response.body.collect(upTo: self.bufferSize)
+        }
+    }
+
     internal func requestJSON<T: Decodable>(
         components: URLComponents,
         headers: [(String, String)]? = nil
     ) async throws -> T {
-        let data = try await self.requestData(components: components, headers: headers)
-        return try JSONDecoder().decode(T.self, from: data)
+        let buffer = try await self.requestBuffer(components: components, headers: headers)
+        return try JSONDecoder().decode(T.self, from: buffer)
     }
 
     /// A minimal endpoint, mounted at /v2/ will provide version support information based on its response statuses.

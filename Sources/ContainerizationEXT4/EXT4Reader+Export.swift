@@ -130,14 +130,14 @@ extension EXT4.EXT4Reader {
                 entry.fileType = .symbolicLink
                 if size < 60 {
                     let linkBytes = EXT4.tupleToArray(inode.block)
-                    entry.symlinkTarget = String(data: Data(linkBytes), encoding: .utf8) ?? ""
+                    entry.symlinkTarget = String(bytes: linkBytes, encoding: .utf8) ?? ""
                 } else {
                     if let block = item.blocks {
                         try self.seek(block: block.start)
                         guard let linkBytes = try self.handle.read(upToCount: Int(size)) else {
                             throw EXT4.Error.couldNotReadBlock(block.start)
                         }
-                        entry.symlinkTarget = String(data: Data(linkBytes), encoding: .utf8) ?? ""
+                        entry.symlinkTarget = String(bytes: linkBytes, encoding: .utf8) ?? ""
                     }
                 }
                 try writer.writeEntry(entry: entry, data: nil)
