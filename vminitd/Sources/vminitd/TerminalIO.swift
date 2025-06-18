@@ -135,7 +135,7 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
                 case .again:
                     // We read all we could, exit.
                     if mask.isHangup {
-                    cleanupRelay()
+                        cleanupRelay()
                     }
                     return
                 default:
