@@ -128,9 +128,16 @@ final class StandardIO: ManagedProcess.IO & Sendable {
         // `buf` isn't used concurrently.
         nonisolated(unsafe) let buf = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: Int(getpagesize()))
 
+        var didCleanup = false
+        let cleanupRelay: () -> Void = {
+            if didCleanup { return }
+            didCleanup = true
+            self.cleanupRelay(readFd: readFromFd, writeFd: writeToFd, buffer: buf, log: self.log)
+        }
+
         try ProcessSupervisor.default.poller.add(readFromFd, mask: EPOLLIN) { mask in
             if mask.isHangup && !mask.readyToRead {
-                self.cleanupRelay(readFd: readFromFd, writeFd: writeToFd, buffer: buf, log: self.log)
+                cleanupRelay()
                 return
             }
             // Loop so that in the case that someone wrote > buf.count down the pipe
@@ -146,7 +153,7 @@ final class StandardIO: ManagedProcess.IO & Sendable {
                     let w = writeTo.write(view)
                     if w.wrote != r.read {
                         self.log?.error("stopping relay: short write for stdio")
-                        self.cleanupRelay(readFd: readFromFd, writeFd: writeToFd, buffer: buf, log: self.log)
+                        cleanupRelay()
                         return
                     }
                 }
@@ -156,13 +163,13 @@ final class StandardIO: ManagedProcess.IO & Sendable {
                     self.log?.error("failed with errno \(errno) while reading for fd \(readFromFd)")
                     fallthrough
                 case .eof:
-                    self.cleanupRelay(readFd: readFromFd, writeFd: writeToFd, buffer: buf, log: self.log)
+                    cleanupRelay()
                     self.log?.debug("closing relay for \(readFromFd)")
                     return
                 case .again:
                     // We read all we could, exit.
                     if mask.isHangup {
-                        self.cleanupRelay(readFd: readFromFd, writeFd: writeToFd, buffer: buf, log: self.log)
+                        cleanupRelay()
                     }
                     return
                 default:
