@@ -119,6 +119,10 @@ final class StandardIO: ManagedProcess.IO & Sendable {
         }
     }
 
+    final class RelayState: @unchecked Sendable {
+        var done = false
+    }
+
     // NOP
     func resize(size: Terminal.Size) throws {}
 
@@ -128,10 +132,10 @@ final class StandardIO: ManagedProcess.IO & Sendable {
         // `buf` isn't used concurrently.
         nonisolated(unsafe) let buf = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: Int(getpagesize()))
 
-        var didCleanup = false
-        let cleanupRelay: @Sendable () -> Void = {
-            if didCleanup { return }
-            didCleanup = true
+        let state = RelayState()
+        let cleanupRelay: @Sendable () -> Void = { [state] in 
+            guard !state.done else { return }
+            state.done = true
             self.cleanupRelay(readFd: readFromFd, writeFd: writeToFd, buffer: buf, log: self.log)
         }
 
