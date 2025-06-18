@@ -119,7 +119,7 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
                     let w = writeTo.write(view)
                     if w.wrote != r.read {
                         self.log?.error("stopping relay: short write for stdio")
-                    cleanupRelay()
+                        cleanupRelay()
                         return
                     }
                 }
