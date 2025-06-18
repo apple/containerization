@@ -99,7 +99,7 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
         nonisolated(unsafe) let buf = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: Int(getpagesize()))
 
         let state = RelayState()
-        let cleanupRelay: @Sendable () -> Void = { [state] in 
+        let cleanupRelay: @Sendable () -> Void = { [state] in
             guard !state.done else { return }
             state.done = true
             self.cleanupRelay(readFd: readFromFd, writeFd: writeToFd, buffer: buf, log: self.log)
