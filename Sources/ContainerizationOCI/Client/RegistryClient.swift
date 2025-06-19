@@ -171,10 +171,12 @@ public final class RegistryClient: ContentClient {
                 let _response = try await client.execute(request, deadline: .distantFuture)
                 response = _response
                 if _response.status == .unauthorized || _response.status == .forbidden {
-                    let authHeader = _response.headers[TokenRequest.authenticateHeaderName]
+                    guard let authHeader = _response.headers.first(name: TokenRequest.authenticateHeaderName) else {
+                        throw ContainerizationError(.internalError, message: "Failed to find WWW-Authenticate header")
+                    }
                     let tokenRequest: TokenRequest
                     do {
-                        tokenRequest = try self.createTokenRequest(parsing: authHeader)
+                        tokenRequest = try self.createTokenRequest(parsing: [authHeader])
                     } catch {
                         // The server did not tell us how to authenticate our requests,
                         // Or we do not support scheme the server is requesting for.
