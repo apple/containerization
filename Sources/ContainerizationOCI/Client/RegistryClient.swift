@@ -179,7 +179,7 @@ public final class RegistryClient: ContentClient {
                         // The server did not tell us how to authenticate our requests,
                         // Or we do not support scheme the server is requesting for.
                         // Throw the 401/403 to the caller, and let them decide how to proceed.
-                        throw RegistryClient.Error.invalidStatus(url: path, _response.status)
+                        throw RegistryClient.Error.invalidStatus(url: path, _response.status, reason: String(describing: error))
                     }
                     if let ct = currentToken, ct.isValid(scope: tokenRequest.scope) {
                         break
@@ -245,19 +245,8 @@ public final class RegistryClient: ContentClient {
         components: URLComponents,
         headers: [(String, String)]? = nil
     ) async throws -> Data {
-        try await request(components: components, method: .GET, headers: headers) { response in
-            guard response.status == .ok else {
-                let url = components.url?.absoluteString ?? "unknown"
-                let reason = await ErrorResponse.fromResponseBody(response.body)?.jsonString
-                throw Error.invalidStatus(url: url, response.status, reason: reason)
-            }
-
-            var body = try await response.body.collect(upTo: self.bufferSize)
-            guard let bytes = body.readBytes(length: body.readableBytes) else {
-                throw ContainerizationError(.internalError, message: "Cannot read bytes from HTTP response")
-            }
-            return Data(bytes)
-        }
+        let bytes: ByteBuffer = try await requestBuffer(components: components, headers: headers)
+        return Data(buffer: bytes)
     }
 
     internal func requestBuffer(

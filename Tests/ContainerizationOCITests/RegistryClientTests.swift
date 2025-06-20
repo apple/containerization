@@ -72,8 +72,14 @@ struct OCIClientTests: ~Copyable {
         #expect(response.getToken() != nil)
     }
 
-    @Test func ping() async throws {
-        let client = RegistryClient(host: "registry-1.docker.io")
+    @Test(arguments: [
+        "registry-1.docker.io",
+        "public.ecr.aws",
+        "registry.k8s.io",
+        "mcr.microsoft.com",
+    ])
+    func ping(host: String) async throws {
+        let client = RegistryClient(host: host)
         try await client.ping()
     }
 
