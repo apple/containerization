@@ -45,24 +45,21 @@ public struct EXT4Unpacker: Unpacker {
             try Task.checkCancellation()
             let content = try await image.getContent(digest: layer.digest)
 
+            let compression: ContainerizationArchive.Filter
             switch layer.mediaType {
             case MediaTypes.imageLayer, MediaTypes.dockerImageLayer:
-                try filesystem.unpack(
-                    source: content.path,
-                    format: .paxRestricted,
-                    compression: .none,
-                    progress: progress
-                )
+                compression = .none
             case MediaTypes.imageLayerGzip, MediaTypes.dockerImageLayerGzip:
-                try filesystem.unpack(
-                    source: content.path,
-                    format: .paxRestricted,
-                    compression: .gzip,
-                    progress: progress
-                )
+                compression = .gzip
             default:
                 throw ContainerizationError(.unsupported, message: "Media type \(layer.mediaType) not supported.")
             }
+            try filesystem.unpack(
+                source: content.path,
+                format: .paxRestricted,
+                compression: compression,
+                progress: progress
+            )
         }
 
         return .block(

@@ -99,7 +99,7 @@ extension Application {
             @Option(name: .customLong("platform"), help: "Platform string in the form 'os/arch/variant'. Example 'linux/arm64/v8', 'linux/amd64'") var platformString: String?
 
             @Option(
-                name: .customLong("unpack-path"), help: "Path to unpack image into",
+                name: .customLong("unpack-path"), help: "Path to a new directory to unpack the image into",
                 transform: { str in
                     URL(fileURLWithPath: str, relativeTo: .currentDirectory()).absoluteURL.path(percentEncoded: false)
                 })
@@ -137,7 +137,7 @@ extension Application {
                     return
                 }
                 guard !FileManager.default.fileExists(atPath: unpackPath) else {
-                    throw ContainerizationError(.invalidArgument, message: "File exists at \(unpackPath)")
+                    throw ContainerizationError(.exists, message: "Directory already exists at \(unpackPath)")
                 }
                 let unpackUrl = URL(filePath: unpackPath)
                 try FileManager.default.createDirectory(at: unpackUrl, withIntermediateDirectories: true)
