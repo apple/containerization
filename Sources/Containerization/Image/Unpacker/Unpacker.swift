@@ -24,7 +24,7 @@ import Foundation
 /// The `Unpacker` is responsible for managing the lifecycle of the
 /// unpacking process, including any temporary files or resources, until the
 /// `Mount` object is produced.
-protocol Unpacker {
+public protocol Unpacker {
 
     /// Unpacks the provided image to a specified path for a given platform.
     ///
