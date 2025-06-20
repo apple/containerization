@@ -62,7 +62,7 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
                 port: stdinPort,
                 cid: VsockType.hostCID
             )
-            let stdinSocket = try Socket(type: type)
+            let stdinSocket = try Socket(type: type, closeOnDeinit: false)
             try stdinSocket.connect()
             self.stdinSocket = stdinSocket
 
@@ -77,7 +77,7 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
                 port: stdoutPort,
                 cid: VsockType.hostCID
             )
-            let stdoutSocket = try Socket(type: type)
+            let stdoutSocket = try Socket(type: type, closeOnDeinit: false)
             try stdoutSocket.connect()
             self.stdoutSocket = stdoutSocket
 

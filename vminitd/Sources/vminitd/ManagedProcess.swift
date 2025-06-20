@@ -132,7 +132,11 @@ final class ManagedProcess: Sendable {
 extension ManagedProcess {
     func start() throws -> Int32 {
         try self.lock.withLock {
-            log.debug("starting managed process")
+            log.debug(
+                "starting managed process",
+                metadata: [
+                    "id": "\(id)"
+                ])
 
             // Start the underlying process.
             try process.start()
@@ -155,7 +159,8 @@ extension ManagedProcess {
             log.debug(
                 "started managed process",
                 metadata: [
-                    "pid": "\(i)"
+                    "pid": "\(i)",
+                    "id": "\(id)",
                 ])
 
             return i

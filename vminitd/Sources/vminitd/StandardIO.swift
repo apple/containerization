@@ -78,7 +78,7 @@ final class StandardIO: ManagedProcess.IO & Sendable {
                 port: stdinPort,
                 cid: VsockType.hostCID
             )
-            let stdinSocket = try Socket(type: type)
+            let stdinSocket = try Socket(type: type, closeOnDeinit: false)
             try stdinSocket.connect()
             self.stdinSocket = stdinSocket
 
@@ -93,7 +93,8 @@ final class StandardIO: ManagedProcess.IO & Sendable {
                 port: stdoutPort,
                 cid: VsockType.hostCID
             )
-            let stdoutSocket = try Socket(type: type)
+            // These fd's get closed when cleanupRelay is called
+            let stdoutSocket = try Socket(type: type, closeOnDeinit: false)
             try stdoutSocket.connect()
             self.stdoutSocket = stdoutSocket
 
@@ -108,7 +109,7 @@ final class StandardIO: ManagedProcess.IO & Sendable {
                 port: stderrPort,
                 cid: VsockType.hostCID
             )
-            let stderrSocket = try Socket(type: type)
+            let stderrSocket = try Socket(type: type, closeOnDeinit: false)
             try stderrSocket.connect()
             self.stderrSocket = stderrSocket
 
