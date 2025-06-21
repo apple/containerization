@@ -41,7 +41,7 @@ all:
 	@install $(VMINITD_BIN_PATH)/vmexec ./bin/vmexec
 
 .PHONY: cross-prep
-cross-prep: swiftly swift linux-sdk macos-sdk
+cross-prep: linux-sdk macos-sdk
 
 .PHONY: swiftly
 swiftly:
@@ -56,12 +56,12 @@ swiftly:
 	fi
 	
 .PHONY: swift
-swift:
+swift: swiftly
 	@echo Installing Swift $(SWIFT_VERSION)...
 	@${SWIFTLY_BIN_DIR}/swiftly install $(SWIFT_VERSION)
 
 .PHONY: linux-sdk
-linux-sdk:
+linux-sdk: swift
 	@echo Installing Static Linux SDK...
 	@curl -L -o $(SWIFT_SDK_PATH) $(SWIFT_SDK_URL)
 	-@swift sdk install $(SWIFT_SDK_PATH)
