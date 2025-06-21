@@ -3,6 +3,9 @@
 The Containerization package allows applications to use Linux containers.
 Containerization is written in [Swift](https://www.swift.org) and uses [Virtualization.framework](https://developer.apple.com/documentation/virtualization) on Apple silicon.
 
+> **Looking for command line binaries for running containers?**\
+> They are available in the dedicated [apple/container](https://github.com/apple/container) repository.
+
 Containerization provides APIs to:
 
 - [Manage OCI images](./Sources/ContainerizationOCI/).
