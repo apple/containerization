@@ -135,12 +135,10 @@ serve-docs:
 	@python3 -m http.server --bind 127.0.0.1 --directory ./_serve
 
 .PHONY: docs
-docs: _site
-
-_site:
+docs:
 	@echo Updating API documentation...
-	rm -rf $@
-	@scripts/make-docs.sh $@ containerization
+	@rm -rf _site
+	@scripts/make-docs.sh _site containerization
 
 .PHONY: cleancontent
 cleancontent:
