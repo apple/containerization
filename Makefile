@@ -106,7 +106,7 @@ ifeq (,$(wildcard bin/vmlinux))
 endif
 
 .PHONY: fmt
-fmt:	swift-fmt update-licenses
+fmt: swift-fmt update-licenses
 
 .PHONY: swift-fmt
 SWIFT_SRC = $(shell find . -type f -name '*.swift' -not -path "*/.*" -not -path "*.pb.swift" -not -path "*.grpc.swift" -not -path "*/checkouts/*")
