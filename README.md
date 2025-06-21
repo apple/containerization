@@ -150,7 +150,7 @@ make serve-docs
 Preview the documentation by running in another terminal:
 
 ```bash
-open http://localhost:8000/documentation/
+open http://localhost:8000/containerization/documentation/
 ```
 
 ## Contributing
