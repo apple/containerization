@@ -91,10 +91,10 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
     func relay(readFromFd: Int32, writeToFd: Int32) throws {
         let readFrom = OSFile(fd: readFromFd)
         let writeTo = OSFile(fd: writeToFd)
-        // `buf` isn't used concurrently.
+        // `buf` and `didCleanup` aren't used concurrently.
         nonisolated(unsafe) let buf = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: Int(getpagesize()))
-
         nonisolated(unsafe) var didCleanup = false
+
         let cleanupRelay: @Sendable () -> Void = {
             if didCleanup { return }
             didCleanup = true
