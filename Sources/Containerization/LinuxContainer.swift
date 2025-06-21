@@ -500,12 +500,14 @@ extension LinuxContainer {
                 // For every interface asked for:
                 // 1. Add the address requested
                 // 2. Online the adapter
-                // 3. Add the gateway address
                 for (index, i) in self.interfaces.enumerated() {
                     let name = "eth\(index)"
                     try await agent.addressAdd(name: name, address: i.address)
                     try await agent.up(name: name)
-                    try await agent.routeAddDefault(name: name, gateway: i.gateway)
+                }
+                // Configure the gateway only on the first interface
+                if !self.interfaces.isEmpty {
+                    try await agent.routeAddDefault(name: "eth0", gateway: self.interfaces[0].gateway)
                 }
                 if let dns = self.dns {
                     try await agent.configureDNS(config: dns, location: rootfs.destination)
