@@ -21,7 +21,7 @@ SWIFT_SDK_PATH = /tmp/$(notdir $(SWIFT_SDK_URL))
 
 SWIFTLY_URL := https://download.swift.org/swiftly/darwin/swiftly.pkg
 SWIFTLY_FILENAME = $(notdir $(SWIFTLY_URL))
-SWIFTLY_BIN_DIR ?= ~/.swiftly/bin/
+SWIFTLY_BIN_DIR ?= ~/.swiftly/bin
 VMINITD_BIN_PATH := $(shell swift build -c $(BUILD_CONFIGURATION) $(SWIFT_CONFIGURATION) --show-bin-path)
 
 MACOS_VERSION := $(shell sw_vers -productVersion)
