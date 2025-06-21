@@ -19,13 +19,6 @@ import ContainerizationOCI
 import ContainerizationOS
 import Foundation
 
-#if os(macOS)
-import ContainerizationArchive
-import ContainerizationEXT4
-import SystemPackage
-import ContainerizationExtras
-#endif
-
 /// Type representing an OCI container image.
 public struct Image: Sendable {
     private let contentStore: ContentStore
@@ -135,83 +128,3 @@ public struct Image: Sendable {
         return content
     }
 }
-
-#if os(macOS)
-
-extension Image {
-    /// Unpack the image into a filesystem.
-    public func unpack(for platform: Platform, at path: URL, blockSizeInBytes: UInt64 = 512.gib(), progress: ProgressHandler? = nil) async throws -> Mount {
-        let blockPath = try prepareUnpackPath(path: path)
-        let manifest = try await loadManifest(platform: platform)
-        return try await unpackContents(
-            path: blockPath,
-            manifest: manifest,
-            blockSizeInBytes: blockSizeInBytes,
-            progress: progress
-        )
-    }
-
-    private func loadManifest(platform: Platform) async throws -> Manifest {
-        let manifest = try await descriptor(for: platform)
-        guard let m: Manifest = try await self.contentStore.get(digest: manifest.digest) else {
-            throw ContainerizationError(.notFound, message: "content not found \(manifest.digest)")
-        }
-        return m
-    }
-
-    private func prepareUnpackPath(path: URL) throws -> String {
-        let blockPath = path.absolutePath()
-        guard !FileManager.default.fileExists(atPath: blockPath) else {
-            throw ContainerizationError(.exists, message: "block device already exists at \(blockPath)")
-        }
-        return blockPath
-    }
-
-    private func unpackContents(path: String, manifest: Manifest, blockSizeInBytes: UInt64, progress: ProgressHandler?) async throws -> Mount {
-        let filesystem = try EXT4.Formatter(FilePath(path), minDiskSize: blockSizeInBytes)
-        defer { try? filesystem.close() }
-
-        for layer in manifest.layers {
-            try Task.checkCancellation()
-            guard let content = try await self.contentStore.get(digest: layer.digest) else {
-                throw ContainerizationError(.notFound, message: "Content with digest \(layer.digest)")
-            }
-
-            switch layer.mediaType {
-            case MediaTypes.imageLayer, MediaTypes.dockerImageLayer:
-                try filesystem.unpack(
-                    source: content.path,
-                    format: .paxRestricted,
-                    compression: .none,
-                    progress: progress
-                )
-            case MediaTypes.imageLayerGzip, MediaTypes.dockerImageLayerGzip:
-                try filesystem.unpack(
-                    source: content.path,
-                    format: .paxRestricted,
-                    compression: .gzip,
-                    progress: progress
-                )
-            default:
-                throw ContainerizationError(.unsupported, message: "Media type \(layer.mediaType) not supported.")
-            }
-        }
-
-        return .block(
-            format: "ext4",
-            source: path,
-            destination: "/",
-            options: []
-        )
-    }
-}
-
-#else
-
-extension Image {
-    public func unpack(for platform: Platform, at path: URL, blockSizeInBytes: UInt64 = 512.gib()) async throws -> Mount {
-        throw ContainerizationError(.unsupported, message: "Image unpack unsupported on current platform")
-    }
-}
-
-#endif
