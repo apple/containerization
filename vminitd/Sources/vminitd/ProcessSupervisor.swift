@@ -64,10 +64,15 @@ actor ProcessSupervisor {
         let exited = Reaper.reap()
         self.log?.debug("finished wait4 of \(exited.count) processes")
 
-        for proc in processes {
-            let pid = proc.pid
-            self.log?.debug("checking for exit of managed process", metadata: ["pid": "\(pid)", "exits": "\(exited)"])
+        self.log?.debug("checking for exit of managed process", metadata: ["exits": "\(exited)", "processes": "\(processes.count)"])
+        let exitedProcesses = self.processes.filter { proc in
+            exited.contains { pid, _ in
+                proc.pid == pid
+            }
+        }
 
+        for proc in exitedProcesses {
+            let pid = proc.pid
             if pid <= 0 {
                 continue
             }
@@ -80,7 +85,6 @@ actor ProcessSupervisor {
                         "status": "\(status)",
                         "count": "\(processes.count - 1)",
                     ])
-
                 proc.setExit(status)
                 self.processes.removeAll(where: { $0.pid == pid })
             }
@@ -95,7 +99,6 @@ actor ProcessSupervisor {
 
         do {
             self.processes.append(process)
-
             return try process.start()
         } catch {
             self.log?.error("process start failed \(error)", metadata: ["process-id": "\(process.id)"])

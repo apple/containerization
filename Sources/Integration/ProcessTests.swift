@@ -205,7 +205,7 @@ extension IntegrationSuite {
 
                         let status = try await exec.wait()
                         if status != 0 {
-                            throw IntegrationError.assert(msg: "process \(idx) status for  \(status) != 0")
+                            throw IntegrationError.assert(msg: "process \(idx) status \(status) != 0")
                         }
                         var hasher = SHA256()
                         hasher.update(data: buffer.data)

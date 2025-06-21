@@ -78,7 +78,7 @@ final class StandardIO: ManagedProcess.IO & Sendable {
                 port: stdinPort,
                 cid: VsockType.hostCID
             )
-            let stdinSocket = try Socket(type: type)
+            let stdinSocket = try Socket(type: type, closeOnDeinit: false)
             try stdinSocket.connect()
             self.stdinSocket = stdinSocket
 
@@ -93,7 +93,8 @@ final class StandardIO: ManagedProcess.IO & Sendable {
                 port: stdoutPort,
                 cid: VsockType.hostCID
             )
-            let stdoutSocket = try Socket(type: type)
+            // These fd's get closed when cleanupRelay is called
+            let stdoutSocket = try Socket(type: type, closeOnDeinit: false)
             try stdoutSocket.connect()
             self.stdoutSocket = stdoutSocket
 
@@ -108,7 +109,7 @@ final class StandardIO: ManagedProcess.IO & Sendable {
                 port: stderrPort,
                 cid: VsockType.hostCID
             )
-            let stderrSocket = try Socket(type: type)
+            let stderrSocket = try Socket(type: type, closeOnDeinit: false)
             try stderrSocket.connect()
             self.stderrSocket = stderrSocket
 
@@ -125,12 +126,19 @@ final class StandardIO: ManagedProcess.IO & Sendable {
     func relay(readFromFd: Int32, writeToFd: Int32) throws {
         let readFrom = OSFile(fd: readFromFd)
         let writeTo = OSFile(fd: writeToFd)
-        // `buf` isn't used concurrently.
+        // `buf` and `didCleanup` aren't used concurrently.
         nonisolated(unsafe) let buf = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: Int(getpagesize()))
+        nonisolated(unsafe) var didCleanup = false
+
+        let cleanupRelay: @Sendable () -> Void = {
+            if didCleanup { return }
+            didCleanup = true
+            self.cleanupRelay(readFd: readFromFd, writeFd: writeToFd, buffer: buf, log: self.log)
+        }
 
         try ProcessSupervisor.default.poller.add(readFromFd, mask: EPOLLIN) { mask in
             if mask.isHangup && !mask.readyToRead {
-                self.cleanupRelay(readFd: readFromFd, writeFd: writeToFd, buffer: buf, log: self.log)
+                cleanupRelay()
                 return
             }
             // Loop so that in the case that someone wrote > buf.count down the pipe
@@ -146,7 +154,7 @@ final class StandardIO: ManagedProcess.IO & Sendable {
                     let w = writeTo.write(view)
                     if w.wrote != r.read {
                         self.log?.error("stopping relay: short write for stdio")
-                        self.cleanupRelay(readFd: readFromFd, writeFd: writeToFd, buffer: buf, log: self.log)
+                        cleanupRelay()
                         return
                     }
                 }
@@ -156,13 +164,13 @@ final class StandardIO: ManagedProcess.IO & Sendable {
                     self.log?.error("failed with errno \(errno) while reading for fd \(readFromFd)")
                     fallthrough
                 case .eof:
-                    self.cleanupRelay(readFd: readFromFd, writeFd: writeToFd, buffer: buf, log: self.log)
+                    cleanupRelay()
                     self.log?.debug("closing relay for \(readFromFd)")
                     return
                 case .again:
                     // We read all we could, exit.
                     if mask.isHangup {
-                        self.cleanupRelay(readFd: readFromFd, writeFd: writeToFd, buffer: buf, log: self.log)
+                        cleanupRelay()
                     }
                     return
                 default:
