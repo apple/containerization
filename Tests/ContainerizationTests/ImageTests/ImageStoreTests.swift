@@ -17,12 +17,142 @@
 //
 
 import ContainerizationArchive
+import ContainerizationError
 import ContainerizationExtras
 import ContainerizationOCI
+import Crypto
 import Foundation
+import NIOCore
 import Testing
 
 @testable import Containerization
+
+// Test-specific extension to expose ExportOperation for testing
+extension ImageStore {
+    func testPush(reference: String, client: ContentClient, platform: Platform? = nil) async throws {
+        let matcher = createPlatformMatcher(for: platform)
+        let img = try await self.get(reference: reference)
+        let allowedMediaTypes = [MediaTypes.dockerManifestList, MediaTypes.index]
+        guard allowedMediaTypes.contains(img.mediaType) else {
+            throw ContainerizationError(.internalError, message: "Cannot push image \(reference) with Index media type \(img.mediaType)")
+        }
+        let ref = try Reference.parse(reference)
+        let name = ref.path
+        guard let tag = ref.tag ?? ref.digest else {
+            throw ContainerizationError(.invalidArgument, message: "Invalid tag/digest for image reference \(reference)")
+        }
+        let operation = ExportOperation(name: name, tag: tag, contentStore: self.contentStore, client: client, progress: nil)
+        try await operation.export(index: img.descriptor, platforms: matcher)
+    }
+}
+
+// Helper class to create a mock ContentClient for testing
+final class MockRegistryClient: ContentClient, @unchecked Sendable {
+    private var pushedContent: [String: [Descriptor: Data]] = [:]
+    private var fetchableContent: [String: [Descriptor: Data]] = [:]
+
+    // Track push operations for verification
+    var pushCalls: [(name: String, ref: String, descriptor: Descriptor)] = []
+
+    func addFetchableContent<T: Codable>(name: String, descriptor: Descriptor, content: T) throws {
+        let data = try JSONEncoder().encode(content)
+        if fetchableContent[name] == nil {
+            fetchableContent[name] = [:]
+        }
+        fetchableContent[name]![descriptor] = data
+    }
+
+    func addFetchableData(name: String, descriptor: Descriptor, data: Data) {
+        if fetchableContent[name] == nil {
+            fetchableContent[name] = [:]
+        }
+        fetchableContent[name]![descriptor] = data
+    }
+
+    func getPushedContent(name: String, descriptor: Descriptor) -> Data? {
+        pushedContent[name]?[descriptor]
+    }
+
+    // MARK: - ContentClient Implementation
+
+    func fetch<T: Codable>(name: String, descriptor: Descriptor) async throws -> T {
+        guard let imageContent = fetchableContent[name],
+            let data = imageContent[descriptor]
+        else {
+            throw ContainerizationError(.notFound, message: "Content not found for \(name) with descriptor \(descriptor.digest)")
+        }
+
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+
+    func fetchBlob(name: String, descriptor: Descriptor, into file: URL, progress: ProgressHandler?) async throws -> (Int64, SHA256.Digest) {
+        guard let imageContent = fetchableContent[name],
+            let data = imageContent[descriptor]
+        else {
+            throw ContainerizationError(.notFound, message: "Blob not found for \(name) with descriptor \(descriptor.digest)")
+        }
+
+        try data.write(to: file)
+        let digest = SHA256.hash(data: data)
+        return (Int64(data.count), digest)
+    }
+
+    func fetchData(name: String, descriptor: Descriptor) async throws -> Data {
+        guard let imageContent = fetchableContent[name],
+            let data = imageContent[descriptor]
+        else {
+            throw ContainerizationError(.notFound, message: "Data not found for \(name) with descriptor \(descriptor.digest)")
+        }
+
+        return data
+    }
+
+    func push<T: Sendable & AsyncSequence>(
+        name: String,
+        ref: String,
+        descriptor: Descriptor,
+        streamGenerator: () throws -> T,
+        progress: ProgressHandler?
+    ) async throws where T.Element == ByteBuffer {
+        // Record the push call for verification
+        pushCalls.append((name: name, ref: ref, descriptor: descriptor))
+
+        // Simulate reading the stream and storing the data
+        let stream = try streamGenerator()
+        var data = Data()
+
+        for try await buffer in stream {
+            data.append(contentsOf: buffer.readableBytesView)
+        }
+
+        // Verify the pushed data matches the expected descriptor
+        let actualDigest = SHA256.hash(data: data)
+        guard descriptor.digest == "sha256:\(actualDigest.hexString)" else {
+            throw ContainerizationError(.invalidArgument, message: "Digest mismatch: expected \(descriptor.digest), got sha256:\(actualDigest.hexString)")
+        }
+
+        guard data.count == descriptor.size else {
+            throw ContainerizationError(.invalidArgument, message: "Size mismatch: expected \(descriptor.size), got \(data.count)")
+        }
+
+        // Store the pushed content
+        if pushedContent[name] == nil {
+            pushedContent[name] = [:]
+        }
+        pushedContent[name]![descriptor] = data
+
+        // Simulate progress reporting
+        if let progress = progress {
+            await progress([ProgressEvent(event: "add-size", value: Int64(data.count))])
+        }
+    }
+}
+
+extension SHA256.Digest {
+    var hexString: String {
+        self.compactMap { String(format: "%02x", $0) }.joined()
+    }
+}
 
 @Suite
 public class ImageStoreTests: ContainsAuth {
@@ -73,18 +203,35 @@ public class ImageStoreTests: ContainsAuth {
         try await self.store.save(references: [imageReference, expectedLoadedImage], out: tempFile)
     }
 
-    @Test(.disabled("External users cannot push images, disable while we find a better solution"))
-    func testImageStorePush() async throws {
-        guard let authentication = Self.authentication else {
-            return
+    @Test func testImageStorePushWithMock() async throws {
+        // Load a test image first to have something to push
+        let tarPath = Foundation.Bundle.module.url(forResource: "scratch", withExtension: "tar")!
+        let reader = try ArchiveReader(format: .pax, filter: .none, file: tarPath)
+        let tempDir = FileManager.default.uniqueTemporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
         }
-        let imageReference = "ghcr.io/apple/containerization/dockermanifestimage:0.0.2"
+        try reader.extractContents(to: tempDir)
 
-        let remoteImageName = "ghcr.io/apple/test-images/image-push"
-        let epoch = Int(Date().timeIntervalSince1970.description)
-        let tag = epoch != nil ? String(epoch!) : "latest"
-        let upstreamTag = "\(remoteImageName):\(tag)"
-        let _ = try await self.store.tag(existing: imageReference, new: upstreamTag)
-        try await self.store.push(reference: upstreamTag, auth: authentication)
+        let loadedImages = try await self.store.load(from: tempDir)
+        let testImage = loadedImages.first!
+
+        // Create a mock client to simulate registry interactions
+        let mockClient = MockRegistryClient()
+
+        // Tag the image with a test registry reference
+        let testReference = "test-registry.local/test-image:latest"
+        try await self.store.tag(existing: testImage.reference, new: testReference)
+
+        // Test push with mock client (using extension method)
+        try await self.store.testPush(reference: testReference, client: mockClient)
+
+        // Verify that push operations were called
+        #expect(!mockClient.pushCalls.isEmpty)
+
+        // Verify that the correct image name and tag were used
+        let pushCall = mockClient.pushCalls.first!
+        #expect(pushCall.name == "test-registry.local/test-image")
+        #expect(pushCall.ref == "latest")
     }
 }
