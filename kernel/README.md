@@ -16,7 +16,7 @@ This directory includes an optimized kernel configuration to produce a fast and 
     a. This kernel will be used to launch the build container.
 
     b. To fetch a default kernel run `make fetch-default-kernel` in the root of the repository.
-4. Run `make` in the `/kernel` directory. 
+3. Run `make` in the `/kernel` directory. 
 
 A `kernel/vmlinux` will be the result of the build.
 

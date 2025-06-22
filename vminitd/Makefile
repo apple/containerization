@@ -21,7 +21,7 @@ SWIFT_SDK_PATH = /tmp/$(notdir $(SWIFT_SDK_URL))
 
 SWIFTLY_URL := https://download.swift.org/swiftly/darwin/swiftly.pkg
 SWIFTLY_FILENAME = $(notdir $(SWIFTLY_URL))
-SWIFTLY_BIN_DIR ?= ~/.swiftly/bin/
+SWIFTLY_BIN_DIR ?= ~/.swiftly/bin
 VMINITD_BIN_PATH := $(shell swift build -c $(BUILD_CONFIGURATION) $(SWIFT_CONFIGURATION) --show-bin-path)
 
 MACOS_VERSION := $(shell sw_vers -productVersion)
@@ -41,7 +41,7 @@ all:
 	@install $(VMINITD_BIN_PATH)/vmexec ./bin/vmexec
 
 .PHONY: cross-prep
-cross-prep: swiftly swift linux-sdk macos-sdk
+cross-prep: linux-sdk macos-sdk
 
 .PHONY: swiftly
 swiftly:
@@ -56,12 +56,12 @@ swiftly:
 	fi
 	
 .PHONY: swift
-swift:
+swift: swiftly
 	@echo Installing Swift $(SWIFT_VERSION)...
 	@${SWIFTLY_BIN_DIR}/swiftly install $(SWIFT_VERSION)
 
 .PHONY: linux-sdk
-linux-sdk:
+linux-sdk: swift
 	@echo Installing Static Linux SDK...
 	@curl -L -o $(SWIFT_SDK_PATH) $(SWIFT_SDK_URL)
 	-@swift sdk install $(SWIFT_SDK_PATH)
@@ -69,14 +69,15 @@ linux-sdk:
 
 .PHONY: macos-sdk
 macos-sdk:
+	# Consider switching back to `xcode-cltools`, when possible.
 	@if [ $(MACOS_MAJOR) -gt 15 ] && [ "$(MACOS_RELEASE_TYPE)" = "" ]; then \
-	  "$(MAKE)" xcode-cli; \
+	  "$(MAKE)" xcode; \
 	else \
 	  "$(MAKE)" xcode; \
 	fi
 
-.PHONY: xcode-cli
-xcode-cli:
+.PHONY: xcode-cltools
+xcode-cltools:
 	@echo Activating Xcode Command Line Tools...
 	@sudo xcode-select --switch /Library/Developer/CommandLineTools
 

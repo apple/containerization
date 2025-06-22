@@ -22,10 +22,9 @@ import NIO
 
 extension RegistryClient {
     /// Pushes the content specified by a descriptor to a remote registry.
-    ///
     /// - Parameters:
     ///    - name:          The namespace which the descriptor should belong under.
-    ///    - ref:           The tag or digest for uniquely identifying the manifest.
+    ///    - tag:           The tag or digest for uniquely identifying the manifest.
     ///                     By convention, any portion that may be a partial or whole digest
     ///                     will be proceeded by an `@`. Anything preceding the `@` will be referred
     ///                     to as "tag".
@@ -93,7 +92,8 @@ extension RegistryClient {
                 }
             } else if response.status != .notFound {
                 let url = components.url?.absoluteString ?? "unknown"
-                throw Error.invalidStatus(url: url, response.status)
+                let reason = await ErrorResponse.fromResponseBody(response.body)?.jsonString
+                throw Error.invalidStatus(url: url, response.status, reason: reason)
             }
         }
 
@@ -114,7 +114,8 @@ extension RegistryClient {
                     throw ContainerizationError(.exists, message: "Content already exists \(descriptor.digest)")
                 default:
                     let url = components.url?.absoluteString ?? "unknown"
-                    throw Error.invalidStatus(url: url, response.status)
+                    let reason = await ErrorResponse.fromResponseBody(response.body)?.jsonString
+                    throw Error.invalidStatus(url: url, response.status, reason: reason)
                 }
 
                 // Get the location to upload the blob.
@@ -149,7 +150,8 @@ extension RegistryClient {
                 break
             default:
                 let url = components.url?.absoluteString ?? "unknown"
-                throw Error.invalidStatus(url: url, response.status)
+                let reason = await ErrorResponse.fromResponseBody(response.body)?.jsonString
+                throw Error.invalidStatus(url: url, response.status, reason: reason)
             }
 
             guard descriptor.digest == response.headers.first(name: "Docker-Content-Digest") else {

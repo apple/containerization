@@ -159,7 +159,7 @@ public enum Format: String, Sendable {
     }
 }
 
-/// An enumreration of the supported filters (compression / encoding standards) for an archive.
+/// An enumeration of the supported filters (compression / encoding standards) for an archive.
 public enum Filter: String, Sendable {
     case none
     case gzip

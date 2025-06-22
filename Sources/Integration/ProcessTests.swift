@@ -17,6 +17,7 @@
 import ArgumentParser
 import Containerization
 import ContainerizationOCI
+import ContainerizationOS
 import Crypto
 import Foundation
 import Logging
@@ -95,7 +96,7 @@ extension IntegrationSuite {
 
             guard String(data: buffer.data, encoding: .utf8) == "hi\n" else {
                 throw IntegrationError.assert(
-                    msg: "process should have returned on stdout 'hi' != '\(String(data: buffer.data, encoding: .utf8)!)")
+                    msg: "process should have returned on stdout 'hi' != '\(String(data: buffer.data, encoding: .utf8)!)'")
             }
         } catch {
             try? await container.stop()
@@ -257,7 +258,45 @@ extension IntegrationSuite {
 
         guard String(data: buffer.data, encoding: .utf8) == "\(expected)\n" else {
             throw IntegrationError.assert(
-                msg: "process should have returned on stdout '\(expected)' != '\(String(data: buffer.data, encoding: .utf8)!)")
+                msg: "process should have returned on stdout '\(expected)' != '\(String(data: buffer.data, encoding: .utf8)!)'")
+        }
+    }
+
+    // Ensure if we ask for a terminal we set TERM.
+    func testProcessTtyEnvvar() async throws {
+        let id = "test-process-tty-envvar"
+
+        let bs = try await bootstrap()
+        let container = LinuxContainer(
+            id,
+            rootfs: bs.rootfs,
+            vmm: bs.vmm
+        )
+        container.arguments = ["env"]
+        container.terminal = true
+
+        let buffer = BufferWriter()
+        container.stdout = buffer
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        guard let str = String(data: buffer.data, encoding: .utf8) else {
+            throw IntegrationError.assert(
+                msg: "failed to convert standard output to a UTF8 string")
+        }
+
+        let homeEnvvar = "TERM=xterm"
+        guard str.contains(homeEnvvar) else {
+            throw IntegrationError.assert(
+                msg: "process should have TERM environment variable defined")
         }
     }
 
@@ -299,6 +338,39 @@ extension IntegrationSuite {
         }
     }
 
+    func testProcessCustomHomeEnvvar() async throws {
+        let id = "test-process-custom-home-envvar"
+
+        let bs = try await bootstrap()
+        let container = LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm)
+
+        let customHomeEnvvar = "HOME=/tmp/custom/home"
+        container.environment = [customHomeEnvvar]
+        container.arguments = ["sh", "-c", "echo HOME=$HOME"]
+        container.user = .init(uid: 0, gid: 0)
+
+        let buffer = BufferWriter()
+        container.stdout = buffer
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        guard let output = String(data: buffer.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+        }
+
+        guard output.contains(customHomeEnvvar) else {
+            throw IntegrationError.assert(msg: "process should have preserved custom HOME environment variable, expected \(customHomeEnvvar), got: \(output)")
+        }
+    }
+
     func testHostname() async throws {
         let id = "test-container-hostname"
 
@@ -327,7 +399,7 @@ extension IntegrationSuite {
 
         guard String(data: buffer.data, encoding: .utf8) == "\(expected)\n" else {
             throw IntegrationError.assert(
-                msg: "process should have returned on stdout '\(expected)' != '\(String(data: buffer.data, encoding: .utf8)!)")
+                msg: "process should have returned on stdout '\(expected)' != '\(String(data: buffer.data, encoding: .utf8)!)'")
         }
     }
 }

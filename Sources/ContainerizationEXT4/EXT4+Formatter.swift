@@ -22,7 +22,7 @@ import SystemPackage
 
 extension EXT4 {
     /// The `EXT4.Formatter` class provides methods to format a block device with the ext4 filesystem.
-    /// It allows customization of block size and maximum disk size
+    /// It allows customization of block size and maximum disk size.
     public class Formatter {
         private let blockSize: UInt32
         private var size: UInt64
@@ -62,6 +62,7 @@ extension EXT4 {
         ///   - devicePath: The path to the block device where the ext4 filesystem will be created.
         ///   - blockSize: The block size of the ext4 filesystem, specified in bytes. Common values are
         ///                4096 (4KB) or 1024 (1KB). Default is 4096 (4KB)
+        ///   - minDiskSize: The minimum disk size required for the formatted filesystem.
         ///
         /// - Note: This ext4 formatter is designed for creating block devices out of container images and does not support all the
         ///         features and options available in the full ext4 filesystem implementation. It focuses
@@ -150,7 +151,7 @@ extension EXT4 {
             // ensure that target is not a directory since hardlinks cannot be
             // created to directories
             if targetInode.mode.isDir() {
-                throw Error.cannotCreateHardlinkstoDirTarget(link)
+                throw Error.cannotCreateHardlinksToDirTarget(link)
             }
             targetInode.linksCount += 1
             targetInodePtr.initialize(to: targetInode)
@@ -628,7 +629,7 @@ extension EXT4 {
             var diskSize = dataSize
             var minimumDiskSize = (blockGroupSize.blockGroups - 1) * self.blocksPerGroup + 1
             if blockGroupSize.blockGroups == 1 {
-                minimumDiskSize = self.blocksPerGroup  // atleast 1 block group
+                minimumDiskSize = self.blocksPerGroup  // at least 1 block group
             }
             if diskSize < minimumDiskSize {  // for data + metadata
                 diskSize = minimumDiskSize
@@ -1266,7 +1267,7 @@ extension EXT4 {
             case invalidName(_ name: String)
             case noSpaceForTrailingDEntry
             case insufficientSpaceForGroupDescriptorBlocks
-            case cannotCreateHardlinkstoDirTarget(_ path: FilePath)
+            case cannotCreateHardlinksToDirTarget(_ path: FilePath)
             case cannotTruncateFile(_ path: FilePath)
             case cannotCreateSparseFile(_ path: FilePath)
             case cannotResizeFS(_ size: UInt64)
@@ -1294,7 +1295,7 @@ extension EXT4 {
                     return "not enough space for trailing dentry"
                 case .insufficientSpaceForGroupDescriptorBlocks:
                     return "not enough space for group descriptor blocks"
-                case .cannotCreateHardlinkstoDirTarget(let path):
+                case .cannotCreateHardlinksToDirTarget(let path):
                     return "cannot create hard links to directory target: \(path)"
                 case .cannotTruncateFile(let path):
                     return "cannot truncate file: \(path)"

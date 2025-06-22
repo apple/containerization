@@ -839,15 +839,24 @@ extension Initd {
             process.cwd = "/"
         }
 
-        // Username is truthfully a Windows field, but we use this as away to passthrough
+        // Username is truthfully a Windows field, but we use this as away to pass through
         // the exact string representation of a username a client may have given us.
         let username = process.user.username.isEmpty ? "\(process.user.uid):\(process.user.gid)" : process.user.username
         let parsedUser = try User.parseUser(root: root.path, userString: username)
         process.user.uid = parsedUser.uid
         process.user.gid = parsedUser.gid
         process.user.additionalGids = parsedUser.sgids
-        if !process.env.contains("HOME") {
+        if !process.env.contains(where: { $0.hasPrefix("HOME=") }) {
             process.env.append("HOME=\(parsedUser.home)")
+        }
+
+        // Defensive programming a tad, but ensure we have TERM set if
+        // the client requested a pty.
+        if process.terminal {
+            let termEnv = "TERM="
+            if !process.env.contains(where: { $0.hasPrefix(termEnv) }) {
+                process.env.append("TERM=xterm")
+            }
         }
 
         ociSpec.process = process

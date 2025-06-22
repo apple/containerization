@@ -72,8 +72,14 @@ struct OCIClientTests: ~Copyable {
         #expect(response.getToken() != nil)
     }
 
-    @Test func ping() async throws {
-        let client = RegistryClient(host: "registry-1.docker.io")
+    @Test(arguments: [
+        "registry-1.docker.io",
+        "public.ecr.aws",
+        "registry.k8s.io",
+        "mcr.microsoft.com",
+    ])
+    func ping(host: String) async throws {
+        let client = RegistryClient(host: host)
         try await client.ping()
     }
 
@@ -81,10 +87,11 @@ struct OCIClientTests: ~Copyable {
         let authentication = BasicAuthentication(username: "foo", password: "bar")
         let client = RegistryClient(host: "ghcr.io", authentication: authentication)
         let error = await #expect(throws: RegistryClient.Error.self) { try await client.ping() }
-        if case .invalidStatus = error {
-        } else {
-            Issue.record("encountered unexpected error \(error)")
+        guard case .invalidStatus(_, let status, let reason) = error else {
+            throw error!
         }
+        #expect(status == .unauthorized)
+        #expect(reason == "Access denied or wrong credentials")
     }
 
     @Test(.enabled(if: hasRegistryCredentials))
@@ -285,7 +292,7 @@ struct OCIClientTests: ~Copyable {
             )
         )
         do {
-            _ = try await client.resolve(name: "conatinerization/not-exists", tag: "foo")
+            _ = try await client.resolve(name: "containerization/not-exists", tag: "foo")
         } catch {
             #expect(counter.withLock { $0 } <= 3)
         }

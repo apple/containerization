@@ -100,7 +100,6 @@ extension Application {
 
             container.terminalDevice = current
             container.arguments = arguments
-            container.environment.append("TERM=xterm")
             container.workingDirectory = cwd
 
             for mount in self.mounts {

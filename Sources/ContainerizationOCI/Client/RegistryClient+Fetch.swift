@@ -19,6 +19,7 @@ import ContainerizationError
 import ContainerizationExtras
 import Crypto
 import Foundation
+import NIOFoundationCompat
 
 #if os(macOS)
 import NIOFileSystem
@@ -49,7 +50,8 @@ extension RegistryClient {
         return try await request(components: components, method: .HEAD, headers: headers) { response in
             guard response.status == .ok else {
                 let url = components.url?.absoluteString ?? "unknown"
-                throw Error.invalidStatus(url: url, response.status)
+                let reason = await ErrorResponse.fromResponseBody(response.body)?.jsonString
+                throw Error.invalidStatus(url: url, response.status, reason: reason)
             }
 
             guard let digest = response.headers.first(name: "Docker-Content-Digest") else {
@@ -150,7 +152,8 @@ extension RegistryClient {
         try await request(components: components, headers: headers) { response in
             guard response.status == .ok else {
                 let url = components.url?.absoluteString ?? "unknown"
-                throw Error.invalidStatus(url: url, response.status)
+                let reason = await ErrorResponse.fromResponseBody(response.body)?.jsonString
+                throw Error.invalidStatus(url: url, response.status, reason: reason)
             }
 
             // How many bytes to expect
@@ -173,7 +176,7 @@ extension RegistryClient {
         do {
             try await self.fetchBlob(name: name, descriptor: descriptor) { (size, body) in
                 var itr = body.makeAsyncIterator()
-                while var buf = try await itr.next() {
+                while let buf = try await itr.next() {
                     let readBytes = Int64(buf.readableBytes)
                     received += readBytes
                     let written = try await writer.write(contentsOf: buf)
@@ -181,12 +184,12 @@ extension RegistryClient {
                         ProgressEvent(event: "add-size", value: written)
                     ])
                     guard written == readBytes else {
-                        throw ContainerizationError(.internalError, message: "Could not write \(readBytes) bytes to file \(file)")
+                        throw ContainerizationError(
+                            .internalError,
+                            message: "Could not write \(readBytes) bytes to file \(file)"
+                        )
                     }
-                    guard let d = buf.readData(length: buf.readableBytes) else {
-                        throw ContainerizationError(.internalError, message: "Failed to convert byte buffer to data to compute checksum")
-                    }
-                    hasher.update(data: d)
+                    hasher.update(data: buf.readableBytesView)
                 }
             }
             try await writer.flush()
@@ -218,14 +221,8 @@ extension RegistryClient {
                 await progress?([
                     ProgressEvent(event: "add-size", value: readBytes)
                 ])
-                try buf.withUnsafeReadableBytes { pointer in
-                    let unsafeBufferPointer = pointer.bindMemory(to: [UInt8].self)
-                    if let addr = unsafeBufferPointer.baseAddress {
-                        let d = Data(bytes: addr, count: buf.readableBytes)
-                        try fd.write(contentsOf: d)
-                        hasher.update(data: d)
-                    }
-                }
+                try fd.write(contentsOf: buf.readableBytesView)
+                hasher.update(data: buf.readableBytesView)
             }
         }
         let computedDigest = hasher.finalize()

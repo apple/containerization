@@ -16,8 +16,7 @@
 
 import Foundation
 
-/// `Terminal` provides a clean interface to deal with terminal
-/// interactions on Unix platforms.
+/// `Terminal` provides a clean interface to deal with terminal interactions on Unix platforms.
 public struct Terminal: Sendable {
     private let initState: termios?
 
@@ -40,15 +39,15 @@ public struct Terminal: Sendable {
         try handle.write(contentsOf: data)
     }
 
-    /// the winsize for a pty
+    /// The winsize for a pty.
     public struct Size: Sendable {
         let size: winsize
 
-        /// width or `col` of the pty
+        /// The width or `col` of the pty.
         public var width: UInt16 {
             size.ws_col
         }
-        /// height or `rows` of the pty
+        /// The height or `rows` of the pty.
         public var height: UInt16 {
             size.ws_row
         }
@@ -57,13 +56,13 @@ public struct Terminal: Sendable {
             self.size = size
         }
 
-        /// set the size for use with a pty
+        /// Set the size for use with a pty.
         public init(width cols: UInt16, height rows: UInt16) {
             self.size = winsize(ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0)
         }
     }
 
-    /// return the current pty attached to any of the STDIO descriptors
+    /// Return the current pty attached to any of the STDIO descriptors.
     public static var current: Terminal {
         get throws {
             for i in [STDERR_FILENO, STDOUT_FILENO, STDIN_FILENO] {
@@ -75,7 +74,7 @@ public struct Terminal: Sendable {
         }
     }
 
-    /// the current window size for the pty
+    /// The current window size for the pty.
     public var size: Size {
         get throws {
             var ws = winsize()
@@ -84,9 +83,8 @@ public struct Terminal: Sendable {
         }
     }
 
-    /// create a new pty pair
-    ///
-    /// - Parameter initialSize: initial size of the child pty
+    /// Create a new pty pair.
+    /// - Parameter initialSize: An initial size of the child pty.
     public static func create(initialSize: Size? = nil) throws -> (parent: Terminal, child: Terminal) {
         var parent: Int32 = 0
         var child: Int32 = 0
@@ -117,26 +115,23 @@ extension Terminal {
 }
 
 extension Terminal {
-    /// resize the current pty from the size of the provided pty
-    ///
-    ///  - Parameter from: a pty to resize from
+    /// Resize the current pty from the size of the provided pty.
+    ///  - Parameter pty: A pty to resize from.
     public func resize(from pty: Terminal) throws {
         var ws = try pty.size
         try fromSyscall(ioctl(descriptor, UInt(TIOCSWINSZ), &ws))
     }
 
-    /// resize the pty to the provided window size
-    ///
-    ///  - Parameter size: window size for a pty
+    /// Resize the pty to the provided window size.
+    ///  - Parameter size: A window size for a pty.
     public func resize(size: Size) throws {
         var ws = size.size
         try fromSyscall(ioctl(descriptor, UInt(TIOCSWINSZ), &ws))
     }
 
-    /// resize the pty to the provided window size
-    ///
-    /// - Parameter width: width or cols of the terminal
-    /// - Parameter height: height or rows of the terminal
+    /// Resize the pty to the provided window size.
+    /// - Parameter width: A width or cols of the terminal.
+    /// - Parameter height: A height or rows of the terminal.
     public func resize(width: UInt16, height: UInt16) throws {
         var ws = Size(width: width, height: height)
         try fromSyscall(ioctl(descriptor, UInt(TIOCSWINSZ), &ws))
@@ -144,7 +139,7 @@ extension Terminal {
 }
 
 extension Terminal {
-    /// enable raw mode for the pty
+    /// Enable raw mode for the pty.
     public func setraw() throws {
         var attr = try Self.getattr(descriptor)
         cfmakeraw(&attr)
@@ -152,9 +147,8 @@ extension Terminal {
         try fromSyscall(tcsetattr(descriptor, TCSANOW, &attr))
     }
 
-    /// enable echo support
-    ///
-    /// chars typed WILL be displayed to the term
+    /// Enable echo support.
+    /// Chars typed will be displayed to the terminal.
     public func enableEcho() throws {
         var attr = try Self.getattr(descriptor)
         attr.c_iflag &= ~tcflag_t(ICRNL)
@@ -162,9 +156,8 @@ extension Terminal {
         try fromSyscall(tcsetattr(descriptor, TCSANOW, &attr))
     }
 
-    /// disable echo support
-    ///
-    /// chars typed WILL NOT be displayed back to the term
+    /// Disable echo support.
+    /// Chars typed will not be displayed back to the terminal.
     public func disableEcho() throws {
         var attr = try Self.getattr(descriptor)
         attr.c_lflag &= ~tcflag_t(ECHO)
@@ -178,25 +171,23 @@ extension Terminal {
     }
 }
 
-// MARK: reset
+// MARK: Reset
 
 extension Terminal {
-    /// close this pty's file descriptor
+    /// Close this pty's file descriptor.
     public func close() throws {
         try fromSyscall(Foundation.close(self.descriptor))
     }
 
-    /// reset the pty to its initial state
+    /// Reset the pty to its initial state.
     public func reset() throws {
         if var attr = initState {
             try fromSyscall(tcsetattr(descriptor, TCSANOW, &attr))
         }
     }
 
-    /// reset the pty to its initial state masking any errors
-    ///
-    /// This is commonly used in a `defer` to reset the current Pty
-    /// where the error code is not generally useful.
+    /// Reset the pty to its initial state masking any errors.
+    /// This is commonly used in a `defer` body to reset the current pty where the error code is not generally useful.
     public func tryReset() {
         try? reset()
     }

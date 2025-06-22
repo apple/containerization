@@ -19,7 +19,7 @@ BUILD_CONFIGURATION ?= debug
 # Commonly used locations
 SWIFT := "/usr/bin/swift"
 ROOT_DIR := $(shell git rev-parse --show-toplevel)
-BUILD_BIN_DIR := $(shell $(SWIFT) build -c $(BUILD_CONFIGURATION) --show-bin-path)
+BUILD_BIN_DIR = $(shell $(SWIFT) build -c $(BUILD_CONFIGURATION) --show-bin-path)
 
 # Variables for libarchive integration
 LIBARCHIVE_UPSTREAM_REPO := https://github.com/libarchive/libarchive

@@ -23,7 +23,7 @@ Containerization executes each Linux container inside of its own lightweight vir
 [vminitd](/vminitd) is a small init system, which is a subproject within Containerization.
 `vminitd` is spawned as the initial process inside of the virtual machine and provides a GRPC API over vsock.
 The API allows the runtime environment to be configured and containerized processes to be launched.
-`vminitd` provides I/O, signals, and events to the calling process when a process is ran.
+`vminitd` provides I/O, signals, and events to the calling process when a process is run.
 
 ## Requirements
 
@@ -59,9 +59,9 @@ While this configuration will work for the majority of workloads we understand t
 To solve this Containerization provides first class APIs to use different kernel configurations and versions on a per container basis.
 This enables containers to be developed and validated across different kernel versions.
 
-See the [README](/kernel/README.md) in the kernel directory for instruction on how to compile the optimized kernel.
+See the [README](/kernel/README.md) in the kernel directory for instructions on how to compile the optimized kernel.
 
-### Pre-build Kernel
+### Pre-built Kernel
 
 If you wish to consume a pre-built kernel it must have `VIRTIO` drivers compiled into the kernel, not as modules.
 
@@ -70,6 +70,13 @@ The [Kata Containers](https://github.com/kata-containers/kata-containers) projec
 A kernel image named `vmlinux.container` can be found in the `/opt/kata/share/kata-containers/` directory of the release artifacts.
 
 ## Prepare to build package
+
+Install the recommended version of Xcode.
+
+Set the active developer directory to the installed Xcode (replace `<PATH_TO_XCODE>`):
+```bash
+sudo xcode-select -s <PATH_TO_XCODE>
+``` 
 
 Install [Swiftly](https://github.com/swiftlang/swiftly), [Swift](https://www.swift.org), and [Static Linux SDK](https://www.swift.org/documentation/articles/static-linux-getting-started.html):
 

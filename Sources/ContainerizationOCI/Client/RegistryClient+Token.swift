@@ -108,7 +108,7 @@ struct TokenResponse: Codable, Hashable {
     }
 }
 
-struct AuthenticateChallenge {
+struct AuthenticateChallenge: Equatable {
     let type: String
     let realm: String?
     let service: String?
@@ -158,7 +158,7 @@ extension RegistryClient {
     }
 
     internal func createTokenRequest(parsing authenticateHeaders: [String]) throws -> TokenRequest {
-        let parsedHeaders = parseWWWAuthenticateHeaders(headers: authenticateHeaders)
+        let parsedHeaders = Self.parseWWWAuthenticateHeaders(headers: authenticateHeaders)
         let bearerChallenge = parsedHeaders.first { $0.type == "Bearer" }
         guard let bearerChallenge else {
             throw ContainerizationError(.invalidArgument, message: "Missing Bearer challenge in \(TokenRequest.authenticateHeaderName) header")
@@ -174,11 +174,11 @@ extension RegistryClient {
         return tokenRequest
     }
 
-    internal func parseWWWAuthenticateHeaders(headers: [String]) -> [AuthenticateChallenge] {
+    internal static func parseWWWAuthenticateHeaders(headers: [String]) -> [AuthenticateChallenge] {
         var parsed: [String: [String: String]] = [:]
         for challenge in headers {
             let trimmedChallenge = challenge.trimmingCharacters(in: .whitespacesAndNewlines)
-            let parts = trimmedChallenge.split(separator: " ", maxSplits: 2)
+            let parts = trimmedChallenge.split(separator: " ", maxSplits: 1)
             guard parts.count == 2 else {
                 continue
             }

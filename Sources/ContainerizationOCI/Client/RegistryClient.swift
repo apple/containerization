@@ -179,18 +179,31 @@ public final class RegistryClient: ContentClient {
                         // The server did not tell us how to authenticate our requests,
                         // Or we do not support scheme the server is requesting for.
                         // Throw the 401/403 to the caller, and let them decide how to proceed.
-                        throw RegistryClient.Error.invalidStatus(url: path, _response.status)
+                        throw RegistryClient.Error.invalidStatus(url: path, _response.status, reason: String(describing: error))
                     }
                     if let ct = currentToken, ct.isValid(scope: tokenRequest.scope) {
                         break
                     }
-                    let _currentToken = try await fetchToken(request: tokenRequest)
-                    guard let token = _currentToken.getToken() else {
-                        throw ContainerizationError(.internalError, message: "Failed to fetch Bearer token")
+
+                    do {
+                        let _currentToken = try await fetchToken(request: tokenRequest)
+                        guard let token = _currentToken.getToken() else {
+                            throw ContainerizationError(.internalError, message: "Failed to fetch Bearer token")
+                        }
+                        currentToken = _currentToken
+                        request.headers.replaceOrAdd(name: "Authorization", value: token)
+                        retryCount += 1
+                    } catch let err as RegistryClient.Error {
+                        guard case .invalidStatus(_, let status, _) = err else {
+                            throw err
+                        }
+                        if status == .unauthorized || status == .forbidden {
+                            throw RegistryClient.Error.invalidStatus(url: path, _response.status, reason: "Access denied or wrong credentials")
+                        }
+
+                        throw err
                     }
-                    currentToken = _currentToken
-                    request.headers.replaceOrAdd(name: "Authorization", value: token)
-                    retryCount += 1
+
                     continue
                 }
                 guard let retryOptions = self.retryOptions else {
@@ -232,17 +245,22 @@ public final class RegistryClient: ContentClient {
         components: URLComponents,
         headers: [(String, String)]? = nil
     ) async throws -> Data {
+        let bytes: ByteBuffer = try await requestBuffer(components: components, headers: headers)
+        return Data(buffer: bytes)
+    }
+
+    internal func requestBuffer(
+        components: URLComponents,
+        headers: [(String, String)]? = nil
+    ) async throws -> ByteBuffer {
         try await request(components: components, method: .GET, headers: headers) { response in
             guard response.status == .ok else {
                 let url = components.url?.absoluteString ?? "unknown"
-                throw Error.invalidStatus(url: url, response.status)
+                let reason = await ErrorResponse.fromResponseBody(response.body)?.jsonString
+                throw Error.invalidStatus(url: url, response.status, reason: reason)
             }
 
-            var body = try await response.body.collect(upTo: self.bufferSize)
-            guard let bytes = body.readBytes(length: body.readableBytes) else {
-                throw ContainerizationError(.internalError, message: "Cannot read bytes from HTTP response")
-            }
-            return Data(bytes)
+            return try await response.body.collect(upTo: self.bufferSize)
         }
     }
 
@@ -250,8 +268,8 @@ public final class RegistryClient: ContentClient {
         components: URLComponents,
         headers: [(String, String)]? = nil
     ) async throws -> T {
-        let data = try await self.requestData(components: components, headers: headers)
-        return try JSONDecoder().decode(T.self, from: data)
+        let buffer = try await self.requestBuffer(components: components, headers: headers)
+        return try JSONDecoder().decode(T.self, from: buffer)
     }
 
     /// A minimal endpoint, mounted at /v2/ will provide version support information based on its response statuses.
@@ -263,7 +281,8 @@ public final class RegistryClient: ContentClient {
         try await request(components: components) { response in
             guard response.status == .ok else {
                 let url = components.url?.absoluteString ?? "unknown"
-                throw Error.invalidStatus(url: url, response.status)
+                let reason = await ErrorResponse.fromResponseBody(response.body)?.jsonString
+                throw Error.invalidStatus(url: url, response.status, reason: reason)
             }
         }
     }

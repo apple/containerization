@@ -80,7 +80,7 @@ public final class LinuxContainer: Container, Sendable {
         case started(StartedState)
         /// The container is preparing to stop.
         case stopping(StoppingState)
-        /// The container has ran and fully stopped.
+        /// The container has run and fully stopped.
         case stopped
         /// An error occurred during the lifetime of this class.
         case errored(Swift.Error)
@@ -323,7 +323,7 @@ extension LinuxContainer {
     /// Unix sockets to share into or out of the container.
     ///
     /// The VirtualMachineAgent used to launch the container
-    /// MUST conform to `SocketRelayAgent` to support this, otherwise
+    /// MUST conform to `SocketRelayAgent` to support this; otherwise,
     /// a ContainerizationError will be returned on start with the code
     /// set to `.unsupported`.
     public var sockets: [UnixSocketConfiguration] {
@@ -411,12 +411,15 @@ extension LinuxContainer {
         set { config.spec.process!.rlimits = newValue }
     }
 
-    /// Set a pty device as the container's stdio.
+    /// Set a pty device as the container's stdio. This additionally will
+    /// set the TERM=xterm environment variable, and the OCI runtime specs
+    /// `process.terminal` field to true.
     public var terminalDevice: Terminal? {
         get { config.terminal }
         set {
             config.spec.process!.terminal = newValue != nil ? true : false
             config.terminal = newValue
+            config.spec.process!.env.append("TERM=xterm")
             config.ioHandlers.stdin = newValue
             config.ioHandlers.stdout = newValue
             config.ioHandlers.stderr = nil
@@ -426,7 +429,10 @@ extension LinuxContainer {
     /// If the container has a pty allocated.
     public var terminal: Bool {
         get { config.spec.process!.terminal }
-        set { config.spec.process!.terminal = newValue }
+        set {
+            config.spec.process!.terminal = newValue
+            config.spec.process!.env.append("TERM=xterm")
+        }
     }
 
     /// Set the stdin stream for the initial process of the container.
@@ -465,7 +471,7 @@ extension LinuxContainer {
     }
 
     /// Create the underlying container's virtual machine
-    /// and setup the runtime environment.
+    /// and set up the runtime environment.
     public func create() async throws {
         try state.setCreating()
 

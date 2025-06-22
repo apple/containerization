@@ -180,7 +180,7 @@ struct IntegrationSuite: AsyncParsableCommand {
     // Why does this exist?
     //
     // We need the virtualization entitlement to execute these tests.
-    // There currently does not exist a strightforward way to do this
+    // There currently does not exist a straightforward way to do this
     // in a pure swift package.
     //
     // In order to not have a dependency on xcode, we create an executable
@@ -199,6 +199,8 @@ struct IntegrationSuite: AsyncParsableCommand {
             "process echo hi": testProcessEchoHi,
             "process user": testProcessUser,
             "process home envvar": testProcessHomeEnvvar,
+            "process custom home envvar": testProcessCustomHomeEnvvar,
+            "process tty ensure TERM": testProcessTtyEnvvar,
             "multiple concurrent processes": testMultipleConcurrentProcesses,
             "multiple concurrent processes with output stress": testMultipleConcurrentProcessesOutputStress,
             "container hostname": testHostname,
