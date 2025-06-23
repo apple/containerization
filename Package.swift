@@ -21,14 +21,6 @@ import CompilerPluginSupport
 import Foundation
 import PackageDescription
 
-let settings: [SwiftSetting]
-if ProcessInfo.processInfo.environment["CURRENT_SDK"] != nil {
-    // TODO: Remove this compile condition when the updated macOS SDK is available publicly
-    settings = [.define("CURRENT_SDK")]
-} else {
-    settings = []
-}
-
 let package = Package(
     name: "containerization",
     platforms: [.macOS("15")],
@@ -77,8 +69,7 @@ let package = Package(
             ],
             exclude: [
                 "../Containerization/SandboxContext/SandboxContext.proto"
-            ],
-            swiftSettings: settings
+            ]
         ),
         .executableTarget(
             name: "cctl",
