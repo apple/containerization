@@ -25,8 +25,7 @@ import XCTest
 #if canImport(SendablePropertyMacros)
 import SendablePropertyMacros
 
-// testMacros is thread-safe.
-nonisolated(unsafe) let testMacros: [String: Macro.Type] = [
+let testMacros: [String: Macro.Type] = [
     "SendableProperty": SendablePropertyMacro.self
 ]
 #endif
