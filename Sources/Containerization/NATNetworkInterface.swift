@@ -37,29 +37,27 @@ public final class NATNetworkInterface: Interface, Sendable {
         set { state.gateway = newValue }
     }
 
-    #if !CURRENT_SDK
+    @available(macOS 26, *)
     public var reference: vmnet_network_ref {
         state.reference
     }
-    #endif
 
     public var macAddress: String? {
         get { state.macAddress }
         set { state.macAddress = newValue }
     }
 
-    struct State {
-        var address: String
-        var gateway: String
-        #if !CURRENT_SDK
-        var reference: vmnet_network_ref
-        #endif
-        var macAddress: String?
+    private struct State {
+        fileprivate var address: String
+        fileprivate var gateway: String
+        fileprivate var reference: vmnet_network_ref!
+        fileprivate var macAddress: String?
     }
 
     @SendableProperty
     private var state: State
-    #if !CURRENT_SDK
+
+    @available(macOS 26, *)
     public init(
         address: String,
         gateway: String,
@@ -73,7 +71,8 @@ public final class NATNetworkInterface: Interface, Sendable {
             macAddress: macAddress
         )
     }
-    #else
+
+    @available(macOS, obsoleted: 26, message: "Use init(address:gateway:reference:macAddress:) instead")
     public init(
         address: String,
         gateway: String,
@@ -82,10 +81,10 @@ public final class NATNetworkInterface: Interface, Sendable {
         self.state = .init(
             address: address,
             gateway: gateway,
+            reference: nil,
             macAddress: macAddress
         )
     }
-    #endif
 }
 
 @available(macOS 26, *)
@@ -99,11 +98,7 @@ extension NATNetworkInterface: VZInterface {
             config.macAddress = mac
         }
 
-        #if !CURRENT_SDK
         config.attachment = VZVmnetNetworkDeviceAttachment(network: self.reference)
-        #else
-        config.attachment = VZNATNetworkDeviceAttachment()
-        #endif
         return config
     }
 }
