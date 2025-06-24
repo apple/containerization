@@ -91,34 +91,29 @@ extension ManagedContainer {
         self._execs[id] = process
     }
 
-    func getExec(id: String) throws -> ManagedProcess {
-        guard let exec = self._execs[id] else {
-            throw ContainerizationError(
-                .invalidState,
-                message: "exec \(id) does not exist in container \(self.id)"
-            )
-        }
-        return exec
+    func start(execID: String) async throws -> Int32 {
+        let proc = try self.getExecOrInit(execID: execID)
+        return try await ProcessSupervisor.default.start(process: proc)
     }
 
-    func start() throws -> Int32 {
-        try self.initProcess.start()
+    func wait(execID: String) async throws -> Int32 {
+        let proc = try self.getExecOrInit(execID: execID)
+        return await proc.wait()
     }
 
-    func wait() async -> Int32 {
-        await self.initProcess.wait()
+    func kill(execID: String, _ signal: Int32) throws {
+        let proc = try self.getExecOrInit(execID: execID)
+        try proc.kill(signal)
     }
 
-    func kill(_ signal: Int32) throws {
-        try self.initProcess.kill(signal)
+    func resize(execID: String, size: Terminal.Size) throws {
+        let proc = try self.getExecOrInit(execID: execID)
+        try proc.resize(size: size)
     }
 
-    func resize(size: Terminal.Size) throws {
-        try self.initProcess.resize(size: size)
-    }
-
-    func close() throws {
-        try self.initProcess.close()
+    func close(execID: String) throws {
+        let proc = try self.getExecOrInit(execID: execID)
+        try proc.close()
     }
 
     func deleteExec(id: String) throws {
@@ -133,6 +128,19 @@ extension ManagedContainer {
 
     func delete() throws {
         try self._bundle.delete()
+    }
+
+    func getExecOrInit(execID: String) throws -> ManagedProcess {
+        if execID == self.id {
+            return self.initProcess
+        }
+        guard let proc = self._execs[execID] else {
+            throw ContainerizationError(
+                .invalidState,
+                message: "exec \(execID) does not exist in container \(self.id)"
+            )
+        }
+        return proc
     }
 }
 
