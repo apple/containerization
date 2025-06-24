@@ -106,7 +106,7 @@ ifeq (,$(wildcard bin/vmlinux))
 endif
 
 .PHONY: fmt
-fmt:	swift-fmt update-licenses
+fmt: swift-fmt update-licenses
 
 .PHONY: swift-fmt
 SWIFT_SRC = $(shell find . -type f -name '*.swift' -not -path "*/.*" -not -path "*.pb.swift" -not -path "*.grpc.swift" -not -path "*/checkouts/*")
@@ -135,12 +135,10 @@ serve-docs:
 	@python3 -m http.server --bind 127.0.0.1 --directory ./_serve
 
 .PHONY: docs
-docs: _site
-
-_site:
+docs:
 	@echo Updating API documentation...
-	rm -rf $@
-	@scripts/make-docs.sh $@ containerization
+	@rm -rf _site
+	@scripts/make-docs.sh _site containerization
 
 .PHONY: cleancontent
 cleancontent:

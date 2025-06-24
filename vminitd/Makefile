@@ -16,7 +16,7 @@ BUILD_CONFIGURATION := debug
 SWIFT_CONFIGURATION := --swift-sdk aarch64-swift-linux-musl
 
 SWIFT_VERSION = 6.2-snapshot
-SWIFT_SDK_URL = https://download.swift.org/swift-6.2-branch/static-sdk/swift-6.2-DEVELOPMENT-SNAPSHOT-2025-06-12-a/swift-6.2-DEVELOPMENT-SNAPSHOT-2025-06-12-a_static-linux-0.0.1.artifactbundle.tar.gz
+SWIFT_SDK_URL = https://download.swift.org/swift-6.2-branch/static-sdk/swift-6.2-DEVELOPMENT-SNAPSHOT-2025-06-17-a/swift-6.2-DEVELOPMENT-SNAPSHOT-2025-06-17-a_static-linux-0.0.1.artifactbundle.tar.gz
 SWIFT_SDK_PATH = /tmp/$(notdir $(SWIFT_SDK_URL))
 
 SWIFTLY_URL := https://download.swift.org/swiftly/darwin/swiftly.pkg
