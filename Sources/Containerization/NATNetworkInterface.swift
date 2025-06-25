@@ -20,45 +20,44 @@ import vmnet
 import Virtualization
 import ContainerizationError
 import Foundation
-import Synchronization
+import SendableProperty
 
 /// An interface that uses NAT to provide an IP address for a given
 /// container/virtual machine.
 @available(macOS 26, *)
 public final class NATNetworkInterface: Interface, Sendable {
     public var address: String {
-        get { state.withLock { $0.address } }
-        set { state.withLock { $0.address = newValue } }
+        get { state.address }
+        set { state.address = newValue }
 
     }
 
     public var gateway: String {
-        get { state.withLock { $0.gateway } }
-        set { state.withLock { $0.gateway = newValue } }
+        get { state.gateway }
+        set { state.gateway = newValue }
+    }
+
+    @available(macOS 26, *)
+    public var reference: vmnet_network_ref {
+        state.reference
     }
 
     public var macAddress: String? {
-        get { state.withLock { $0.macAddress } }
-        set { state.withLock { $0.macAddress = newValue } }
+        get { state.macAddress }
+        set { state.macAddress = newValue }
     }
 
-    struct State {
-        var address: String
-        var gateway: String
-        var macAddress: String?
-        #if !CURRENT_SDK
-        var reference: vmnet_network_ref
-        #endif
+    private struct State {
+        fileprivate var address: String
+        fileprivate var gateway: String
+        fileprivate var reference: vmnet_network_ref!
+        fileprivate var macAddress: String?
     }
 
-    #if !CURRENT_SDK
-    public var reference: vmnet_network_ref {
-        state.withLock { $0.reference }
-    }
-    #endif
+    @SendableProperty
+    private var state: State
 
-    private let state: Mutex<State>
-    #if !CURRENT_SDK
+    @available(macOS 26, *)
     public init(
         address: String,
         gateway: String,
@@ -66,29 +65,26 @@ public final class NATNetworkInterface: Interface, Sendable {
         macAddress: String? = nil
     ) {
         self.state = .init(
-            .init(
-                address: address,
-                gateway: gateway,
-                macAddress: macAddress,
-                reference: reference
-            )
+            address: address,
+            gateway: gateway,
+            reference: reference,
+            macAddress: macAddress
         )
     }
-    #else
+
+    @available(macOS, obsoleted: 26, message: "Use init(address:gateway:reference:macAddress:) instead")
     public init(
         address: String,
         gateway: String,
         macAddress: String? = nil
     ) {
         self.state = .init(
-            .init(
-                address: address,
-                gateway: gateway,
-                macAddress: macAddress
-            )
+            address: address,
+            gateway: gateway,
+            reference: nil,
+            macAddress: macAddress
         )
     }
-    #endif
 }
 
 @available(macOS 26, *)
@@ -102,11 +98,7 @@ extension NATNetworkInterface: VZInterface {
             config.macAddress = mac
         }
 
-        #if !CURRENT_SDK
         config.attachment = VZVmnetNetworkDeviceAttachment(network: self.reference)
-        #else
-        config.attachment = VZNATNetworkDeviceAttachment()
-        #endif
         return config
     }
 }

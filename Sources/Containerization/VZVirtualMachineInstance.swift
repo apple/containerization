@@ -131,6 +131,9 @@ extension VZVirtualMachineInstance {
                 )
             }
 
+            // Do any necessary setup needed prior to starting the guest.
+            try await self.prestart()
+
             try await self.vm.start(queue: self.queue)
 
             let agent = Vminitd(
@@ -203,23 +206,19 @@ extension VZVirtualMachineInstance {
             port: port
         )
     }
+
+    func prestart() async throws {
+        if self.config.rosetta && VZLinuxRosettaDirectoryShare.availability == .notInstalled {
+            self.logger?.info("installing rosetta")
+            try await VZVirtualMachineInstance.Configuration.installRosetta()
+        }
+    }
 }
 
 extension VZVirtualMachineInstance.Configuration {
-    public static func installRosetta() throws {
-        #if arch(arm64)
+    public static func installRosetta() async throws {
         do {
-            let _err: Mutex<Swift.Error?> = .init(nil)
-            VZLinuxRosettaDirectoryShare.installRosetta(completionHandler: { error in
-                _err.withLock {
-                    $0 = error
-                }
-            })
-            let err = _err.withLock { $0 }
-            guard let err else {
-                return
-            }
-            throw err
+            try await VZLinuxRosettaDirectoryShare.installRosetta()
         } catch {
             throw ContainerizationError(
                 .internalError,
@@ -227,8 +226,8 @@ extension VZVirtualMachineInstance.Configuration {
                 cause: error
             )
         }
-        #endif
     }
+
     private func serialPort(path: URL) throws -> [VZVirtioConsoleDeviceSerialPortConfiguration] {
         let c = VZVirtioConsoleDeviceSerialPortConfiguration()
         c.attachment = try VZFileSerialPortAttachment(url: path, append: true)
@@ -261,7 +260,8 @@ extension VZVirtualMachineInstance.Configuration {
                     message: "rosetta was requested but is not supported on this machine"
                 )
             case .notInstalled:
-                try Self.installRosetta()
+                // NOTE: If rosetta isn't installed, we'll error with a nice error message
+                // during .start() of the virtual machine instance.
                 fallthrough
             case .installed:
                 let share = try VZLinuxRosettaDirectoryShare()

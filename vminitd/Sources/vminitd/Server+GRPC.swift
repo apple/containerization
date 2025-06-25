@@ -465,13 +465,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         }
 
         let ctr = try await self.state.get(container: request.containerID)
-
-        if request.id == request.containerID {
-            try await ctr.kill(request.signal)
-        } else {
-            let proc = try await ctr.getExec(id: request.id)
-            try proc.kill(request.signal)
-        }
+        try await ctr.kill(execID: request.id, request.signal)
 
         return .init()
     }
@@ -520,16 +514,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
 
         do {
             let ctr = try await self.state.get(container: request.containerID)
-
-            // FIXME: This should just happen inside of ManagedContainer.
-            let pid: Int32
-            if request.id == request.containerID {
-                let process = ctr.initProcess
-                pid = try await ProcessSupervisor.default.start(process: process)
-            } else {
-                let process = try await ctr.getExec(id: request.id)
-                pid = try await ProcessSupervisor.default.start(process: process)
-            }
+            let pid = try await ctr.start(execID: request.id)
 
             return .with {
                 $0.pid = pid
@@ -565,14 +550,11 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
 
         do {
             let ctr = try await self.state.get(container: request.containerID)
-
-            let size = Terminal.Size(width: UInt16(request.columns), height: UInt16(request.rows))
-            if request.id == request.containerID {
-                try await ctr.resize(size: size)
-            } else {
-                let proc = try await ctr.getExec(id: request.id)
-                try proc.resize(size: size)
-            }
+            let size = Terminal.Size(
+                width: UInt16(request.columns),
+                height: UInt16(request.rows)
+            )
+            try await ctr.resize(execID: request.id, size: size)
         } catch {
             log.error(
                 "resizeProcess",
@@ -607,13 +589,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         do {
             let ctr = try await self.state.get(container: request.containerID)
 
-            let exitCode: Int32
-            if request.id == request.containerID {
-                exitCode = await ctr.wait()
-            } else {
-                let proc = try await ctr.getExec(id: request.id)
-                exitCode = await proc.wait()
-            }
+            let exitCode = try await ctr.wait(execID: request.id)
 
             return .with {
                 $0.exitCode = exitCode
