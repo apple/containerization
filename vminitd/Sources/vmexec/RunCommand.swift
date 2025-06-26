@@ -112,7 +112,10 @@ struct RunCommand: ParsableCommand {
 
             try App.setRLimits(rlimits: process.rlimits)
 
-            // set uid, gid, and supplementary groups
+            // Change stdio to be owned by the requested user.
+            try App.fixStdioPerms(user: process.user)
+
+            // Set uid, gid, and supplementary groups.
             try App.setPermissions(user: process.user)
 
             if process.terminal {
