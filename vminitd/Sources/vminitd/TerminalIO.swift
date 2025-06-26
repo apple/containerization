@@ -19,10 +19,12 @@ import ContainerizationOS
 import Foundation
 import Logging
 import SendableProperty
+#if canImport(Glibc)
 import Glibc
+#endif
 
 final class TerminalIO: ManagedProcess.IO & Sendable {
-    private let parent: Terminal? = nil
+    private var parent: Terminal? = nil
     private let log: Logger?
 
     private let stdio: HostStdio
@@ -59,7 +61,7 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
         }
 
         let hostFd = Glibc.syscall(Int(SYS_pidfd_getfd), containerFd, fd, 0)
-        guard Foundation.close(Int32(containerFd)) != 0 else {
+        guard Foundation.close(Int32(containerFd)) == 0 else {
             self.log?.error("failed to close pidfd: \(POSIXError.fromErrno())")
         }
 
@@ -69,7 +71,7 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
 
         let fdDup = Int32(hostFd)
         self.parent = try Terminal(descriptor: fdDup, setInitState: false)
-        try self.setupRelays(fd: fdDup)
+        try setupRelays(fd: fdDup)
     }
 
     private func setupRelays(fd: Int32) throws {
