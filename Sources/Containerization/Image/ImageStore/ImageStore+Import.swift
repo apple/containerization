@@ -93,7 +93,7 @@ extension ImageStore {
                 }
                 return try await self.client.fetch(name: name, descriptor: descriptor)
             } catch {
-                throw ContainerizationError(.internalError, message: "Cannot fetch content with digest \(descriptor.digest)")
+                throw ContainerizationError(.internalError, message: "Cannot fetch content with digest \(descriptor.digest)", cause: error)
             }
         }
 
