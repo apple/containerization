@@ -18,6 +18,9 @@ import ContainerizationOCI
 import ContainerizationOS
 import Foundation
 import Musl
+#if canImport(Glibc)
+import Glibc
+#endif
 
 struct ContainerMount {
     private let mounts: [ContainerizationOCI.Mount]
@@ -35,7 +38,7 @@ struct ContainerMount {
         }
     }
 
-    func configureConsole() throws {
+    func configureConsole(process: ContainerizationOCI.Process) throws {
         let ptmx = self.rootfs.standardizingPath.appendingPathComponent("/dev/ptmx")
 
         guard remove(ptmx) == 0 else {
@@ -43,6 +46,29 @@ struct ContainerMount {
         }
         guard symlink("pts/ptmx", ptmx) == 0 else {
             throw App.Errno(stage: "symlink(pts/ptmx)")
+        }
+
+        if process.terminal {
+            var buf = [CChar](repeating: 0, count: 4096)
+            let len = readlink("/proc/self/fd/0", &buf, buf.count - 1)
+            if len != -1 {
+                buf[Int(len)] = 0
+                let ptyPath = String(cString: buf)
+
+                let console = self.rootfs.standardizingPath.appendingPathComponent("/dev/console")
+
+                if access(console, F_OK) != 0 {
+                    let fd = open(console, O_RDWR | O_CREAT, mode_t(UInt16(0o600)))
+                    if fd == -1 {
+                        throw App.erno(stage: "open(/dev/console)")
+                    }
+                    close(fd)
+                }
+
+                if mount(ptyPath, console, "", UInt(MS_BIND), nil) != 0 {
+                    throw App.Errno(stage: "mount(/dev/console)")
+                }
+            }
         }
     }
 

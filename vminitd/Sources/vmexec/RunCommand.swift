@@ -42,10 +42,10 @@ struct RunCommand: ParsableCommand {
         try execInNamespace(spec: ociSpec, log: log)
     }
 
-    private func childRootSetup(rootfs: ContainerizationOCI.Root, mounts: [ContainerizationOCI.Mount], log: Logger) throws {
+    private func childRootSetup(rootfs: ContainerizationOCI.Root, mounts: [ContainerizationOCI.Mount], process: ContainerizationOCI.Process, log: Logger) throws {
         // setup rootfs
         try prepareRoot(rootfs: rootfs.path)
-        try mountRootfs(rootfs: rootfs.path, mounts: mounts)
+        try mountRootfs(rootfs: rootfs.path, mounts: mounts, process: process)
         try setDevSymlinks(rootfs: rootfs.path)
 
         try pivotRoot(rootfs: rootfs.path)
@@ -93,7 +93,7 @@ struct RunCommand: ParsableCommand {
                 throw App.Errno(stage: "setsid()")
             }
 
-            try childRootSetup(rootfs: root, mounts: spec.mounts, log: log)
+            try childRootSetup(rootfs: root, mounts: spec.mounts, log: log, process: process)
 
             if !spec.hostname.isEmpty {
                 let errCode = spec.hostname.withCString { ptr in
@@ -138,10 +138,10 @@ struct RunCommand: ParsableCommand {
         }
     }
 
-    private func mountRootfs(rootfs: String, mounts: [ContainerizationOCI.Mount]) throws {
+    private func mountRootfs(rootfs: String, mounts: [ContainerizationOCI.Mount], process: ContainerizationOCI.Process) throws {
         let containerMount = ContainerMount(rootfs: rootfs, mounts: mounts)
         try containerMount.mountToRootfs()
-        try containerMount.configureConsole()
+        try containerMount.configureConsole(process)
     }
 
     private func prepareRoot(rootfs: String) throws {
