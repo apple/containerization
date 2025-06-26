@@ -31,20 +31,14 @@ MACOS_RELEASE_TYPE := $(shell sw_vers | grep ReleaseType)
 .DEFAULT_GOAL := all
 
 .PHONY: all
-all: bin/vminitd bin/vmexec
-
-.PHONY: swift-build
-swift-build:
+all: 
 	@echo Building vminitd and vmexec...
+	@mkdir -p ./bin/
+	@rm -f ./bin/vminitd
+	@rm -f ./bin/vmexec
 	@swift build -c $(BUILD_CONFIGURATION) $(SWIFT_CONFIGURATION)
-
-$(VMINITD_BIN_PATH)/vminitd $(VMINITD_BIN_PATH)/vmexec:
-	@$(MAKE) swift-build
-
-bin/%: $(VMINITD_BIN_PATH)/%
-	@mkdir -p bin/
-	@rm -f $@
-	@install $< bin/
+	@install $(VMINITD_BIN_PATH)/vminitd ./bin/vminitd
+	@install $(VMINITD_BIN_PATH)/vmexec ./bin/vmexec
 
 .PHONY: cross-prep
 cross-prep: linux-sdk macos-sdk
