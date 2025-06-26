@@ -55,6 +55,7 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
     func start() throws {}
 
     func attach(pid: Int32, fd: Int32) throws {
+        #if os(linux)
         let containerFd = Glibc.syscall(Int(SYS_pidfd_open), pid, 0)
         guard containerFd != -1 else {
             throw POSIXError.fromErrno()
@@ -72,6 +73,9 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
         let fdDup = Int32(hostFd)
         self.parent = try Terminal(descriptor: fdDup, setInitState: false)
         try setupRelays(fd: fdDup)
+        #else
+        fatalError("attach not supported on platform")
+        #endif
     }
 
     private func setupRelays(fd: Int32) throws {
