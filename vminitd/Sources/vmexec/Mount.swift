@@ -60,7 +60,7 @@ struct ContainerMount {
                 if access(console, F_OK) != 0 {
                     let fd = open(console, O_RDWR | O_CREAT, mode_t(UInt16(0o600)))
                     if fd == -1 {
-                        throw App.erno(stage: "open(/dev/console)")
+                        throw App.Errno(stage: "open(/dev/console)")
                     }
                     close(fd)
                 }

@@ -19,10 +19,10 @@ import ContainerizationOS
 import Foundation
 import Logging
 import SendableProperty
+import Glibc
 
 final class TerminalIO: ManagedProcess.IO & Sendable {
-    private let parent: Terminal
-    private let child: Terminal
+    private let parent: Terminal? = nil
     private let log: Logger?
 
     private let stdio: HostStdio
@@ -36,30 +36,43 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
         stdio: HostStdio,
         log: Logger?
     ) throws {
-        let pair = try Terminal.create()
-        self.parent = pair.parent
-        self.child = pair.child
         self.stdio = stdio
         self.log = log
 
-        let ptyHandle = child.handle
-        let useHandles = stdio.stdin != nil || stdio.stdout != nil
-        // We currently set stdin to the controlling terminal always, so
-        // it must be a valid pty descriptor.
-        process.stdin = useHandles ? ptyHandle : nil
-
-        let stdoutHandle = useHandles ? ptyHandle : nil
-        process.stdout = stdoutHandle
-        process.stderr = stdoutHandle
+        process.stdin = nil
+        process.stdout = nil
+        process.stderr = nil
     }
 
     func resize(size: Terminal.Size) throws {
         if self.stdio.stdin != nil {
-            try parent.resize(size: size)
+            try parent?.resize(size: size)
         }
     }
 
-    func start() throws {
+    func start() throws {}
+
+    func attach(pid: Int32, fd: Int32) throws {
+        let containerFd = Glibc.syscall(Int(SYS_pidfd_open), pid, 0)
+        guard containerFd != -1 else {
+            throw POSIXError.fromErrno()
+        }
+
+        let hostFd = Glibc.syscall(Int(SYS_pidfd_getfd), containerFd, fd, 0)
+        guard Foundation.close(Int32(containerFd)) != 0 else {
+            self.log?.error("failed to close pidfd: \(POSIXError.fromErrno())")
+        }
+
+        guard hostFd != -1 else {
+            throw POSIXError.fromErrno()
+        }
+
+        let fdDup = Int32(hostFd)
+        self.parent = try Terminal(descriptor: fdDup, setInitState: false)
+        try self.setupRelays(fd: fdDup)
+    }
+
+    private func setupRelays(fd: Int32) throws {
         if let stdinPort = self.stdio.stdin {
             let type = VsockType(
                 port: stdinPort,
@@ -71,7 +84,7 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
 
             try relay(
                 readFromFd: stdinSocket.fileDescriptor,
-                writeToFd: self.parent.handle.fileDescriptor
+                writeToFd: fd
             )
         }
 
@@ -85,7 +98,7 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
             self.stdoutSocket = stdoutSocket
 
             try relay(
-                readFromFd: self.parent.handle.fileDescriptor,
+                readFromFd: fd,
                 writeToFd: stdoutSocket.fileDescriptor
             )
         }
@@ -157,10 +170,8 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
     }
 
     func close() throws {
-        try parent.close()
+        try parent?.close()
     }
 
-    func closeAfterExec() throws {
-        try child.close()
-    }
+    func closeAfterExec() throws {}
 }

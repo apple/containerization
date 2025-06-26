@@ -118,11 +118,6 @@ final class ManagedProcess: Sendable {
             )
         }
 
-        log.info("starting io")
-
-        // Setup IO early. We expect the host to be listening already.
-        try io.start()
-
         self.process = process
         self.lock = Mutex(State(io: io))
     }
@@ -132,6 +127,10 @@ extension ManagedProcess {
     func start() throws -> Int32 {
         try self.lock.withLock {
             log.debug("starting managed process")
+
+            if !($0.io is TerminalIO) {
+                try $0.io.start()
+            }
 
             // Start the underlying process.
             try process.start()
@@ -144,12 +143,27 @@ extension ManagedProcess {
                 throw ContainerizationError(.internalError, message: "no pid data from sync pipe")
             }
 
+            guard piddata.count >= MemoryLayout<Int32>.size else {
+                throw ContainerizationError(.internalError, message: "invalid payload")
+            }
+
             let i = piddata.withUnsafeBytes { ptr in
                 ptr.load(as: Int32.self)
             }
 
-            log.info("got back pid data \(i)")
+            var fd: Int32 = -1
+            if piddata.count >= MemoryLayout<Int32>.size * 2 {
+                fd = piddata.withUnsafeBytes { ptr in 
+                    ptr.load(fromByteOffset: MemoryLayout<Int32>.size, as: Int32.self)
+                }
+            }
+
+            log.info("got back pid data \(i), fd \(fd)")
             $0.pid = i
+
+            if let terminalIO = $0.io as? TerminalIO, fd != -1 {
+                try terminalIO.attach(pid: i, fd: fd)
+            }
 
             log.debug(
                 "started managed process",

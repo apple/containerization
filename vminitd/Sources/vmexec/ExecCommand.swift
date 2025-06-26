@@ -23,6 +23,7 @@ import Foundation
 import LCShim
 import Logging
 import Musl
+import Glibc
 
 struct ExecCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
@@ -96,11 +97,43 @@ struct ExecCommand: ParsableCommand {
                 throw App.Errno(stage: "setsid()")
             }
 
+            var hostFd: Int32 = -1
+
+            if process.terminal {
+                var containerFd: Int32 = 0
+                var ws = winsize(ws_row: 40, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0)
+                guard openpty(&hostFd, &containerFd, nil, nil, &ws) == 0 else {
+                    throw App.Errno(stage: "openpty()")
+                }
+
+                guard dup3(containerFd, 0, 0) != -1 else {
+                    throw App.Errno(stage: "dup3(slave->stdin)")
+                }
+                guard dup3(containerFd, 1, 0) != -1 else {
+                    throw App.Errno(stage: "dup3(slave->stdout)")
+                }
+                guard dup3(containerFd, 2, 0) != -1 else {
+                    throw App.Errno(stage: "dup3(slave->stderr)")
+                }
+                _ = close(containerFd)
+
+                guard ioctl(0, UInt(TIOCSCTTY), 0) != -1 else {
+                    throw App.Errno(stage: "setctty()")
+                }
+            }
+
+            var fdCopy = hostFd
+            var fdData = Data(bytes: &fdCopy, count: MemoryLayout.size(ofValue: fdCopy))
+            try childPipe.fileHandleForWriting.write(contentsOf: fdData)
+            try childPipe.fileHandleForWriting.close()
+
             // Apply O_CLOEXEC to all file descriptors except stdio.
             // This ensures that all unwanted fds we may have accidentally
             // inherited are marked close-on-exec so they stay out of the
             // container.
-            try App.applyCloseExecOnFDs()
+            let preserve: Set<Int32> = hostFd >= 0 ? [hostFd] : []
+            try App.applyCloseExecOnFDs(preserve: preserve)
+
             try App.setRLimits(rlimits: process.rlimits)
 
             // set uid, gid, and supplementary groups
@@ -120,9 +153,9 @@ struct ExecCommand: ParsableCommand {
             _ = try childPipe.fileHandleForReading.readToEnd()
             try childPipe.fileHandleForReading.close()
 
-            // send our child's pid to our parent before we exit.
-            var childPid = processID
-            let data = Data(bytes: &childPid, count: MemoryLayout.size(ofValue: childPid))
+            // send our child's pid and the host fd to our parent before we exit.
+            var payload = [Int32(processID), hostFd]
+            let data = Data(bytes: &payload, count: MemoryLayout<Int32>.size * 2)
 
             try syncfd.write(contentsOf: data)
             try syncfd.close()
