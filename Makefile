@@ -54,7 +54,7 @@ containerization:
 	@codesign --force --sign - --timestamp=none --entitlements=signing/vz.entitlements bin/containerization-integration
 
 .PHONY: init
-init: vminitd
+init: containerization vminitd
 	@echo Creating init.ext4...
 	@rm -f bin/init.rootfs.tar.gz bin/init.block
 	@./bin/cctl rootfs create --vminitd vminitd/bin/vminitd --labels org.opencontainers.image.source=https://github.com/apple/containerization --vmexec vminitd/bin/vmexec bin/init.rootfs.tar.gz vminit:latest

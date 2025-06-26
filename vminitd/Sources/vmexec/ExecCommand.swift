@@ -15,10 +15,7 @@
 //===----------------------------------------------------------------------===//
 
 import ArgumentParser
-import Containerization
-import ContainerizationError
 import ContainerizationOCI
-import ContainerizationOS
 import Foundation
 import LCShim
 import Logging
