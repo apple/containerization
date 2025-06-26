@@ -32,6 +32,7 @@ include Protobuf.Makefile
 .DEFAULT_GOAL := all
 
 .PHONY: all
+all: swift-build
 all: containerization
 all: init
 
