@@ -24,8 +24,12 @@ import LCShim
 import Logging
 import Musl
 
-#if canImport(Glibc)
+#if canImport(Musl)
+import Musl
+private let _ptsname = Musl.ptsname
+#elseif canImport(Glibc)
 import Glibc
+private let _ptsname = Glibc.ptsname
 #endif
 
 struct RunCommand: ParsableCommand {
@@ -46,10 +50,10 @@ struct RunCommand: ParsableCommand {
         try execInNamespace(spec: ociSpec, log: log)
     }
 
-    private func childRootSetup(rootfs: ContainerizationOCI.Root, mounts: [ContainerizationOCI.Mount], process: ContainerizationOCI.Process, log: Logger) throws {
+    private func childRootSetup(rootfs: ContainerizationOCI.Root, mounts: [ContainerizationOCI.Mount], log: Logger) throws {
         // setup rootfs
         try prepareRoot(rootfs: rootfs.path)
-        try mountRootfs(rootfs: rootfs.path, mounts: mounts, process: process)
+        try mountRootfs(rootfs: rootfs.path, mounts: mounts)
         try setDevSymlinks(rootfs: rootfs.path)
 
         try pivotRoot(rootfs: rootfs.path)
@@ -98,9 +102,10 @@ struct RunCommand: ParsableCommand {
                 throw App.Errno(stage: "setsid()")
             }
 
-            try childRootSetup(rootfs: root, mounts: spec.mounts, process: process, log: log)
+            try childRootSetup(rootfs: root, mounts: spec.mountsprocess, log: log)
 
             if process.terminal {
+                try containerMount.configureConsole(process: process)
                 var containerFd: Int32 = 0
                 var ws = winsize(ws_row: 40, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0)
                 guard openpty(&hostFd, &containerFd, nil, nil, &ws) == 0 else {
@@ -120,6 +125,10 @@ struct RunCommand: ParsableCommand {
 
                 guard ioctl(0, UInt(TIOCSCTTY), 0) != -1 else {
                     throw App.Errno(stage: "setctty()")
+                }
+
+                if let cPtr = _ptsname(containerFd) {
+                    try mountConsole(path: String(cString: cPtr))
                 }
             }
 
@@ -170,10 +179,9 @@ struct RunCommand: ParsableCommand {
         }
     }
 
-    private func mountRootfs(rootfs: String, mounts: [ContainerizationOCI.Mount], process: ContainerizationOCI.Process) throws {
+    private func mountRootfs(rootfs: String, mounts: [ContainerizationOCI.Mount]) throws {
         let containerMount = ContainerMount(rootfs: rootfs, mounts: mounts)
         try containerMount.mountToRootfs()
-        try containerMount.configureConsole(process: process)
     }
 
     private func prepareRoot(rootfs: String) throws {
@@ -287,5 +295,16 @@ struct RunCommand: ParsableCommand {
         let cStringCopy = UnsafeMutableBufferPointer<CChar>.allocate(capacity: cString.count)
         _ = cStringCopy.initialize(from: cString)
         return UnsafeMutablePointer(cStringCopy.baseAddress)
+    }
+
+    private func mountConsole(path: String) {
+        let console = "/dev/console"
+        if access(console, F_OK) != 0 {
+            let fd = open(console, O_RDWR | O_CREAT, mode_t(UInt16(0o600)))
+            if fd != -1 {
+                close(fd)
+            }
+        }
+        _ = mount(ptyPath, console, "", UInt(MS_BIND), nil)
     }
 }
