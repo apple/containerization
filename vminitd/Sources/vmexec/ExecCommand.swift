@@ -20,12 +20,13 @@ import ContainerizationError
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
-#if canImport(Glibc)
-import Glibc
-#endif
 import LCShim
 import Logging
 import Musl
+
+#if canImport(Glibc)
+import Glibc
+#endif
 
 struct ExecCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
