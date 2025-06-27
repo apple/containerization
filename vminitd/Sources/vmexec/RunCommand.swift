@@ -20,7 +20,9 @@ import ContainerizationError
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
+#if canImport(Glibc)
 import Glibc
+#endif
 import LCShim
 import Logging
 import Musl
