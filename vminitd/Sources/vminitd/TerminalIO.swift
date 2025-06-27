@@ -14,7 +14,6 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-import Containerization
 import ContainerizationOS
 import Foundation
 import Logging

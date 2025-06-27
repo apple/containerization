@@ -40,39 +40,33 @@ release: BUILD_CONFIGURATION = release
 release: all
 
 .PHONY: containerization
-containerization: bin/cctl bin/containerization-integration
-
-.PHONY: swift-build
-swift-build:
+containerization:
 	@echo Building containerization binaries...
+	@mkdir -p bin
 	@$(SWIFT) build -c $(BUILD_CONFIGURATION)
 
-$(BUILD_BIN_DIR)/cctl $(BUILD_BIN_DIR)/containerization-integration:
-	@"$(MAKE)" swift-build
+	@echo Copying containerization binaries...
+	@install $(BUILD_BIN_DIR)/cctl ./bin/
+	@install $(BUILD_BIN_DIR)/containerization-integration ./bin/
 
-bin/%: $(BUILD_BIN_DIR)/%
-	@mkdir -p bin/
-	@install $< bin/
-	@codesign --force --sign - --timestamp=none --entitlements=signing/vz.entitlements $@
+	@echo Signing containerization binaries...
+	@codesign --force --sign - --timestamp=none --entitlements=signing/vz.entitlements bin/cctl
+	@codesign --force --sign - --timestamp=none --entitlements=signing/vz.entitlements bin/containerization-integration
 
-init := bin/init.rootfs.tar.gz
 .PHONY: init
-init: $(init)
-
-$(init): vminitd/bin/vminitd vminitd/bin/vmexec bin/cctl
+init: containerization vminitd
 	@echo Creating init.ext4...
-	@rm -f $(init) bin/init.block
-	@./bin/cctl rootfs create --vminitd vminitd/bin/vminitd --labels org.opencontainers.image.source=https://github.com/apple/containerization --vmexec vminitd/bin/vmexec $(init) vminit:latest
+	@rm -f bin/init.rootfs.tar.gz bin/init.block
+	@./bin/cctl rootfs create --vminitd vminitd/bin/vminitd --labels org.opencontainers.image.source=https://github.com/apple/containerization --vmexec vminitd/bin/vmexec bin/init.rootfs.tar.gz vminit:latest
 
 .PHONY: cross-prep
 cross-prep:
 	@"$(MAKE)" -C vminitd cross-prep
 
 .PHONY: vminitd
-vminitd: vminitd/bin/vminitd vminitd/bin/vmexec
-
-vminitd/bin/%:
-	@"$(MAKE)" -C vminitd BUILD_CONFIGURATION=$(BUILD_CONFIGURATION) bin/$*
+vminitd:
+	@mkdir -p ./bin
+	@"$(MAKE)" -C vminitd BUILD_CONFIGURATION=$(BUILD_CONFIGURATION)
 
 .PHONY: update-libarchive-source
 update-libarchive-source:
@@ -94,10 +88,6 @@ ifeq (,$(wildcard bin/vmlinux))
 	@echo No bin/vmlinux kernel found. See fetch-default-kernel target.
 	@exit 1
 endif
-	@"$(MAKE)" integration-kernel-checked
-
-.PHONY: integration-kernel-checked
-integration-kernel-checked: $(init) bin/containerization-integration
 	@echo Running the integration tests...
 	@./bin/containerization-integration --bootlog ./bin/boot.log
 

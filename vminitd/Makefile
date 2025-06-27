@@ -15,8 +15,8 @@
 BUILD_CONFIGURATION := debug
 SWIFT_CONFIGURATION := --swift-sdk aarch64-swift-linux-musl
 
-SWIFT_VERSION = 6.2-snapshot
-SWIFT_SDK_URL = https://download.swift.org/swift-6.2-branch/static-sdk/swift-6.2-DEVELOPMENT-SNAPSHOT-2025-06-17-a/swift-6.2-DEVELOPMENT-SNAPSHOT-2025-06-17-a_static-linux-0.0.1.artifactbundle.tar.gz
+SWIFT_VERSION = 6.2-snapshot-2025-06-25
+SWIFT_SDK_URL = https://download.swift.org/swift-6.2-branch/static-sdk/swift-6.2-DEVELOPMENT-SNAPSHOT-2025-06-25-a/swift-6.2-DEVELOPMENT-SNAPSHOT-2025-06-25-a_static-linux-0.0.1.artifactbundle.tar.gz
 SWIFT_SDK_PATH = /tmp/$(notdir $(SWIFT_SDK_URL))
 
 SWIFTLY_URL := https://download.swift.org/swiftly/darwin/swiftly.pkg
@@ -31,20 +31,14 @@ MACOS_RELEASE_TYPE := $(shell sw_vers | grep ReleaseType)
 .DEFAULT_GOAL := all
 
 .PHONY: all
-all: bin/vminitd bin/vmexec
-
-.PHONY: swift-build
-swift-build:
+all: 
 	@echo Building vminitd and vmexec...
+	@mkdir -p ./bin/
+	@rm -f ./bin/vminitd
+	@rm -f ./bin/vmexec
 	@swift build -c $(BUILD_CONFIGURATION) $(SWIFT_CONFIGURATION)
-
-$(VMINITD_BIN_PATH)/vminitd $(VMINITD_BIN_PATH)/vmexec:
-	@$(MAKE) swift-build
-
-bin/%: $(VMINITD_BIN_PATH)/%
-	@mkdir -p bin/
-	@rm -f $@
-	@install $< bin/
+	@install $(VMINITD_BIN_PATH)/vminitd ./bin/vminitd
+	@install $(VMINITD_BIN_PATH)/vmexec ./bin/vmexec
 
 .PHONY: cross-prep
 cross-prep: linux-sdk macos-sdk

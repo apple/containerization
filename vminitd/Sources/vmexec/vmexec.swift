@@ -20,10 +20,8 @@
 /// and mount namespace.
 
 import ArgumentParser
-import Containerization
 import ContainerizationError
 import ContainerizationOCI
-import ContainerizationOS
 import Foundation
 import LCShim
 import Logging
@@ -103,6 +101,24 @@ extension App {
         // and supplementary groups
         guard setuid(user.uid) == 0 else {
             throw App.Errno(stage: "setuid()")
+        }
+    }
+
+    static func fixStdioPerms(user: ContainerizationOCI.User) throws {
+        for i in 0...2 {
+            var fdStat = stat()
+            try withUnsafeMutablePointer(to: &fdStat) { pointer in
+                guard fstat(Int32(i), pointer) == 0 else {
+                    throw App.Errno(stage: "fstat(fd)")
+                }
+            }
+
+            let desired = uid_t(user.uid)
+            if fdStat.st_uid != desired {
+                guard fchown(Int32(i), desired, fdStat.st_gid) != -1 else {
+                    throw App.Errno(stage: "fchown(\(i))")
+                }
+            }
         }
     }
 
