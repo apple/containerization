@@ -98,7 +98,7 @@ struct RunCommand: ParsableCommand {
                 throw App.Errno(stage: "setsid()")
             }
 
-            try childRootSetup(rootfs: root, mounts: spec.mounts, log: log, process: process)
+            try childRootSetup(rootfs: root, mounts: spec.mounts, process: process, log: log)
 
             if process.terminal {
                 var containerFd: Int32 = 0
