@@ -129,6 +129,10 @@ struct ExecCommand: ParsableCommand {
             try childPipe.fileHandleForWriting.write(contentsOf: fdData)
             try childPipe.fileHandleForWriting.close()
 
+            var ackBuf: UInt8 = 0
+            _ = read(4, &ackBuf, 1)
+            _ = close(4)
+
             // Apply O_CLOEXEC to all file descriptors except stdio.
             // This ensures that all unwanted fds we may have accidentally
             // inherited are marked close-on-exec so they stay out of the

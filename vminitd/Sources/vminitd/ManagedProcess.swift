@@ -31,6 +31,7 @@ final class ManagedProcess: Sendable {
     private let lock: Mutex<State>
     private let syncfd: Pipe
     private let owningPid: Int32?
+    private let fdAck: FileHandle
 
     private struct State {
         init(io: IO) {
@@ -80,6 +81,10 @@ final class ManagedProcess: Sendable {
         try syncfd.setCloexec()
         self.syncfd = syncfd
 
+        let ackPipe = Pipe()
+        try ackPipe.setCloexec()
+        self.ack = ackPipe.fileHandleForWriting
+
         let args: [String]
         if let owningPid {
             args = [
@@ -96,7 +101,7 @@ final class ManagedProcess: Sendable {
         var process = Command(
             "/sbin/vmexec",
             arguments: args,
-            extraFiles: [syncfd.fileHandleForWriting]
+            extraFiles: [syncfd.fileHandleForWriting, ackPipe.fileHandleForReading]
         )
 
         var io: IO
@@ -170,6 +175,9 @@ extension ManagedProcess {
                 metadata: [
                     "pid": "\(i)"
                 ])
+
+            try self.ack.write(contentsOf: Data([0]))
+            try self.ack.close()
 
             return i
         }
