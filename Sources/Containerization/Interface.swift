@@ -16,7 +16,13 @@
 
 /// A network interface.
 public protocol Interface: Sendable {
+    /// The interface IPv4 address and subnet prefix length, as a CIDR address.
+    /// Example: `192.168.64.3/24`
     var address: String { get }
-    var gateway: String { get }
+
+    /// The IP address for the default route, or nil for no default route.
+    var gateway: String? { get }
+
+    /// The interface MAC address, or nil to auto-configure the address.
     var macAddress: String? { get }
 }

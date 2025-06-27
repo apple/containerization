@@ -16,10 +16,10 @@
 
 public struct NATInterface: Interface {
     public var address: String
-    public var gateway: String
+    public var gateway: String?
     public var macAddress: String?
 
-    public init(address: String, gateway: String, macAddress: String? = nil) {
+    public init(address: String, gateway: String?, macAddress: String? = nil) {
         self.address = address
         self.gateway = gateway
         self.macAddress = macAddress

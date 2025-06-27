@@ -32,7 +32,7 @@ public final class NATNetworkInterface: Interface, Sendable {
 
     }
 
-    public var gateway: String {
+    public var gateway: String? {
         get { state.gateway }
         set { state.gateway = newValue }
     }
@@ -49,7 +49,7 @@ public final class NATNetworkInterface: Interface, Sendable {
 
     private struct State {
         fileprivate var address: String
-        fileprivate var gateway: String
+        fileprivate var gateway: String?
         fileprivate var reference: vmnet_network_ref!
         fileprivate var macAddress: String?
     }
@@ -60,7 +60,7 @@ public final class NATNetworkInterface: Interface, Sendable {
     @available(macOS 26, *)
     public init(
         address: String,
-        gateway: String,
+        gateway: String?,
         reference: sending vmnet_network_ref,
         macAddress: String? = nil
     ) {
@@ -75,7 +75,7 @@ public final class NATNetworkInterface: Interface, Sendable {
     @available(macOS, obsoleted: 26, message: "Use init(address:gateway:reference:macAddress:) instead")
     public init(
         address: String,
-        gateway: String,
+        gateway: String?,
         macAddress: String? = nil
     ) {
         self.state = .init(
