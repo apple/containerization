@@ -98,6 +98,13 @@ extension Application {
 
             @Option(name: .customLong("platform"), help: "Platform string in the form 'os/arch/variant'. Example 'linux/arm64/v8', 'linux/amd64'") var platformString: String?
 
+            @Option(
+                name: .customLong("unpack-path"), help: "Path to a new directory to unpack the image into",
+                transform: { str in
+                    URL(fileURLWithPath: str, relativeTo: .currentDirectory()).absoluteURL.path(percentEncoded: false)
+                })
+            var unpackPath: String?
+
             @Flag(help: "Pull via plain text http") var http: Bool = false
 
             func run() async throws {
@@ -126,11 +133,20 @@ extension Application {
                 }
 
                 print("image pulled")
+                guard let unpackPath else {
+                    return
+                }
+                guard !FileManager.default.fileExists(atPath: unpackPath) else {
+                    throw ContainerizationError(.exists, message: "Directory already exists at \(unpackPath)")
+                }
+                let unpackUrl = URL(filePath: unpackPath)
+                try FileManager.default.createDirectory(at: unpackUrl, withIntermediateDirectories: true)
 
-                let tempDir = FileManager.default.uniqueTemporaryDirectory(create: true)
+                let unpacker = EXT4Unpacker.init(blockSizeInBytes: 2.gib())
+
                 if let platform {
                     let name = platform.description.replacingOccurrences(of: "/", with: "-")
-                    let _ = try await image.unpack(for: platform, at: tempDir.appending(component: name))
+                    let _ = try await unpacker.unpack(image, for: platform, at: unpackUrl.appending(component: name))
                 } else {
                     for descriptor in try await image.index().manifests {
                         if let referenceType = descriptor.annotations?["vnd.docker.reference.type"], referenceType == "attestation-manifest" {
@@ -140,11 +156,10 @@ extension Application {
                             continue
                         }
                         let name = descPlatform.description.replacingOccurrences(of: "/", with: "-")
-                        let _ = try await image.unpack(for: descPlatform, at: tempDir.appending(component: name))
+                        let _ = try await unpacker.unpack(image, for: descPlatform, at: unpackUrl.appending(component: name))
                         print("created snapshot for platform \(descPlatform.description)")
                     }
                 }
-                try? FileManager.default.removeItem(at: tempDir)
             }
         }
 
