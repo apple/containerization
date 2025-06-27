@@ -153,7 +153,7 @@ extension ManagedProcess {
 
             var fd: Int32 = -1
             if piddata.count >= MemoryLayout<Int32>.size * 2 {
-                fd = piddata.withUnsafeBytes { ptr in 
+                fd = piddata.withUnsafeBytes { ptr in
                     ptr.load(fromByteOffset: MemoryLayout<Int32>.size, as: Int32.self)
                 }
             }

@@ -20,10 +20,10 @@ import ContainerizationError
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
+import Glibc
 import LCShim
 import Logging
 import Musl
-import Glibc
 
 struct RunCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
