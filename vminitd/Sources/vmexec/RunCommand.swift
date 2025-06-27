@@ -102,10 +102,11 @@ struct RunCommand: ParsableCommand {
                 throw App.Errno(stage: "setsid()")
             }
 
-            try childRootSetup(rootfs: root, mounts: spec.mountsprocess, log: log)
+            try childRootSetup(rootfs: root, mounts: spec.mounts, log: log)
 
             if process.terminal {
-                try containerMount.configureConsole(process: process)
+                let containerMount = ContainerMount(rootfs: root, mounts: mounts)
+                try process.configureConsole(process: process)
                 var containerFd: Int32 = 0
                 var ws = winsize(ws_row: 40, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0)
                 guard openpty(&hostFd, &containerFd, nil, nil, &ws) == 0 else {
@@ -305,6 +306,6 @@ struct RunCommand: ParsableCommand {
                 close(fd)
             }
         }
-        _ = mount(ptyPath, console, "", UInt(MS_BIND), nil)
+        _ = mount(path, console, "", UInt(MS_BIND), nil)
     }
 }
