@@ -82,6 +82,7 @@ struct ExecCommand: ParsableCommand {
 
         let childPipe = Pipe()
         try childPipe.setCloexec()
+        var hostFd: Int32 = -1
         let processID = fork()
 
         guard processID != -1 else {
@@ -99,8 +100,6 @@ struct ExecCommand: ParsableCommand {
             guard setsid() != -1 else {
                 throw App.Errno(stage: "setsid()")
             }
-
-            var hostFd: Int32 = -1
 
             if process.terminal {
                 var containerFd: Int32 = 0

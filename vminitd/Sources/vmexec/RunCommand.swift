@@ -75,6 +75,7 @@ struct RunCommand: ParsableCommand {
 
         let childPipe = Pipe()
         try childPipe.setCloexec()
+        var hostFd: Int32 = -1
         let processID = fork()
 
         guard processID != -1 else {
@@ -98,8 +99,6 @@ struct RunCommand: ParsableCommand {
             }
 
             try childRootSetup(rootfs: root, mounts: spec.mounts, log: log, process: process)
-
-            var hostFd: Int32 = -1
 
             if process.terminal {
                 var containerFd: Int32 = 0
@@ -176,7 +175,7 @@ struct RunCommand: ParsableCommand {
     private func mountRootfs(rootfs: String, mounts: [ContainerizationOCI.Mount], process: ContainerizationOCI.Process) throws {
         let containerMount = ContainerMount(rootfs: rootfs, mounts: mounts)
         try containerMount.mountToRootfs()
-        try containerMount.configureConsole(process)
+        try containerMount.configureConsole(process: process)
     }
 
     private func prepareRoot(rootfs: String) throws {

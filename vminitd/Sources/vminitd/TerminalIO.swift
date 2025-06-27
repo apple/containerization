@@ -25,6 +25,7 @@ import Glibc
 #endif
 
 final class TerminalIO: ManagedProcess.IO & Sendable {
+    @SendableProperty
     private var parent: Terminal? = nil
     private let log: Logger?
 
