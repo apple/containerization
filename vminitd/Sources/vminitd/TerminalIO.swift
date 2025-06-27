@@ -19,9 +19,12 @@ import ContainerizationOS
 import Foundation
 import Logging
 import SendableProperty
-
-#if canImport(Glibc)
+#if canImport(Musl)
+import Musl
+private let _syscall = Musl.syscall
+#elseif canImport(Glibc)
 import Glibc
+private let _syscall = Glibc.syscall
 #endif
 
 final class TerminalIO: ManagedProcess.IO & Sendable {
@@ -57,13 +60,13 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
     func start() throws {}
 
     func attach(pid: Int32, fd: Int32) throws {
-        #if os(linux)
-        let containerFd = Glibc.syscall(Int(SYS_pidfd_open), pid, 0)
+        #if os(Linux)
+        let containerFd = _syscall(Int(SYS_pidfd_open), pid, 0)
         guard containerFd != -1 else {
             throw POSIXError.fromErrno()
         }
 
-        let hostFd = Glibc.syscall(Int(SYS_pidfd_getfd), containerFd, fd, 0)
+        let hostFd = _syscall(Int(SYS_pidfd_getfd), containerFd, fd, 0)
         guard Foundation.close(Int32(containerFd)) == 0 else {
             self.log?.error("failed to close pidfd: \(POSIXError.fromErrno())")
         }
