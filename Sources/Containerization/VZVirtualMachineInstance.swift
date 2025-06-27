@@ -23,8 +23,7 @@ import Logging
 import NIOCore
 import NIOPosix
 import Synchronization
-
-@preconcurrency import Virtualization
+import Virtualization
 
 struct VZVirtualMachineInstance: VirtualMachineInstance, Sendable {
     typealias Agent = Vminitd
