@@ -141,12 +141,6 @@ struct ExecCommand: ParsableCommand {
             // set uid, gid, and supplementary groups
             try App.setPermissions(user: process.user)
 
-            if process.terminal {
-                guard ioctl(0, UInt(TIOCSCTTY), 0) != -1 else {
-                    throw App.Errno(stage: "setctty()")
-                }
-            }
-
             try App.exec(process: process)
         } else {  // parent process
             try childPipe.fileHandleForWriting.close()
