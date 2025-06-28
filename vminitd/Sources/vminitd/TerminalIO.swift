@@ -23,9 +23,9 @@ import SendableProperty
 #if canImport(Musl)
 import Musl
 private let _syscall = Musl.syscall
-#elseif canImport(Glibc)
-import Glibc
-private let _syscall = Glibc.syscall
+#elseif canImport(Darwin)
+import Darwin
+private let _syscall = Darwin.syscall
 #endif
 
 final class TerminalIO: ManagedProcess.IO & Sendable {
