@@ -105,7 +105,7 @@ struct RunCommand: ParsableCommand {
             try childRootSetup(rootfs: root, mounts: spec.mounts, log: log)
 
             if process.terminal {
-                let containerMount = ContainerMount(rootfs: root, mounts: spec.mounts)
+                let containerMount = ContainerMount(rootfs: root.path, mounts: spec.mounts)
                 try containerMount.configureConsole()
                 var containerFd: Int32 = 0
                 var ws = winsize(ws_row: 40, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0)
