@@ -32,6 +32,7 @@ final class ManagedProcess: Sendable {
     private let syncfd: Pipe
     private let owningPid: Int32?
     private let ack: FileHandle
+    private let terminal: Bool
 
     private struct State {
         init(io: IO) {
@@ -54,6 +55,7 @@ final class ManagedProcess: Sendable {
     // swiftlint: disable type_name
     protocol IO {
         func start() throws
+        func attach(pid: Int32, fd: Int32) throws
         func closeAfterExec() throws
         func resize(size: Terminal.Size) throws
         func close() throws
@@ -76,6 +78,7 @@ final class ManagedProcess: Sendable {
         Self.localizeLogger(log: &log, id: id)
         self.log = log
         self.owningPid = owningPid
+        self.terminal = stdio.terminal
 
         let syncfd = Pipe()
         try syncfd.setCloexec()
@@ -133,7 +136,9 @@ extension ManagedProcess {
         try self.lock.withLock {
             log.debug("starting managed process")
 
-            try $0.io.start()
+            if !self.terminal {
+                try $0.io.start()
+            }
 
             // Start the underlying process.
             try process.start()
@@ -164,7 +169,10 @@ extension ManagedProcess {
             log.info("got back pid data \(i), fd \(fd)")
             $0.pid = i
 
-            if let terminalIO = $0.io as? TerminalIO, fd != -1 {
+            if self.terminal {
+                guard fd != -1 else {
+                    throw ContainerizationError(.internalError, message: "vmexec did not return pty fd")
+                }
                 try terminalIO.attach(pid: i, fd: fd)
             }
 
