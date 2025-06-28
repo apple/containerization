@@ -133,9 +133,7 @@ extension ManagedProcess {
         try self.lock.withLock {
             log.debug("starting managed process")
 
-            if !($0.io is TerminalIO) {
-                try $0.io.start()
-            }
+            try $0.io.start()
 
             // Start the underlying process.
             try process.start()
