@@ -51,9 +51,9 @@ struct App: ParsableCommand {
 }
 
 extension App {
-    /// Applies O_CLOEXEC to all file descriptors currently open for the
-    /// process except the stdio fd values and those in the preserve set
-    static func applyCloseExecOnFDs(preserve: Set<Int32> = []) throws {
+    /// Applies O_CLOEXEC to all file descriptors currently open for
+    /// the process except the stdio fd values
+    static func applyCloseExecOnFDs() throws {
         let minFD = 2  // stdin, stdout, stderr should be preserved
 
         let fdList = try FileManager.default.contentsOfDirectory(atPath: "/proc/self/fd")
@@ -63,9 +63,6 @@ extension App {
                 continue
             }
             if fd <= minFD {
-                continue
-            }
-            if preserve.contains(Int32(fd)) {
                 continue
             }
 

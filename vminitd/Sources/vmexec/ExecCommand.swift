@@ -131,14 +131,14 @@ struct ExecCommand: ParsableCommand {
 
             var ackBuf: UInt8 = 0
             _ = read(4, &ackBuf, 1)
-            _ = close(4)
+            close(4)
+            close(hostFd)
 
             // Apply O_CLOEXEC to all file descriptors except stdio.
             // This ensures that all unwanted fds we may have accidentally
             // inherited are marked close-on-exec so they stay out of the
             // container.
-            let preserve: Set<Int32> = hostFd >= 0 ? [hostFd] : []
-            try App.applyCloseExecOnFDs(preserve: preserve)
+            try App.applyCloseExecOnFDs()
 
             try App.setRLimits(rlimits: process.rlimits)
 
