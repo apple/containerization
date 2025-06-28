@@ -31,7 +31,7 @@ final class ManagedProcess: Sendable {
     private let lock: Mutex<State>
     private let syncfd: Pipe
     private let owningPid: Int32?
-    private let fdAck: FileHandle
+    private let ack: FileHandle
 
     private struct State {
         init(io: IO) {
