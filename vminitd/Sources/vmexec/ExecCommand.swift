@@ -125,7 +125,7 @@ struct ExecCommand: ParsableCommand {
             }
 
             var fdCopy = hostFd
-            var fdData = Data(bytes: &fdCopy, count: MemoryLayout.size(ofValue: fdCopy))
+            let fdData = Data(bytes: &fdCopy, count: MemoryLayout.size(ofValue: fdCopy))
             try childPipe.fileHandleForWriting.write(contentsOf: fdData)
             try childPipe.fileHandleForWriting.close()
 
