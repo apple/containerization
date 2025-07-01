@@ -125,7 +125,7 @@ struct RunCommand: ParsableCommand {
                 }
 
                 if let cPtr = _ptsname(hostFd) {
-                    mountConsole(path: String(cString: cPtr))
+                    try mountConsole(path: String(cString: cPtr))
                 }
             }
 
@@ -297,14 +297,17 @@ struct RunCommand: ParsableCommand {
         return UnsafeMutablePointer(cStringCopy.baseAddress)
     }
 
-    private func mountConsole(path: String) {
+    private func mountConsole(path: String) throws {
         let console = "/dev/console"
         if access(console, F_OK) != 0 {
             let fd = open(console, O_RDWR | O_CREAT, mode_t(UInt16(0o600)))
-            if fd != -1 {
-                close(fd)
+            guard fd != -1 else {
+                throw App.Errno(stage: "open(/dev/console)")
             }
+            close(fd)
         }
-        _ = mount(path, console, "", UInt(MS_BIND), nil)
+        guard mount(path, console, "", UInt(MS_BIND), nil) == 0 else {
+            throw App.Errno(stage: "mount(console)")
+        }
     }
 }
