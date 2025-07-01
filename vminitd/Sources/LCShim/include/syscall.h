@@ -14,14 +14,25 @@
  * limitations under the License.
  */
 
-#include <sys/prctl.h>
-#include <sys/syscall.h>
-#include <unistd.h>
+#ifndef __SYSCALL_H
+#define __SYSCALL_H
 
-#include "syscall2.h"
+#include <sys/types.h>
 
-int syscall2(long number, void *arg1, void *arg2) {
-  return syscall(number, arg1, arg2);
-}
+int CZ_pivot_root(const char *new_root, const char *put_old);
 
-int set_sub_reaper() { return prctl(PR_SET_CHILD_SUBREAPER, 1); }
+int CZ_set_sub_reaper();
+
+#ifndef SYS_pidfd_open
+#define SYS_pidfd_open 434
+#endif
+
+int CZ_pidfd_open(pid_t pid, unsigned int flags);
+
+#ifndef SYS_pidfd_getfd
+#define SYS_pidfd_getfd 438
+#endif
+
+int CZ_pidfd_getfd(int pidfd, int targetfd, unsigned int flags);
+
+#endif

@@ -228,7 +228,7 @@ struct RunCommand: ParsableCommand {
         guard fchdir(newRoot) == 0 else {
             throw App.Errno(stage: "fchdir(newroot)")
         }
-        guard syscall2(Int(SYS_pivot_root), toCString("."), toCString(".")) == 0 else {
+        guard CZ_pivot_root(toCString("."), toCString(".")) == 0 else {
             throw App.Errno(stage: "pivot_root()")
         }
         // change cwd to the old root

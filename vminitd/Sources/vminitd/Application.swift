@@ -88,7 +88,7 @@ struct Application {
         // since we are not running as pid1 in this mode we must set ourselves
         // as a subpreaper so that all child processes are reaped by us and not
         // passed onto our parent.
-        set_sub_reaper()
+        CZ_set_sub_reaper()
         #endif
 
         signal(SIGPIPE, SIG_IGN)
