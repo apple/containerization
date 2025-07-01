@@ -120,6 +120,9 @@ final class StandardIO: ManagedProcess.IO & Sendable {
     }
 
     // NOP
+    func attach(pid: Int32, fd: Int32) throws {}
+
+    // NOP
     func resize(size: Terminal.Size) throws {}
 
     func relay(readFromFd: Int32, writeToFd: Int32) throws {

@@ -21,6 +21,14 @@ import LCShim
 import Logging
 import Musl
 
+#if canImport(Musl)
+import Musl
+private let _ptsname = Musl.ptsname
+#elseif canImport(Glibc)
+import Glibc
+private let _ptsname = Glibc.ptsname
+#endif
+
 struct RunCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "run",
@@ -68,6 +76,7 @@ struct RunCommand: ParsableCommand {
 
         let childPipe = Pipe()
         try childPipe.setCloexec()
+        var hostFd: Int32 = -1
         let processID = fork()
 
         guard processID != -1 else {
@@ -92,6 +101,35 @@ struct RunCommand: ParsableCommand {
 
             try childRootSetup(rootfs: root, mounts: spec.mounts, log: log)
 
+            if process.terminal {
+                let containerMount = ContainerMount(rootfs: root.path, mounts: spec.mounts)
+                try containerMount.configureConsole()
+                var containerFd: Int32 = 0
+                var ws = winsize(ws_row: 40, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0)
+                guard openpty(&hostFd, &containerFd, nil, nil, &ws) == 0 else {
+                    throw App.Errno(stage: "openpty()")
+                }
+
+                guard dup3(containerFd, 0, 0) != -1 else {
+                    throw App.Errno(stage: "dup3(slave->stdin)")
+                }
+                guard dup3(containerFd, 1, 0) != -1 else {
+                    throw App.Errno(stage: "dup3(slave->stdout)")
+                }
+                guard dup3(containerFd, 2, 0) != -1 else {
+                    throw App.Errno(stage: "dup3(slave->stderr)")
+                }
+                _ = close(containerFd)
+
+                guard ioctl(0, UInt(TIOCSCTTY), 0) != -1 else {
+                    throw App.Errno(stage: "setctty()")
+                }
+
+                if let cPtr = _ptsname(hostFd) {
+                    mountConsole(path: String(cString: cPtr))
+                }
+            }
+
             if !spec.hostname.isEmpty {
                 let errCode = spec.hostname.withCString { ptr in
                     Musl.sethostname(ptr, spec.hostname.count)
@@ -100,6 +138,16 @@ struct RunCommand: ParsableCommand {
                     throw App.Errno(stage: "sethostname()")
                 }
             }
+
+            var fdCopy = hostFd
+            var fdData = Data(bytes: &fdCopy, count: MemoryLayout.size(ofValue: fdCopy))
+            try childPipe.fileHandleForWriting.write(contentsOf: fdData)
+            try childPipe.fileHandleForWriting.close()
+
+            var ackBuf: UInt8 = 0
+            _ = read(4, &ackBuf, 1)
+            close(4)
+            close(hostFd)
 
             // Apply O_CLOEXEC to all file descriptors except stdio.
             // This ensures that all unwanted fds we may have accidentally
@@ -115,12 +163,6 @@ struct RunCommand: ParsableCommand {
             // Set uid, gid, and supplementary groups.
             try App.setPermissions(user: process.user)
 
-            if process.terminal {
-                guard ioctl(0, UInt(TIOCSCTTY), 0) != -1 else {
-                    throw App.Errno(stage: "setctty()")
-                }
-            }
-
             try App.exec(process: process)
         } else {  // parent process
             try childPipe.fileHandleForWriting.close()
@@ -129,9 +171,9 @@ struct RunCommand: ParsableCommand {
             _ = try childPipe.fileHandleForReading.readToEnd()
             try childPipe.fileHandleForReading.close()
 
-            // send our child's pid to our parent before we exit.
-            var childPid = processID
-            let data = Data(bytes: &childPid, count: MemoryLayout.size(ofValue: childPid))
+            // send our child's pid and the host fd to our parent before we exit.
+            var payload = [Int32(processID), hostFd]
+            let data = Data(bytes: &payload, count: MemoryLayout<Int32>.size * 2)
 
             try syncfd.write(contentsOf: data)
             try syncfd.close()
@@ -141,7 +183,6 @@ struct RunCommand: ParsableCommand {
     private func mountRootfs(rootfs: String, mounts: [ContainerizationOCI.Mount]) throws {
         let containerMount = ContainerMount(rootfs: rootfs, mounts: mounts)
         try containerMount.mountToRootfs()
-        try containerMount.configureConsole()
     }
 
     private func prepareRoot(rootfs: String) throws {
@@ -255,5 +296,16 @@ struct RunCommand: ParsableCommand {
         let cStringCopy = UnsafeMutableBufferPointer<CChar>.allocate(capacity: cString.count)
         _ = cStringCopy.initialize(from: cString)
         return UnsafeMutablePointer(cStringCopy.baseAddress)
+    }
+
+    private func mountConsole(path: String) {
+        let console = "/dev/console"
+        if access(console, F_OK) != 0 {
+            let fd = open(console, O_RDWR | O_CREAT, mode_t(UInt16(0o600)))
+            if fd != -1 {
+                close(fd)
+            }
+        }
+        _ = mount(path, console, "", UInt(MS_BIND), nil)
     }
 }

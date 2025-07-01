@@ -31,6 +31,8 @@ final class ManagedProcess: Sendable {
     private let lock: Mutex<State>
     private let syncfd: Pipe
     private let owningPid: Int32?
+    private let ack: FileHandle
+    private let terminal: Bool
 
     private struct State {
         init(io: IO) {
@@ -53,6 +55,7 @@ final class ManagedProcess: Sendable {
     // swiftlint: disable type_name
     protocol IO {
         func start() throws
+        func attach(pid: Int32, fd: Int32) throws
         func closeAfterExec() throws
         func resize(size: Terminal.Size) throws
         func close() throws
@@ -75,10 +78,15 @@ final class ManagedProcess: Sendable {
         Self.localizeLogger(log: &log, id: id)
         self.log = log
         self.owningPid = owningPid
+        self.terminal = stdio.terminal
 
         let syncfd = Pipe()
         try syncfd.setCloexec()
         self.syncfd = syncfd
+
+        let ackPipe = Pipe()
+        try ackPipe.setCloexec()
+        self.ack = ackPipe.fileHandleForWriting
 
         let args: [String]
         if let owningPid {
@@ -96,7 +104,7 @@ final class ManagedProcess: Sendable {
         var process = Command(
             "/sbin/vmexec",
             arguments: args,
-            extraFiles: [syncfd.fileHandleForWriting]
+            extraFiles: [syncfd.fileHandleForWriting, ackPipe.fileHandleForReading]
         )
 
         var io: IO
@@ -118,11 +126,6 @@ final class ManagedProcess: Sendable {
             )
         }
 
-        log.info("starting io")
-
-        // Setup IO early. We expect the host to be listening already.
-        try io.start()
-
         self.process = process
         self.lock = Mutex(State(io: io))
     }
@@ -137,6 +140,10 @@ extension ManagedProcess {
                     "id": "\(id)"
                 ])
 
+            if !self.terminal {
+                try $0.io.start()
+            }
+
             // Start the underlying process.
             try process.start()
 
@@ -148,12 +155,30 @@ extension ManagedProcess {
                 throw ContainerizationError(.internalError, message: "no pid data from sync pipe")
             }
 
+            guard piddata.count >= MemoryLayout<Int32>.size else {
+                throw ContainerizationError(.internalError, message: "invalid payload")
+            }
+
             let i = piddata.withUnsafeBytes { ptr in
                 ptr.load(as: Int32.self)
             }
 
-            log.info("got back pid data \(i)")
+            var fd: Int32 = -1
+            if piddata.count >= MemoryLayout<Int32>.size * 2 {
+                fd = piddata.withUnsafeBytes { ptr in
+                    ptr.load(fromByteOffset: MemoryLayout<Int32>.size, as: Int32.self)
+                }
+            }
+
+            log.info("got back pid data \(i), fd \(fd)")
             $0.pid = i
+
+            if self.terminal {
+                guard fd != -1 else {
+                    throw ContainerizationError(.internalError, message: "vmexec did not return pty fd")
+                }
+                try self.terminal.attach(pid: i, fd: fd)
+            }
 
             log.debug(
                 "started managed process",
@@ -161,6 +186,9 @@ extension ManagedProcess {
                     "pid": "\(i)",
                     "id": "\(id)",
                 ])
+
+            try self.ack.write(contentsOf: Data([0]))
+            try self.ack.close()
 
             return i
         }
