@@ -16,6 +16,7 @@
 
 import ContainerizationOS
 import Foundation
+import LCShim
 import Logging
 import SendableProperty
 
