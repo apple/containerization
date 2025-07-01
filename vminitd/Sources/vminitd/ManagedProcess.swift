@@ -177,7 +177,7 @@ extension ManagedProcess {
                 guard fd != -1 else {
                     throw ContainerizationError(.internalError, message: "vmexec did not return pty fd")
                 }
-                try self.terminal.attach(pid: i, fd: fd)
+                try $0.io.attach(pid: i, fd: fd)
             }
 
             log.debug(
