@@ -19,7 +19,6 @@ import ContainerizationOCI
 import Foundation
 import LCShim
 import Logging
-import Musl
 
 #if canImport(Musl)
 import Musl
