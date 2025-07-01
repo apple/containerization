@@ -61,8 +61,7 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
 
         let hostFd = CZ_pidfd_getfd(containerFd, fd, 0)
         guard Foundation.close(Int32(containerFd)) == 0 else {
-            self.log?.error("failed to close pidfd: \(POSIXError.fromErrno())")
-            return
+            throw POSIXError.fromErrno()
         }
 
         guard hostFd != -1 else {
