@@ -69,7 +69,8 @@ final class ImageStoreImagePullTests {
             (nil, imagePullTestAllLayers),
         ])
     func testPullSinglePlatform(platform: Platform?, expectLayers: [String]) async throws {
-        let img = try await self.store.pull(reference: "ghcr.io/linuxcontainers/alpine:3.20@sha256:0a6a86d44d7f93c4f2b8dea7f0eee64e72cb98635398779f3610949632508d57", platform: platform)
+        let img = try await self.store.pull(
+            reference: "ghcr.io/linuxcontainers/alpine:3.20@sha256:0a6a86d44d7f93c4f2b8dea7f0eee64e72cb98635398779f3610949632508d57", platform: platform)
         let rootDescriptor = img.descriptor
         let index: ContainerizationOCI.Index = try await contentStore.get(digest: rootDescriptor.digest)!
         var foundMatch = false
