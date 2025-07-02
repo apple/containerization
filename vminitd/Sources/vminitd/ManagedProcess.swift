@@ -131,7 +131,7 @@ final class ManagedProcess: Sendable {
 extension ManagedProcess {
     func start() throws -> Int32 {
         try self.lock.withLock {
-            log.debug(
+            log.info(
                 "starting managed process",
                 metadata: [
                     "id": "\(id)"
@@ -155,7 +155,7 @@ extension ManagedProcess {
             log.info("got back pid data \(i)")
             $0.pid = i
 
-            log.debug(
+            log.info(
                 "started managed process",
                 metadata: [
                     "pid": "\(i)",
@@ -168,7 +168,7 @@ extension ManagedProcess {
 
     func setExit(_ status: Int32) {
         self.lock.withLock {
-            self.log.debug(
+            self.log.info(
                 "managed process exit",
                 metadata: [
                     "status": "\(status)"
