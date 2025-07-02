@@ -52,16 +52,20 @@ final class VsockProxy: Sendable {
     private let action: Action
     private let port: UInt32
     private let udsPerms: UInt32?
-    @SendableProperty
-    private var listener: Socket?
     private let log: Logger?
+
     @SendableProperty
-    private var t: Task<(), Never>?
+    private var state = State()
+
+    private struct State {
+        var listener: Socket?
+        var task: Task<(), Never>?
+    }
 }
 
 extension VsockProxy {
     func close() throws {
-        guard let listener else {
+        guard let listener = state.listener else {
             return
         }
 
@@ -70,7 +74,7 @@ extension VsockProxy {
         if fm.fileExists(atPath: self.path.path) {
             try FileManager.default.removeItem(at: self.path)
         }
-        self.t?.cancel()
+        state.task?.cancel()
     }
 
     func start() throws {
@@ -98,7 +102,7 @@ extension VsockProxy {
         )
         let uds = try Socket(type: type)
         try uds.listen()
-        self.listener = uds
+        state.listener = uds
 
         try self.acceptLoop(socketType: .unix)
     }
@@ -110,18 +114,18 @@ extension VsockProxy {
         )
         let vsock = try Socket(type: type)
         try vsock.listen()
-        self.listener = vsock
+        state.listener = vsock
 
         try self.acceptLoop(socketType: .vsock)
     }
 
     private func acceptLoop(socketType: SocketType) throws {
-        guard let listener else {
+        guard let listener = state.listener else {
             return
         }
 
         let stream = try listener.acceptStream()
-        self.t = Task {
+        state.task = Task {
             do {
                 for try await conn in stream {
                     Task {
