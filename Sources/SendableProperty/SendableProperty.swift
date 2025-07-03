@@ -29,7 +29,7 @@ public final class Synchronized<T>: Sendable {
     private struct State: @unchecked Sendable {
         var value: T
     }
-    
+
     /// Creates a new instance.
     /// - Parameter value: The initial value.
     public init(_ value: T) {
@@ -40,7 +40,7 @@ public final class Synchronized<T>: Sendable {
     /// - Parameter body: The body of code to execute while the lock is held.
     public func withLock<R>(_ body: (inout T) throws -> R) rethrows -> R {
         try lock.withLock { state in
-            return try body(&state.value)
+            try body(&state.value)
         }
     }
 }
