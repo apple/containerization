@@ -40,7 +40,6 @@ final class ManagedProcess: Sendable {
         let io: IO
         var waiters: [CheckedContinuation<Int32, Never>] = []
         var exitStatus: Int32? = nil
-        var closed: Bool = false
         var pid: Int32 = 0
     }
 
@@ -52,10 +51,10 @@ final class ManagedProcess: Sendable {
 
     // swiftlint: disable type_name
     protocol IO {
-        func start() throws
+        func start(process: inout Command) throws
         func closeAfterExec() throws
         func resize(size: Terminal.Size) throws
-        func close() throws
+        func closeStdin() throws
     }
     // swiftlint: enable type_name
 
@@ -105,14 +104,12 @@ final class ManagedProcess: Sendable {
             let attrs = Command.Attrs(setsid: false, setctty: false)
             process.attrs = attrs
             io = try TerminalIO(
-                process: &process,
                 stdio: stdio,
                 log: log
             )
         } else {
             process.attrs = .init(setsid: false)
             io = StandardIO(
-                process: &process,
                 stdio: stdio,
                 log: log
             )
@@ -121,7 +118,7 @@ final class ManagedProcess: Sendable {
         log.info("starting io")
 
         // Setup IO early. We expect the host to be listening already.
-        try io.start()
+        try io.start(process: &process)
 
         self.process = process
         self.lock = Mutex(State(io: io))
@@ -213,20 +210,10 @@ extension ManagedProcess {
 
     func resize(size: Terminal.Size) throws {
         try self.lock.withLock {
-            if $0.closed {
+            guard $0.exitStatus == nil else {
                 return
             }
             try $0.io.resize(size: size)
-        }
-    }
-
-    func close() throws {
-        try self.lock.withLock {
-            if $0.closed {
-                return
-            }
-            try $0.io.close()
-            $0.closed = true
         }
     }
 }
