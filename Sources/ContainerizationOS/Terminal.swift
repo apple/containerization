@@ -176,7 +176,16 @@ extension Terminal {
 extension Terminal {
     /// Close this pty's file descriptor.
     public func close() throws {
-        try fromSyscall(Foundation.close(self.descriptor))
+        do {
+            // Use FileHandle's close directly as it sets the underlying fd in the object
+            // to -1 for us.
+            try self.handle.close()
+        } catch {
+            if let error = error as NSError?, error.domain == NSPOSIXErrorDomain {
+                throw POSIXError(.init(rawValue: Int32(error.code))!)
+            }
+            throw error
+        }
     }
 
     /// Reset the pty to its initial state.
