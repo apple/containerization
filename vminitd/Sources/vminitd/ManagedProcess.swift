@@ -128,6 +128,8 @@ final class ManagedProcess: Sendable {
 
         self.process = process
         self.lock = Mutex(State(io: io))
+
+        try io.start()
     }
 }
 
@@ -139,10 +141,6 @@ extension ManagedProcess {
                 metadata: [
                     "id": "\(id)"
                 ])
-
-            if !self.terminal {
-                try $0.io.start()
-            }
 
             // Start the underlying process.
             try process.start()

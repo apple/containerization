@@ -50,7 +50,27 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
         }
     }
 
-    func start() throws {}
+    func start() throws {
+        if let stdinPort = self.stdio.stdin {
+            let type = VsockType(
+                port: stdinPort,
+                cid: VsockType.hostCID
+            )
+            let stdinSocket = try Socket(type: type, closeOnDeinit: false)
+            try stdinSocket.connect()
+            self.stdinSocket = stdinSocket
+        }
+
+        if let stdoutPort = self.stdio.stdout {
+            let type = VsockType(
+                port: stdoutPort,
+                cid: VsockType.hostCID
+            )
+            let stdoutSocket = try Socket(type: type, closeOnDeinit: false)
+            try stdoutSocket.connect()
+            self.stdoutSocket = stdoutSocket
+        }
+    }
 
     func attach(pid: Int32, fd: Int32) throws {
         #if os(Linux)
@@ -78,30 +98,14 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
     }
 
     private func setupRelays(fd: Int32) throws {
-        if let stdinPort = self.stdio.stdin {
-            let type = VsockType(
-                port: stdinPort,
-                cid: VsockType.hostCID
-            )
-            let stdinSocket = try Socket(type: type, closeOnDeinit: false)
-            try stdinSocket.connect()
-            self.stdinSocket = stdinSocket
-
+        if let stdinPort = self.stdinSocket {
             try relay(
                 readFromFd: stdinSocket.fileDescriptor,
                 writeToFd: fd
             )
         }
 
-        if let stdoutPort = self.stdio.stdout {
-            let type = VsockType(
-                port: stdoutPort,
-                cid: VsockType.hostCID
-            )
-            let stdoutSocket = try Socket(type: type, closeOnDeinit: false)
-            try stdoutSocket.connect()
-            self.stdoutSocket = stdoutSocket
-
+        if let stdoutPort = self.stdoutSocket {
             try relay(
                 readFromFd: fd,
                 writeToFd: stdoutSocket.fileDescriptor
