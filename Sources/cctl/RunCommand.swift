@@ -62,13 +62,6 @@ extension Application {
             })
         public var kernel: String
 
-        @Option(
-            name: .customLong("init"), help: "Init block path", completion: .file(),
-            transform: { str in
-                URL(fileURLWithPath: str, relativeTo: .currentDirectory()).absoluteURL.path(percentEncoded: false)
-            })
-        public var initBlock: String
-
         @Option(name: .long, help: "Current working directory")
         var cwd: String = "/"
 
@@ -79,10 +72,9 @@ extension Application {
                 path: URL(fileURLWithPath: kernel),
                 platform: .linuxArm
             )
-            let store = try await ContainerStore(
-                root: Self.appRoot,
+            let manager = try await ContainerManager(
                 kernel: kernel,
-                initPath: .init(filePath: initBlock)
+                initfsReference: "vminit:latest"
             )
             let sigwinchStream = AsyncSignalHandler.create(notify: [SIGWINCH])
 
@@ -90,10 +82,10 @@ extension Application {
             try current.setraw()
             defer { current.tryReset() }
 
-            let container = try await store.create(
-                id: id,
+            let container = try await manager.create(
+                id,
                 reference: imageReference,
-                fsSizeInBytes: fsSizeInMB.mib()
+                rootfsSizeInBytes: fsSizeInMB.mib()
             ) { config in
                 config.cpus = cpus
                 config.memoryInBytes = memory.mib()
@@ -135,6 +127,10 @@ extension Application {
                         ))
                 }
                 config.hosts = hosts
+            }
+
+            defer {
+                try? manager.delete(id)
             }
 
             try await container.create()

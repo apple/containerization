@@ -30,7 +30,7 @@ public struct VZVirtualMachineManager: VirtualMachineManager {
     public init(
         kernel: Kernel,
         initialFilesystem: Mount,
-        bootlog: String?,
+        bootlog: String? = nil,
         logger: Logger? = nil
     ) {
         self.kernel = kernel
