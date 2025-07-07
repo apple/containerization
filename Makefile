@@ -46,8 +46,8 @@ containerization:
 	@$(SWIFT) build -c $(BUILD_CONFIGURATION)
 
 	@echo Copying containerization binaries...
-	@install $(BUILD_BIN_DIR)/cctl ./bin/
-	@install $(BUILD_BIN_DIR)/containerization-integration ./bin/
+	@install "$(BUILD_BIN_DIR)/cctl" ./bin/
+	@install "$(BUILD_BIN_DIR)/containerization-integration" ./bin/
 
 	@echo Signing containerization binaries...
 	@codesign --force --sign - --timestamp=none --entitlements=signing/vz.entitlements bin/cctl
@@ -71,11 +71,11 @@ vminitd:
 .PHONY: update-libarchive-source
 update-libarchive-source:
 	@echo Updating the libarchive source files...
-	@git clone $(LIBARCHIVE_UPSTREAM_REPO) --depth 1 --branch $(LIBARCHIVE_UPSTREAM_VERSION) $(LIBARCHIVE_LOCAL_DIR)
-	@cp $(LIBARCHIVE_LOCAL_DIR)/libarchive/archive_entry.h Sources/ContainerizationArchive/CArchive/include
-	@cp $(LIBARCHIVE_LOCAL_DIR)/libarchive/archive.h Sources/ContainerizationArchive/CArchive/include
-	@cp $(LIBARCHIVE_LOCAL_DIR)/COPYING Sources/ContainerizationArchive/CArchive/COPYING
-	@rm -rf $(LIBARCHIVE_LOCAL_DIR)
+	@git clone $(LIBARCHIVE_UPSTREAM_REPO) --depth 1 --branch $(LIBARCHIVE_UPSTREAM_VERSION) "$(LIBARCHIVE_LOCAL_DIR)"
+	@cp "$(LIBARCHIVE_LOCAL_DIR)/libarchive/archive_entry.h" Sources/ContainerizationArchive/CArchive/include
+	@cp "$(LIBARCHIVE_LOCAL_DIR)/libarchive/archive.h" Sources/ContainerizationArchive/CArchive/include
+	@cp "$(LIBARCHIVE_LOCAL_DIR)/COPYING" Sources/ContainerizationArchive/CArchive/COPYING
+	@rm -rf "$(LIBARCHIVE_LOCAL_DIR)"
 
 .PHONY: test
 test:

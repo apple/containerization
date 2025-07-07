@@ -37,8 +37,8 @@ all:
 	@rm -f ./bin/vminitd
 	@rm -f ./bin/vmexec
 	@swift build -c $(BUILD_CONFIGURATION) $(SWIFT_CONFIGURATION)
-	@install $(VMINITD_BIN_PATH)/vminitd ./bin/vminitd
-	@install $(VMINITD_BIN_PATH)/vmexec ./bin/vmexec
+	@install "$(VMINITD_BIN_PATH)/vminitd" ./bin/
+	@install "$(VMINITD_BIN_PATH)/vmexec" ./bin/
 
 .PHONY: cross-prep
 cross-prep: linux-sdk macos-sdk
