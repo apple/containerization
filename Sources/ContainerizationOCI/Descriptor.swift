@@ -21,7 +21,7 @@ import Foundation
 /// Descriptor describes the disposition of targeted content.
 /// This structure provides `application/vnd.oci.descriptor.v1+json` mediatype
 /// when marshalled to JSON.
-public struct Descriptor: Codable, Sendable, Equatable {
+public struct Descriptor: Codable, Sendable, Equatable, Hashable {
     /// mediaType is the media type of the object this schema refers to.
     public let mediaType: String
 
