@@ -207,9 +207,15 @@ extension VZVirtualMachineInstance {
     }
 
     func prestart() async throws {
-        if self.config.rosetta && VZLinuxRosettaDirectoryShare.availability == .notInstalled {
-            self.logger?.info("installing rosetta")
-            try await VZVirtualMachineInstance.Configuration.installRosetta()
+        if self.config.rosetta {
+            #if arch(arm64)
+            if VZLinuxRosettaDirectoryShare.availability == .notInstalled {
+                self.logger?.info("installing rosetta")
+                try await VZVirtualMachineInstance.Configuration.installRosetta()
+            }
+            #else
+            fatalError("rosetta is only supported on arm64")
+            #endif
         }
     }
 }
@@ -217,7 +223,11 @@ extension VZVirtualMachineInstance {
 extension VZVirtualMachineInstance.Configuration {
     public static func installRosetta() async throws {
         do {
+            #if arch(arm64)
             try await VZLinuxRosettaDirectoryShare.installRosetta()
+            #else
+            fatalError("rosetta is only supported on arm64")
+            #endif
         } catch {
             throw ContainerizationError(
                 .internalError,
@@ -252,6 +262,7 @@ extension VZVirtualMachineInstance.Configuration {
         }
 
         if self.rosetta {
+            #if arch(arm64)
             switch VZLinuxRosettaDirectoryShare.availability {
             case .notSupported:
                 throw ContainerizationError(
@@ -273,6 +284,9 @@ extension VZVirtualMachineInstance.Configuration {
                     message: "unknown rosetta availability encountered: \(VZLinuxRosettaDirectoryShare.availability)"
                 )
             }
+            #else
+            fatalError("rosetta is only supported on arm64")
+            #endif
         }
 
         guard let kernel = self.kernel else {
