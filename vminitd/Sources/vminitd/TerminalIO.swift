@@ -16,17 +16,20 @@
 
 import ContainerizationOS
 import Foundation
+import LCShim
 import Logging
 import Synchronization
 
 final class TerminalIO: ManagedProcess.IO & Sendable {
     private struct State {
+        var stdinSocket: Socket?
+        var stdoutSocket: Socket?
+
         var stdin: IOPair?
         var stdout: IOPair?
+        var parent: Terminal?
     }
 
-    private let parent: Terminal
-    private let child: Terminal
     private let log: Logger?
     private let hostStdio: HostStdio
     private let state: Mutex<State>
@@ -35,29 +38,24 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
         stdio: HostStdio,
         log: Logger?
     ) throws {
-        let pair = try Terminal.create()
-        self.parent = pair.parent
-        self.child = pair.child
-        self.state = Mutex(State())
         self.hostStdio = stdio
         self.log = log
+        self.state = Mutex(State())
     }
 
     func resize(size: Terminal.Size) throws {
-        try parent.resize(size: size)
+        try self.state.withLock {
+            if let parent = $0.parent {
+                try parent.resize(size: size)
+            }
+        }
     }
 
     func start(process: inout Command) throws {
         try self.state.withLock {
-            let ptyHandle = self.child.handle
-            let useHandles = self.hostStdio.stdin != nil || self.hostStdio.stdout != nil
-            // We currently set stdin to the controlling terminal always, so
-            // it must be a valid pty descriptor.
-            process.stdin = useHandles ? ptyHandle : nil
-
-            let stdoutHandle = useHandles ? ptyHandle : nil
-            process.stdout = stdoutHandle
-            process.stderr = stdoutHandle
+            process.stdin = nil
+            process.stdout = nil
+            process.stderr = nil
 
             if let stdinPort = self.hostStdio.stdin {
                 let type = VsockType(
@@ -66,15 +64,7 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
                 )
                 let stdinSocket = try Socket(type: type, closeOnDeinit: false)
                 try stdinSocket.connect()
-
-                let pair = IOPair(
-                    readFrom: stdinSocket,
-                    writeTo: self.parent.handle,
-                    logger: self.log
-                )
-                $0.stdin = pair
-
-                try pair.relay()
+                $0.stdinSocket = stdinSocket
             }
 
             if let stdoutPort = self.hostStdio.stdout {
@@ -84,26 +74,74 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
                 )
                 let stdoutSocket = try Socket(type: type, closeOnDeinit: false)
                 try stdoutSocket.connect()
-
-                let pair = IOPair(
-                    readFrom: self.parent.handle,
-                    writeTo: stdoutSocket,
-                    logger: self.log
-                )
-                $0.stdout = pair
-
-                try pair.relay()
+                $0.stdoutSocket = stdoutSocket
             }
         }
     }
 
-    func closeStdin() throws {
-        self.state.withLock {
-            $0.stdin?.close()
+    func attach(pid: Int32, fd: Int32) throws {
+        try self.state.withLock {
+            let containerFd = CZ_pidfd_open(pid, 0)
+            guard containerFd != -1 else {
+                throw POSIXError.fromErrno()
+            }
+            defer { Foundation.close(Int32(containerFd)) }
+
+            let hostFd = CZ_pidfd_getfd(containerFd, fd, 0)
+            guard hostFd != -1 else {
+                throw POSIXError.fromErrno()
+            }
+
+            let term = try Terminal(descriptor: Int32(hostFd), setInitState: false)
+            $0.parent = term
+
+            if let stdinSocket = $0.stdinSocket {
+                let pair = IOPair(
+                    readFrom: stdinSocket,
+                    writeTo: term,
+                    reason: "TerminalIO stdin",
+                    logger: log
+                )
+                try pair.relay(ignoreHup: true)
+                $0.stdin = pair
+            }
+
+            if let stdoutSocket = $0.stdoutSocket {
+                let pair = IOPair(
+                    readFrom: term,
+                    writeTo: stdoutSocket,
+                    reason: "TerminalIO stdout",
+                    logger: log
+                )
+                try pair.relay(ignoreHup: true)
+                $0.stdout = pair
+            }
         }
     }
 
-    func closeAfterExec() throws {
-        try child.close()
+    func close() throws {
+        self.state.withLock {
+            if let stdin = $0.stdin {
+                stdin.close()
+                $0.stdin = nil
+            }
+            if let stdout = $0.stdout {
+                stdout.close()
+                $0.stdout = nil
+            }
+            $0.parent = nil
+        }
+    }
+
+    // NOP
+    func closeAfterExec() throws {}
+
+    func closeStdin() throws {
+        self.state.withLock {
+            if let stdin = $0.stdin {
+                stdin.close()
+                $0.stdin = nil
+            }
+        }
     }
 }
