@@ -127,8 +127,8 @@ final class MockRegistryClient: ContentClient, @unchecked Sendable {
 
         // Verify the pushed data matches the expected descriptor
         let actualDigest = SHA256.hash(data: data)
-        guard descriptor.digest == "sha256:\(actualDigest.hexString)" else {
-            throw ContainerizationError(.invalidArgument, message: "Digest mismatch: expected \(descriptor.digest), got sha256:\(actualDigest.hexString)")
+        guard descriptor.digest == "sha256:\(actualDigest.encoded)" else {
+            throw ContainerizationError(.invalidArgument, message: "Digest mismatch: expected \(descriptor.digest), got sha256:\(actualDigest.encoded)")
         }
 
         guard data.count == descriptor.size else {
@@ -148,11 +148,7 @@ final class MockRegistryClient: ContentClient, @unchecked Sendable {
     }
 }
 
-extension SHA256.Digest {
-    var hexString: String {
-        self.compactMap { String(format: "%02x", $0) }.joined()
-    }
-}
+
 
 @Suite
 public class ImageStoreTests: ContainsAuth {
@@ -223,6 +219,10 @@ public class ImageStoreTests: ContainsAuth {
         let testReference = "test-registry.local/test-image:latest"
         try await self.store.tag(existing: testImage.reference, new: testReference)
 
+        // Get the actual image to verify layer count
+        let actualImage = try await self.store.get(reference: testReference)
+        let expectedDigests = actualImage.referencedDigests()
+
         // Test push with mock client (using extension method)
         try await self.store.testPush(reference: testReference, client: mockClient)
 
@@ -233,5 +233,8 @@ public class ImageStoreTests: ContainsAuth {
         let pushCall = mockClient.pushCalls.first!
         #expect(pushCall.name == "test-registry.local/test-image")
         #expect(pushCall.ref == "latest")
+        
+        // Verify that all layers of the test image have been pushed
+        #expect(mockClient.pushCalls.count == expectedDigests.count)
     }
 }
