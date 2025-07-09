@@ -74,7 +74,7 @@ extension Application {
             )
             let manager = try await ContainerManager(
                 kernel: kernel,
-                initfsReference: "vminit:latest"
+                initfsReference: "vminit:latest",
             )
             let sigwinchStream = AsyncSignalHandler.create(notify: [SIGWINCH])
 

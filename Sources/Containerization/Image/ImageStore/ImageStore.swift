@@ -43,12 +43,14 @@ public actor ImageStore: Sendable {
     }
 
     /// Return the default image store for the current user.
-    public static var `default`: ImageStore {
-        get throws {
-            let root = try Self.defaultRoot()
-            return try Self(path: root)
+    public static let `default`: ImageStore = {
+        do {
+            let root = try defaultRoot()
+            return try ImageStore(path: root)
+        } catch {
+            fatalError("unable to initialize default ImageStore \(error)")
         }
-    }
+    }()
 
     private static func defaultRoot() throws -> URL {
         let root = FileManager.default.urls(
