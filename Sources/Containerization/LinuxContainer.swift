@@ -41,7 +41,7 @@ public final class LinuxContainer: Container, Sendable {
     public let rootfs: Mount
 
     private struct Configuration {
-        var spec: Spec
+        var spec: OCISpec
         var cpus: Int = 4
         var memoryInBytes: UInt64 = 1024.mib()
         var interfaces: [any Interface] = []
@@ -243,7 +243,7 @@ public final class LinuxContainer: Container, Sendable {
         self.state = .initialized
     }
 
-    private static func createDefaultRuntimeSpec(_ id: String) -> Spec {
+    private static func createDefaultRuntimeSpec(_ id: String) -> OCISpec {
         .init(
             process: .init(
                 cwd: "/",
@@ -388,7 +388,7 @@ extension LinuxContainer {
     }
 
     /// The User the container should execute under.
-    public var user: ContainerizationOCI.User {
+    public var user: OCIUser {
         get { config.spec.process!.user }
         set { config.spec.process!.user = newValue }
     }
@@ -406,7 +406,7 @@ extension LinuxContainer {
     }
 
     /// Rlimits for the container.
-    public var rlimits: [POSIXRlimit] {
+    public var rlimits: [OCIRlimit] {
         get { config.spec.process!.rlimits }
         set { config.spec.process!.rlimits = newValue }
     }
@@ -465,8 +465,8 @@ extension LinuxContainer {
         }
     }
 
-    public func setProcessConfig(from imageConfig: ImageConfig) {
-        let process = ContainerizationOCI.Process(from: imageConfig)
+    public func setProcessConfig(from imageConfig: OCIImageConfig) {
+        let process = OCIProcess(from: imageConfig)
         self.config.spec.process = process
     }
 
@@ -680,7 +680,7 @@ extension LinuxContainer {
     /// Execute a new process in the container.
     public func exec(
         _ id: String,
-        configuration: ContainerizationOCI.Process,
+        configuration: OCIProcess,
         stdin: ReaderStream? = nil,
         stdout: Writer? = nil,
         stderr: Writer? = nil
@@ -779,7 +779,7 @@ extension VirtualMachineInstance {
 }
 
 extension AttachedFilesystem {
-    fileprivate var to: ContainerizationOCI.Mount {
+    fileprivate var to: OCIMount {
         .init(
             type: self.type,
             source: self.source,

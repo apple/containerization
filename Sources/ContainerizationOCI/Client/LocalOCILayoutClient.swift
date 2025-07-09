@@ -35,12 +35,12 @@ package final class LocalOCILayoutClient: ContentClient {
         return c
     }
 
-    package func fetch<T: Codable>(name: String, descriptor: Descriptor) async throws -> T {
+    package func fetch<T: Codable>(name: String, descriptor: OCIDescriptor) async throws -> T {
         let c = try await self._fetch(digest: descriptor.digest)
         return try c.decode()
     }
 
-    package func fetchBlob(name: String, descriptor: Descriptor, into file: URL, progress: ProgressHandler?) async throws -> (Int64, SHA256Digest) {
+    package func fetchBlob(name: String, descriptor: OCIDescriptor, into file: URL, progress: ProgressHandler?) async throws -> (Int64, SHA256Digest) {
         let c = try await self._fetch(digest: descriptor.digest)
         let fileManager = FileManager.default
         let filePath = file.absolutePath()
@@ -59,7 +59,7 @@ package final class LocalOCILayoutClient: ContentClient {
         return (size, digest)
     }
 
-    package func fetchData(name: String, descriptor: Descriptor) async throws -> Data {
+    package func fetchData(name: String, descriptor: OCIDescriptor) async throws -> Data {
         let c = try await self._fetch(digest: descriptor.digest)
         return try c.data()
     }
@@ -67,7 +67,7 @@ package final class LocalOCILayoutClient: ContentClient {
     package func push<T: Sendable & AsyncSequence>(
         name: String,
         ref: String,
-        descriptor: Descriptor,
+        descriptor: OCIDescriptor,
         streamGenerator: () throws -> T,
         progress: ProgressHandler?
     ) async throws where T.Element == ByteBuffer {
@@ -103,7 +103,7 @@ extension LocalOCILayoutClient {
     private static let ociLayoutVersionString = "imageLayoutVersion"
     private static let ociLayoutIndexFileName = "index.json"
 
-    package func loadIndexFromOCILayout(directory: URL) throws -> ContainerizationOCI.Index {
+    package func loadIndexFromOCILayout(directory: URL) throws -> OCIIndex {
         let fm = FileManager.default
         let decoder = JSONDecoder()
 
@@ -122,11 +122,11 @@ extension LocalOCILayoutClient {
             throw ContainerizationError(.notFound, message: indexFile.absolutePath())
         }
         data = try Data(contentsOf: indexFile)
-        let index = try decoder.decode(ContainerizationOCI.Index.self, from: data)
+        let index = try decoder.decode(OCIIndex.self, from: data)
         return index
     }
 
-    package func createOCILayoutStructure(directory: URL, manifests: [Descriptor]) throws {
+    package func createOCILayoutStructure(directory: URL, manifests: [OCIDescriptor]) throws {
         let fm = FileManager.default
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.withoutEscapingSlashes]
@@ -142,7 +142,7 @@ extension LocalOCILayoutClient {
         guard fm.createFile(atPath: p, contents: data) else {
             throw ContainerizationError(.internalError, message: "failed to create file \(p)")
         }
-        let idx = ContainerizationOCI.Index(schemaVersion: 2, manifests: manifests)
+        let idx = OCIIndex(schemaVersion: 2, manifests: manifests)
         data = try encoder.encode(idx)
         p = directory.appendingPathComponent(Self.ociLayoutIndexFileName).absolutePath()
         guard fm.createFile(atPath: p, contents: data) else {
@@ -150,15 +150,15 @@ extension LocalOCILayoutClient {
         }
     }
 
-    package func setImageReferenceAnnotation(descriptor: inout Descriptor, reference: String) {
+    package func setImageReferenceAnnotation(descriptor: inout OCIDescriptor, reference: String) {
         var annotations = descriptor.annotations ?? [:]
-        annotations[AnnotationKeys.containerizationImageName] = reference
-        annotations[AnnotationKeys.containerdImageName] = reference
-        annotations[AnnotationKeys.openContainersImageName] = reference
+        annotations[OCIAnnotationKeys.containerizationImageName] = reference
+        annotations[OCIAnnotationKeys.containerdImageName] = reference
+        annotations[OCIAnnotationKeys.openContainersImageName] = reference
         descriptor.annotations = annotations
     }
 
-    package func getImageReferencefromDescriptor(descriptor: Descriptor) -> String? {
+    package func getImageReferencefromDescriptor(descriptor: OCIDescriptor) -> String? {
         let annotations = descriptor.annotations
         guard let annotations else {
             return nil
@@ -173,13 +173,13 @@ extension LocalOCILayoutClient {
         //     https://github.com/moby/buildkit/issues/4615#issuecomment-2521810830
         // Until a consensus is reached, the preference is given to "com.apple.containerization.image.name" and then to
         // using "io.containerd.image.name" as it is the next safest choice
-        if let name = annotations[AnnotationKeys.containerizationImageName] {
+        if let name = annotations[OCIAnnotationKeys.containerizationImageName] {
             return name
         }
-        if let name = annotations[AnnotationKeys.containerdImageName] {
+        if let name = annotations[OCIAnnotationKeys.containerdImageName] {
             return name
         }
-        if let name = annotations[AnnotationKeys.openContainersImageName] {
+        if let name = annotations[OCIAnnotationKeys.openContainersImageName] {
             return name
         }
         return nil

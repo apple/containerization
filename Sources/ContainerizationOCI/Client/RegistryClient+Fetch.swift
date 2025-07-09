@@ -28,7 +28,7 @@ import NIOFileSystem
 extension RegistryClient {
     /// Resolve sends a HEAD request to the registry to find root manifest descriptor.
     /// This descriptor serves as an entry point to retrieve resources from the registry.
-    public func resolve(name: String, tag: String) async throws -> Descriptor {
+    public func resolve(name: String, tag: String) async throws -> OCIDescriptor {
         var components = base
 
         // Make HEAD request to retrieve the digest header
@@ -36,10 +36,10 @@ extension RegistryClient {
 
         // The client should include an Accept header indicating which manifest content types it supports.
         let mediaTypes = [
-            MediaTypes.dockerManifest,
-            MediaTypes.dockerManifestList,
-            MediaTypes.imageManifest,
-            MediaTypes.index,
+            OCIMediaTypes.dockerManifest,
+            OCIMediaTypes.dockerManifestList,
+            OCIMediaTypes.imageManifest,
+            OCIMediaTypes.index,
             "*/*",
         ]
 
@@ -70,19 +70,19 @@ extension RegistryClient {
                 throw ContainerizationError(.invalidArgument, message: "Cannot convert \(sizeStr) to Int64")
             }
 
-            return Descriptor(mediaType: type, digest: digest, size: size)
+            return OCIDescriptor(mediaType: type, digest: digest, size: size)
         }
     }
 
     /// Fetch resource (either manifest or blob) to memory with JSON decoding.
-    public func fetch<T: Codable>(name: String, descriptor: Descriptor) async throws -> T {
+    public func fetch<T: Codable>(name: String, descriptor: OCIDescriptor) async throws -> T {
         var components = base
 
         let manifestTypes = [
-            MediaTypes.dockerManifest,
-            MediaTypes.dockerManifestList,
-            MediaTypes.imageManifest,
-            MediaTypes.index,
+            OCIMediaTypes.dockerManifest,
+            OCIMediaTypes.dockerManifestList,
+            OCIMediaTypes.imageManifest,
+            OCIMediaTypes.index,
         ]
 
         let isManifest = manifestTypes.contains(where: { $0 == descriptor.mediaType })
@@ -103,14 +103,14 @@ extension RegistryClient {
     }
 
     /// Fetch resource (either manifest or blob) to memory as raw `Data`.
-    public func fetchData(name: String, descriptor: Descriptor) async throws -> Data {
+    public func fetchData(name: String, descriptor: OCIDescriptor) async throws -> Data {
         var components = base
 
         let manifestTypes = [
-            MediaTypes.dockerManifest,
-            MediaTypes.dockerManifestList,
-            MediaTypes.imageManifest,
-            MediaTypes.index,
+            OCIMediaTypes.dockerManifest,
+            OCIMediaTypes.dockerManifestList,
+            OCIMediaTypes.imageManifest,
+            OCIMediaTypes.index,
         ]
 
         let isManifest = manifestTypes.contains(where: { $0 == descriptor.mediaType })
@@ -134,7 +134,7 @@ extension RegistryClient {
     /// This method is suitable for streaming data.
     public func fetchBlob(
         name: String,
-        descriptor: Descriptor,
+        descriptor: OCIDescriptor,
         closure: (Int64, HTTPClientResponse.Body) async throws -> Void
     ) async throws {
         var components = base
@@ -167,7 +167,7 @@ extension RegistryClient {
 
     #if os(macOS)
     /// Fetch a blob from remote registry and write the contents into a file in the provided directory.
-    public func fetchBlob(name: String, descriptor: Descriptor, into file: URL, progress: ProgressHandler?) async throws -> (Int64, SHA256Digest) {
+    public func fetchBlob(name: String, descriptor: OCIDescriptor, into file: URL, progress: ProgressHandler?) async throws -> (Int64, SHA256Digest) {
         var hasher = SHA256()
         var received: Int64 = 0
         let fs = NIOFileSystem.FileSystem.shared
@@ -203,7 +203,7 @@ extension RegistryClient {
     }
     #else
     /// Fetch a blob from remote registry and write the contents into a file in the provided directory.
-    public func fetchBlob(name: String, descriptor: Descriptor, into file: URL, progress: ProgressHandler?) async throws -> (Int64, SHA256Digest) {
+    public func fetchBlob(name: String, descriptor: OCIDescriptor, into file: URL, progress: ProgressHandler?) async throws -> (Int64, SHA256Digest) {
         var hasher = SHA256()
         var received: Int64 = 0
         guard FileManager.default.createFile(atPath: file.path, contents: nil) else {

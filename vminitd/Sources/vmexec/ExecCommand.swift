@@ -40,7 +40,7 @@ struct ExecCommand: ParsableCommand {
         let src = URL(fileURLWithPath: processPath)
         let processBytes = try Data(contentsOf: src)
         let process = try JSONDecoder().decode(
-            ContainerizationOCI.Process.self,
+            OCIProcess.self,
             from: processBytes
         )
         try execInNamespaces(process: process, log: log)
@@ -59,7 +59,7 @@ struct ExecCommand: ParsableCommand {
     }
 
     private func execInNamespaces(
-        process: ContainerizationOCI.Process,
+        process: OCIProcess,
         log: Logger
     ) throws {
         // CLOEXEC the pipe fd that signals process readiness.
