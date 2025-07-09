@@ -21,7 +21,6 @@ import ContainerizationIO
 import Crypto
 import Foundation
 import NIO
-import NIOCore
 import Synchronization
 import Testing
 
@@ -344,7 +343,7 @@ struct OCIClientTests: ~Copyable {
             ref: ref,
             descriptor: descriptor,
             streamGenerator: generator,
-            progress: nil as ProgressHandler?
+            progress: nil
         )
         return descriptor
     }
@@ -364,8 +363,4 @@ extension SHA256.Digest {
         let parts = self.description.split(separator: ": ")
         return "sha256:\(parts[1])"
     }
-
-
 }
-
-

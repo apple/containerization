@@ -148,8 +148,6 @@ final class MockRegistryClient: ContentClient, @unchecked Sendable {
     }
 }
 
-
-
 @Suite
 public class ImageStoreTests: ContainsAuth {
     let store: ImageStore
@@ -233,7 +231,7 @@ public class ImageStoreTests: ContainsAuth {
         let pushCall = mockClient.pushCalls.first!
         #expect(pushCall.name == "test-registry.local/test-image")
         #expect(pushCall.ref == "latest")
-        
+
         // Verify that all layers of the test image have been pushed
         #expect(mockClient.pushCalls.count == expectedDigests.count)
     }
