@@ -80,6 +80,47 @@ extension IntegrationSuite {
         }
     }
 
+    func testContainerManagerCreate() async throws {
+        let id = "test-container-manager"
+
+        // Get the kernel from bootstrap
+        let bs = try await bootstrap()
+
+        // Create ContainerManager with kernel and initfs reference
+        let manager = try ContainerManager(vmm: bs.vmm)
+        defer {
+            try? manager.delete(id)
+        }
+
+        let buffer = BufferWriter()
+        let container = try await manager.create(
+            id,
+            image: bs.image,
+            rootfs: bs.rootfs
+        ) { config in
+            config.process.arguments = ["/bin/echo", "ContainerManager test"]
+            config.process.stdout = buffer
+        }
+
+        // Start the container
+        try await container.create()
+        try await container.start()
+
+        // Wait for completion
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        let output = String(data: buffer.data, encoding: .utf8)
+        guard output == "ContainerManager test\n" else {
+            throw IntegrationError.assert(
+                msg: "process should have returned 'ContainerManager test' != '\(output ?? "nil")'")
+        }
+    }
+
     private func createMountDirectory() throws -> URL {
         let dir = FileManager.default.uniqueTemporaryDirectory(create: true)
         try "hello".write(to: dir.appendingPathComponent("hi.txt"), atomically: true, encoding: .utf8)

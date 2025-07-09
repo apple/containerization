@@ -95,7 +95,7 @@ struct IntegrationSuite: AsyncParsableCommand {
             .appendingPathComponent(name)
     }
 
-    func bootstrap() async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager) {
+    func bootstrap() async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image) {
         let reference = "ghcr.io/linuxcontainers/alpine:3.20"
         let store = Self.imageStore
 
@@ -150,7 +150,8 @@ struct IntegrationSuite: AsyncParsableCommand {
                 kernel: testKernel,
                 initialFilesystem: initfs,
                 bootlog: bootlog
-            )
+            ),
+            image
         )
     }
 
@@ -209,6 +210,7 @@ struct IntegrationSuite: AsyncParsableCommand {
             "container hosts": testHostsFile,
             "container mount": testMounts,
             "nested virt": testNestedVirtualizationEnabled,
+            "container manager": testContainerManagerCreate,
         ]
 
         var passed = 0
