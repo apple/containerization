@@ -22,43 +22,43 @@ import Testing
 
 struct OCITests {
     @Test func config() {
-        let config = ContainerizationOCI.ImageConfig()
-        let rootfs = ContainerizationOCI.Rootfs(type: "foo", diffIDs: ["diff1", "diff2"])
-        let history = ContainerizationOCI.History()
+        let config = OCIImageConfig()
+        let rootfs = OCIRootfs(type: "foo", diffIDs: ["diff1", "diff2"])
+        let history = OCIHistory()
 
-        let image = ContainerizationOCI.Image(architecture: "arm64", os: "linux", config: config, rootfs: rootfs, history: [history])
+        let image = OCIImage(architecture: "arm64", os: "linux", config: config, rootfs: rootfs, history: [history])
         #expect(image.rootfs.type == "foo")
     }
 
     @Test func descriptor() {
-        let platform = ContainerizationOCI.Platform(arch: "arm64", os: "linux")
-        let descriptor = ContainerizationOCI.Descriptor(mediaType: MediaTypes.descriptor, digest: "123", size: 0, platform: platform)
+        let platform = OCIPlatform(arch: "arm64", os: "linux")
+        let descriptor = OCIDescriptor(mediaType: OCIMediaTypes.descriptor, digest: "123", size: 0, platform: platform)
 
         #expect(descriptor.platform?.architecture == "arm64")
         #expect(descriptor.platform?.os == "linux")
     }
 
     @Test func index() {
-        var descriptors: [ContainerizationOCI.Descriptor] = []
+        var descriptors: [OCIDescriptor] = []
         for i in 0..<5 {
-            let descriptor = ContainerizationOCI.Descriptor(mediaType: MediaTypes.descriptor, digest: "\(i)", size: Int64(i))
+            let descriptor = OCIDescriptor(mediaType: OCIMediaTypes.descriptor, digest: "\(i)", size: Int64(i))
             descriptors.append(descriptor)
         }
 
-        let index = ContainerizationOCI.Index(schemaVersion: 1, manifests: descriptors)
+        let index = OCIIndex(schemaVersion: 1, manifests: descriptors)
         #expect(index.manifests.count == 5)
     }
 
     @Test func manifests() {
-        var descriptors: [ContainerizationOCI.Descriptor] = []
+        var descriptors: [OCIDescriptor] = []
         for i in 0..<5 {
-            let descriptor = ContainerizationOCI.Descriptor(mediaType: MediaTypes.descriptor, digest: "\(i)", size: Int64(i))
+            let descriptor = OCIDescriptor(mediaType: OCIMediaTypes.descriptor, digest: "\(i)", size: Int64(i))
             descriptors.append(descriptor)
         }
 
-        let config = ContainerizationOCI.Descriptor(mediaType: MediaTypes.descriptor, digest: "123", size: 0)
+        let config = OCIDescriptor(mediaType: OCIMediaTypes.descriptor, digest: "123", size: 0)
 
-        let manifest = ContainerizationOCI.Manifest(schemaVersion: 1, config: config, layers: descriptors)
+        let manifest = OCIManifest(schemaVersion: 1, config: config, layers: descriptors)
         #expect(manifest.config.digest == "123")
         #expect(manifest.layers.count == 5)
     }

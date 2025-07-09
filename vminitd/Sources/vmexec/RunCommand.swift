@@ -34,12 +34,12 @@ struct RunCommand: ParsableCommand {
         LoggingSystem.bootstrap(App.standardError)
         let log = Logger(label: "vmexec")
 
-        let bundle = try ContainerizationOCI.Bundle.load(path: URL(filePath: bundlePath))
+        let bundle = try OCIBundle.load(path: URL(filePath: bundlePath))
         let ociSpec = try bundle.loadConfig()
         try execInNamespace(spec: ociSpec, log: log)
     }
 
-    private func childRootSetup(rootfs: ContainerizationOCI.Root, mounts: [ContainerizationOCI.Mount], log: Logger) throws {
+    private func childRootSetup(rootfs: OCIRoot, mounts: [OCIMount], log: Logger) throws {
         // setup rootfs
         try prepareRoot(rootfs: rootfs.path)
         try mountRootfs(rootfs: rootfs.path, mounts: mounts)
@@ -49,7 +49,7 @@ struct RunCommand: ParsableCommand {
         try reOpenDevNull()
     }
 
-    private func execInNamespace(spec: ContainerizationOCI.Spec, log: Logger) throws {
+    private func execInNamespace(spec: OCISpec, log: Logger) throws {
         guard let process = spec.process else {
             fatalError("no process configuration found in runtime spec")
         }
@@ -138,7 +138,7 @@ struct RunCommand: ParsableCommand {
         }
     }
 
-    private func mountRootfs(rootfs: String, mounts: [ContainerizationOCI.Mount]) throws {
+    private func mountRootfs(rootfs: String, mounts: [OCIMount]) throws {
         let containerMount = ContainerMount(rootfs: rootfs, mounts: mounts)
         try containerMount.mountToRootfs()
         try containerMount.configureConsole()

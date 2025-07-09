@@ -257,7 +257,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             ])
 
         do {
-            let mnt = ContainerizationOS.Mount(
+            let mnt = Mount(
                 type: request.type,
                 source: request.source,
                 target: request.destination,
@@ -376,7 +376,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
 
         do {
             var ociSpec = try JSONDecoder().decode(
-                ContainerizationOCI.Spec.self,
+                OCISpec.self,
                 from: request.configuration
             )
 
@@ -833,7 +833,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
 }
 
 extension Initd {
-    func ociAlterations(ociSpec: inout ContainerizationOCI.Spec) throws {
+    func ociAlterations(ociSpec: inout OCISpec) throws {
         guard var process = ociSpec.process else {
             throw ContainerizationError(
                 .invalidArgument,

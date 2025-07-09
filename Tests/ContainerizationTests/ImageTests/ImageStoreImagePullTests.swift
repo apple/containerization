@@ -47,15 +47,15 @@ final class ImageStoreImagePullTests {
         let img = try await self.store.pull(reference: "ghcr.io/apple/containerization/dockermanifestimage:0.0.2")
 
         let rootDescriptor = img.descriptor
-        let index: ContainerizationOCI.Index = try await contentStore.get(digest: rootDescriptor.digest)!
+        let index: OCIIndex = try await contentStore.get(digest: rootDescriptor.digest)!
 
         #expect(index.manifests.count == 1)
         let desc = index.manifests.first!
         #expect(desc.platform!.architecture == "amd64")
 
         await #expect(throws: Never.self) {
-            let manifest: ContainerizationOCI.Manifest = try await self.contentStore.get(digest: desc.digest)!
-            let _: ContainerizationOCI.Image = try await self.contentStore.get(digest: manifest.config.digest)!
+            let manifest: OCIManifest = try await self.contentStore.get(digest: desc.digest)!
+            let _: OCIImage = try await self.contentStore.get(digest: manifest.config.digest)!
             for layer in manifest.layers {
                 _ = try await self.contentStore.get(digest: layer.digest)!
             }
@@ -64,15 +64,15 @@ final class ImageStoreImagePullTests {
 
     @Test(
         arguments: [
-            (Platform(arch: "arm64", os: "linux", variant: "v8"), imagePullArm64Layers),
-            (Platform(arch: "amd64", os: "linux"), imagePullAmd64Layers),
+            (OCIPlatform(arch: "arm64", os: "linux", variant: "v8"), imagePullArm64Layers),
+            (OCIPlatform(arch: "amd64", os: "linux"), imagePullAmd64Layers),
             (nil, imagePullTestAllLayers),
         ])
-    func testPullSinglePlatform(platform: Platform?, expectLayers: [String]) async throws {
+    func testPullSinglePlatform(platform: OCIPlatform?, expectLayers: [String]) async throws {
         let img = try await self.store.pull(
             reference: "ghcr.io/linuxcontainers/alpine:3.20@sha256:0a6a86d44d7f93c4f2b8dea7f0eee64e72cb98635398779f3610949632508d57", platform: platform)
         let rootDescriptor = img.descriptor
-        let index: ContainerizationOCI.Index = try await contentStore.get(digest: rootDescriptor.digest)!
+        let index: OCIIndex = try await contentStore.get(digest: rootDescriptor.digest)!
         var foundMatch = false
         for desc in index.manifests {
             if let platform {
@@ -82,8 +82,8 @@ final class ImageStoreImagePullTests {
             }
             foundMatch = true
             await #expect(throws: Never.self) {
-                let manifest: ContainerizationOCI.Manifest = try await self.contentStore.get(digest: desc.digest)!
-                let _: ContainerizationOCI.Image = try await self.contentStore.get(digest: manifest.config.digest)!
+                let manifest: OCIManifest = try await self.contentStore.get(digest: desc.digest)!
+                let _: OCIImage = try await self.contentStore.get(digest: manifest.config.digest)!
                 for layer in manifest.layers {
                     _ = try await self.contentStore.get(digest: layer.digest)!
                 }

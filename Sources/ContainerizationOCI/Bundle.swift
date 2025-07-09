@@ -29,7 +29,7 @@ private let _umount = Glibc.umount2
 
 /// `Bundle` represents an OCI runtime spec bundle for running
 /// a container.
-public struct Bundle: Sendable {
+public struct OCIBundle: Sendable {
     /// The path to the bundle.
     public let path: URL
 
@@ -49,7 +49,7 @@ public struct Bundle: Sendable {
     ///   - path: A URL pointing to where to create the bundle on the filesystem.
     ///   - spec: A data blob that should contain an OCI runtime spec. This will be written
     ///           to the bundle as a "config.json" file.
-    public static func create(path: URL, spec: Data) throws -> Bundle {
+    public static func create(path: URL, spec: Data) throws -> OCIBundle {
         try self.init(path: path, spec: spec)
     }
 
@@ -59,7 +59,7 @@ public struct Bundle: Sendable {
     ///   - path: A URL pointing to where to create the bundle on the filesystem.
     ///   - spec: An OCI runtime spec that will be written to the bundle as a "config.json"
     ///           file.
-    public static func create(path: URL, spec: ContainerizationOCI.Spec) throws -> Bundle {
+    public static func create(path: URL, spec: OCISpec) throws -> OCIBundle {
         try self.init(path: path, spec: spec)
     }
 
@@ -67,7 +67,7 @@ public struct Bundle: Sendable {
     ///
     /// - Parameters:
     ///   - path: A URL pointing to where to load the bundle from on the filesystem.
-    public static func load(path: URL) throws -> Bundle {
+    public static func load(path: URL) throws -> OCIBundle {
         try self.init(path: path)
     }
 
@@ -93,7 +93,7 @@ public struct Bundle: Sendable {
         try spec.write(to: self.configPath)
     }
 
-    private init(path: URL, spec: ContainerizationOCI.Spec) throws {
+    private init(path: URL, spec: OCISpec) throws {
         self.path = path
 
         let fm = FileManager.default
@@ -121,8 +121,8 @@ public struct Bundle: Sendable {
     }
 
     /// Load and return the OCI runtime spec written to the bundle.
-    public func loadConfig() throws -> ContainerizationOCI.Spec {
+    public func loadConfig() throws -> OCISpec {
         let data = try Data(contentsOf: self.configPath)
-        return try JSONDecoder().decode(ContainerizationOCI.Spec.self, from: data)
+        return try JSONDecoder().decode(OCISpec.self, from: data)
     }
 }

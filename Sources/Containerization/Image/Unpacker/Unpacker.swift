@@ -35,6 +35,6 @@ public protocol Unpacker {
     /// or transformations during the unpacking.
     ///
     /// Progress updates can be observed via the optional `progress` handler.
-    func unpack(_ image: Image, for platform: Platform, at path: URL, progress: ProgressHandler?) async throws -> Mount
+    func unpack(_ image: Image, for platform: OCIPlatform, at path: URL, progress: ProgressHandler?) async throws -> Mount
 
 }

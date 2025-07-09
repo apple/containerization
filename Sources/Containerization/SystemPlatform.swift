@@ -32,8 +32,8 @@ public struct SystemPlatform: Sendable, Codable {
     }
     public let architecture: Architecture
 
-    public func ociPlatform() -> ContainerizationOCI.Platform {
-        ContainerizationOCI.Platform(arch: architecture.rawValue, os: os.rawValue)
+    public func ociPlatform() -> OCIPlatform {
+        OCIPlatform(arch: architecture.rawValue, os: os.rawValue)
     }
 
     public static var linuxArm: SystemPlatform { .init(os: .linux, architecture: .arm64) }

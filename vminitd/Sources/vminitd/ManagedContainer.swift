@@ -25,7 +25,7 @@ actor ManagedContainer {
     let initProcess: ManagedProcess
 
     private let _log: Logger
-    private let _bundle: ContainerizationOCI.Bundle
+    private let _bundle: OCIBundle
     private var _execs: [String: ManagedProcess] = [:]
 
     var pid: Int32 {
@@ -35,10 +35,10 @@ actor ManagedContainer {
     init(
         id: String,
         stdio: HostStdio,
-        spec: ContainerizationOCI.Spec,
+        spec: OCISpec,
         log: Logger
     ) throws {
-        let bundle = try ContainerizationOCI.Bundle.create(
+        let bundle = try OCIBundle.create(
             path: Self.craftBundlePath(id: id),
             spec: spec
         )
@@ -73,7 +73,7 @@ extension ManagedContainer {
     func createExec(
         id: String,
         stdio: HostStdio,
-        process: ContainerizationOCI.Process
+        process: OCIProcess
     ) throws {
         // Write the process config to the bundle, and pass this on
         // over to ManagedProcess to deal with.
@@ -144,8 +144,8 @@ extension ManagedContainer {
     }
 }
 
-extension ContainerizationOCI.Bundle {
-    func createExecSpec(id: String, process: ContainerizationOCI.Process) throws {
+extension OCIBundle {
+    func createExecSpec(id: String, process: OCIProcess) throws {
         let specDir = self.path.appending(path: "execs/\(id)")
 
         let fm = FileManager.default

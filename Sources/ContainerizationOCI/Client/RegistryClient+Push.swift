@@ -42,7 +42,7 @@ extension RegistryClient {
     public func push<T: Sendable & AsyncSequence>(
         name: String,
         ref tag: String,
-        descriptor: Descriptor,
+        descriptor: OCIDescriptor,
         streamGenerator: () throws -> T,
         progress: ProgressHandler?
     ) async throws where T.Element == ByteBuffer {
@@ -57,7 +57,7 @@ extension RegistryClient {
         var existCheck: [String] = []
 
         switch mediaType {
-        case MediaTypes.dockerManifest, MediaTypes.dockerManifestList, MediaTypes.imageManifest, MediaTypes.index:
+        case OCIMediaTypes.dockerManifest, OCIMediaTypes.dockerManifestList, OCIMediaTypes.imageManifest, OCIMediaTypes.index:
             isManifest = true
             existCheck = self.getManifestPath(tag: tag, digest: descriptor.digest)
         default:

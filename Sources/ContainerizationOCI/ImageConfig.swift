@@ -19,7 +19,7 @@
 import Foundation
 
 /// ImageConfig defines the execution parameters which should be used as a base when running a container using an image.
-public struct ImageConfig: Codable, Sendable {
+public struct OCIImageConfig: Codable, Sendable {
     enum CodingKeys: String, CodingKey {
         case user = "User"
         case env = "Env"
@@ -66,7 +66,7 @@ public struct ImageConfig: Codable, Sendable {
 }
 
 /// RootFS describes a layer content addresses
-public struct Rootfs: Codable, Sendable {
+public struct OCIRootfs: Codable, Sendable {
     enum CodingKeys: String, CodingKey {
         case type
         case diffIDs = "diff_ids"
@@ -85,7 +85,7 @@ public struct Rootfs: Codable, Sendable {
 }
 
 /// History describes the history of a layer.
-public struct History: Codable, Sendable {
+public struct OCIHistory: Codable, Sendable {
     enum CodingKeys: String, CodingKey {
         case created
         case createdBy = "created_by"
@@ -123,7 +123,7 @@ public struct History: Codable, Sendable {
 
 /// Image is the JSON structure which describes some basic information about the image.
 /// This provides the `application/vnd.oci.image.config.v1+json` mediatype when marshalled to JSON.
-public struct Image: Codable, Sendable {
+public struct OCIImage: Codable, Sendable {
     /// created is the combined date and time at which the image was created, formatted as defined by RFC 3339, section 5.6.
     public let created: String?
 
@@ -146,18 +146,18 @@ public struct Image: Codable, Sendable {
     public let variant: String?
 
     /// config defines the execution parameters which should be used as a base when running a container using the image.
-    public let config: ImageConfig?
+    public let config: OCIImageConfig?
 
     /// rootfs references the layer content addresses used by the image.
-    public let rootfs: Rootfs
+    public let rootfs: OCIRootfs
 
     /// history describes the history of each layer.
-    public let history: [History]?
+    public let history: [OCIHistory]?
 
     public init(
         created: String? = nil, author: String? = nil, architecture: String, os: String, osVersion: String? = nil,
-        osFeatures: [String]? = nil, variant: String? = nil, config: ImageConfig? = nil, rootfs: Rootfs,
-        history: [History]? = nil
+        osFeatures: [String]? = nil, variant: String? = nil, config: OCIImageConfig? = nil, rootfs: OCIRootfs,
+        history: [OCIHistory]? = nil
     ) {
         self.created = created
         self.author = author

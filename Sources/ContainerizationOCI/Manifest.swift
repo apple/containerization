@@ -19,7 +19,7 @@
 import Foundation
 
 /// Manifest provides `application/vnd.oci.image.manifest.v1+json` mediatype structure when marshalled to JSON.
-public struct Manifest: Codable, Sendable {
+public struct OCIManifest: Codable, Sendable {
     /// `schemaVersion` is the image manifest schema that this image follows.
     public let schemaVersion: Int
 
@@ -28,16 +28,16 @@ public struct Manifest: Codable, Sendable {
 
     /// `config` references a configuration object for a container, by digest.
     /// The referenced configuration object is a JSON blob that the runtime uses to set up the container.
-    public let config: Descriptor
+    public let config: OCIDescriptor
 
     /// `layers` is an indexed list of layers referenced by the manifest.
-    public let layers: [Descriptor]
+    public let layers: [OCIDescriptor]
 
     /// `annotations` contains arbitrary metadata for the image manifest.
     public let annotations: [String: String]?
 
     public init(
-        schemaVersion: Int = 2, mediaType: String = MediaTypes.imageManifest, config: Descriptor, layers: [Descriptor],
+        schemaVersion: Int = 2, mediaType: String = OCIMediaTypes.imageManifest, config: OCIDescriptor, layers: [OCIDescriptor],
         annotations: [String: String]? = nil
     ) {
         self.schemaVersion = schemaVersion

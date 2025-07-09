@@ -90,7 +90,7 @@ public final class LinuxProcess: Sendable {
     }
 
     private struct State {
-        var spec: ContainerizationOCI.Spec
+        var spec: OCISpec
         var pid: Int32
         var stdio: StdioHandles
         var stdinRelay: Task<(), Never>?
@@ -144,13 +144,13 @@ public final class LinuxProcess: Sendable {
     }
 
     /// The User a Process should execute under.
-    public var user: ContainerizationOCI.User {
+    public var user: OCIUser {
         get { state.withLock { $0.spec.process!.user } }
         set { state.withLock { $0.spec.process!.user = newValue } }
     }
 
     /// Rlimits for the Process.
-    public var rlimits: [POSIXRlimit] {
+    public var rlimits: [OCIRlimit] {
         get { state.withLock { $0.spec.process!.rlimits } }
         set { state.withLock { $0.spec.process!.rlimits = newValue } }
     }
@@ -164,7 +164,7 @@ public final class LinuxProcess: Sendable {
     init(
         _ id: String,
         containerID: String? = nil,
-        spec: Spec,
+        spec: OCISpec,
         io: Stdio,
         agent: any VirtualMachineAgent,
         vm: any VirtualMachineInstance,

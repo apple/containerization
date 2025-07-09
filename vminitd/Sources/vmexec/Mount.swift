@@ -20,10 +20,10 @@ import Foundation
 import Musl
 
 struct ContainerMount {
-    private let mounts: [ContainerizationOCI.Mount]
+    private let mounts: [OCIMount]
     private let rootfs: String
 
-    init(rootfs: String, mounts: [ContainerizationOCI.Mount]) {
+    init(rootfs: String, mounts: [OCIMount]) {
         self.rootfs = rootfs
         self.mounts = mounts
     }
@@ -55,9 +55,9 @@ struct ContainerMount {
     }
 }
 
-extension ContainerizationOCI.Mount {
-    func toOSMount() -> ContainerizationOS.Mount {
-        ContainerizationOS.Mount(
+extension OCIMount {
+    func toOSMount() -> Mount {
+        Mount(
             type: self.type,
             source: self.source,
             target: self.destination,

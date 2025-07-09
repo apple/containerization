@@ -14,11 +14,11 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-public struct RuntimeSpecVersion: Sendable {
+public struct OCIRuntimeSpecVersion: Sendable {
     public let major, minor, patch: Int
     public let dev: String
 
-    public static let current = RuntimeSpecVersion(
+    public static let current = OCIRuntimeSpecVersion(
         major: 1,
         minor: 0,
         patch: 2,

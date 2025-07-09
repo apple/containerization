@@ -20,7 +20,7 @@ import Foundation
 
 /// Index references manifests for various platforms.
 /// This structure provides `application/vnd.oci.image.index.v1+json` mediatype when marshalled to JSON.
-public struct Index: Codable, Sendable {
+public struct OCIIndex: Codable, Sendable {
     /// schemaVersion is the image manifest schema that this image follows
     public let schemaVersion: Int
 
@@ -28,13 +28,13 @@ public struct Index: Codable, Sendable {
     public let mediaType: String
 
     /// manifests references platform specific manifests.
-    public var manifests: [Descriptor]
+    public var manifests: [OCIDescriptor]
 
     /// annotations contains arbitrary metadata for the image index.
     public var annotations: [String: String]?
 
     public init(
-        schemaVersion: Int = 2, mediaType: String = MediaTypes.index, manifests: [Descriptor],
+        schemaVersion: Int = 2, mediaType: String = OCIMediaTypes.index, manifests: [OCIDescriptor],
         annotations: [String: String]? = nil
     ) {
         self.schemaVersion = schemaVersion

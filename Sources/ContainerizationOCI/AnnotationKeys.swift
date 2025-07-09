@@ -16,7 +16,8 @@
 
 /// AnnotationKeys contains a subset of "dictionary keys" for commonly used annotations in an OCI Image Descriptor
 /// https://github.com/opencontainers/image-spec/blob/main/annotations.md
-public struct AnnotationKeys: Codable, Sendable {
+
+public struct OCIAnnotationKeys: Codable, Sendable {
     public static let containerizationIndexIndirect = "com.apple.containerization.index.indirect"
     public static let containerizationImageName = "com.apple.containerization.image.name"
     public static let containerdImageName = "io.containerd.image.name"
