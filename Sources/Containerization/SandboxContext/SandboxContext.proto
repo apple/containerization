@@ -52,6 +52,8 @@ service SandboxContext {
   rpc IpRouteAddDefault(IpRouteAddDefaultRequest) returns (IpRouteAddDefaultResponse);
   // Configure DNS resolver.
   rpc ConfigureDns(ConfigureDnsRequest) returns (ConfigureDnsResponse);
+  // Configure /etc/hosts.
+  rpc ConfigureHosts(ConfigureHostsRequest) returns (ConfigureHostsResponse);
   // Perform the sync syscall.
   rpc Sync(SyncRequest) returns (SyncResponse);
   // Send a signal to a process via the PID.
@@ -238,6 +240,19 @@ message ConfigureDnsRequest {
 }
 
 message ConfigureDnsResponse {}
+
+message ConfigureHostsRequest {
+  message HostsEntry {
+    string ipAddress = 1;
+    repeated string hostnames = 2;
+    optional string comment = 3;
+  }
+  string location = 1;
+  repeated HostsEntry entries = 2;
+  optional string comment = 3;
+}
+
+message ConfigureHostsResponse {}
 
 message SyncRequest {}
 message SyncResponse {}

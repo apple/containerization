@@ -52,6 +52,7 @@ public final class LinuxContainer: Container, Sendable {
         var ioHandlers: LinuxProcess.IOHandler = .nullIO()
         var mounts: [Mount]
         var dns: DNS? = nil
+        var hosts: Hosts? = nil
     }
 
     @SendableProperty
@@ -320,6 +321,12 @@ extension LinuxContainer {
         set { config.dns = newValue }
     }
 
+    /// Hostname mapping configurations for the container.
+    public var hosts: Hosts? {
+        get { config.hosts }
+        set { config.hosts = newValue }
+    }
+
     /// Unix sockets to share into or out of the container.
     ///
     /// The VirtualMachineAgent used to launch the container
@@ -509,8 +516,13 @@ extension LinuxContainer {
                         try await agent.routeAddDefault(name: name, gateway: gateway)
                     }
                 }
+
+                // Setup /etc/resolv.conf and /etc/hosts if asked for.
                 if let dns = self.dns {
                     try await agent.configureDNS(config: dns, location: rootfs.destination)
+                }
+                if let hosts = self.hosts {
+                    try await agent.configureHosts(config: hosts, location: rootfs.destination)
                 }
 
                 try state.setCreated(vm: vm, relayManager: relayManager)

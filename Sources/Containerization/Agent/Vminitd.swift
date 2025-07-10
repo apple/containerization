@@ -309,6 +309,11 @@ extension Vminitd {
             })
     }
 
+    /// Configure /etc/hosts within the sandbox's environment.
+    public func configureHosts(config: Hosts, location: String) async throws {
+        _ = try await client.configureHosts(config.toAgentHostsRequest(location: location))
+    }
+
     /// Perform a sync call.
     public func sync() async throws {
         _ = try await client.sync(.init())
@@ -334,6 +339,27 @@ extension Vminitd {
         _ = try await self.kill(pid: -1, signal: SIGKILL)
         try await Task.sleep(for: .milliseconds(10))
         try await self.sync()
+    }
+}
+
+extension Hosts {
+    func toAgentHostsRequest(location: String) -> Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest {
+        Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest.with {
+            $0.location = location
+            if let comment {
+                $0.comment = comment
+            }
+            $0.entries = entries.map {
+                let entry = $0
+                return Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest.HostsEntry.with {
+                    if let comment = entry.comment {
+                        $0.comment = comment
+                    }
+                    $0.ipAddress = entry.ipAddress
+                    $0.hostnames = entry.hostnames
+                }
+            }
+        }
     }
 }
 

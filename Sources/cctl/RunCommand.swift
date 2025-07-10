@@ -119,6 +119,7 @@ extension Application {
                 container.mounts.append(czMount)
             }
 
+            var hosts = Hosts.default
             if let ip {
                 guard let gateway else {
                     throw ContainerizationError(.invalidArgument, message: "gateway must be specified")
@@ -128,7 +129,13 @@ extension Application {
                 if nameservers.count > 0 {
                     container.dns = .init(nameservers: nameservers)
                 }
+                hosts.entries.append(
+                    Hosts.Entry(
+                        ipAddress: ip,
+                        hostnames: [id]
+                    ))
             }
+            container.hosts = hosts
 
             try await container.create()
             try await container.start()

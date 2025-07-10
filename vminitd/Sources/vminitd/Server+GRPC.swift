@@ -794,6 +794,38 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         return .init()
     }
 
+    func configureHosts(
+        request: Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest,
+        context: GRPC.GRPCAsyncServerCallContext
+    ) async throws -> Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse {
+        log.debug(
+            "configureHosts",
+            metadata: [
+                "location": "\(request.location)"
+            ])
+
+        do {
+            let etc = URL(fileURLWithPath: request.location).appendingPathComponent("etc")
+            try FileManager.default.createDirectory(atPath: etc.path, withIntermediateDirectories: true)
+            let hostsPath = etc.appendingPathComponent("hosts")
+
+            let config = request.toCZHosts()
+            let text = config.hostsFile
+            try text.write(toFile: hostsPath.path, atomically: true, encoding: .utf8)
+
+            log.debug("wrote /etc/hosts configuration", metadata: ["path": "\(hostsPath.path)"])
+        } catch {
+            log.error(
+                "configureHosts",
+                metadata: [
+                    "error": "\(error)"
+                ])
+            throw GRPCStatus(code: .internalError, message: "configureHosts: \(error)")
+        }
+
+        return .init()
+    }
+
     private func swiftErrno(_ msg: Logger.Message) -> POSIXError {
         let error = POSIXError(.init(rawValue: errno)!)
         log.error(
@@ -829,6 +861,22 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         return .with {
             $0.result = r
         }
+    }
+}
+
+extension Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest {
+    func toCZHosts() -> Hosts {
+        let entries = self.entries.map {
+            Hosts.Entry(
+                ipAddress: $0.ipAddress,
+                hostnames: $0.hostnames,
+                comment: $0.hasComment ? $0.comment : nil
+            )
+        }
+        return Hosts(
+            entries: entries,
+            comment: self.hasComment ? self.comment : nil
+        )
     }
 }
 

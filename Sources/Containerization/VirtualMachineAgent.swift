@@ -60,10 +60,15 @@ public protocol VirtualMachineAgent: Sendable {
     func addressAdd(name: String, address: String) async throws
     func routeAddDefault(name: String, gateway: String) async throws
     func configureDNS(config: DNS, location: String) async throws
+    func configureHosts(config: Hosts, location: String) async throws
 }
 
 extension VirtualMachineAgent {
     public func closeProcessStdin(id: String, containerID: String?) async throws {
         throw ContainerizationError(.unsupported, message: "closeProcessStdin")
+    }
+
+    public func configureHosts(config: Hosts, location: String) async throws {
+        throw ContainerizationError(.unsupported, message: "configureHosts")
     }
 }

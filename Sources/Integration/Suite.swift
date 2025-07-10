@@ -206,6 +206,7 @@ struct IntegrationSuite: AsyncParsableCommand {
             "multiple concurrent processes": testMultipleConcurrentProcesses,
             "multiple concurrent processes with output stress": testMultipleConcurrentProcessesOutputStress,
             "container hostname": testHostname,
+            "container hosts": testHostsFile,
             "container mount": testMounts,
             "nested virt": testNestedVirtualizationEnabled,
         ]
