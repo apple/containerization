@@ -42,16 +42,16 @@ public protocol Content: Sendable {
 
 /// Protocol defining methods to fetch and push OCI content
 public protocol ContentClient: Sendable {
-    func fetch<T: Codable>(name: String, descriptor: Descriptor) async throws -> T
+    func fetch<T: Codable>(name: String, descriptor: OCIDescriptor) async throws -> T
 
-    func fetchBlob(name: String, descriptor: Descriptor, into file: URL, progress: ProgressHandler?) async throws -> (Int64, SHA256Digest)
+    func fetchBlob(name: String, descriptor: OCIDescriptor, into file: URL, progress: ProgressHandler?) async throws -> (Int64, SHA256Digest)
 
-    func fetchData(name: String, descriptor: Descriptor) async throws -> Data
+    func fetchData(name: String, descriptor: OCIDescriptor) async throws -> Data
 
     func push<T: Sendable & AsyncSequence>(
         name: String,
         ref: String,
-        descriptor: Descriptor,
+        descriptor: OCIDescriptor,
         streamGenerator: () throws -> T,
         progress: ProgressHandler?
     ) async throws where T.Element == ByteBuffer

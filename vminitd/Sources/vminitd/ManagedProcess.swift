@@ -65,7 +65,7 @@ final class ManagedProcess: Sendable {
     init(
         id: String,
         stdio: HostStdio,
-        bundle: ContainerizationOCI.Bundle,
+        bundle: OCIBundle,
         owningPid: Int32? = nil,
         log: Logger
     ) throws {

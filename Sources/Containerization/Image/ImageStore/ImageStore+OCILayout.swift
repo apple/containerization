@@ -30,7 +30,7 @@ extension ImageStore {
     ///   - platform: An optional parameter to indicate the platform to be saved for the images.
     ///               Defaults to `nil` signifying that layers for all supported platforms by the images will be saved.
     ///
-    public func save(references: [String], out: URL, platform: Platform? = nil) async throws {
+    public func save(references: [String], out: URL, platform: OCIPlatform? = nil) async throws {
         let matcher = createPlatformMatcher(for: platform)
         let fileManager = FileManager.default
         let tempDir = fileManager.uniqueTemporaryDirectory()
@@ -41,14 +41,14 @@ extension ImageStore {
         var toSave: [Image] = []
         for reference in references {
             let image = try await self.get(reference: reference)
-            let allowedMediaTypes = [MediaTypes.dockerManifestList, MediaTypes.index]
+            let allowedMediaTypes = [OCIMediaTypes.dockerManifestList, OCIMediaTypes.index]
             guard allowedMediaTypes.contains(image.mediaType) else {
                 throw ContainerizationError(.internalError, message: "Cannot save image \(image.reference) with Index media type \(image.mediaType)")
             }
             toSave.append(image)
         }
         let client = try LocalOCILayoutClient(root: out)
-        var saved: [Descriptor] = []
+        var saved: [OCIDescriptor] = []
 
         for image in toSave {
             let ref = try Reference.parse(image.reference)

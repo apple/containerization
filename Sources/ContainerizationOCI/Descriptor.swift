@@ -21,7 +21,7 @@ import Foundation
 /// Descriptor describes the disposition of targeted content.
 /// This structure provides `application/vnd.oci.descriptor.v1+json` mediatype
 /// when marshalled to JSON.
-public struct Descriptor: Codable, Sendable, Equatable {
+public struct OCIDescriptor: Codable, Sendable, Equatable {
     /// mediaType is the media type of the object this schema refers to.
     public let mediaType: String
 
@@ -40,11 +40,11 @@ public struct Descriptor: Codable, Sendable, Equatable {
     /// platform describes the platform which the image in the manifest runs on.
     ///
     /// This should only be used when referring to a manifest.
-    public var platform: Platform?
+    public var platform: OCIPlatform?
 
     public init(
         mediaType: String, digest: String, size: Int64, urls: [String]? = nil, annotations: [String: String]? = nil,
-        platform: Platform? = nil
+        platform: OCIPlatform? = nil
     ) {
         self.mediaType = mediaType
         self.digest = digest

@@ -24,7 +24,7 @@ extension ImageStore {
     internal actor ReferenceManager: Sendable {
         private let path: URL
 
-        private typealias State = [String: Descriptor]
+        private typealias State = [String: OCIDescriptor]
         private var images: State
 
         public init(path: URL) throws {

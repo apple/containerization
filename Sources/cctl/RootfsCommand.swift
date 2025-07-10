@@ -41,7 +41,7 @@ extension Application {
             var vmexec: String
 
             @Option(name: .long, help: "Platform of the built binaries being packaged into the block")
-            var platformString: String = Platform.current.description
+            var platformString: String = OCIPlatform.current.description
 
             @Option(name: .long, help: "Labels to add to the built image of the form <key1>=<value1>, [<key2>=<value2>,...]")
             var labels: [String] = []
@@ -64,7 +64,7 @@ extension Application {
 
             func run() async throws {
                 try await writeArchive()
-                let p = try Platform(from: platformString)
+                let p = try OCIPlatform(from: platformString)
                 let rootfs = URL(filePath: rootfsPath)
                 let labels = Application.parseKeyValuePairs(from: labels)
                 _ = try await InitImage.create(

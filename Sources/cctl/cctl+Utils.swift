@@ -46,8 +46,8 @@ extension Application {
     }
 }
 
-extension ContainerizationOCI.Platform {
-    static var arm64: ContainerizationOCI.Platform {
+extension OCIPlatform {
+    static var arm64: OCIPlatform {
         .init(arch: "arm64", os: "linux", variant: "v8")
     }
 }

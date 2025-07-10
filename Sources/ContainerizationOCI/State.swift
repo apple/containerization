@@ -14,18 +14,18 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-public enum ContainerState: String, Codable, Sendable {
+public enum OCIContainerState: String, Codable, Sendable {
     case creating
     case created
     case running
     case stopped
 }
 
-public struct State: Codable, Sendable {
+public struct OCIState: Codable, Sendable {
     public init(
         version: String,
         id: String,
-        status: ContainerState,
+        status: OCIContainerState,
         pid: Int,
         bundle: String,
         annotations: [String: String]?
@@ -38,7 +38,7 @@ public struct State: Codable, Sendable {
         self.annotations = annotations
     }
 
-    public init(instance: State) {
+    public init(instance: OCIState) {
         self.ociVersion = instance.ociVersion
         self.id = instance.id
         self.status = instance.status
@@ -49,7 +49,7 @@ public struct State: Codable, Sendable {
 
     public let ociVersion: String
     public let id: String
-    public let status: ContainerState
+    public let status: OCIContainerState
     public let pid: Int
     public let bundle: String
     public var annotations: [String: String]?
@@ -57,8 +57,8 @@ public struct State: Codable, Sendable {
 
 public let seccompFdName: String = "seccompFd"
 
-public struct ContainerProcessState: Codable, Sendable {
-    public init(version: String, fds: [String], pid: Int, metadata: String, state: State) {
+public struct OCIContainerProcessState: Codable, Sendable {
+    public init(version: String, fds: [String], pid: Int, metadata: String, state: OCIState) {
         self.ociVersion = version
         self.fds = fds
         self.pid = pid
@@ -66,7 +66,7 @@ public struct ContainerProcessState: Codable, Sendable {
         self.state = state
     }
 
-    public init(instance: ContainerProcessState) {
+    public init(instance: OCIContainerProcessState) {
         self.ociVersion = instance.ociVersion
         self.fds = instance.fds
         self.pid = instance.pid
@@ -78,5 +78,5 @@ public struct ContainerProcessState: Codable, Sendable {
     public var fds: [String]
     public let pid: Int
     public let metadata: String
-    public let state: State
+    public let state: OCIState
 }

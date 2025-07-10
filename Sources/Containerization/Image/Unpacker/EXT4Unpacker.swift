@@ -32,7 +32,7 @@ public struct EXT4Unpacker: Unpacker {
         self.blockSizeInBytes = blockSizeInBytes
     }
 
-    public func unpack(_ image: Image, for platform: Platform, at path: URL, progress: ProgressHandler? = nil) async throws -> Mount {
+    public func unpack(_ image: Image, for platform: OCIPlatform, at path: URL, progress: ProgressHandler? = nil) async throws -> Mount {
         #if !os(macOS)
         throw ContainerizationError(.unsupported, message: "Cannot unpack an image on current platform")
         #else
@@ -47,9 +47,9 @@ public struct EXT4Unpacker: Unpacker {
 
             let compression: ContainerizationArchive.Filter
             switch layer.mediaType {
-            case MediaTypes.imageLayer, MediaTypes.dockerImageLayer:
+            case OCIMediaTypes.imageLayer, OCIMediaTypes.dockerImageLayer:
                 compression = .none
-            case MediaTypes.imageLayerGzip, MediaTypes.dockerImageLayerGzip:
+            case OCIMediaTypes.imageLayerGzip, OCIMediaTypes.dockerImageLayerGzip:
                 compression = .gzip
             default:
                 throw ContainerizationError(.unsupported, message: "Media type \(layer.mediaType) not supported.")

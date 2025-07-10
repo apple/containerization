@@ -103,7 +103,7 @@ struct OCIClientTests: ~Copyable {
     @Test func resolve() async throws {
         let client = RegistryClient(host: "ghcr.io")
         let descriptor = try await client.resolve(name: "apple/containerization/dockermanifestimage", tag: "0.0.2")
-        #expect(descriptor.mediaType == MediaTypes.dockerManifest)
+        #expect(descriptor.mediaType == OCIMediaTypes.dockerManifest)
         #expect(descriptor.size != 0)
         #expect(!descriptor.digest.isEmpty)
     }
@@ -114,7 +114,7 @@ struct OCIClientTests: ~Copyable {
             name: "apple/containerization/dockermanifestimage", tag: "sha256:c8d344d228b7d9a702a95227438ec0d71f953a9a483e28ffabc5704f70d2b61e")
         let namedDescriptor = try await client.resolve(name: "apple/containerization/dockermanifestimage", tag: "0.0.2")
         #expect(descriptor == namedDescriptor)
-        #expect(descriptor.mediaType == MediaTypes.dockerManifest)
+        #expect(descriptor.mediaType == OCIMediaTypes.dockerManifest)
         #expect(descriptor.size != 0)
         #expect(!descriptor.digest.isEmpty)
     }
@@ -122,7 +122,7 @@ struct OCIClientTests: ~Copyable {
     @Test func fetchManifest() async throws {
         let client = RegistryClient(host: "ghcr.io")
         let descriptor = try await client.resolve(name: "apple/containerization/dockermanifestimage", tag: "0.0.2")
-        let manifest: Manifest = try await client.fetch(name: "apple/containerization/dockermanifestimage", descriptor: descriptor)
+        let manifest: OCIManifest = try await client.fetch(name: "apple/containerization/dockermanifestimage", descriptor: descriptor)
         #expect(manifest.schemaVersion == 2)
         #expect(manifest.layers.count == 1)
     }
@@ -138,8 +138,8 @@ struct OCIClientTests: ~Copyable {
     @Test func fetchConfig() async throws {
         let client = RegistryClient(host: "ghcr.io")
         let descriptor = try await client.resolve(name: "apple/containerization/dockermanifestimage", tag: "0.0.2")
-        let manifest: Manifest = try await client.fetch(name: "apple/containerization/dockermanifestimage", descriptor: descriptor)
-        let image: Image = try await client.fetch(name: "apple/containerization/dockermanifestimage", descriptor: manifest.config)
+        let manifest: OCIManifest = try await client.fetch(name: "apple/containerization/dockermanifestimage", descriptor: descriptor)
+        let image: OCIImage = try await client.fetch(name: "apple/containerization/dockermanifestimage", descriptor: manifest.config)
         // This is an empty image -- check that the image label is present in the image config
         #expect(image.config?.labels?["org.opencontainers.image.source"] == "https://github.com/apple/containerization")
         #expect(image.rootfs.diffIDs.count == 1)
@@ -148,7 +148,7 @@ struct OCIClientTests: ~Copyable {
     @Test func fetchBlob() async throws {
         let client = RegistryClient(host: "ghcr.io")
         let descriptor = try await client.resolve(name: "apple/containerization/dockermanifestimage", tag: "0.0.2")
-        let manifest: Manifest = try await client.fetch(name: "apple/containerization/dockermanifestimage", descriptor: descriptor)
+        let manifest: OCIManifest = try await client.fetch(name: "apple/containerization/dockermanifestimage", descriptor: descriptor)
         var called = false
         var done = false
         try await client.fetchBlob(name: "apple/containerization/dockermanifestimage", descriptor: manifest.layers.first!) { (expected, body) in
@@ -170,11 +170,11 @@ struct OCIClientTests: ~Copyable {
     func pushIndex() async throws {
         let client = RegistryClient(host: "ghcr.io", authentication: Self.authentication)
         let indexDescriptor = try await client.resolve(name: "apple/containerization/emptyimage", tag: "0.0.1")
-        let index: Index = try await client.fetch(name: "apple/containerization/emptyimage", descriptor: indexDescriptor)
+        let index: OCIIndex = try await client.fetch(name: "apple/containerization/emptyimage", descriptor: indexDescriptor)
 
-        let platform = Platform(arch: "amd64", os: "linux")
+        let platform = OCIPlatform(arch: "amd64", os: "linux")
 
-        var manifestDescriptor: Descriptor?
+        var manifestDescriptor: OCIDescriptor?
         for m in index.manifests where m.platform == platform {
             manifestDescriptor = m
             break
@@ -182,8 +182,8 @@ struct OCIClientTests: ~Copyable {
 
         #expect(manifestDescriptor != nil)
 
-        let manifest: Manifest = try await client.fetch(name: "apple/containerization/emptyimage", descriptor: manifestDescriptor!)
-        let imgConfig: Image = try await client.fetch(name: "apple/containerization/emptyimage", descriptor: manifest.config)
+        let manifest: OCIManifest = try await client.fetch(name: "apple/containerization/emptyimage", descriptor: manifestDescriptor!)
+        let imgConfig: OCIImage = try await client.fetch(name: "apple/containerization/emptyimage", descriptor: manifest.config)
 
         let layer = try #require(manifest.layers.first)
         let blobPath = contentPath.appendingPathComponent(layer.digest)
@@ -227,7 +227,7 @@ struct OCIClientTests: ~Copyable {
         }
 
         // Push the image configuration.
-        var imgConfigDesc: Descriptor?
+        var imgConfigDesc: OCIDescriptor?
         do {
             imgConfigDesc = try await self.pushDescriptor(
                 client: client,
@@ -244,7 +244,7 @@ struct OCIClientTests: ~Copyable {
         }
 
         // Push the image manifest.
-        let newManifest = Manifest(
+        let newManifest = OCIManifest(
             schemaVersion: manifest.schemaVersion,
             mediaType: manifest.mediaType!,
             config: imgConfigDesc!,
@@ -260,7 +260,7 @@ struct OCIClientTests: ~Copyable {
         )
 
         // Push the index.
-        let newIndex = Index(
+        let newIndex = OCIIndex(
             schemaVersion: index.schemaVersion,
             mediaType: index.mediaType,
             manifests: [manifestDesc],
@@ -320,11 +320,11 @@ struct OCIClientTests: ~Copyable {
         name: String,
         ref: String,
         content: T,
-        baseDescriptor: Descriptor
-    ) async throws -> Descriptor {
+        baseDescriptor: OCIDescriptor
+    ) async throws -> OCIDescriptor {
         let encoded = try self.encoder.encode(content)
         let digest = SHA256.hash(data: encoded)
-        let descriptor = Descriptor(
+        let descriptor = OCIDescriptor(
             mediaType: baseDescriptor.mediaType,
             digest: digest.digest,
             size: Int64(encoded.count),

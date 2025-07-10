@@ -18,26 +18,26 @@
 /// have been left off, and some APIs for Linux aren't present. This was manually ported starting
 /// at the v1.2.0 release.
 
-public struct Spec: Codable, Sendable {
+public struct OCISpec: Codable, Sendable {
     public var version: String
-    public var hooks: Hook?
-    public var process: Process?
+    public var hooks: OCIHook?
+    public var process: OCIProcess?
     public var hostname, domainname: String
-    public var mounts: [Mount]
+    public var mounts: [OCIMount]
     public var annotations: [String: String]?
-    public var root: Root?
-    public var linux: Linux?
+    public var root: OCIRoot?
+    public var linux: OCILinux?
 
     public init(
         version: String = "",
-        hooks: Hook? = nil,
-        process: Process? = nil,
+        hooks: OCIHook? = nil,
+        process: OCIProcess? = nil,
         hostname: String = "",
         domainname: String = "",
-        mounts: [Mount] = [],
+        mounts: [OCIMount] = [],
         annotations: [String: String]? = nil,
-        root: Root? = nil,
-        linux: Linux? = nil
+        root: OCIRoot? = nil,
+        linux: OCILinux? = nil
     ) {
         self.version = version
         self.hooks = hooks
@@ -63,18 +63,18 @@ public struct Spec: Codable, Sendable {
     }
 }
 
-public struct Process: Codable, Sendable {
+public struct OCIProcess: Codable, Sendable {
     public var cwd: String
     public var env: [String]
-    public var consoleSize: Box?
+    public var consoleSize: OCIBox?
     public var selinuxLabel: String
     public var noNewPrivileges: Bool
     public var commandLine: String
     public var oomScoreAdj: Int?
-    public var capabilities: LinuxCapabilities?
+    public var capabilities: OCILinuxCapabilities?
     public var apparmorProfile: String
-    public var user: User
-    public var rlimits: [POSIXRlimit]
+    public var user: OCIUser
+    public var rlimits: [OCIRlimit]
     public var args: [String]
     public var terminal: Bool
 
@@ -82,15 +82,15 @@ public struct Process: Codable, Sendable {
         args: [String] = [],
         cwd: String = "/",
         env: [String] = [],
-        consoleSize: Box? = nil,
+        consoleSize: OCIBox? = nil,
         selinuxLabel: String = "",
         noNewPrivileges: Bool = false,
         commandLine: String = "",
         oomScoreAdj: Int? = nil,
-        capabilities: LinuxCapabilities? = nil,
+        capabilities: OCILinuxCapabilities? = nil,
         apparmorProfile: String = "",
-        user: User = .init(),
-        rlimits: [POSIXRlimit] = [],
+        user: OCIUser = .init(),
+        rlimits: [OCIRlimit] = [],
         terminal: Bool = false
     ) {
         self.cwd = cwd
@@ -108,21 +108,21 @@ public struct Process: Codable, Sendable {
         self.terminal = terminal
     }
 
-    public init(from config: ImageConfig) {
+    public init(from config: OCIImageConfig) {
         let cwd = config.workingDir ?? "/"
         let env = config.env ?? []
         let args = (config.entrypoint ?? []) + (config.cmd ?? [])
-        let user: User = {
+        let user: OCIUser = {
             if let rawString = config.user {
-                return User(username: rawString)
+                return OCIUser(username: rawString)
             }
-            return User()
+            return OCIUser()
         }()
         self.init(args: args, cwd: cwd, env: env, user: user)
     }
 }
 
-public struct LinuxCapabilities: Codable, Sendable {
+public struct OCILinuxCapabilities: Codable, Sendable {
     public var bounding: [String]
     public var effective: [String]
     public var inheritable: [String]
@@ -144,7 +144,7 @@ public struct LinuxCapabilities: Codable, Sendable {
     }
 }
 
-public struct Box: Codable, Sendable {
+public struct OCIBox: Codable, Sendable {
     var height, width: UInt
 
     public init(height: UInt, width: UInt) {
@@ -153,7 +153,7 @@ public struct Box: Codable, Sendable {
     }
 }
 
-public struct User: Codable, Sendable {
+public struct OCIUser: Codable, Sendable {
     public var uid: UInt32
     public var gid: UInt32
     public var umask: UInt32?
@@ -175,7 +175,7 @@ public struct User: Codable, Sendable {
     }
 }
 
-public struct Root: Codable, Sendable {
+public struct OCIRoot: Codable, Sendable {
     public var path: String
     public var readonly: Bool
 
@@ -185,22 +185,22 @@ public struct Root: Codable, Sendable {
     }
 }
 
-public struct Mount: Codable, Sendable {
+public struct OCIMount: Codable, Sendable {
     public var type: String
     public var source: String
     public var destination: String
     public var options: [String]
 
-    public var uidMappings: [LinuxIDMapping]
-    public var gidMappings: [LinuxIDMapping]
+    public var uidMappings: [OCILinuxIDMapping]
+    public var gidMappings: [OCILinuxIDMapping]
 
     public init(
         type: String,
         source: String,
         destination: String,
         options: [String] = [],
-        uidMappings: [LinuxIDMapping] = [],
-        gidMappings: [LinuxIDMapping] = []
+        uidMappings: [OCILinuxIDMapping] = [],
+        gidMappings: [OCILinuxIDMapping] = []
     ) {
         self.destination = destination
         self.type = type
@@ -211,7 +211,7 @@ public struct Mount: Codable, Sendable {
     }
 }
 
-public struct Hook: Codable, Sendable {
+public struct OCIHook: Codable, Sendable {
     public var path: String
     public var args: [String]
     public var env: [String]
@@ -225,21 +225,21 @@ public struct Hook: Codable, Sendable {
     }
 }
 
-public struct Hooks: Codable, Sendable {
-    public var prestart: [Hook]
-    public var createRuntime: [Hook]
-    public var createContainer: [Hook]
-    public var startContainer: [Hook]
-    public var poststart: [Hook]
-    public var poststop: [Hook]
+public struct OCIHooks: Codable, Sendable {
+    public var prestart: [OCIHook]
+    public var createRuntime: [OCIHook]
+    public var createContainer: [OCIHook]
+    public var startContainer: [OCIHook]
+    public var poststart: [OCIHook]
+    public var poststop: [OCIHook]
 
     public init(
-        prestart: [Hook],
-        createRuntime: [Hook],
-        createContainer: [Hook],
-        startContainer: [Hook],
-        poststart: [Hook],
-        poststop: [Hook]
+        prestart: [OCIHook],
+        createRuntime: [OCIHook],
+        createContainer: [OCIHook],
+        startContainer: [OCIHook],
+        poststart: [OCIHook],
+        poststop: [OCIHook]
     ) {
         self.prestart = prestart
         self.createRuntime = createRuntime
@@ -250,35 +250,35 @@ public struct Hooks: Codable, Sendable {
     }
 }
 
-public struct Linux: Codable, Sendable {
-    public var uidMappings: [LinuxIDMapping]
-    public var gidMappings: [LinuxIDMapping]
+public struct OCILinux: Codable, Sendable {
+    public var uidMappings: [OCILinuxIDMapping]
+    public var gidMappings: [OCILinuxIDMapping]
     public var sysctl: [String: String]?
-    public var resources: LinuxResources?
+    public var resources: OCILinuxResources?
     public var cgroupsPath: String
-    public var namespaces: [LinuxNamespace]
-    public var devices: [LinuxDevice]
-    public var seccomp: LinuxSeccomp?
+    public var namespaces: [OCILinuxNamespace]
+    public var devices: [OCILinuxDevice]
+    public var seccomp: OCILinuxSeccomp?
     public var rootfsPropagation: String
     public var maskedPaths: [String]
     public var readonlyPaths: [String]
     public var mountLabel: String
-    public var personality: LinuxPersonality?
+    public var personality: OCILinuxPersonality?
 
     public init(
-        uidMappings: [LinuxIDMapping] = [],
-        gidMappings: [LinuxIDMapping] = [],
+        uidMappings: [OCILinuxIDMapping] = [],
+        gidMappings: [OCILinuxIDMapping] = [],
         sysctl: [String: String]? = nil,
-        resources: LinuxResources? = nil,
+        resources: OCILinuxResources? = nil,
         cgroupsPath: String = "",
-        namespaces: [LinuxNamespace] = [],
-        devices: [LinuxDevice] = [],
-        seccomp: LinuxSeccomp? = nil,
+        namespaces: [OCILinuxNamespace] = [],
+        devices: [OCILinuxDevice] = [],
+        seccomp: OCILinuxSeccomp? = nil,
         rootfsPropagation: String = "",
         maskedPaths: [String] = [],
         readonlyPaths: [String] = [],
         mountLabel: String = "",
-        personality: LinuxPersonality? = nil
+        personality: OCILinuxPersonality? = nil
     ) {
         self.uidMappings = uidMappings
         self.gidMappings = gidMappings
@@ -296,17 +296,17 @@ public struct Linux: Codable, Sendable {
     }
 }
 
-public struct LinuxNamespace: Codable, Sendable {
-    public var type: LinuxNamespaceType
+public struct OCILinuxNamespace: Codable, Sendable {
+    public var type: OCILinuxNamespaceType
     public var path: String
 
-    public init(type: LinuxNamespaceType, path: String = "") {
+    public init(type: OCILinuxNamespaceType, path: String = "") {
         self.type = type
         self.path = path
     }
 }
 
-public enum LinuxNamespaceType: String, Codable, Sendable {
+public enum OCILinuxNamespaceType: String, Codable, Sendable {
     case pid
     case network
     case uts
@@ -316,7 +316,7 @@ public enum LinuxNamespaceType: String, Codable, Sendable {
     case cgroup
 }
 
-public struct LinuxIDMapping: Codable, Sendable {
+public struct OCILinuxIDMapping: Codable, Sendable {
     public var containerID: UInt32
     public var hostID: UInt32
     public var size: UInt32
@@ -328,7 +328,7 @@ public struct LinuxIDMapping: Codable, Sendable {
     }
 }
 
-public struct POSIXRlimit: Codable, Sendable {
+public struct OCIRlimit: Codable, Sendable {
     public var type: String
     public var hard: UInt64
     public var soft: UInt64
@@ -340,7 +340,7 @@ public struct POSIXRlimit: Codable, Sendable {
     }
 }
 
-public struct LinuxHugepageLimit: Codable, Sendable {
+public struct OCILinuxHugepageLimit: Codable, Sendable {
     public var pagesize: String
     public var limit: UInt64
 
@@ -350,7 +350,7 @@ public struct LinuxHugepageLimit: Codable, Sendable {
     }
 }
 
-public struct LinuxInterfacePriority: Codable, Sendable {
+public struct OCILinuxInterfacePriority: Codable, Sendable {
     public var name: String
     public var priority: UInt32
 
@@ -360,7 +360,7 @@ public struct LinuxInterfacePriority: Codable, Sendable {
     }
 }
 
-public struct LinuxBlockIODevice: Codable, Sendable {
+public struct OCILinuxBlockIODevice: Codable, Sendable {
     public var major: Int64
     public var minor: Int64
 
@@ -370,7 +370,7 @@ public struct LinuxBlockIODevice: Codable, Sendable {
     }
 }
 
-public struct LinuxWeightDevice: Codable, Sendable {
+public struct OCILinuxWeightDevice: Codable, Sendable {
     public var major: Int64
     public var minor: Int64
     public var weight: UInt16?
@@ -384,7 +384,7 @@ public struct LinuxWeightDevice: Codable, Sendable {
     }
 }
 
-public struct LinuxThrottleDevice: Codable, Sendable {
+public struct OCILinuxThrottleDevice: Codable, Sendable {
     public var major: Int64
     public var minor: Int64
     public var rate: UInt64
@@ -396,23 +396,23 @@ public struct LinuxThrottleDevice: Codable, Sendable {
     }
 }
 
-public struct LinuxBlockIO: Codable, Sendable {
+public struct OCILinuxBlockIO: Codable, Sendable {
     public var weight: UInt16?
     public var leafWeight: UInt16?
-    public var weightDevice: [LinuxWeightDevice]
-    public var throttleReadBpsDevice: [LinuxThrottleDevice]
-    public var throttleWriteBpsDevice: [LinuxThrottleDevice]
-    public var throttleReadIOPSDevice: [LinuxThrottleDevice]
-    public var throttleWriteIOPSDevice: [LinuxThrottleDevice]
+    public var weightDevice: [OCILinuxWeightDevice]
+    public var throttleReadBpsDevice: [OCILinuxThrottleDevice]
+    public var throttleWriteBpsDevice: [OCILinuxThrottleDevice]
+    public var throttleReadIOPSDevice: [OCILinuxThrottleDevice]
+    public var throttleWriteIOPSDevice: [OCILinuxThrottleDevice]
 
     public init(
         weight: UInt16?,
         leafWeight: UInt16?,
-        weightDevice: [LinuxWeightDevice],
-        throttleReadBpsDevice: [LinuxThrottleDevice],
-        throttleWriteBpsDevice: [LinuxThrottleDevice],
-        throttleReadIOPSDevice: [LinuxThrottleDevice],
-        throttleWriteIOPSDevice: [LinuxThrottleDevice]
+        weightDevice: [OCILinuxWeightDevice],
+        throttleReadBpsDevice: [OCILinuxThrottleDevice],
+        throttleWriteBpsDevice: [OCILinuxThrottleDevice],
+        throttleReadIOPSDevice: [OCILinuxThrottleDevice],
+        throttleWriteIOPSDevice: [OCILinuxThrottleDevice]
     ) {
         self.weight = weight
         self.leafWeight = leafWeight
@@ -424,7 +424,7 @@ public struct LinuxBlockIO: Codable, Sendable {
     }
 }
 
-public struct LinuxMemory: Codable, Sendable {
+public struct OCILinuxMemory: Codable, Sendable {
     public var limit: Int64?
     public var reservation: Int64?
     public var swap: Int64?
@@ -458,7 +458,7 @@ public struct LinuxMemory: Codable, Sendable {
     }
 }
 
-public struct LinuxCPU: Codable, Sendable {
+public struct OCILinuxCPU: Codable, Sendable {
     public var shares: UInt64?
     public var quota: Int64?
     public var burst: UInt64?
@@ -492,7 +492,7 @@ public struct LinuxCPU: Codable, Sendable {
     }
 }
 
-public struct LinuxPids: Codable, Sendable {
+public struct OCILinuxPids: Codable, Sendable {
     public var limit: Int64
 
     public init(limit: Int64) {
@@ -500,17 +500,17 @@ public struct LinuxPids: Codable, Sendable {
     }
 }
 
-public struct LinuxNetwork: Codable, Sendable {
+public struct OCILinuxNetwork: Codable, Sendable {
     public var classID: UInt32?
-    public var priorities: [LinuxInterfacePriority]
+    public var priorities: [OCILinuxInterfacePriority]
 
-    public init(classID: UInt32?, priorities: [LinuxInterfacePriority]) {
+    public init(classID: UInt32?, priorities: [OCILinuxInterfacePriority]) {
         self.classID = classID
         self.priorities = priorities
     }
 }
 
-public struct LinuxRdma: Codable, Sendable {
+public struct OCILinuxRdma: Codable, Sendable {
     public var hcsHandles: UInt32?
     public var hcaObjects: UInt32?
 
@@ -520,26 +520,26 @@ public struct LinuxRdma: Codable, Sendable {
     }
 }
 
-public struct LinuxResources: Codable, Sendable {
-    public var devices: [LinuxDeviceCgroup]
-    public var memory: LinuxMemory?
-    public var cpu: LinuxCPU?
-    public var pids: LinuxPids?
-    public var blockIO: LinuxBlockIO?
-    public var hugepageLimits: [LinuxHugepageLimit]
-    public var network: LinuxNetwork?
-    public var rdma: [String: LinuxRdma]?
+public struct OCILinuxResources: Codable, Sendable {
+    public var devices: [OCILinuxDeviceCgroup]
+    public var memory: OCILinuxMemory?
+    public var cpu: OCILinuxCPU?
+    public var pids: OCILinuxPids?
+    public var blockIO: OCILinuxBlockIO?
+    public var hugepageLimits: [OCILinuxHugepageLimit]
+    public var network: OCILinuxNetwork?
+    public var rdma: [String: OCILinuxRdma]?
     public var unified: [String: String]?
 
     public init(
-        devices: [LinuxDeviceCgroup] = [],
-        memory: LinuxMemory? = nil,
-        cpu: LinuxCPU? = nil,
-        pids: LinuxPids? = nil,
-        blockIO: LinuxBlockIO? = nil,
-        hugepageLimits: [LinuxHugepageLimit] = [],
-        network: LinuxNetwork? = nil,
-        rdma: [String: LinuxRdma]? = nil,
+        devices: [OCILinuxDeviceCgroup] = [],
+        memory: OCILinuxMemory? = nil,
+        cpu: OCILinuxCPU? = nil,
+        pids: OCILinuxPids? = nil,
+        blockIO: OCILinuxBlockIO? = nil,
+        hugepageLimits: [OCILinuxHugepageLimit] = [],
+        network: OCILinuxNetwork? = nil,
+        rdma: [String: OCILinuxRdma]? = nil,
         unified: [String: String] = [:]
     ) {
         self.devices = devices
@@ -554,7 +554,7 @@ public struct LinuxResources: Codable, Sendable {
     }
 }
 
-public struct LinuxDevice: Codable, Sendable {
+public struct OCILinuxDevice: Codable, Sendable {
     public var path: String
     public var type: String
     public var major: Int64
@@ -582,7 +582,7 @@ public struct LinuxDevice: Codable, Sendable {
     }
 }
 
-public struct LinuxDeviceCgroup: Codable, Sendable {
+public struct OCILinuxDeviceCgroup: Codable, Sendable {
     public var allow: Bool
     public var type: String
     public var major: Int64?
@@ -598,38 +598,38 @@ public struct LinuxDeviceCgroup: Codable, Sendable {
     }
 }
 
-public enum LinuxPersonalityDomain: String, Codable, Sendable {
+public enum OCILinuxPersonalityDomain: String, Codable, Sendable {
     case perLinux = "LINUX"
     case perLinux32 = "LINUX32"
 }
 
-public struct LinuxPersonality: Codable, Sendable {
-    public var domain: LinuxPersonalityDomain
+public struct OCILinuxPersonality: Codable, Sendable {
+    public var domain: OCILinuxPersonalityDomain
     public var flags: [String]
 
-    public init(domain: LinuxPersonalityDomain, flags: [String]) {
+    public init(domain: OCILinuxPersonalityDomain, flags: [String]) {
         self.domain = domain
         self.flags = flags
     }
 }
 
-public struct LinuxSeccomp: Codable, Sendable {
-    public var defaultAction: LinuxSeccompAction
+public struct OCILinuxSeccomp: Codable, Sendable {
+    public var defaultAction: OCILinuxSeccompAction
     public var defaultErrnoRet: UInt?
-    public var architectures: [Arch]
-    public var flags: [LinuxSeccompFlag]
+    public var architectures: [OCIArch]
+    public var flags: [OCILinuxSeccompFlag]
     public var listenerPath: String
     public var listenerMetadata: String
-    public var syscalls: [LinuxSyscall]
+    public var syscalls: [OCILinuxSyscall]
 
     public init(
-        defaultAction: LinuxSeccompAction,
+        defaultAction: OCILinuxSeccompAction,
         defaultErrnoRet: UInt?,
-        architectures: [Arch],
-        flags: [LinuxSeccompFlag],
+        architectures: [OCIArch],
+        flags: [OCILinuxSeccompFlag],
         listenerPath: String,
         listenerMetadata: String,
-        syscalls: [LinuxSyscall]
+        syscalls: [OCILinuxSyscall]
     ) {
         self.defaultAction = defaultAction
         self.defaultErrnoRet = defaultErrnoRet
@@ -641,13 +641,13 @@ public struct LinuxSeccomp: Codable, Sendable {
     }
 }
 
-public enum LinuxSeccompFlag: String, Codable, Sendable {
+public enum OCILinuxSeccompFlag: String, Codable, Sendable {
     case flagLog = "SECCOMP_FILTER_FLAG_LOG"
     case flagSpecAllow = "SECCOMP_FILTER_FLAG_SPEC_ALLOW"
     case flagWaitKillableRecv = "SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV"
 }
 
-public enum Arch: String, Codable, Sendable {
+public enum OCIArch: String, Codable, Sendable {
     case archX86 = "SCMP_ARCH_X86"
     case archX86_64 = "SCMP_ARCH_X86_64"
     case archX32 = "SCMP_ARCH_X32"
@@ -669,7 +669,7 @@ public enum Arch: String, Codable, Sendable {
     case archRISCV64 = "SCMP_ARCH_RISCV64"
 }
 
-public enum LinuxSeccompAction: String, Codable, Sendable {
+public enum OCILinuxSeccompAction: String, Codable, Sendable {
     case actKill = "SCMP_ACT_KILL"
     case actKillProcess = "SCMP_ACT_KILL_PROCESS"
     case actKillThread = "SCMP_ACT_KILL_THREAD"
@@ -681,7 +681,7 @@ public enum LinuxSeccompAction: String, Codable, Sendable {
     case actNotify = "SCMP_ACT_NOTIFY"
 }
 
-public enum LinuxSeccompOperator: String, Codable, Sendable {
+public enum OCILinuxSeccompOperator: String, Codable, Sendable {
     case opNotEqual = "SCMP_CMP_NE"
     case opLessThan = "SCMP_CMP_LT"
     case opLessEqual = "SCMP_CMP_LE"
@@ -691,13 +691,13 @@ public enum LinuxSeccompOperator: String, Codable, Sendable {
     case opMaskedEqual = "SCMP_CMP_MASKED_EQ"
 }
 
-public struct LinuxSeccompArg: Codable, Sendable {
+public struct OCILinuxSeccompArg: Codable, Sendable {
     public var index: UInt
     public var value: UInt64
     public var valueTwo: UInt64
-    public var op: LinuxSeccompOperator
+    public var op: OCILinuxSeccompOperator
 
-    public init(index: UInt, value: UInt64, valueTwo: UInt64, op: LinuxSeccompOperator) {
+    public init(index: UInt, value: UInt64, valueTwo: UInt64, op: OCILinuxSeccompOperator) {
         self.index = index
         self.value = value
         self.valueTwo = valueTwo
@@ -705,17 +705,17 @@ public struct LinuxSeccompArg: Codable, Sendable {
     }
 }
 
-public struct LinuxSyscall: Codable, Sendable {
+public struct OCILinuxSyscall: Codable, Sendable {
     public var names: [String]
-    public var action: LinuxSeccompAction
+    public var action: OCILinuxSeccompAction
     public var errnoRet: UInt?
-    public var args: [LinuxSeccompArg]
+    public var args: [OCILinuxSeccompArg]
 
     public init(
         names: [String],
-        action: LinuxSeccompAction,
+        action: OCILinuxSeccompAction,
         errnoRet: UInt?,
-        args: [LinuxSeccompArg]
+        args: [OCILinuxSeccompArg]
     ) {
         self.names = names
         self.action = action
