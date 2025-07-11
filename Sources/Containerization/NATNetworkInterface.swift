@@ -60,10 +60,10 @@ public final class NATNetworkInterface: Interface, Sendable {
     }
 
     private struct State {
-        fileprivate var address: String
-        fileprivate var gateway: String?
-        fileprivate var reference: vmnet_network_ref!
-        fileprivate var macAddress: String?
+        var address: String
+        var gateway: String?
+        var reference: vmnet_network_ref!
+        var macAddress: String?
     }
 
     private let state: Mutex<State>
