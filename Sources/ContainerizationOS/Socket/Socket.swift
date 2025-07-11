@@ -15,7 +15,7 @@
 //===----------------------------------------------------------------------===//
 
 import Foundation
-import SendableProperty
+import Synchronization
 
 #if canImport(Musl)
 import Musl
@@ -73,11 +73,10 @@ public final class Socket: Sendable {
     private let _closeOnDeinit: Bool
     private let _queue: DispatchQueue
 
-    @SendableProperty
-    private var _state: State
+    private let state: Mutex<State>
 
     public var fileDescriptor: Int32 {
-        guard let handle = _state.handle else {
+        guard let handle = state.withLock({ $0.handle }) else {
             return -1
         }
         return handle.fileDescriptor
@@ -94,12 +93,13 @@ public final class Socket: Sendable {
     init(fd: Int32, type: SocketType, closeOnDeinit: Bool) {
         _queue = DispatchQueue(label: "com.apple.containerization.socket")
         _closeOnDeinit = closeOnDeinit
-        _state = State(
+        let state = State(
             socketState: .created,
             handle: FileHandle(fileDescriptor: fd, closeOnDealloc: false),
             type: type,
             acceptSource: nil
         )
+        self.state = Mutex(state)
     }
 
     deinit {
@@ -115,84 +115,94 @@ extension Socket {
     }
 
     public func connect() throws {
-        guard let handle = _state.handle else {
+        guard let handle = state.withLock({ $0.handle }) else {
             throw SocketError.closed
         }
 
-        guard _state.socketState == .created else {
+        guard state.withLock({ $0.socketState }) == .created else {
             throw SocketError.invalidOperationOnSocket("connect")
         }
 
         var res: Int32 = 0
-        try _state.type.withSockAddr { (ptr, length) in
-            res = Syscall.retrying {
-                sysConnect(handle.fileDescriptor, ptr, length)
+        try state.withLock {
+            try $0.type.withSockAddr { (ptr, length) in
+                res = Syscall.retrying {
+                    sysConnect(handle.fileDescriptor, ptr, length)
+                }
             }
         }
         if res == -1 {
-            throw Socket.errnoToError(msg: "could not connect to socket \(_state.type)")
+            throw Socket.errnoToError(msg: "could not connect to socket \(state.withLock { $0.type })")
         }
-        _state = State(
-            socketState: .connected,
-            handle: handle,
-            type: _state.type,
-            acceptSource: _state.acceptSource
-        )
+        state.withLock {
+            $0 = State(
+                socketState: .connected,
+                handle: handle,
+                type: $0.type,
+                acceptSource: $0.acceptSource
+            )
+        }
     }
 
     public func listen() throws {
-        guard let handle = _state.handle else {
+        guard let handle = state.withLock({ $0.handle }) else {
             throw SocketError.closed
         }
-        guard _state.socketState == .created else {
+        guard state.withLock({ $0.socketState }) == .created else {
             throw SocketError.invalidOperationOnSocket("listen")
         }
 
-        try _state.type.beforeBind(fd: handle.fileDescriptor)
+        try state.withLock { try $0.type.beforeBind(fd: handle.fileDescriptor) }
 
         var rc: Int32 = 0
-        try _state.type.withSockAddr { (ptr, length) in
-            rc = sysBind(handle.fileDescriptor, ptr, length)
+        try state.withLock {
+            try $0.type.withSockAddr { (ptr, length) in
+                rc = sysBind(handle.fileDescriptor, ptr, length)
+            }
         }
         if rc < 0 {
-            throw Socket.errnoToError(msg: "could not bind to \(_state.type)")
+            throw Socket.errnoToError(msg: "could not bind to \(state.withLock { $0.type })")
         }
 
-        try _state.type.beforeListen(fd: handle.fileDescriptor)
+        try state.withLock { try $0.type.beforeListen(fd: handle.fileDescriptor) }
         if sysListen(handle.fileDescriptor, SOMAXCONN) < 0 {
-            throw Socket.errnoToError(msg: "listen failed on \(_state.type)")
+            throw Socket.errnoToError(msg: "listen failed on \(state.withLock { $0.type })")
         }
-        _state = State(
-            socketState: .listening,
-            handle: handle,
-            type: _state.type,
-            acceptSource: _state.acceptSource
-        )
+        state.withLock {
+            $0 = State(
+                socketState: .listening,
+                handle: handle,
+                type: $0.type,
+                acceptSource: $0.acceptSource
+            )
+        }
     }
 
     public func close() throws {
         // Already closed.
-        guard let handle = _state.handle else {
+        guard let handle = state.withLock({ $0.handle }) else {
             return
         }
-        if let acceptSource = _state.acceptSource {
+        if let acceptSource = state.withLock({ $0.acceptSource }) {
             acceptSource.cancel()
         }
         try handle.close()
-        _state = State(
-            socketState: _state.socketState,
-            handle: nil,
-            type: _state.type,
-            acceptSource: nil
-        )
+        state.withLock {
+            $0 = State(
+                socketState: $0.socketState,
+                handle: nil,
+                type: $0.type,
+                acceptSource: nil
+            )
+        }
     }
 
     public func write(data: any DataProtocol) throws -> Int {
-        guard _state.socketState == .connected else {
+        guard state.withLock({ $0.socketState }) == .connected else {
             throw SocketError.invalidOperationOnSocket("write")
         }
 
-        guard let handle = _state.handle else {
+        guard let handle = state.withLock({ $0.handle }) else {
             throw SocketError.closed
         }
 
@@ -205,28 +215,31 @@ extension Socket {
     }
 
     public func acceptStream(closeOnDeinit: Bool = true) throws -> AsyncThrowingStream<Socket, Swift.Error> {
-        guard _state.socketState == .listening else {
+        guard state.withLock({ $0.socketState }) == .listening else {
             throw SocketError.invalidOperationOnSocket("accept")
         }
 
-        guard let handle = _state.handle else {
+        guard let handle = state.withLock({ $0.handle }) else {
             throw SocketError.closed
         }
 
-        guard _state.acceptSource == nil else {
+        guard state.withLock({ $0.acceptSource }) == nil else {
             throw SocketError.acceptStreamExists
         }
 
-        let source = DispatchSource.makeReadSource(
-            fileDescriptor: handle.fileDescriptor,
-            queue: _queue
-        )
-        _state = State(
-            socketState: _state.socketState,
-            handle: handle,
-            type: _state.type,
-            acceptSource: source
-        )
+        let source = state.withLock {
+            let source = DispatchSource.makeReadSource(
+                fileDescriptor: handle.fileDescriptor,
+                queue: _queue
+            )
+            $0 = State(
+                socketState: $0.socketState,
+                handle: handle,
+                type: $0.type,
+                acceptSource: source
+            )
+            return source
+        }
 
         return AsyncThrowingStream { cont in
             source.setCancelHandler {
@@ -253,15 +266,15 @@ extension Socket {
     }
 
     public func accept(closeOnDeinit: Bool = true) throws -> Socket {
-        guard _state.socketState == .listening else {
+        guard state.withLock({ $0.socketState }) == .listening else {
             throw SocketError.invalidOperationOnSocket("accept")
         }
 
-        guard let handle = _state.handle else {
+        guard let handle = state.withLock({ $0.handle }) else {
             throw SocketError.closed
         }
 
-        let (clientFD, socketType) = try _state.type.accept(fd: handle.fileDescriptor)
+        let (clientFD, socketType) = try state.withLock { try $0.type.accept(fd: handle.fileDescriptor) }
         return Socket(
             fd: clientFD,
             type: socketType,
@@ -270,11 +283,11 @@ extension Socket {
     }
 
     public func read(buffer: inout Data) throws -> Int {
-        guard _state.socketState == .connected else {
+        guard state.withLock({ $0.socketState }) == .connected else {
             throw SocketError.invalidOperationOnSocket("read")
         }
 
-        guard let handle = _state.handle else {
+        guard let handle = state.withLock({ $0.handle }) else {
             throw SocketError.closed
         }
 
@@ -298,7 +311,7 @@ extension Socket {
     }
 
     public func shutdown(how: ShutdownOption) throws {
-        guard let handle = _state.handle else {
+        guard let handle = state.withLock({ $0.handle }) else {
             throw SocketError.closed
         }
 
@@ -318,7 +331,7 @@ extension Socket {
     }
 
     public func setSockOpt(sockOpt: Int32 = 0, ptr: UnsafeRawPointer, stride: UInt32) throws {
-        guard let handle = _state.handle else {
+        guard let handle = state.withLock({ $0.handle }) else {
             throw SocketError.closed
         }
         if setsockopt(handle.fileDescriptor, SOL_SOCKET, sockOpt, ptr, stride) < 0 {
@@ -327,7 +340,7 @@ extension Socket {
     }
 
     public func setTimeout(option: TimeoutOption, seconds: Int) throws {
-        guard let handle = _state.handle else {
+        guard let handle = state.withLock({ $0.handle }) else {
             throw SocketError.closed
         }
 

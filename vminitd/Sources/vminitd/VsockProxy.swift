@@ -55,17 +55,13 @@ final class VsockProxy: Sendable {
     private let log: Logger?
 
     @SendableProperty
-    private var state = State()
-
-    private struct State {
-        var listener: Socket?
-        var task: Task<(), Never>?
-    }
+    private var listener: Socket?
+    private let task = Mutex<Task<(), Never>?>(nil)
 }
 
 extension VsockProxy {
     func close() throws {
-        guard let listener = state.listener else {
+        guard let listener else {
             return
         }
 
@@ -74,7 +70,8 @@ extension VsockProxy {
         if fm.fileExists(atPath: self.path.path) {
             try FileManager.default.removeItem(at: self.path)
         }
-        state.task?.cancel()
+        let task = task.withLock { $0 }
+        task?.cancel()
     }
 
     func start() throws {
@@ -102,7 +99,7 @@ extension VsockProxy {
         )
         let uds = try Socket(type: type)
         try uds.listen()
-        state.listener = uds
+        listener = uds
 
         try self.acceptLoop(socketType: .unix)
     }
@@ -114,18 +111,18 @@ extension VsockProxy {
         )
         let vsock = try Socket(type: type)
         try vsock.listen()
-        state.listener = vsock
+        listener = vsock
 
         try self.acceptLoop(socketType: .vsock)
     }
 
     private func acceptLoop(socketType: SocketType) throws {
-        guard let listener = state.listener else {
+        guard let listener else {
             return
         }
 
         let stream = try listener.acceptStream()
-        state.task = Task {
+        let task = Task {
             do {
                 for try await conn in stream {
                     Task {
@@ -143,6 +140,7 @@ extension VsockProxy {
                 self.log?.error("failed to accept connection: \(error)")
             }
         }
+        self.task.withLock { $0 = task }
     }
 
     private func handleConn(

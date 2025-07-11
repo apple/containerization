@@ -20,31 +20,43 @@ import vmnet
 import Virtualization
 import ContainerizationError
 import Foundation
-import SendableProperty
+import Synchronization
 
 /// An interface that uses NAT to provide an IP address for a given
 /// container/virtual machine.
 @available(macOS 26, *)
 public final class NATNetworkInterface: Interface, Sendable {
     public var address: String {
-        get { state.address }
-        set { state.address = newValue }
+        get {
+            state.withLock { $0.address }
+        }
+        set {
+            state.withLock { $0.address = newValue }
+        }
 
     }
 
     public var gateway: String? {
-        get { state.gateway }
-        set { state.gateway = newValue }
+        get {
+            state.withLock { $0.gateway }
+        }
+        set {
+            state.withLock { $0.gateway = newValue }
+        }
     }
 
     @available(macOS 26, *)
     public var reference: vmnet_network_ref {
-        state.reference
+        state.withLock { $0.reference }
     }
 
     public var macAddress: String? {
-        get { state.macAddress }
-        set { state.macAddress = newValue }
+        get {
+            state.withLock { $0.macAddress }
+        }
+        set {
+            state.withLock { $0.macAddress = newValue }
+        }
     }
 
     private struct State {
@@ -54,8 +66,7 @@ public final class NATNetworkInterface: Interface, Sendable {
         fileprivate var macAddress: String?
     }
 
-    @SendableProperty
-    private var state: State
+    private let state: Mutex<State>
 
     @available(macOS 26, *)
     public init(
@@ -64,12 +75,13 @@ public final class NATNetworkInterface: Interface, Sendable {
         reference: sending vmnet_network_ref,
         macAddress: String? = nil
     ) {
-        self.state = .init(
+        let state = State(
             address: address,
             gateway: gateway,
             reference: reference,
             macAddress: macAddress
         )
+        self.state = Mutex(state)
     }
 
     @available(macOS, obsoleted: 26, message: "Use init(address:gateway:reference:macAddress:) instead")
@@ -78,12 +90,13 @@ public final class NATNetworkInterface: Interface, Sendable {
         gateway: String?,
         macAddress: String? = nil
     ) {
-        self.state = .init(
+        let state = State(
             address: address,
             gateway: gateway,
             reference: nil,
             macAddress: macAddress
         )
+        self.state = Mutex(state)
     }
 }
 
