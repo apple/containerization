@@ -18,11 +18,13 @@
 enum SendablePropertyError: CustomStringConvertible, Error {
     case unexpectedError
     case onlyApplicableToVar
+    case notApplicableToType
 
     var description: String {
         switch self {
         case .unexpectedError: return "@SendableProperty encountered an unexpected error"
         case .onlyApplicableToVar: return "@SendableProperty can only be applied to a variable"
+        case .notApplicableToType: return "@SendableProperty can't be applied to a variable of this type"
         }
     }
 }

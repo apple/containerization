@@ -23,8 +23,32 @@ import SwiftSyntaxMacros
 
 /// A macro that allows to make a property thread-safe keeping the `Sendable` conformance of the type.
 public struct SendablePropertyMacro: PeerMacro {
+    private static let allowedTypes: Set<String> = ["Int", "UInt", "Int16", "UInt16", "Int32", "UInt32", "Int64", "UInt64", "Float", "Double", "Bool", "UnsafeRawPointer", "UnsafeMutableRawPointer", "OpaquePointer"]
+    
     private static func peerPropertyName(for propertyName: String) -> String {
         "_" + propertyName
+    }
+    
+    private static func checkPropertyType(for binding: PatternBindingSyntax, in declaration: some DeclSyntaxProtocol) throws {
+        guard let typeAnnotation = binding.typeAnnotation else {
+            return
+        }
+        guard let id = typeAnnotation.type.as(IdentifierTypeSyntax.self) else {
+            return
+        }
+
+        var typeName = id.name.text
+        // Allow optionals of the allowed types.
+        if typeName.prefix(9) == "Optional<" && typeName.suffix(1) == ">" {
+            typeName = String(typeName.dropFirst(9).dropLast(1))
+        }
+        // Allow generics of the allowed types.
+        if typeName.contains("<") {
+            typeName = String(typeName.prefix { $0 != "<" })
+        }
+        guard allowedTypes.contains(typeName) else {
+            throw SendablePropertyError.notApplicableToType
+        }
     }
 
     /// The macro expansion that introduces a `Sendable`-conforming "peer" declaration for a thread-safe storage for the value of the given declaration of a variable.
@@ -42,6 +66,8 @@ public struct SendablePropertyMacro: PeerMacro {
             throw SendablePropertyError.onlyApplicableToVar
         }
 
+        try checkPropertyType(for: binding, in: declaration)
+        
         let propertyName = pattern.identifier.text
         let hasInitializer = binding.initializer != nil
         let initializerValue = binding.initializer?.value.description ?? "nil"
@@ -79,6 +105,8 @@ extension SendablePropertyMacro: AccessorMacro {
         else {
             throw SendablePropertyError.onlyApplicableToVar
         }
+
+        try checkPropertyType(for: binding, in: declaration)
 
         let propertyName = pattern.identifier.text
         let hasInitializer = binding.initializer != nil
