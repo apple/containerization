@@ -14,17 +14,28 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-/// Errors that can be thrown by `@SendableProperty`.
-enum SendablePropertyError: CustomStringConvertible, Error {
-    case unexpectedError
-    case onlyApplicableToVar
-    case notApplicableToType
+// `Synchronization` will be automatically imported with `SendableProperty`.
+@_exported import Synchronization
 
-    var description: String {
-        switch self {
-        case .unexpectedError: return "The macro encountered an unexpected error"
-        case .onlyApplicableToVar: return "The macro can only be applied to a variable"
-        case .notApplicableToType: return "The macro can't be applied to a variable of this type"
+/// A synchronization primitive that protects shared mutable state via mutual exclusion.
+public final class Synchronized<T>: Sendable {
+    private let lock: Mutex<State>
+
+    private struct State: @unchecked Sendable {
+        var value: T
+    }
+
+    /// Creates a new instance.
+    /// - Parameter value: The initial value.
+    public init(_ value: T) {
+        self.lock = Mutex(State(value: value))
+    }
+
+    /// Calls the given closure after acquiring the lock and returns its value.
+    /// - Parameter body: The body of code to execute while the lock is held.
+    public func withLock<R>(_ body: (inout T) throws -> R) rethrows -> R {
+        try lock.withLock { state in
+            try body(&state.value)
         }
     }
 }
