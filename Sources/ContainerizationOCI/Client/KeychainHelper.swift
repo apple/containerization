@@ -29,17 +29,25 @@ public struct KeychainHelper: Sendable {
     public func lookup(domain: String) throws -> Authentication {
         let kq = KeychainQuery()
 
-        guard try kq.exists(id: self.id, host: domain) else {
-            throw Self.Error.keyNotFound
+        do {
+            guard try kq.exists(id: self.id, host: domain) else {
+                throw Self.Error.keyNotFound
+            }
+            guard let fetched = try kq.get(id: self.id, host: domain) else {
+                throw Self.Error.keyNotFound
+            }
+            return BasicAuthentication(
+                username: fetched.account,
+                password: fetched.data
+            )
+        } catch let err as KeychainQuery.Error {
+            switch err {
+            case .keyNotPresent(_):
+                throw Self.Error.keyNotFound
+            default:
+                throw Self.Error.queryError("query failure: \(String(describing: err))")
+            }
         }
-        guard let fetched = try kq.get(id: self.id, host: domain) else {
-            throw Self.Error.keyNotFound
-        }
-
-        return BasicAuthentication(
-            username: fetched.account,
-            password: fetched.data
-        )
     }
 
     /// Delete authorization data for a given domain from the keychain.
@@ -93,6 +101,7 @@ extension KeychainHelper {
     public enum Error: Swift.Error {
         case keyNotFound
         case invalidInput
+        case queryError(String)
     }
 }
 #endif
