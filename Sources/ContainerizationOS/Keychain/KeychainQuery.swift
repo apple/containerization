@@ -135,7 +135,7 @@ public struct KeychainQuery {
 }
 
 extension KeychainQuery {
-    enum Error: Swift.Error {
+    public enum Error: Swift.Error {
         case unhandledError(status: Int32)
         case unexpectedDataFetched
         case keyNotPresent(key: String)
