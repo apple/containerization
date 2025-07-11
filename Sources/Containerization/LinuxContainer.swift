@@ -54,7 +54,7 @@ public final class LinuxContainer: Container, Sendable {
         var dns: DNS? = nil
     }
 
-    @SendableProperty
+    @SendablePropertyUnchecked
     private var state: State
 
     private let config: Mutex<Configuration>
