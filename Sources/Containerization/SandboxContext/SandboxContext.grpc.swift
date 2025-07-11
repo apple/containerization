@@ -144,6 +144,11 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtoc
     callOptions: CallOptions?
   ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_ConfigureDnsRequest, Com_Apple_Containerization_Sandbox_V3_ConfigureDnsResponse>
 
+  func configureHosts(
+    _ request: Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest,
+    callOptions: CallOptions?
+  ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest, Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse>
+
   func sync(
     _ request: Com_Apple_Containerization_Sandbox_V3_SyncRequest,
     callOptions: CallOptions?
@@ -557,6 +562,24 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtocol {
     )
   }
 
+  /// Configure /etc/hosts.
+  ///
+  /// - Parameters:
+  ///   - request: Request to send to ConfigureHosts.
+  ///   - callOptions: Call options.
+  /// - Returns: A `UnaryCall` with futures for the metadata, status and response.
+  public func configureHosts(
+    _ request: Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest,
+    callOptions: CallOptions? = nil
+  ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest, Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse> {
+    return self.makeUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.configureHosts.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeConfigureHostsInterceptors() ?? []
+    )
+  }
+
   /// Perform the sync syscall.
   ///
   /// - Parameters:
@@ -766,6 +789,11 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientP
     _ request: Com_Apple_Containerization_Sandbox_V3_ConfigureDnsRequest,
     callOptions: CallOptions?
   ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_ConfigureDnsRequest, Com_Apple_Containerization_Sandbox_V3_ConfigureDnsResponse>
+
+  func makeConfigureHostsCall(
+    _ request: Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest,
+    callOptions: CallOptions?
+  ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest, Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse>
 
   func makeSyncCall(
     _ request: Com_Apple_Containerization_Sandbox_V3_SyncRequest,
@@ -1049,6 +1077,18 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientProtoco
       request: request,
       callOptions: callOptions ?? self.defaultCallOptions,
       interceptors: self.interceptors?.makeConfigureDnsInterceptors() ?? []
+    )
+  }
+
+  public func makeConfigureHostsCall(
+    _ request: Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest,
+    callOptions: CallOptions? = nil
+  ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest, Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse> {
+    return self.makeAsyncUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.configureHosts.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeConfigureHostsInterceptors() ?? []
     )
   }
 
@@ -1343,6 +1383,18 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientProtoco
     )
   }
 
+  public func configureHosts(
+    _ request: Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest,
+    callOptions: CallOptions? = nil
+  ) async throws -> Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse {
+    return try await self.performAsyncUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.configureHosts.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeConfigureHostsInterceptors() ?? []
+    )
+  }
+
   public func sync(
     _ request: Com_Apple_Containerization_Sandbox_V3_SyncRequest,
     callOptions: CallOptions? = nil
@@ -1453,6 +1505,9 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextClientInterc
   /// - Returns: Interceptors to use when invoking 'configureDns'.
   func makeConfigureDnsInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_ConfigureDnsRequest, Com_Apple_Containerization_Sandbox_V3_ConfigureDnsResponse>]
 
+  /// - Returns: Interceptors to use when invoking 'configureHosts'.
+  func makeConfigureHostsInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest, Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse>]
+
   /// - Returns: Interceptors to use when invoking 'sync'.
   func makeSyncInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_SyncRequest, Com_Apple_Containerization_Sandbox_V3_SyncResponse>]
 
@@ -1487,6 +1542,7 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.ipRouteAddLink,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.ipRouteAddDefault,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.configureDns,
+      Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.configureHosts,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.sync,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.kill,
     ]
@@ -1625,6 +1681,12 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
       type: GRPCCallType.unary
     )
 
+    public static let configureHosts = GRPCMethodDescriptor(
+      name: "ConfigureHosts",
+      path: "/com.apple.containerization.sandbox.v3.SandboxContext/ConfigureHosts",
+      type: GRPCCallType.unary
+    )
+
     public static let sync = GRPCMethodDescriptor(
       name: "Sync",
       path: "/com.apple.containerization.sandbox.v3.SandboxContext/Sync",
@@ -1711,6 +1773,9 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider: Ca
 
   /// Configure DNS resolver.
   func configureDns(request: Com_Apple_Containerization_Sandbox_V3_ConfigureDnsRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_ConfigureDnsResponse>
+
+  /// Configure /etc/hosts.
+  func configureHosts(request: Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse>
 
   /// Perform the sync syscall.
   func sync(request: Com_Apple_Containerization_Sandbox_V3_SyncRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_SyncResponse>
@@ -1929,6 +1994,15 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider {
         userFunction: self.configureDns(request:context:)
       )
 
+    case "ConfigureHosts":
+      return UnaryServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest>(),
+        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse>(),
+        interceptors: self.interceptors?.makeConfigureHostsInterceptors() ?? [],
+        userFunction: self.configureHosts(request:context:)
+      )
+
     case "Sync":
       return UnaryServerHandler(
         context: context,
@@ -2093,6 +2167,12 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvide
     request: Com_Apple_Containerization_Sandbox_V3_ConfigureDnsRequest,
     context: GRPCAsyncServerCallContext
   ) async throws -> Com_Apple_Containerization_Sandbox_V3_ConfigureDnsResponse
+
+  /// Configure /etc/hosts.
+  func configureHosts(
+    request: Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest,
+    context: GRPCAsyncServerCallContext
+  ) async throws -> Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse
 
   /// Perform the sync syscall.
   func sync(
@@ -2324,6 +2404,15 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvider {
         wrapping: { try await self.configureDns(request: $0, context: $1) }
       )
 
+    case "ConfigureHosts":
+      return GRPCAsyncServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest>(),
+        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse>(),
+        interceptors: self.interceptors?.makeConfigureHostsInterceptors() ?? [],
+        wrapping: { try await self.configureHosts(request: $0, context: $1) }
+      )
+
     case "Sync":
       return GRPCAsyncServerHandler(
         context: context,
@@ -2438,6 +2527,10 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextServerInterc
   ///   Defaults to calling `self.makeInterceptors()`.
   func makeConfigureDnsInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_ConfigureDnsRequest, Com_Apple_Containerization_Sandbox_V3_ConfigureDnsResponse>]
 
+  /// - Returns: Interceptors to use when handling 'configureHosts'.
+  ///   Defaults to calling `self.makeInterceptors()`.
+  func makeConfigureHostsInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest, Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse>]
+
   /// - Returns: Interceptors to use when handling 'sync'.
   ///   Defaults to calling `self.makeInterceptors()`.
   func makeSyncInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_SyncRequest, Com_Apple_Containerization_Sandbox_V3_SyncResponse>]
@@ -2474,6 +2567,7 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.ipRouteAddLink,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.ipRouteAddDefault,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.configureDns,
+      Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.configureHosts,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.sync,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.kill,
     ]
@@ -2609,6 +2703,12 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
     public static let configureDns = GRPCMethodDescriptor(
       name: "ConfigureDns",
       path: "/com.apple.containerization.sandbox.v3.SandboxContext/ConfigureDns",
+      type: GRPCCallType.unary
+    )
+
+    public static let configureHosts = GRPCMethodDescriptor(
+      name: "ConfigureHosts",
+      path: "/com.apple.containerization.sandbox.v3.SandboxContext/ConfigureHosts",
       type: GRPCCallType.unary
     )
 

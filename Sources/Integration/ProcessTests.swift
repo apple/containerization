@@ -418,6 +418,39 @@ extension IntegrationSuite {
         }
     }
 
+    func testHostsFile() async throws {
+        let id = "test-container-hosts-file"
+
+        let bs = try await bootstrap()
+        let container = LinuxContainer(
+            id,
+            rootfs: bs.rootfs,
+            vmm: bs.vmm
+        )
+        container.arguments = ["cat", "/etc/hosts"]
+        let entry = Hosts.Entry.localHostIPV4(comment: "Testaroo")
+        container.hosts = Hosts(entries: [entry])
+
+        let buffer = BufferWriter()
+        container.stdout = buffer
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        let expected = entry.rendered
+        guard String(data: buffer.data, encoding: .utf8) == "\(expected)\n" else {
+            throw IntegrationError.assert(
+                msg: "process should have returned on stdout '\(expected)' != '\(String(data: buffer.data, encoding: .utf8)!)'")
+        }
+    }
+
     func testProcessStdin() async throws {
         let id = "test-container-stdin"
 

@@ -830,6 +830,66 @@ public struct Com_Apple_Containerization_Sandbox_V3_ConfigureDnsResponse: Sendab
   public init() {}
 }
 
+public struct Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var location: String = String()
+
+  public var entries: [Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest.HostsEntry] = []
+
+  public var comment: String {
+    get {return _comment ?? String()}
+    set {_comment = newValue}
+  }
+  /// Returns true if `comment` has been explicitly set.
+  public var hasComment: Bool {return self._comment != nil}
+  /// Clears the value of `comment`. Subsequent reads from it will return its default value.
+  public mutating func clearComment() {self._comment = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public struct HostsEntry: Sendable {
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
+
+    public var ipAddress: String = String()
+
+    public var hostnames: [String] = []
+
+    public var comment: String {
+      get {return _comment ?? String()}
+      set {_comment = newValue}
+    }
+    /// Returns true if `comment` has been explicitly set.
+    public var hasComment: Bool {return self._comment != nil}
+    /// Clears the value of `comment`. Subsequent reads from it will return its default value.
+    public mutating func clearComment() {self._comment = nil}
+
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+    public init() {}
+
+    fileprivate var _comment: String? = nil
+  }
+
+  public init() {}
+
+  fileprivate var _comment: String? = nil
+}
+
+public struct Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 public struct Com_Apple_Containerization_Sandbox_V3_SyncRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -2410,6 +2470,121 @@ extension Com_Apple_Containerization_Sandbox_V3_ConfigureDnsResponse: SwiftProto
   }
 
   public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_ConfigureDnsResponse, rhs: Com_Apple_Containerization_Sandbox_V3_ConfigureDnsResponse) -> Bool {
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ConfigureHostsRequest"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "location"),
+    2: .same(proto: "entries"),
+    3: .same(proto: "comment"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.location) }()
+      case 2: try { try decoder.decodeRepeatedMessageField(value: &self.entries) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self._comment) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if !self.location.isEmpty {
+      try visitor.visitSingularStringField(value: self.location, fieldNumber: 1)
+    }
+    if !self.entries.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.entries, fieldNumber: 2)
+    }
+    try { if let v = self._comment {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 3)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest, rhs: Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest) -> Bool {
+    if lhs.location != rhs.location {return false}
+    if lhs.entries != rhs.entries {return false}
+    if lhs._comment != rhs._comment {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest.HostsEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest.protoMessageName + ".HostsEntry"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "ipAddress"),
+    2: .same(proto: "hostnames"),
+    3: .same(proto: "comment"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.ipAddress) }()
+      case 2: try { try decoder.decodeRepeatedStringField(value: &self.hostnames) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self._comment) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if !self.ipAddress.isEmpty {
+      try visitor.visitSingularStringField(value: self.ipAddress, fieldNumber: 1)
+    }
+    if !self.hostnames.isEmpty {
+      try visitor.visitRepeatedStringField(value: self.hostnames, fieldNumber: 2)
+    }
+    try { if let v = self._comment {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 3)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest.HostsEntry, rhs: Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest.HostsEntry) -> Bool {
+    if lhs.ipAddress != rhs.ipAddress {return false}
+    if lhs.hostnames != rhs.hostnames {return false}
+    if lhs._comment != rhs._comment {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ConfigureHostsResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse, rhs: Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse) -> Bool {
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
