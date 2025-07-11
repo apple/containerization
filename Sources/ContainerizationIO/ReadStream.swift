@@ -24,15 +24,15 @@ public class ReadStream {
     public static let bufferSize = Int(1.mib())
 
     private var _stream: InputStream
-    private let _buffSize: Int
-    private let _data: Data?
-    private let _url: URL?
+    private let buffSize: Int
+    private let data: Data?
+    private let url: URL?
 
     public init() {
         _stream = InputStream(data: .init())
-        _buffSize = Self.bufferSize
-        self._data = Data()
-        self._url = nil
+        buffSize = Self.bufferSize
+        self.data = Data()
+        self.url = nil
     }
 
     public init(url: URL, bufferSize: Int = bufferSize) throws {
@@ -43,30 +43,30 @@ public class ReadStream {
             throw Error.failedToCreateStream
         }
         self._stream = stream
-        self._buffSize = bufferSize
-        self._url = url
-        self._data = nil
+        self.buffSize = bufferSize
+        self.url = url
+        self.data = nil
     }
 
     public init(data: Data, bufferSize: Int = bufferSize) {
         self._stream = InputStream(data: data)
-        self._buffSize = bufferSize
-        self._url = nil
-        self._data = data
+        self.buffSize = bufferSize
+        self.url = nil
+        self.data = data
     }
 
     /// Resets the read stream. This either reassigns
     /// the data buffer or url to a new InputStream internally.
     public func reset() throws {
         self._stream.close()
-        if let url = self._url {
+        if let url = self.url {
             guard let s = InputStream(url: url) else {
                 throw Error.failedToCreateStream
             }
             self._stream = s
             return
         }
-        let data = self._data ?? Data()
+        let data = self.data ?? Data()
         self._stream = InputStream(data: data)
     }
 
@@ -76,10 +76,10 @@ public class ReadStream {
             self._stream.open()
             defer { self._stream.close() }
 
-            let readBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: _buffSize)
+            let readBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: buffSize)
 
             while true {
-                let byteRead = self._stream.read(readBuffer, maxLength: _buffSize)
+                let byteRead = self._stream.read(readBuffer, maxLength: buffSize)
                 if byteRead <= 0 {
                     readBuffer.deallocate()
                     cont.finish()
@@ -99,9 +99,9 @@ public class ReadStream {
             self._stream.open()
             defer { self._stream.close() }
 
-            let readBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: self._buffSize)
+            let readBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: self.buffSize)
             while true {
-                let byteRead = self._stream.read(readBuffer, maxLength: self._buffSize)
+                let byteRead = self._stream.read(readBuffer, maxLength: self.buffSize)
                 if byteRead <= 0 {
                     readBuffer.deallocate()
                     cont.finish()
