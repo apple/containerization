@@ -30,9 +30,6 @@ public struct KeychainHelper: Sendable {
         let kq = KeychainQuery()
 
         do {
-            guard try kq.exists(id: self.id, host: domain) else {
-                throw Self.Error.keyNotFound
-            }
             guard let fetched = try kq.get(id: self.id, host: domain) else {
                 throw Self.Error.keyNotFound
             }
