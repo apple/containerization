@@ -17,10 +17,11 @@
 import SwiftCompilerPlugin
 import SwiftSyntaxMacros
 
-/// A plugin that registers the `SendablePropertyMacro`.
+/// A plugin that registers the `SendablePropertyMacroUnchecked` and `SendablePropertyMacro`.
 @main
 struct SendablePropertyPlugin: CompilerPlugin {
     let providingMacros: [Macro.Type] = [
-        SendablePropertyMacro.self
+        SendablePropertyMacroUnchecked.self,
+        SendablePropertyMacro.self,
     ]
 }

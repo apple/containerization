@@ -76,4 +76,70 @@ final class SendablePropertyTests: XCTestCase {
         }
         dispatchGroup.wait()
     }
+
+    func testMacroWithSupportedTypes() throws {
+        final class TestMacro: Sendable {
+            @SendableProperty
+            var int: Int
+            @SendableProperty
+            var uint: UInt
+            @SendableProperty
+            var int16: Int16
+            @SendableProperty
+            var uint16: UInt16
+            @SendableProperty
+            var int32: Int32
+            @SendableProperty
+            var uint32: UInt32
+            @SendableProperty
+            var int64: Int64
+            @SendableProperty
+            var uint64: UInt64
+            @SendableProperty
+            var float: Float
+            @SendableProperty
+            var double: Double
+            @SendableProperty
+            var bool: Bool
+            @SendableProperty
+            var unsafeRawPoiner: UnsafeRawPointer
+            @SendableProperty
+            var unsafeMutableRawPointer: UnsafeMutableRawPointer
+            @SendableProperty
+            var unsafePoiner: UnsafePointer<Int>
+            @SendableProperty
+            var unsafeMutablePointer: UnsafeMutablePointer<Int>
+
+            @SendableProperty
+            var intOpt: Int?
+            @SendableProperty
+            var uintOpt: UInt?
+            @SendableProperty
+            var int16Opt: Int16?
+            @SendableProperty
+            var uint16Opt: UInt16?
+            @SendableProperty
+            var int32Opt: Int32?
+            @SendableProperty
+            var uint32Opt: UInt32?
+            @SendableProperty
+            var int64Opt: Int64?
+            @SendableProperty
+            var uint64Opt: UInt64?
+            @SendableProperty
+            var floaOptt: Float?
+            @SendableProperty
+            var doubleOpt: Double?
+            @SendableProperty
+            var boolOpt: Bool?
+            @SendableProperty
+            var unsafeRawPoinerOpt: UnsafeRawPointer?
+            @SendableProperty
+            var unsafeMutableRawPointerOpt: UnsafeMutableRawPointer?
+            @SendableProperty
+            var unsafePoinerOpt: UnsafePointer<Int>?
+            @SendableProperty
+            var unsafeMutablePointerOpt: UnsafeMutablePointer<Int>?
+        }
+    }
 }

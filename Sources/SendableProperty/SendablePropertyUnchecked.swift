@@ -14,17 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-/// Errors that can be thrown by `@SendableProperty`.
-enum SendablePropertyError: CustomStringConvertible, Error {
-    case unexpectedError
-    case onlyApplicableToVar
-    case notApplicableToType
-
-    var description: String {
-        switch self {
-        case .unexpectedError: return "The macro encountered an unexpected error"
-        case .onlyApplicableToVar: return "The macro can only be applied to a variable"
-        case .notApplicableToType: return "The macro can't be applied to a variable of this type"
-        }
-    }
-}
+// A declaration of the `@SendablePropertyUnchecked` macro.
+@attached(peer, names: arbitrary)
+@attached(accessor)
+public macro SendablePropertyUnchecked() = #externalMacro(module: "SendablePropertyMacros", type: "SendablePropertyMacroUnchecked")

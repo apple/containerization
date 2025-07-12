@@ -21,10 +21,36 @@ import SwiftSyntax
 import SwiftSyntaxBuilder
 import SwiftSyntaxMacros
 
-/// A macro that allows to make a property thread-safe keeping the `Sendable` conformance of the type.
+/// A macro that allows to make a property of a supported type thread-safe keeping the `Sendable` conformance of the type.
 public struct SendablePropertyMacro: PeerMacro {
-    private static func peerPropertyName(for propertyName: String) -> String {
-        "_" + propertyName
+    private static let allowedTypes: Set<String> = [
+        "Int", "UInt", "Int16", "UInt16", "Int32", "UInt32", "Int64", "UInt64", "Float", "Double", "Bool", "UnsafeRawPointer", "UnsafeMutableRawPointer", "UnsafePointer",
+        "UnsafeMutablePointer",
+    ]
+
+    private static func checkPropertyType(in declaration: some DeclSyntaxProtocol) throws {
+        guard let varDecl = declaration.as(VariableDeclSyntax.self),
+            let binding = varDecl.bindings.first,
+            let typeAnnotation = binding.typeAnnotation,
+            let id = typeAnnotation.type.as(IdentifierTypeSyntax.self)
+        else {
+            // Nothing to check.
+            return
+        }
+
+        var typeName = id.name.text
+        // Allow optionals of the allowed types.
+        if typeName.prefix(9) == "Optional<" && typeName.suffix(1) == ">" {
+            typeName = String(typeName.dropFirst(9).dropLast(1))
+        }
+        // Allow generics of the allowed types.
+        if typeName.contains("<") {
+            typeName = String(typeName.prefix { $0 != "<" })
+        }
+
+        guard allowedTypes.contains(typeName) else {
+            throw SendablePropertyError.notApplicableToType
+        }
     }
 
     /// The macro expansion that introduces a `Sendable`-conforming "peer" declaration for a thread-safe storage for the value of the given declaration of a variable.
@@ -35,32 +61,8 @@ public struct SendablePropertyMacro: PeerMacro {
     public static func expansion(
         of node: SwiftSyntax.AttributeSyntax, providingPeersOf declaration: some SwiftSyntax.DeclSyntaxProtocol, in context: some SwiftSyntaxMacros.MacroExpansionContext
     ) throws -> [SwiftSyntax.DeclSyntax] {
-        guard let varDecl = declaration.as(VariableDeclSyntax.self),
-            let binding = varDecl.bindings.first,
-            let pattern = binding.pattern.as(IdentifierPatternSyntax.self)
-        else {
-            throw SendablePropertyError.onlyApplicableToVar
-        }
-
-        let propertyName = pattern.identifier.text
-        let hasInitializer = binding.initializer != nil
-        let initializerValue = binding.initializer?.value.description ?? "nil"
-
-        var genericTypeAnnotation = ""
-        if let typeAnnotation = binding.typeAnnotation {
-            let typeName = typeAnnotation.type.description.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-            genericTypeAnnotation = "<\(typeName)\(hasInitializer ? "" : "?")>"
-        }
-
-        let accessLevel = varDecl.modifiers.first(where: { ["open", "public", "internal", "fileprivate", "private"].contains($0.name.text) })?.name.text ?? "internal"
-
-        // Create a peer property
-        let peerPropertyName = self.peerPropertyName(for: propertyName)
-        let peerProperty: DeclSyntax =
-            """
-            \(raw: accessLevel) let \(raw: peerPropertyName) = Synchronized\(raw: genericTypeAnnotation)(\(raw: initializerValue))
-            """
-        return [peerProperty]
+        try checkPropertyType(in: declaration)
+        return try SendablePropertyMacroUnchecked.expansion(of: node, providingPeersOf: declaration, in: context)
     }
 }
 
@@ -73,32 +75,7 @@ extension SendablePropertyMacro: AccessorMacro {
     public static func expansion(
         of node: SwiftSyntax.AttributeSyntax, providingAccessorsOf declaration: some SwiftSyntax.DeclSyntaxProtocol, in context: some SwiftSyntaxMacros.MacroExpansionContext
     ) throws -> [SwiftSyntax.AccessorDeclSyntax] {
-        guard let varDecl = declaration.as(VariableDeclSyntax.self),
-            let binding = varDecl.bindings.first,
-            let pattern = binding.pattern.as(IdentifierPatternSyntax.self)
-        else {
-            throw SendablePropertyError.onlyApplicableToVar
-        }
-
-        let propertyName = pattern.identifier.text
-        let hasInitializer = binding.initializer != nil
-
-        // Replace the property with an accessor
-        let peerPropertyName = Self.peerPropertyName(for: propertyName)
-
-        let accessorGetter: AccessorDeclSyntax =
-            """
-            get {
-                \(raw: peerPropertyName).withLock { $0\(raw: hasInitializer ? "" : "!") }
-            }
-            """
-        let accessorSetter: AccessorDeclSyntax =
-            """
-            set {
-                \(raw: peerPropertyName).withLock { $0 = newValue }
-            }
-            """
-
-        return [accessorGetter, accessorSetter]
+        try checkPropertyType(in: declaration)
+        return try SendablePropertyMacroUnchecked.expansion(of: node, providingAccessorsOf: declaration, in: context)
     }
 }
