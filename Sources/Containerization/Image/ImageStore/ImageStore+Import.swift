@@ -213,7 +213,7 @@ extension ImageStore {
                 root.platform = platform
                 let index = ContainerizationOCI.Index(schemaVersion: 2, manifests: [root], annotations: [
                     // indicate that this is a synthesized index which is not directly user facing
-                    "com.apple.containerization.index.indirect" : "true"
+                    AnnotationKeys.containerizationIndexIndirect: "true"
                 ])
                 return index
             default:
