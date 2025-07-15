@@ -211,10 +211,12 @@ extension ImageStore {
                 let platform = supportedPlatforms.first!
                 var root = root
                 root.platform = platform
-                let index = ContainerizationOCI.Index(schemaVersion: 2, manifests: [root], annotations: [
-                    // indicate that this is a synthesized index which is not directly user facing
-                    AnnotationKeys.containerizationIndexIndirect: "true"
-                ])
+                let index = ContainerizationOCI.Index(
+                    schemaVersion: 2, manifests: [root],
+                    annotations: [
+                        // indicate that this is a synthesized index which is not directly user facing
+                        AnnotationKeys.containerizationIndexIndirect: "true"
+                    ])
                 return index
             default:
                 throw ContainerizationError(.internalError, message: "Failed to create index for descriptor \(root.digest), media type \(root.mediaType)")
