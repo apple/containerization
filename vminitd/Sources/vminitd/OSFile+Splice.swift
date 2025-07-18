@@ -17,8 +17,8 @@
 import Foundation
 
 extension OSFile {
-    struct SpliceFile: Sendable {
-        var file: OSFile
+    struct SpliceFile {
+        let file: OSFile
         var offset: Int
         let pipe = Pipe()
 
