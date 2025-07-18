@@ -28,24 +28,35 @@ public struct SendablePropertyMacro: PeerMacro {
         "UnsafeMutablePointer",
     ]
 
+    private static func baseTypeName(of type: TypeSyntax) throws -> String? {
+        var type = type
+
+        // An optional type such as `Int?` or `Optional<Int>` -> `Int`.
+        // An implicitly unwrapped optional type such as `Int!` isn't supported.
+        while let optionalType = type.as(OptionalTypeSyntax.self) {
+            type = optionalType.wrappedType
+        }
+
+        // A member type such as `Swift.Int` -> `Int`.
+        if let member = type.as(MemberTypeSyntax.self) {
+            return member.name.text
+        }
+
+        // An identifier type such as `Int` or `UnsafePointer<Int>` -> `UnsafePointer`.
+        if let identifierType = type.as(IdentifierTypeSyntax.self) {
+            return identifierType.name.text
+        }
+
+        return nil
+    }
+
     private static func checkPropertyType(in declaration: some DeclSyntaxProtocol) throws {
         guard let varDecl = declaration.as(VariableDeclSyntax.self),
             let binding = varDecl.bindings.first,
             let typeAnnotation = binding.typeAnnotation,
-            let id = typeAnnotation.type.as(IdentifierTypeSyntax.self)
+            let typeName = try baseTypeName(of: typeAnnotation.type)
         else {
-            // Nothing to check.
-            return
-        }
-
-        var typeName = id.name.text
-        // Allow optionals of the allowed types.
-        if typeName.prefix(9) == "Optional<" && typeName.suffix(1) == ">" {
-            typeName = String(typeName.dropFirst(9).dropLast(1))
-        }
-        // Allow generics of the allowed types.
-        if typeName.contains("<") {
-            typeName = String(typeName.prefix { $0 != "<" })
+            throw SendablePropertyError.noTypeSpecified
         }
 
         guard allowedTypes.contains(typeName) else {

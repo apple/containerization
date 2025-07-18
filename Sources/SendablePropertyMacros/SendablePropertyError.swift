@@ -19,12 +19,14 @@ enum SendablePropertyError: CustomStringConvertible, Error {
     case unexpectedError
     case onlyApplicableToVar
     case notApplicableToType
+    case noTypeSpecified
 
     var description: String {
         switch self {
         case .unexpectedError: return "The macro encountered an unexpected error"
         case .onlyApplicableToVar: return "The macro can only be applied to a variable"
         case .notApplicableToType: return "The macro can't be applied to a variable of this type"
+        case .noTypeSpecified: return "The macro requires an explicitly specified type"
         }
     }
 }
