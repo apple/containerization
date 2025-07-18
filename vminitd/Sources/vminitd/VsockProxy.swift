@@ -54,7 +54,7 @@ final class VsockProxy: Sendable {
     private let udsPerms: UInt32?
     private let log: Logger?
 
-    @SendableProperty
+    @SendablePropertyUnchecked
     private var listener: Socket?
     private let task = Mutex<Task<(), Never>?>(nil)
 }
