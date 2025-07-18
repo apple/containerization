@@ -24,10 +24,6 @@ import XCTest
 // Macro implementations build for the host, so the corresponding module is not available when cross-compiling. Cross-compiled tests may still make use of the macro itself in end-to-end tests.
 #if canImport(SendablePropertyMacros)
 import SendablePropertyMacros
-
-let testMacros: [String: Macro.Type] = [
-    "SendableProperty": SendablePropertyMacro.self
-]
 #endif
 
 final class SendablePropertyMacrosTests: XCTestCase {
@@ -59,19 +55,54 @@ final class SendablePropertyMacrosTests: XCTestCase {
                     internal let _value = Synchronized<Int?>(nil)
                 }
                 """,
-            macros: testMacros
+            macros: ["SendableProperty": SendablePropertyMacro.self]
         )
         #else
         throw XCTSkip("macros are only supported when running tests for the host platform")
         #endif
     }
 
-    func testMacroExpansionWithInitialValue() throws {
+    func testMacroExpansionWithTypeAnnotationUnchecked() throws {
         #if canImport(SendablePropertyMacros)
         assertMacroExpansion(
             """
             final class TestMacro: Sendable {
-                @SendableProperty
+                @SendablePropertyUnchecked
+                var value: Int
+            }
+            """,
+            expandedSource:
+                """
+                final class TestMacro: Sendable {
+                    var value: Int {
+                        get {
+                            _value.withLock {
+                                $0!
+                            }
+                        }
+                        set {
+                            _value.withLock {
+                                $0 = newValue
+                            }
+                        }
+                    }
+
+                    internal let _value = Synchronized<Int?>(nil)
+                }
+                """,
+            macros: ["SendablePropertyUnchecked": SendablePropertyMacroUnchecked.self]
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testMacroExpansionWithInitialValueUnchecked() throws {
+        #if canImport(SendablePropertyMacros)
+        assertMacroExpansion(
+            """
+            final class TestMacro: Sendable {
+                @SendablePropertyUnchecked
                 var value = 0
             }
             """,
@@ -94,7 +125,7 @@ final class SendablePropertyMacrosTests: XCTestCase {
                     internal let _value = Synchronized(0)
                 }
                 """,
-            macros: testMacros
+            macros: ["SendablePropertyUnchecked": SendablePropertyMacroUnchecked.self]
         )
         #else
         throw XCTSkip("macros are only supported when running tests for the host platform")
@@ -129,7 +160,42 @@ final class SendablePropertyMacrosTests: XCTestCase {
                     internal let _value = Synchronized<Int>(0)
                 }
                 """,
-            macros: testMacros
+            macros: ["SendableProperty": SendablePropertyMacro.self]
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testMacroExpansionWithTypeAnnotationAndInitialValueUnchecked() throws {
+        #if canImport(SendablePropertyMacros)
+        assertMacroExpansion(
+            """
+            final class TestMacro: Sendable {
+                @SendablePropertyUnchecked
+                var value: Int = 0
+            }
+            """,
+            expandedSource:
+                """
+                final class TestMacro: Sendable {
+                    var value: Int {
+                        get {
+                            _value.withLock {
+                                $0
+                            }
+                        }
+                        set {
+                            _value.withLock {
+                                $0 = newValue
+                            }
+                        }
+                    }
+
+                    internal let _value = Synchronized<Int>(0)
+                }
+                """,
+            macros: ["SendablePropertyUnchecked": SendablePropertyMacroUnchecked.self]
         )
         #else
         throw XCTSkip("macros are only supported when running tests for the host platform")

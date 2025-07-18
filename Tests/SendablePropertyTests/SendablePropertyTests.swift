@@ -32,7 +32,7 @@ final class SendablePropertyTests: XCTestCase {
 
     func testMacroWithInitialValue() throws {
         final class TestMacro: Sendable {
-            @SendableProperty
+            @SendablePropertyUnchecked
             var value = 0
         }
 
@@ -56,8 +56,8 @@ final class SendablePropertyTests: XCTestCase {
 
     func testMacroInConcurrentThreads() throws {
         final class TestMacro: Sendable {
-            @SendableProperty
-            var value = ""
+            @SendablePropertyUnchecked
+            var value: String = ""
         }
 
         let testMacro = TestMacro()
@@ -78,7 +78,7 @@ final class SendablePropertyTests: XCTestCase {
     }
 
     func testMacroWithSupportedTypes() throws {
-        final class TestMacro: Sendable {
+        final class SupportedTypes: Sendable {
             @SendableProperty
             var int: Int
             @SendableProperty
@@ -105,41 +105,27 @@ final class SendablePropertyTests: XCTestCase {
             var unsafeRawPoiner: UnsafeRawPointer
             @SendableProperty
             var unsafeMutableRawPointer: UnsafeMutableRawPointer
+            // Generics.
             @SendableProperty
             var unsafePoiner: UnsafePointer<Int>
             @SendableProperty
             var unsafeMutablePointer: UnsafeMutablePointer<Int>
+        }
 
+        final class DerivedTypes: Sendable {
             @SendableProperty
             var intOpt: Int?
             @SendableProperty
-            var uintOpt: UInt?
+            var intDoubleOpt: Int??
             @SendableProperty
-            var int16Opt: Int16?
-            @SendableProperty
-            var uint16Opt: UInt16?
-            @SendableProperty
-            var int32Opt: Int32?
-            @SendableProperty
-            var uint32Opt: UInt32?
-            @SendableProperty
-            var int64Opt: Int64?
-            @SendableProperty
-            var uint64Opt: UInt64?
-            @SendableProperty
-            var floaOptt: Float?
-            @SendableProperty
-            var doubleOpt: Double?
-            @SendableProperty
-            var boolOpt: Bool?
-            @SendableProperty
-            var unsafeRawPoinerOpt: UnsafeRawPointer?
-            @SendableProperty
-            var unsafeMutableRawPointerOpt: UnsafeMutableRawPointer?
-            @SendableProperty
-            var unsafePoinerOpt: UnsafePointer<Int>?
-            @SendableProperty
-            var unsafeMutablePointerOpt: UnsafeMutablePointer<Int>?
+            var intMember: Swift.Int
+        }
+
+        final class UncheckedTypes: Sendable {
+            @SendablePropertyUnchecked
+            var object: NSObject
+            @SendablePropertyUnchecked
+            var testEnum: ComparisonResult
         }
     }
 }
