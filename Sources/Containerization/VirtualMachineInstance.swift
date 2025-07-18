@@ -14,6 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import ContainerizationError
 import Foundation
 
 /// The runtime state of the virtual machine instance.
@@ -46,4 +47,17 @@ public protocol VirtualMachineInstance: Sendable {
     func start() async throws
     /// Stop the virtual machine.
     func stop() async throws
+    /// Pause the virtual machine.
+    func pause() async throws
+    /// Resume the virtual machine.
+    func resume() async throws
+}
+
+extension VirtualMachineInstance {
+    func pause() async throws {
+        throw ContainerizationError(.unsupported, message: "pause")
+    }
+    func resume() async throws {
+        throw ContainerizationError(.unsupported, message: "resume")
+    }
 }
