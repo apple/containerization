@@ -22,15 +22,46 @@ import Foundation
 /// An ImageStore handles the mappings between an image's
 /// reference and the underlying descriptor inside of a content store.
 public actor ImageStore: Sendable {
+    /// The ImageStore path it was created with.
+    public nonisolated let path: URL
+
     private let referenceManager: ReferenceManager
     internal let contentStore: ContentStore
     internal let lock: AsyncLock = AsyncLock()
 
-    public init(path: URL, contentStore: ContentStore) throws {
+    public init(path: URL, contentStore: ContentStore? = nil) throws {
         try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
 
-        self.contentStore = contentStore
+        if let contentStore {
+            self.contentStore = contentStore
+        } else {
+            self.contentStore = try LocalContentStore(path: path.appendingPathComponent("content"))
+        }
+
+        self.path = path
         self.referenceManager = try ReferenceManager(path: path)
+    }
+
+    /// Return the default image store for the current user.
+    public static let `default`: ImageStore = {
+        do {
+            let root = try defaultRoot()
+            return try ImageStore(path: root)
+        } catch {
+            fatalError("unable to initialize default ImageStore \(error)")
+        }
+    }()
+
+    private static func defaultRoot() throws -> URL {
+        let root = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first
+        guard let root else {
+            throw ContainerizationError(.notFound, message: "unable to get Application Support directory for current user")
+        }
+        return root.appendingPathComponent("com.apple.containerization")
+
     }
 }
 
@@ -39,12 +70,20 @@ extension ImageStore {
     ///
     /// - Parameters:
     ///   - reference: Name of the image.
+    ///   - pull: Pull the image if it is not found.
     ///
     /// - Returns: A `Containerization.Image`  object whose `reference` matches the given string.
     ///   This  method throws a `ContainerizationError(code: .notFound)` if the provided reference does not exist in the `ImageStore`.
-    public func get(reference: String) async throws -> Image {
-        let desc = try await self.referenceManager.get(reference: reference)
-        return Image(description: desc, contentStore: self.contentStore)
+    public func get(reference: String, pull: Bool = false) async throws -> Image {
+        do {
+            let desc = try await self.referenceManager.get(reference: reference)
+            return Image(description: desc, contentStore: self.contentStore)
+        } catch let error as ContainerizationError {
+            if error.code == .notFound && pull {
+                return try await self.pull(reference: reference)
+            }
+            throw error
+        }
     }
 
     /// Get a list of all images in the `ImageStore`.

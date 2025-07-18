@@ -1,0 +1,375 @@
+//===----------------------------------------------------------------------===//
+// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//   https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//===----------------------------------------------------------------------===//
+
+#if os(macOS)
+
+import ContainerizationError
+import ContainerizationOCI
+import ContainerizationOS
+import Foundation
+import SendableProperty
+import ContainerizationExtras
+import Virtualization
+import vmnet
+
+/// A type that manages containers and their resources within a root directory.
+public struct ContainerManager: Sendable {
+    public let imageStore: ImageStore
+    private let vmm: VirtualMachineManager
+    private let network: Network?
+
+    private var containerRoot: URL {
+        self.imageStore.path.appendingPathComponent("containers")
+    }
+
+    public protocol Network: Sendable {
+        func create(_ id: String) throws -> Interface?
+        func release(_ id: String) throws
+    }
+
+    /// A network backed by vmnet on macOS.
+    @available(macOS 16.0, *)
+    public struct VmnetNetwork: Network {
+        private let allocator: Allocator
+
+        @SendableProperty
+        private var reference: vmnet_network_ref
+
+        /// The IPv4 subnet of this network.
+        public let subnet: CIDRAddress
+
+        /// The gateway address of this network.
+        public var gateway: IPv4Address {
+            subnet.gateway
+        }
+
+        struct Allocator: Sendable {
+            private let addressAllocator: any AddressAllocator<UInt32>
+            private let cidr: CIDRAddress
+            private var allocations: [String: UInt32]
+
+            init(cidr: CIDRAddress) throws {
+                self.cidr = cidr
+                self.allocations = .init()
+                let size = Int(cidr.upper.value - cidr.lower.value - 3)
+                self.addressAllocator = try UInt32.rotatingAllocator(
+                    lower: cidr.lower.value + 2,
+                    size: UInt32(size)
+                )
+            }
+
+            func allocate(_ id: String) throws -> String {
+                if allocations[id] != nil {
+                    throw ContainerizationError(.exists, message: "allocation with id \(id) already exists")
+                }
+                let index = try addressAllocator.allocate()
+                let ip = IPv4Address(fromValue: index)
+                return try CIDRAddress(ip, prefixLength: cidr.prefixLength).description
+            }
+
+            func release(_ id: String) throws {
+                if let index = self.allocations[id] {
+                    try addressAllocator.release(index)
+                }
+            }
+        }
+
+        public struct Interface: Containerization.Interface, VZInterface, Sendable {
+            public let address: String
+            public let gateway: String?
+            public let macAddress: String?
+
+            @SendableProperty
+            private var reference: vmnet_network_ref
+
+            public init(
+                reference: vmnet_network_ref,
+                address: String,
+                gateway: String,
+                macAddress: String? = nil
+            ) {
+                self.address = address
+                self.gateway = gateway
+                self.macAddress = macAddress
+                self.reference = reference
+            }
+
+            public func device() throws -> VZVirtioNetworkDeviceConfiguration {
+                let config = VZVirtioNetworkDeviceConfiguration()
+                if let macAddress = self.macAddress {
+                    guard let mac = VZMACAddress(string: macAddress) else {
+                        throw ContainerizationError(.invalidArgument, message: "invalid mac address \(macAddress)")
+                    }
+                    config.macAddress = mac
+                }
+                config.attachment = VZVmnetNetworkDeviceAttachment(network: self.reference)
+                return config
+            }
+        }
+
+        public init(subnet: String? = nil) throws {
+            var status: vmnet_return_t = .VMNET_FAILURE
+            guard let config = vmnet_network_configuration_create(.VMNET_SHARED_MODE, &status) else {
+                throw ContainerizationError(.unsupported, message: "failed to create vmnet config with status \(status)")
+            }
+
+            vmnet_network_configuration_disable_dhcp(config)
+
+            if let subnet {
+                try Self.configureSubnet(config, subnet: try CIDRAddress(subnet))
+            }
+
+            guard let ref = vmnet_network_create(config, &status), status == .VMNET_SUCCESS else {
+                throw ContainerizationError(.unsupported, message: "failed to create vmnet network with status \(status)")
+            }
+
+            let cidr = try Self.getSubnet(ref)
+
+            self.allocator = try .init(cidr: cidr)
+            self.subnet = cidr
+            self.reference = ref
+        }
+
+        public func create(_ id: String) throws -> Containerization.Interface? {
+            let address = try allocator.allocate(id)
+            return Self.Interface(
+                reference: self.reference,
+                address: address,
+                gateway: self.gateway.description,
+            )
+        }
+
+        public func release(_ id: String) throws {
+            try allocator.release(id)
+        }
+
+        private static func getSubnet(_ ref: vmnet_network_ref) throws -> CIDRAddress {
+            var subnet = in_addr()
+            var mask = in_addr()
+            vmnet_network_get_ipv4_subnet(ref, &subnet, &mask)
+
+            let sa = UInt32(bigEndian: subnet.s_addr)
+            let mv = UInt32(bigEndian: mask.s_addr)
+
+            let lower = IPv4Address(fromValue: sa & mv)
+            let upper = IPv4Address(fromValue: lower.value + ~mv)
+
+            return try CIDRAddress(lower: lower, upper: upper)
+        }
+
+        private static func configureSubnet(_ config: vmnet_network_configuration_ref, subnet: CIDRAddress) throws {
+            let gateway = subnet.gateway
+
+            var ga = in_addr()
+            inet_pton(AF_INET, gateway.description, &ga)
+
+            let mask = IPv4Address(fromValue: subnet.prefixLength.prefixMask32)
+            var ma = in_addr()
+            inet_pton(AF_INET, mask.description, &ma)
+
+            guard vmnet_network_configuration_set_ipv4_subnet(config, &ga, &ma) == .VMNET_SUCCESS else {
+                throw ContainerizationError(.internalError, message: "failed to set subnet \(subnet) for network")
+            }
+        }
+    }
+
+    /// Create a new manager with the provided kernel and initfs mount.
+    public init(
+        kernel: Kernel,
+        initfs: Mount,
+        network: Network? = nil
+    ) throws {
+        self.imageStore = ImageStore.default
+        self.network = network
+        try Self.createRootDirectory(path: self.imageStore.path)
+        self.vmm = VZVirtualMachineManager(
+            kernel: kernel,
+            initialFilesystem: initfs,
+            bootlog: self.imageStore.path.appendingPathComponent("bootlog.log").absolutePath()
+        )
+        try Self.createRootDirectory(path: self.imageStore.path)
+    }
+
+    /// Create a new manager with the provided kernel and image reference for the initfs.
+    public init(
+        kernel: Kernel,
+        initfsReference: String,
+        network: Network? = nil
+    ) async throws {
+        self.imageStore = ImageStore.default
+        self.network = network
+        try Self.createRootDirectory(path: self.imageStore.path)
+
+        let initPath = self.imageStore.path.appendingPathComponent("initfs.ext4")
+        let initImage = try await self.imageStore.getInitImage(reference: initfsReference)
+        let initfs = try await {
+            do {
+                return try await initImage.initBlock(at: initPath, for: .linuxArm)
+            } catch let err as ContainerizationError {
+                guard err.code == .exists else {
+                    throw err
+                }
+                return .block(
+                    format: "ext4",
+                    source: initPath.absolutePath(),
+                    destination: "/",
+                    options: ["ro"]
+                )
+            }
+        }()
+
+        self.vmm = VZVirtualMachineManager(
+            kernel: kernel,
+            initialFilesystem: initfs,
+            bootlog: self.imageStore.path.appendingPathComponent("bootlog.log").absolutePath()
+        )
+    }
+
+    private static func createRootDirectory(path: URL) throws {
+        try FileManager.default.createDirectory(
+            at: path.appendingPathComponent("containers"),
+            withIntermediateDirectories: true
+        )
+    }
+
+    /// Create a new container from the provided image reference.
+    public func create(
+        _ id: String,
+        reference: String,
+        rootfsSizeInBytes: UInt64 = 8.gib()
+    ) async throws -> LinuxContainer {
+        let image = try await imageStore.get(reference: reference, pull: true)
+        return try await create(
+            id,
+            image: image,
+            rootfsSizeInBytes: rootfsSizeInBytes
+        )
+    }
+
+    /// Create a new container from the provided image.
+    public func create(
+        _ id: String,
+        image: Image,
+        rootfsSizeInBytes: UInt64 = 8.gib()
+    ) async throws -> LinuxContainer {
+        let path = try createContainerRoot(id)
+
+        let rootfs = try await unpack(
+            image: image,
+            destination: path.appendingPathComponent("rootfs.ext4"),
+            size: rootfsSizeInBytes
+        )
+        return try await create(
+            id,
+            image: image,
+            rootfs: rootfs,
+        )
+    }
+
+    /// Create a new container from the provided image config but an existing rootfs.
+    public func create(
+        _ id: String,
+        image: Image,
+        rootfs: Mount,
+    ) async throws -> LinuxContainer {
+        let config = try await image.config(for: .current).config
+        let container = LinuxContainer(
+            id,
+            rootfs: rootfs,
+            vmm: self.vmm
+        )
+        if let config {
+            container.setProcessConfig(from: config)
+        }
+        if let interface = try self.network?.create(id) {
+            container.interfaces = [interface]
+            container.dns = .init(nameservers: [interface.gateway!])
+        }
+        return container
+    }
+
+    /// Get an existing container from path.
+    public func get(
+        _ id: String,
+        image: Image,
+        address: String? = nil
+    ) async throws -> LinuxContainer {
+        let path = containerRoot.appendingPathComponent(id)
+        guard FileManager.default.fileExists(atPath: path.absolutePath()) else {
+            throw ContainerizationError(.notFound, message: "\(id) does not exist")
+        }
+
+        let rootfs: Mount = .block(
+            format: "ext4",
+            source: path.appendingPathComponent("rootfs.ext4").absolutePath(),
+            destination: "/",
+            options: []
+        )
+
+        let config = try await image.config(for: .current).config
+        let container = LinuxContainer(
+            id,
+            rootfs: rootfs,
+            vmm: self.vmm
+        )
+        if let config {
+            container.setProcessConfig(from: config)
+        }
+        if let interface = try self.network?.create(id) {
+            container.interfaces = [interface]
+            container.dns = .init(nameservers: [interface.gateway!])
+        }
+        return container
+    }
+
+    /// Delete the container's directory by id.
+    public func delete(_ id: String) throws {
+        try self.network?.release(id)
+        let path = containerRoot.appendingPathComponent(id)
+        try FileManager.default.removeItem(at: path)
+    }
+
+    private func createContainerRoot(_ id: String) throws -> URL {
+        let path = containerRoot.appendingPathComponent(id)
+        try FileManager.default.createDirectory(at: path, withIntermediateDirectories: false)
+        return path
+    }
+
+    private func unpack(image: Image, destination: URL, size: UInt64) async throws -> Mount {
+        do {
+            let unpacker = EXT4Unpacker(blockSizeInBytes: size)
+            return try await unpacker.unpack(image, for: .current, at: destination)
+        } catch let err as ContainerizationError {
+            if err.code == .exists {
+                return .block(
+                    format: "ext4",
+                    source: destination.absolutePath(),
+                    destination: "/",
+                    options: []
+                )
+            }
+            throw err
+        }
+    }
+}
+
+extension CIDRAddress {
+    public var gateway: IPv4Address {
+        IPv4Address(fromValue: self.lower.value + 1)
+    }
+}
+
+#endif
