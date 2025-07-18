@@ -41,7 +41,7 @@ public final class LinuxContainer: Container, Sendable {
     public let rootfs: Mount
 
     private struct Configuration {
-        var spec: Spec
+        var spec: OCISpec
         var cpus: Int = 4
         var memoryInBytes: UInt64 = 1024.mib()
         var interfaces: [any Interface] = []
@@ -244,7 +244,7 @@ public final class LinuxContainer: Container, Sendable {
         self.state = .initialized
     }
 
-    private static func createDefaultRuntimeSpec(_ id: String) -> Spec {
+    private static func createDefaultRuntimeSpec(_ id: String) -> OCISpec {
         .init(
             process: .init(
                 cwd: "/",
@@ -407,7 +407,7 @@ extension LinuxContainer {
     }
 
     /// The User the container should execute under.
-    public var user: ContainerizationOCI.User {
+    public var user: OCIUser {
         get {
             config.withLock { $0.spec.process!.user }
         }
@@ -437,7 +437,7 @@ extension LinuxContainer {
     }
 
     /// Rlimits for the container.
-    public var rlimits: [POSIXRlimit] {
+    public var rlimits: [OCIRlimit] {
         get {
             config.withLock { $0.spec.process!.rlimits }
         }
@@ -508,8 +508,8 @@ extension LinuxContainer {
         }
     }
 
-    public func setProcessConfig(from imageConfig: ImageConfig) {
-        let process = ContainerizationOCI.Process(from: imageConfig)
+    public func setProcessConfig(from imageConfig: OCIImageConfig) {
+        let process = OCIProcess(from: imageConfig)
         self.config.withLock { $0.spec.process = process }
     }
 
@@ -606,6 +606,46 @@ extension LinuxContainer {
             state.errored(error: error)
             throw error
         }
+    }
+
+    public func pause() async throws {
+        let vm = try state.setStarting()
+
+        let agent = try await vm.dialAgent()
+        do {
+            var specCopy = config.withLock { $0.spec }
+            // We don't need the rootfs, nor do OCI runtimes want it included.
+            specCopy.mounts = vm.mounts.dropFirst().map { $0.to }
+
+            let stdio = Self.setupIO(
+                portAllocator: self.hostVsockPorts,
+                stdin: self.stdin,
+                stdout: self.stdout,
+                stderr: self.stderr
+            )
+
+            let process = LinuxProcess(
+                self.id,
+                containerID: self.id,
+                spec: specCopy,
+                io: stdio,
+                agent: agent,
+                vm: vm,
+                logger: self.logger
+            )
+            try await process.start()
+
+            try state.setStarted(process: process)
+        } catch {
+            try? await agent.close()
+
+            state.errored(error: error)
+            throw error
+        }
+    }
+
+    public func resume() async throws {
+
     }
 
     private static func setupIO(
@@ -728,7 +768,7 @@ extension LinuxContainer {
     /// Execute a new process in the container.
     public func exec(
         _ id: String,
-        configuration: ContainerizationOCI.Process,
+        configuration: OCIProcess,
         stdin: ReaderStream? = nil,
         stdout: Writer? = nil,
         stderr: Writer? = nil
@@ -827,7 +867,7 @@ extension VirtualMachineInstance {
 }
 
 extension AttachedFilesystem {
-    fileprivate var to: ContainerizationOCI.Mount {
+    fileprivate var to: OCIMount {
         .init(
             type: self.type,
             source: self.source,

@@ -55,7 +55,7 @@ extension Vminitd: VirtualMachineAgent {
 
         try await setenv(key: "PATH", value: Self.defaultPath)
 
-        let mounts: [ContainerizationOCI.Mount] = [
+        let mounts: [OCIMount] = [
             .init(type: "sysfs", source: "sysfs", destination: "/sys"),
             .init(type: "tmpfs", source: "tmpfs", destination: "/tmp"),
             .init(type: "devpts", source: "devpts", destination: "/dev/pts", options: ["gid=5", "mode=620", "ptmxmode=666"]),
@@ -67,7 +67,7 @@ extension Vminitd: VirtualMachineAgent {
     }
 
     /// Mount a filesystem in the sandbox's environment.
-    public func mount(_ mount: ContainerizationOCI.Mount) async throws {
+    public func mount(_ mount: OCIMount) async throws {
         _ = try await client.mount(
             .with {
                 $0.type = mount.type
@@ -102,7 +102,7 @@ extension Vminitd: VirtualMachineAgent {
         stdinPort: UInt32?,
         stdoutPort: UInt32?,
         stderrPort: UInt32?,
-        configuration: ContainerizationOCI.Spec,
+        configuration: OCISpec,
         options: Data?
     ) async throws {
         let enc = JSONEncoder()

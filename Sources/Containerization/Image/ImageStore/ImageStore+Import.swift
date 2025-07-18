@@ -14,8 +14,6 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-//
-
 import ContainerizationError
 import ContainerizationExtras
 import ContainerizationOCI
@@ -40,7 +38,7 @@ extension ImageStore {
         }
 
         /// Pull the required image layers for the provided descriptor and platform(s) into the given directory using the provided client. Returns a descriptor to the Index manifest.
-        internal func `import`(root: Descriptor, matcher: (ContainerizationOCI.Platform) -> Bool) async throws -> Descriptor {
+        internal func `import`(root: OCIDescriptor, matcher: (OCIPlatform) -> Bool) async throws -> OCIDescriptor {
             var toProcess = [root]
             while !toProcess.isEmpty {
                 // Count the total number of blobs and their size
@@ -61,14 +59,14 @@ extension ImageStore {
                 toProcess = filtered.uniqued { $0.digest }
             }
 
-            guard root.mediaType != MediaTypes.dockerManifestList && root.mediaType != MediaTypes.index else {
+            guard root.mediaType != OCIMediaTypes.dockerManifestList && root.mediaType != OCIMediaTypes.index else {
                 return root
             }
 
             // Create an index for the root descriptor and write it to the content store
             let index = try await self.createIndex(for: root)
-            // In cases where the root descriptor pointed to `MediaTypes.imageManifest`
-            // Or `MediaTypes.dockerManifest`, it is required that we check the supported platform
+            // In cases where the root descriptor pointed to `OCIMediaTypes.imageManifest`
+            // Or `OCIMediaTypes.dockerManifest`, it is required that we check the supported platform
             // matches the platforms we were asked to pull. This can be done only after we created
             // the Index.
             let supportedPlatforms = index.manifests.compactMap { $0.platform }
@@ -77,13 +75,13 @@ extension ImageStore {
             }
             let writer = try ContentWriter(for: self.ingestDir)
             let result = try writer.create(from: index)
-            return Descriptor(
-                mediaType: MediaTypes.index,
+            return OCIDescriptor(
+                mediaType: OCIMediaTypes.index,
                 digest: result.digest.digestString,
                 size: Int64(result.size))
         }
 
-        private func getManifestContent<T: Sendable & Codable>(descriptor: Descriptor) async throws -> T {
+        private func getManifestContent<T: Sendable & Codable>(descriptor: OCIDescriptor) async throws -> T {
             do {
                 if let content = try await self.contentStore.get(digest: descriptor.digest.trimmingDigestPrefix) {
                     return try content.decode()
@@ -97,16 +95,16 @@ extension ImageStore {
             }
         }
 
-        private func walk(_ descriptors: [Descriptor]) async throws -> [Descriptor] {
-            var out: [Descriptor] = []
+        private func walk(_ descriptors: [OCIDescriptor]) async throws -> [OCIDescriptor] {
+            var out: [OCIDescriptor] = []
             for desc in descriptors {
                 let mediaType = desc.mediaType
                 switch mediaType {
-                case MediaTypes.index, MediaTypes.dockerManifestList:
-                    let index: Index = try await self.getManifestContent(descriptor: desc)
+                case OCIMediaTypes.index, OCIMediaTypes.dockerManifestList:
+                    let index: OCIIndex = try await self.getManifestContent(descriptor: desc)
                     out.append(contentsOf: index.manifests)
-                case MediaTypes.imageManifest, MediaTypes.dockerManifest:
-                    let manifest: Manifest = try await self.getManifestContent(descriptor: desc)
+                case OCIMediaTypes.imageManifest, OCIMediaTypes.dockerManifest:
+                    let manifest: OCIManifest = try await self.getManifestContent(descriptor: desc)
                     out.append(manifest.config)
                     out.append(contentsOf: manifest.layers)
                 default:
@@ -117,7 +115,7 @@ extension ImageStore {
             return out
         }
 
-        private func fetchAll(_ descriptors: [Descriptor]) async throws {
+        private func fetchAll(_ descriptors: [OCIDescriptor]) async throws {
             try await withThrowingTaskGroup(of: Void.self) { group in
                 var iterator = descriptors.makeIterator()
                 for _ in 0..<8 {
@@ -137,7 +135,7 @@ extension ImageStore {
             }
         }
 
-        private func fetch(_ descriptor: Descriptor) async throws {
+        private func fetch(_ descriptor: OCIDescriptor) async throws {
             if let found = try await self.contentStore.get(digest: descriptor.digest) {
                 try FileManager.default.copyItem(at: found.path, to: ingestDir.appendingPathComponent(descriptor.digest.trimmingDigestPrefix))
                 await progress?([
@@ -160,7 +158,7 @@ extension ImageStore {
             ])
         }
 
-        private func fetchBlob(_ descriptor: Descriptor) async throws {
+        private func fetchBlob(_ descriptor: OCIDescriptor) async throws {
             let id = UUID().uuidString
             let fm = FileManager.default
             let tempFile = ingestDir.appendingPathComponent(id)
@@ -179,7 +177,7 @@ extension ImageStore {
         }
 
         @discardableResult
-        private func fetchData(_ descriptor: Descriptor) async throws -> Data {
+        private func fetchData(_ descriptor: OCIDescriptor) async throws -> Data {
             let data = try await client.fetchData(name: name, descriptor: descriptor)
             let writer = try ContentWriter(for: ingestDir)
             let result = try writer.write(data)
@@ -195,11 +193,11 @@ extension ImageStore {
             return data
         }
 
-        private func createIndex(for root: Descriptor) async throws -> Index {
+        private func createIndex(for root: OCIDescriptor) async throws -> OCIIndex {
             switch root.mediaType {
-            case MediaTypes.index, MediaTypes.dockerManifestList:
+            case OCIMediaTypes.index, OCIMediaTypes.dockerManifestList:
                 return try await self.getManifestContent(descriptor: root)
-            case MediaTypes.imageManifest, MediaTypes.dockerManifest:
+            case OCIMediaTypes.imageManifest, OCIMediaTypes.dockerManifest:
                 let supportedPlatforms = try await getSupportedPlatforms(for: root)
                 guard supportedPlatforms.count == 1 else {
                     throw ContainerizationError(
@@ -211,11 +209,11 @@ extension ImageStore {
                 let platform = supportedPlatforms.first!
                 var root = root
                 root.platform = platform
-                let index = ContainerizationOCI.Index(
+                let index = OCIIndex(
                     schemaVersion: 2, manifests: [root],
                     annotations: [
                         // indicate that this is a synthesized index which is not directly user facing
-                        AnnotationKeys.containerizationIndexIndirect: "true"
+                        OCIAnnotationKeys.containerizationIndexIndirect: "true"
                     ])
                 return index
             default:
@@ -223,8 +221,8 @@ extension ImageStore {
             }
         }
 
-        private func getSupportedPlatforms(for root: Descriptor) async throws -> [ContainerizationOCI.Platform] {
-            var supportedPlatforms: [ContainerizationOCI.Platform] = []
+        private func getSupportedPlatforms(for root: OCIDescriptor) async throws -> [OCIPlatform] {
+            var supportedPlatforms: [OCIPlatform] = []
             var toProcess = [root]
             while !toProcess.isEmpty {
                 let children = try await self.walk(toProcess)
@@ -234,9 +232,9 @@ extension ImageStore {
                         continue
                     }
                     switch child.mediaType {
-                    case MediaTypes.imageConfig, MediaTypes.dockerImageConfig:
-                        let config: ContainerizationOCI.Image = try await self.getManifestContent(descriptor: child)
-                        let p = ContainerizationOCI.Platform(
+                    case OCIMediaTypes.imageConfig, OCIMediaTypes.dockerImageConfig:
+                        let config: OCIImage = try await self.getManifestContent(descriptor: child)
+                        let p = OCIPlatform(
                             arch: config.architecture, os: config.os, osFeatures: config.osFeatures, variant: config.variant
                         )
                         supportedPlatforms.append(p)

@@ -152,7 +152,7 @@ extension ImageStore {
     ///
     /// - Returns: A `Containerization.Image` object to the newly pulled image.
     public func pull(
-        reference: String, platform: Platform? = nil, insecure: Bool = false,
+        reference: String, platform: OCIPlatform? = nil, insecure: Bool = false,
         auth: Authentication? = nil, progress: ProgressHandler? = nil
     ) async throws -> Image {
 
@@ -196,10 +196,10 @@ extension ImageStore {
     ///           Defaults to `nil` meaning no additional credentials are added to any HTTP requests made to the registry.
     ///   - progress: An optional handler over which progress update events about the push operation can be received.
     ///
-    public func push(reference: String, platform: Platform? = nil, insecure: Bool = false, auth: Authentication? = nil, progress: ProgressHandler? = nil) async throws {
+    public func push(reference: String, platform: OCIPlatform? = nil, insecure: Bool = false, auth: Authentication? = nil, progress: ProgressHandler? = nil) async throws {
         let matcher = createPlatformMatcher(for: platform)
         let img = try await self.get(reference: reference)
-        let allowedMediaTypes = [MediaTypes.dockerManifestList, MediaTypes.index]
+        let allowedMediaTypes = [OCIMediaTypes.dockerManifestList, OCIMediaTypes.index]
         guard allowedMediaTypes.contains(img.mediaType) else {
             throw ContainerizationError(.internalError, message: "Cannot push image \(reference) with Index media type \(img.mediaType)")
         }

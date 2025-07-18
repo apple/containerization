@@ -31,7 +31,7 @@ public protocol VirtualMachineAgent: Sendable {
     // POSIX
     func getenv(key: String) async throws -> String
     func setenv(key: String, value: String) async throws
-    func mount(_ mount: ContainerizationOCI.Mount) async throws
+    func mount(_ mount: OCIMount) async throws
     func umount(path: String, flags: Int32) async throws
     func mkdir(path: String, all: Bool, perms: UInt32) async throws
     @discardableResult
@@ -44,7 +44,7 @@ public protocol VirtualMachineAgent: Sendable {
         stdinPort: UInt32?,
         stdoutPort: UInt32?,
         stderrPort: UInt32?,
-        configuration: ContainerizationOCI.Spec,
+        configuration: OCISpec,
         options: Data?
     ) async throws
     func startProcess(id: String, containerID: String?) async throws -> Int32

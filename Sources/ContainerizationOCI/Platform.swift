@@ -20,7 +20,7 @@ import ContainerizationError
 import Foundation
 
 /// Platform describes the platform which the image in the manifest runs on.
-public struct Platform: Sendable, Equatable {
+public struct OCIPlatform: Sendable, Equatable {
     public static var current: Self {
         var systemInfo = utsname()
         uname(&systemInfo)
@@ -94,7 +94,7 @@ public struct Platform: Sendable, Equatable {
     ///        -  platform: A `string` value representing the platform.
     ///     ```swift
     ///     // Create a new `ImagePlatform` from string.
-    ///     let platform = try Platform(from: "linux/amd64")
+    ///     let platform = try OCIPlatformfrom: "linux/amd64")
     ///     ```
     ///     ## Throws ##
     ///     - Throws:  `Error.missingOS` if input is empty
@@ -193,7 +193,7 @@ public struct Platform: Sendable, Equatable {
 
 }
 
-extension Platform: Hashable {
+extension OCIPlatform: Hashable {
     /**
       `~=` compares two platforms to check if **lhs** platform images are compatible with **rhs** platform
       This operator can be used to check if an image of **lhs** platform can run on **rhs**:
@@ -208,7 +208,7 @@ extension Platform: Hashable {
          - rhs: platform against which compatibility is being checked
       - Returns: `true | false`
      */
-    public static func ~= (lhs: Platform, rhs: Platform) -> Bool {
+    public static func ~= (lhs: OCIPlatform, rhs: OCIPlatform) -> Bool {
         if lhs.os == rhs.os {
             if lhs._rawArch == rhs._rawArch {
                 switch rhs._rawArch {
@@ -256,7 +256,7 @@ extension Platform: Hashable {
     }
 
     /// `==` compares if **lhs** and **rhs** are the exact same platforms.
-    public static func == (lhs: Platform, rhs: Platform) -> Bool {
+    public static func == (lhs: OCIPlatform, rhs: OCIPlatform) -> Bool {
         //  NOTE:
         //  If the platform struct was created by setting the fields directly and not using (from: String)
         //  then, there is a possibility that for arm64 architecture, the variant may be set to nil
@@ -283,7 +283,7 @@ extension Platform: Hashable {
     }
 }
 
-extension Platform: Codable {
+extension OCIPlatform: Codable {
 
     enum CodingKeys: String, CodingKey {
         case os = "os"
@@ -313,7 +313,7 @@ extension Platform: Codable {
     }
 }
 
-public func createPlatformMatcher(for platform: Platform?) -> @Sendable (Platform) -> Bool {
+public func createPlatformMatcher(for platform: OCIPlatform?) -> @Sendable (OCIPlatform) -> Bool {
     if let platform {
         return { other in
             platform == other
@@ -324,8 +324,8 @@ public func createPlatformMatcher(for platform: Platform?) -> @Sendable (Platfor
     }
 }
 
-public func filterPlatforms(matcher: (Platform) -> Bool, _ descriptors: [Descriptor]) throws -> [Descriptor] {
-    var outDescriptors: [Descriptor] = []
+public func filterPlatforms(matcher: (OCIPlatform) -> Bool, _ descriptors: [OCIDescriptor]) throws -> [OCIDescriptor] {
+    var outDescriptors: [OCIDescriptor] = []
     for desc in descriptors {
         guard let p = desc.platform else {
             // pass along descriptor if the platform is not defined

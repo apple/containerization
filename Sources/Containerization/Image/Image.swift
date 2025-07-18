@@ -30,20 +30,20 @@ public struct Image: Sendable {
         /// The string reference of the image.
         public let reference: String
         /// The descriptor identifying the image.
-        public let descriptor: Descriptor
+        public let descriptor: OCIDescriptor
         /// The digest for the image.
         public var digest: String { descriptor.digest }
         /// The media type of the image.
         public var mediaType: String { descriptor.mediaType }
 
-        public init(reference: String, descriptor: Descriptor) {
+        public init(reference: String, descriptor: OCIDescriptor) {
             self.reference = reference
             self.descriptor = descriptor
         }
     }
 
     /// The descriptor for the image.
-    public var descriptor: Descriptor { description.descriptor }
+    public var descriptor: OCIDescriptor { description.descriptor }
     /// The digest of the image.
     public var digest: String { description.digest }
     /// The media type of the image.
@@ -57,7 +57,7 @@ public struct Image: Sendable {
     }
 
     /// Returns the underlying OCI index for the image.
-    public func index() async throws -> Index {
+    public func index() async throws -> OCIIndex {
         guard let content: Content = try await contentStore.get(digest: digest) else {
             throw ContainerizationError(.notFound, message: "Content with digest \(digest)")
         }
@@ -65,7 +65,7 @@ public struct Image: Sendable {
     }
 
     /// Returns the manifest for the specified platform.
-    public func manifest(for platform: Platform) async throws -> Manifest {
+    public func manifest(for platform: OCIPlatform) async throws -> OCIManifest {
         let index = try await self.index()
         let desc = index.manifests.first { desc in
             desc.platform == platform
@@ -81,7 +81,7 @@ public struct Image: Sendable {
 
     /// Returns the descriptor for the given platform. If it does not exist
     /// will throw a ContainerizationError with the code set to .invalidArgument.
-    public func descriptor(for platform: Platform) async throws -> Descriptor {
+    public func descriptor(for platform: OCIPlatform) async throws -> OCIDescriptor {
         let index = try await self.index()
         let desc = index.manifests.first { $0.platform == platform }
         guard let desc else {
@@ -91,7 +91,7 @@ public struct Image: Sendable {
     }
 
     /// Returns the OCI config for the specified platform.
-    public func config(for platform: Platform) async throws -> ContainerizationOCI.Image {
+    public func config(for platform: OCIPlatform) async throws -> OCIImage {
         let manifest = try await self.manifest(for: platform)
         let desc = manifest.config
         guard let content: Content = try await contentStore.get(digest: desc.digest) else {
@@ -106,7 +106,7 @@ public struct Image: Sendable {
         let index = try await self.index()
         for manifest in index.manifests {
             referenced.append(manifest.digest.trimmingDigestPrefix)
-            guard let m: Manifest = try? await contentStore.get(digest: manifest.digest) else {
+            guard let m: OCIManifest = try? await contentStore.get(digest: manifest.digest) else {
                 // If the requested digest does not exist or is not a manifest. Skip.
                 // Its safe to skip processing this digest as it wont have any child layers.
                 continue

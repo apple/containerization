@@ -85,7 +85,7 @@ extension Application {
 
         struct ImageDisplay: Codable {
             let reference: String
-            let index: Index
+            let index: OCIIndex
         }
 
         struct Pull: AsyncParsableCommand {
@@ -109,9 +109,9 @@ extension Application {
 
             func run() async throws {
                 let imageStore = Application.imageStore
-                let platform: Platform? = try {
+                let platform: OCIPlatform? = try {
                     if let platformString {
-                        return try Platform(from: platformString)
+                        return try OCIPlatform(from: platformString)
                     }
                     return nil
                 }()
@@ -177,9 +177,9 @@ extension Application {
 
             func run() async throws {
                 let imageStore = Application.imageStore
-                let platform: Platform? = try {
+                let platform: OCIPlatform? = try {
                     if let platformString {
-                        return try Platform(from: platformString)
+                        return try OCIPlatform(from: platformString)
                     }
                     return nil
                 }()
@@ -212,9 +212,9 @@ extension Application {
             @Argument var reference: [String]
 
             func run() async throws {
-                var p: Platform? = nil
+                var p: OCIPlatform? = nil
                 if let platform {
-                    p = try Platform(from: platform)
+                    p = try OCIPlatform(from: platform)
                 }
                 let store = Application.imageStore
                 let tempDir = FileManager.default.uniqueTemporaryDirectory()

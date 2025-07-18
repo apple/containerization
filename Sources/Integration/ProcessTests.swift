@@ -134,7 +134,7 @@ extension IntegrationSuite {
             try await container.create()
             try await container.start()
 
-            let execConfig = ContainerizationOCI.Process(
+            let execConfig = OCIProcess(
                 args: ["/bin/true"],
                 env: ["PATH=\(LinuxContainer.defaultPath)"]
             )
@@ -185,7 +185,7 @@ extension IntegrationSuite {
             try await container.create()
             try await container.start()
 
-            let baseExecConfig = ContainerizationOCI.Process(
+            let baseExecConfig = OCIProcess(
                 args: ["sh", "-c", "dd if=/dev/random of=/tmp/bytes bs=1M count=20 status=none ; sha256sum /tmp/bytes"],
                 env: ["PATH=\(LinuxContainer.defaultPath)"]
             )
@@ -203,7 +203,7 @@ extension IntegrationSuite {
             let output = String(data: buffer.data, encoding: .utf8)!
             let expected = String(output.split(separator: " ").first!)
             try await withThrowingTaskGroup(of: Void.self) { group in
-                let execConfig = ContainerizationOCI.Process(
+                let execConfig = OCIProcess(
                     args: ["cat", "/tmp/bytes"],
                     env: ["PATH=\(LinuxContainer.defaultPath)"]
                 )

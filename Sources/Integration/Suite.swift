@@ -120,7 +120,7 @@ struct IntegrationSuite: AsyncParsableCommand {
         var testKernel = Kernel(path: .init(filePath: kernel), platform: .linuxArm)
         testKernel.commandLine.addDebug()
         let image = try await Self.fetchImage(reference: reference, store: store)
-        let platform = Platform(arch: "arm64", os: "linux", variant: "v8")
+        let platform = OCIPlatform(arch: "arm64", os: "linux", variant: "v8")
 
         let fs: Containerization.Mount = try await {
             let fsPath = Self.testDir.appending(component: "rootfs.ext4")

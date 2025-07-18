@@ -16,9 +16,9 @@
 
 import Foundation
 
-/// MediaTypes represent all supported OCI image content types for both metadata and layer formats.
+/// OCIMediaTypes represent all supported OCI image content types for both metadata and layer formats.
 /// Follows all distributable media types in: https://github.com/opencontainers/image-spec/blob/main/specs-go/v1/mediatype.go
-public struct MediaTypes: Codable, Sendable {
+public struct OCIMediaTypes: Codable, Sendable {
     /// Specifies the media type for a content descriptor.
     public static let descriptor = "application/vnd.oci.descriptor.v1+json"
 

@@ -43,33 +43,33 @@ extension InitImage {
     /// Create a new InitImage with the reference as the name.
     /// The `rootfs` parameter must be a tar.gz file whose contents make up the filesystem for the image.
     public static func create(
-        reference: String, rootfs: URL, platform: Platform,
+        reference: String, rootfs: URL, platform: OCIPlatform,
         labels: [String: String] = [:], imageStore: ImageStore, contentStore: ContentStore
     ) async throws -> InitImage {
 
-        let indexDescriptorStore = AsyncStore<Descriptor>()
+        let indexDescriptorStore = AsyncStore<OCIDescriptor>()
         try await contentStore.ingest { dir in
             let writer = try ContentWriter(for: dir)
             var result = try writer.create(from: rootfs)
-            let layerDescriptor = Descriptor(mediaType: ContainerizationOCI.MediaTypes.imageLayerGzip, digest: result.digest.digestString, size: result.size)
+            let layerDescriptor = OCIDescriptor(mediaType: OCIMediaTypes.imageLayerGzip, digest: result.digest.digestString, size: result.size)
 
             // TODO: compute and fill in the correct diffID for the above layer
             // We currently put in the sha of the fully compressed layer, this needs to be replaced with
             // the sha of the uncompressed layer.
-            let rootfsConfig = ContainerizationOCI.Rootfs(type: "layers", diffIDs: [result.digest.digestString])
-            let runtimeConfig = ContainerizationOCI.ImageConfig(labels: labels)
-            let imageConfig = ContainerizationOCI.Image(architecture: platform.architecture, os: platform.os, config: runtimeConfig, rootfs: rootfsConfig)
+            let rootfsConfig = OCIRootfs(type: "layers", diffIDs: [result.digest.digestString])
+            let runtimeConfig = OCIImageConfig(labels: labels)
+            let imageConfig = OCIImage(architecture: platform.architecture, os: platform.os, config: runtimeConfig, rootfs: rootfsConfig)
             result = try writer.create(from: imageConfig)
-            let configDescriptor = Descriptor(mediaType: ContainerizationOCI.MediaTypes.imageConfig, digest: result.digest.digestString, size: result.size)
+            let configDescriptor = OCIDescriptor(mediaType: OCIMediaTypes.imageConfig, digest: result.digest.digestString, size: result.size)
 
-            let manifest = Manifest(config: configDescriptor, layers: [layerDescriptor])
+            let manifest = OCIManifest(config: configDescriptor, layers: [layerDescriptor])
             result = try writer.create(from: manifest)
-            let manifestDescriptor = Descriptor(mediaType: ContainerizationOCI.MediaTypes.imageManifest, digest: result.digest.digestString, size: result.size, platform: platform)
+            let manifestDescriptor = OCIDescriptor(mediaType: OCIMediaTypes.imageManifest, digest: result.digest.digestString, size: result.size, platform: platform)
 
-            let index = ContainerizationOCI.Index(manifests: [manifestDescriptor])
+            let index = OCIIndex(manifests: [manifestDescriptor])
             result = try writer.create(from: index)
 
-            let indexDescriptor = Descriptor(mediaType: ContainerizationOCI.MediaTypes.index, digest: result.digest.digestString, size: result.size)
+            let indexDescriptor = OCIDescriptor(mediaType: OCIMediaTypes.index, digest: result.digest.digestString, size: result.size)
             await indexDescriptorStore.set(indexDescriptor)
 
         }
