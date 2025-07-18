@@ -327,8 +327,8 @@ extension LinuxContainer {
 
     /// Hostname mapping configurations for the container.
     public var hosts: Hosts? {
-        get { config.hosts }
-        set { config.hosts = newValue }
+        get { config.withLock { $0.hosts } }
+        set { config.withLock { $0.hosts = newValue } }
     }
 
     /// Unix sockets to share into or out of the container.
