@@ -21,7 +21,7 @@ import SwiftSyntax
 import SwiftSyntaxBuilder
 import SwiftSyntaxMacros
 
-/// A macro that allows to make a property of a custom type thread-safe keeping the `Sendable` conformance of the type. This macro can be used with classes and enums. Avoid using it with structs, arrays, and dictionaries.
+/// A macro that allows to make a property of a custom type thread-safe keeping the `Sendable` conformance of the type. This macro can be used with classes. Avoid using it with structs, arrays, and dictionaries.
 public struct SendablePropertyMacroUnchecked: PeerMacro {
     private static func peerPropertyName(for propertyName: String) -> String {
         "_" + propertyName
