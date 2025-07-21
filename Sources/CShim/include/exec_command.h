@@ -17,6 +17,8 @@
 #ifndef exec_command_h
 #define exec_command_h
 
+#if defined(__linux__) || defined(__APPLE__)
+
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -46,4 +48,5 @@ int exec_command(pid_t *result, const char *executable, char *const argv[],
                  const int file_handle_count, const char *working_directory,
                  struct exec_command_attrs *attrs);
 
+#endif /* defined(__linux__) || defined(__APPLE__) */
 #endif /* exec_command_h */

@@ -14,8 +14,12 @@
  * limitations under the License.
  */
 
+#if defined(__linux__) || defined(__APPLE__)
+
 #include <errno.h>
 #include <fcntl.h>
+#include <dirent.h>
+#include <limits.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -30,6 +34,60 @@
 #include <unistd.h>
 
 #include "exec_command.h"
+
+#ifndef SYS_close_range
+#define SYS_close_range 436
+#endif
+
+#ifndef CLOSE_RANGE_CLOEXEC
+#define CLOSE_RANGE_CLOEXEC 0x4
+#endif
+
+static int mark_cloexec(int fd) {
+    int flags = fcntl(fd, F_GETFD);
+
+    if (flags == -1) return flags;
+    if (flags & FD_CLOEXEC) return 0;
+
+    return fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
+}
+
+static int cloexec_from(int min_fd) {
+#if defined(__linux__)
+    // First try close_range.
+    long ret = syscall(SYS_close_range, min_fd, ~0U, CLOSE_RANGE_CLOEXEC);
+    if (ret == 0) {
+      return 0;
+    }
+    const char* dirpath = "/proc/self/fd";
+#elif defined(__APPLE__)
+    const char* dirpath = "/dev/fd";
+#endif
+    DIR *dp = opendir(dirpath);
+    if (!dp) return -1;
+
+    int dp_fd = dirfd(dp);
+    struct dirent *de;
+
+    while ((de = readdir(dp))) {
+      if (de->d_name[0] == '.') continue;
+
+      char *end;
+      long val = strtol(de->d_name, &end, 10);
+      if (*end || val < 0 || val > INT_MAX) continue;
+
+      int fd = (int)val;
+      if (fd < min_fd || fd == dp_fd) continue;
+
+      int ret = mark_cloexec(fd);
+      if (ret != 0) {
+        return ret;
+      }
+    }
+    close(dp_fd);
+    closedir(dp);
+    return 0;
+}
 
 void exec_command_attrs_init(struct exec_command_attrs *attrs) {
   attrs->setpgid = 0;
@@ -195,15 +253,9 @@ static void child_handler(const int sync_pipes[2], const char *executable,
     }
   }
 
-  // Get our current open fd limit and close exec everything outside of our
-  // child's fd_table.
-  if (getrlimit(RLIMIT_NOFILE, &limits) < 0) {
+  // close exec everything outside of our child's fd_table.
+  if (cloexec_from(file_handle_count) != 0) {
     goto fail;
-  }
-  for (i = file_handle_count; i <= limits.rlim_cur; i++) {
-    if (fcntl(i, F_SETFD, FD_CLOEXEC) == -1 && errno != EBADF) {
-      goto fail;
-    }
   }
 
   // set gid
@@ -312,3 +364,5 @@ fail:
   }
   return 0;
 }
+
+#endif
