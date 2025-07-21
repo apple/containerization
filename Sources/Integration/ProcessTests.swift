@@ -27,12 +27,9 @@ extension IntegrationSuite {
         let id = "test-process-true"
 
         let bs = try await bootstrap()
-        let container = LinuxContainer(
-            id,
-            rootfs: bs.rootfs,
-            vmm: bs.vmm
-        )
-        container.arguments = ["/bin/true"]
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/true"]
+        }
 
         try await container.create()
         try await container.start()
@@ -49,8 +46,9 @@ extension IntegrationSuite {
         let id = "test-process-false"
 
         let bs = try await bootstrap()
-        let container = LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm)
-        container.arguments = ["/bin/false"]
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/false"]
+        }
 
         try await container.create()
         try await container.start()
@@ -92,11 +90,12 @@ extension IntegrationSuite {
     func testProcessEchoHi() async throws {
         let id = "test-process-echo-hi"
         let bs = try await bootstrap()
-        let container = LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm)
-        container.arguments = ["/bin/echo", "hi"]
 
         let buffer = BufferWriter()
-        container.stdout = buffer
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/echo", "hi"]
+            config.process.stdout = buffer
+        }
 
         do {
             try await container.create()
@@ -123,28 +122,19 @@ extension IntegrationSuite {
         let id = "test-concurrent-processes"
 
         let bs = try await bootstrap()
-        let container = LinuxContainer(
-            id,
-            rootfs: bs.rootfs,
-            vmm: bs.vmm
-        )
-        container.arguments = ["/bin/sleep", "1000"]
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/sleep", "1000"]
+        }
 
         do {
             try await container.create()
             try await container.start()
 
-            let execConfig = ContainerizationOCI.Process(
-                args: ["/bin/true"],
-                env: ["PATH=\(LinuxContainer.defaultPath)"]
-            )
-
             try await withThrowingTaskGroup(of: Void.self) { group in
                 for i in 0...80 {
-                    let exec = try await container.exec(
-                        "exec-\(i)",
-                        configuration: execConfig
-                    )
+                    let exec = try await container.exec("exec-\(i)") { config in
+                        config.arguments = ["/bin/true"]
+                    }
 
                     group.addTask {
                         try await exec.start()
@@ -174,54 +164,48 @@ extension IntegrationSuite {
     func testMultipleConcurrentProcessesOutputStress() async throws {
         let id = "test-concurrent-processes-output-stress"
         let bs = try await bootstrap()
-        let container = LinuxContainer(
-            id,
-            rootfs: bs.rootfs,
-            vmm: bs.vmm
-        )
-        container.arguments = ["/bin/sleep", "1000"]
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/sleep", "1000"]
+        }
 
         do {
             try await container.create()
             try await container.start()
 
-            let baseExecConfig = ContainerizationOCI.Process(
-                args: ["sh", "-c", "dd if=/dev/random of=/tmp/bytes bs=1M count=20 status=none ; sha256sum /tmp/bytes"],
-                env: ["PATH=\(LinuxContainer.defaultPath)"]
-            )
             let buffer = BufferWriter()
-            let exec = try await container.exec(
-                "expected-value",
-                configuration: baseExecConfig,
-                stdout: buffer,
-            )
+            let exec = try await container.exec("expected-value") { config in
+                config.arguments = [
+                    "sh",
+                    "-c",
+                    "dd if=/dev/random of=/tmp/bytes bs=1M count=20 status=none ; sha256sum /tmp/bytes",
+                ]
+                config.stdout = buffer
+            }
+
             try await exec.start()
             let status = try await exec.wait()
             if status != 0 {
                 throw IntegrationError.assert(msg: "process status \(status) != 0")
             }
+
             let output = String(data: buffer.data, encoding: .utf8)!
             let expected = String(output.split(separator: " ").first!)
             try await withThrowingTaskGroup(of: Void.self) { group in
-                let execConfig = ContainerizationOCI.Process(
-                    args: ["cat", "/tmp/bytes"],
-                    env: ["PATH=\(LinuxContainer.defaultPath)"]
-                )
                 for i in 0...80 {
                     let idx = i
                     group.addTask {
                         let buffer = BufferWriter()
-                        let exec = try await container.exec(
-                            "exec-\(idx)",
-                            configuration: execConfig,
-                            stdout: buffer,
-                        )
+                        let exec = try await container.exec("exec-\(idx)") { config in
+                            config.arguments = ["cat", "/tmp/bytes"]
+                            config.stdout = buffer
+                        }
                         try await exec.start()
 
                         let status = try await exec.wait()
                         if status != 0 {
                             throw IntegrationError.assert(msg: "process \(idx) status \(status) != 0")
                         }
+
                         var hasher = SHA256()
                         hasher.update(data: buffer.data)
                         let hash = hasher.finalize().digestString.trimmingDigestPrefix
@@ -249,16 +233,12 @@ extension IntegrationSuite {
         let id = "test-process-user"
 
         let bs = try await bootstrap()
-        let container = LinuxContainer(
-            id,
-            rootfs: bs.rootfs,
-            vmm: bs.vmm
-        )
-        container.arguments = ["/usr/bin/id"]
-        container.user = .init(uid: 1, gid: 1, additionalGids: [1])
-
         let buffer = BufferWriter()
-        container.stdout = buffer
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/usr/bin/id"]
+            config.process.user = .init(uid: 1, gid: 1, additionalGids: [1])
+            config.process.stdout = buffer
+        }
 
         try await container.create()
         try await container.start()
@@ -282,16 +262,12 @@ extension IntegrationSuite {
         let id = "test-process-tty-envvar"
 
         let bs = try await bootstrap()
-        let container = LinuxContainer(
-            id,
-            rootfs: bs.rootfs,
-            vmm: bs.vmm
-        )
-        container.arguments = ["env"]
-        container.terminal = true
-
         let buffer = BufferWriter()
-        container.stdout = buffer
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["env"]
+            config.process.terminal = true
+            config.process.stdout = buffer
+        }
 
         try await container.create()
         try await container.start()
@@ -320,16 +296,12 @@ extension IntegrationSuite {
         let id = "test-process-home-envvar"
 
         let bs = try await bootstrap()
-        let container = LinuxContainer(
-            id,
-            rootfs: bs.rootfs,
-            vmm: bs.vmm
-        )
-        container.arguments = ["env"]
-        container.user = .init(uid: 0, gid: 0)
-
         let buffer = BufferWriter()
-        container.stdout = buffer
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["env"]
+            config.process.user = .init(uid: 0, gid: 0)
+            config.process.stdout = buffer
+        }
 
         try await container.create()
         try await container.start()
@@ -357,15 +329,14 @@ extension IntegrationSuite {
         let id = "test-process-custom-home-envvar"
 
         let bs = try await bootstrap()
-        let container = LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm)
-
         let customHomeEnvvar = "HOME=/tmp/custom/home"
-        container.environment = [customHomeEnvvar]
-        container.arguments = ["sh", "-c", "echo HOME=$HOME"]
-        container.user = .init(uid: 0, gid: 0)
-
         let buffer = BufferWriter()
-        container.stdout = buffer
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sh", "-c", "echo HOME=$HOME"]
+            config.process.environmentVariables.append(customHomeEnvvar)
+            config.process.user = .init(uid: 0, gid: 0)
+            config.process.stdout = buffer
+        }
 
         try await container.create()
         try await container.start()
@@ -390,16 +361,12 @@ extension IntegrationSuite {
         let id = "test-container-hostname"
 
         let bs = try await bootstrap()
-        let container = LinuxContainer(
-            id,
-            rootfs: bs.rootfs,
-            vmm: bs.vmm
-        )
-        container.arguments = ["/bin/hostname"]
-        container.hostname = "foo-bar"
-
         let buffer = BufferWriter()
-        container.stdout = buffer
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/hostname"]
+            config.hostname = "foo-bar"
+            config.process.stdout = buffer
+        }
 
         try await container.create()
         try await container.start()
@@ -422,17 +389,13 @@ extension IntegrationSuite {
         let id = "test-container-hosts-file"
 
         let bs = try await bootstrap()
-        let container = LinuxContainer(
-            id,
-            rootfs: bs.rootfs,
-            vmm: bs.vmm
-        )
-        container.arguments = ["cat", "/etc/hosts"]
         let entry = Hosts.Entry.localHostIPV4(comment: "Testaroo")
-        container.hosts = Hosts(entries: [entry])
-
         let buffer = BufferWriter()
-        container.stdout = buffer
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["cat", "/etc/hosts"]
+            config.hosts = Hosts(entries: [entry])
+            config.process.stdout = buffer
+        }
 
         try await container.create()
         try await container.start()
@@ -455,16 +418,12 @@ extension IntegrationSuite {
         let id = "test-container-stdin"
 
         let bs = try await bootstrap()
-        let container = LinuxContainer(
-            id,
-            rootfs: bs.rootfs,
-            vmm: bs.vmm
-        )
-        container.arguments = ["cat"]
-        container.stdin = StdinBuffer(data: "Hello from test".data(using: .utf8)!)
-
         let buffer = BufferWriter()
-        container.stdout = buffer
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["cat"]
+            config.process.stdin = StdinBuffer(data: "Hello from test".data(using: .utf8)!)
+            config.process.stdout = buffer
+        }
 
         try await container.create()
         try await container.start()

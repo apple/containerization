@@ -60,10 +60,10 @@ public struct VZVirtualMachineManager: VirtualMachineManager {
                 if let bootlog {
                     config.bootlog = URL(filePath: bootlog)
                 }
-                config.rosetta = c.rosetta
-                config.nestedVirtualization = c.virtualization
+                config.rosetta = c.config.rosetta
+                config.nestedVirtualization = c.config.virtualization
 
-                config.mounts = [c.rootfs] + c.mounts
+                config.mounts = [c.rootfs] + c.config.mounts
             })
     }
 }

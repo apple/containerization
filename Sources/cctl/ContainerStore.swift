@@ -71,7 +71,12 @@ struct ContainerStore: Sendable {
         }
     }
 
-    public func create(id: String, reference: String, fsSizeInBytes: UInt64) async throws -> LinuxContainer {
+    public func create(
+        id: String,
+        reference: String,
+        fsSizeInBytes: UInt64,
+        configuration: (inout LinuxContainer.Configuration) throws -> Void
+    ) async throws -> LinuxContainer {
         let initImage = try await image.getInitImage(reference: Self.initImage)
         let initfs = try await {
             do {
@@ -119,14 +124,12 @@ struct ContainerStore: Sendable {
             bootlog: "cctl.log"
         )
 
-        let linuxContainer = LinuxContainer(
-            id,
-            rootfs: imageBlock,
-            vmm: vmm
-        )
-        if let imageConfig {
-            linuxContainer.setProcessConfig(from: imageConfig)
+        return try LinuxContainer(id, rootfs: imageBlock, vmm: vmm) { config in
+            if let imageConfig {
+                let process = LinuxContainer.Configuration.Process(from: imageConfig)
+                config.process = process
+            }
+            try configuration(&config)
         }
-        return linuxContainer
     }
 }

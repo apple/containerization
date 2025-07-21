@@ -25,24 +25,6 @@ import Synchronization
 /// `LinuxProcess` represents a Linux process and is used to
 /// setup and control the full lifecycle for the process.
 public final class LinuxProcess: Sendable {
-    /// `IOHandler` informs the process about what should be done
-    /// for the stdio streams.
-    public struct IOHandler: Sendable {
-        public var stdin: ReaderStream?
-        public var stdout: Writer?
-        public var stderr: Writer?
-
-        public init(stdin: ReaderStream? = nil, stdout: Writer? = nil, stderr: Writer? = nil) {
-            self.stdin = stdin
-            self.stdout = stdout
-            self.stderr = stderr
-        }
-
-        public static func nullIO() -> IOHandler {
-            .init()
-        }
-    }
-
     /// The ID of the process. This is purely metadata for the caller.
     public let id: String
 
@@ -107,52 +89,6 @@ public final class LinuxProcess: Sendable {
     /// if the process has not been started.
     public var pid: Int32 {
         state.withLock { $0.pid }
-    }
-
-    /// Arguments passed to the Process.
-    public var arguments: [String] {
-        get {
-            state.withLock { $0.spec.process!.args }
-        }
-        set {
-            state.withLock { $0.spec.process!.args = newValue }
-        }
-    }
-
-    /// Environment variables for the Process.
-    public var environment: [String] {
-        get { state.withLock { $0.spec.process!.env } }
-        set { state.withLock { $0.spec.process!.env = newValue } }
-    }
-
-    /// The current working directory (cwd) for the Process.
-    public var workingDirectory: String {
-        get { state.withLock { $0.spec.process!.cwd } }
-        set { state.withLock { $0.spec.process!.cwd = newValue } }
-    }
-
-    /// A boolean value indicating if a Terminal or PTY device should
-    /// be attached to the Process's Standard I/O.
-    public var terminal: Bool {
-        get { state.withLock { $0.spec.process!.terminal } }
-        set {
-            state.withLock {
-                $0.spec.process!.terminal = newValue
-                $0.spec.process!.env.append("TERM=xterm")
-            }
-        }
-    }
-
-    /// The User a Process should execute under.
-    public var user: ContainerizationOCI.User {
-        get { state.withLock { $0.spec.process!.user } }
-        set { state.withLock { $0.spec.process!.user = newValue } }
-    }
-
-    /// Rlimits for the Process.
-    public var rlimits: [POSIXRlimit] {
-        get { state.withLock { $0.spec.process!.rlimits } }
-        set { state.withLock { $0.spec.process!.rlimits = newValue } }
     }
 
     private let state: Mutex<State>

@@ -26,17 +26,13 @@ extension IntegrationSuite {
         let id = "test-cat-mount"
 
         let bs = try await bootstrap()
-        let container = LinuxContainer(
-            id,
-            rootfs: bs.rootfs,
-            vmm: bs.vmm
-        )
-        let directory = try createMountDirectory()
-        container.mounts.append(.share(source: directory.path, destination: "/mnt"))
-        container.arguments = ["/bin/cat", "/mnt/hi.txt"]
-
         let buffer = BufferWriter()
-        container.stdout = buffer
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            let directory = try createMountDirectory()
+            config.process.arguments = ["/bin/cat", "/mnt/hi.txt"]
+            config.mounts.append(.share(source: directory.path, destination: "/mnt"))
+            config.process.stdout = buffer
+        }
 
         try await container.create()
         try await container.start()
@@ -60,14 +56,10 @@ extension IntegrationSuite {
         let id = "test-nested-virt"
 
         let bs = try await bootstrap()
-        let container = LinuxContainer(
-            id,
-            rootfs: bs.rootfs,
-            vmm: bs.vmm
-        )
-        container.arguments = ["/bin/true"]
-
-        container.virtualization = true
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/true"]
+            config.virtualization = true
+        }
 
         do {
             try await container.create()

@@ -27,9 +27,6 @@ import struct ContainerizationOS.Terminal
 
 /// `LinuxContainer` is an easy to use type for launching and managing the
 /// full lifecycle of a Linux container ran inside of a virtual machine.
-///
-/// NOTE: Editing the properties of `LinuxContainer` after calling `start()`
-/// have no effect.
 public final class LinuxContainer: Container, Sendable {
     /// The default PATH value for a process.
     public static let defaultPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -40,25 +37,114 @@ public final class LinuxContainer: Container, Sendable {
     /// Rootfs for the container.
     public let rootfs: Mount
 
-    private struct Configuration {
-        var spec: Spec
-        var cpus: Int = 4
-        var memoryInBytes: UInt64 = 1024.mib()
-        var interfaces: [any Interface] = []
-        var sockets: [UnixSocketConfiguration] = []
-        var rosetta: Bool = false
-        var virtualization: Bool = false
-        var terminal: Terminal? = nil
-        var ioHandlers: LinuxProcess.IOHandler = .nullIO()
-        var mounts: [Mount]
-        var dns: DNS? = nil
-        var hosts: Hosts? = nil
+    /// Configuration for the container.
+    public let config: Configuration
+
+    /// The configuration for the LinuxContainer.
+    public struct Configuration: Sendable {
+        /// Configuration of a container process.
+        public struct Process: Sendable {
+            /// The arguments for the container process.
+            public var arguments: [String] = []
+            /// The environment variables for the container process.
+            public var environmentVariables: [String] = ["PATH=\(LinuxContainer.defaultPath)"]
+            /// The working directory for the container process.
+            public var workingDirectory: String = "/"
+            /// The user the container process will run as.
+            public var user: ContainerizationOCI.User = .init()
+            /// The rlimits for the container process.
+            public var rlimits: [POSIXRlimit] = []
+            /// Whether to allocate a pseudo terminal for the process. If you'd like interactive
+            /// behavior and are planning to use a terminal for stdin/out/err on the client side,
+            /// this should likely be set to true.
+            public var terminal: Bool = false
+            /// The stdin for the process.
+            public var stdin: ReaderStream?
+            /// The stdout for the process.
+            public var stdout: Writer?
+            /// The stderr for the process.
+            public var stderr: Writer?
+
+            public init() {}
+
+            public init(from config: ImageConfig) {
+                self.workingDirectory = config.workingDir ?? "/"
+                self.environmentVariables = config.env ?? []
+                self.arguments = (config.entrypoint ?? []) + (config.cmd ?? [])
+                self.user = {
+                    if let rawString = config.user {
+                        return User(username: rawString)
+                    }
+                    return User()
+                }()
+            }
+
+            func toOCI() -> ContainerizationOCI.Process {
+                ContainerizationOCI.Process(
+                    args: self.arguments,
+                    cwd: self.workingDirectory,
+                    env: self.environmentVariables,
+                    user: self.user,
+                    rlimits: self.rlimits,
+                    terminal: self.terminal
+                )
+            }
+
+            /// Sets up IO to be handled by the passed in Terminal, and edits the
+            /// process configuration to set the necessary state for using a pty.
+            mutating public func setTerminalIO(terminal: Terminal) {
+                self.environmentVariables.append("TERM=xterm")
+                self.terminal = true
+                self.stdin = terminal
+                self.stdout = terminal
+            }
+        }
+
+        /// Configuration for the init process of the container.
+        public var process = Process.init()
+        /// The amount of cpus for the container.
+        public var cpus: Int = 4
+        /// The memory in bytes to give to the container.
+        public var memoryInBytes: UInt64 = 1024.mib()
+        /// The hostname for the container.
+        public var hostname: String = ""
+        /// The system control options for the container.
+        public var sysctl: [String: String] = [:]
+        /// The network interfaces for the container.
+        public var interfaces: [any Interface] = []
+        /// The Unix domain socket relays to setup for the container.
+        public var sockets: [UnixSocketConfiguration] = []
+        /// Whether rosetta x86-64 emulation should be setup for the container.
+        public var rosetta: Bool = false
+        /// Whether nested virtualization should be turned on for the container.
+        public var virtualization: Bool = false
+        /// The mounts for the container.
+        public var mounts: [Mount] = LinuxContainer.defaultMounts()
+        /// The DNS configuration for the container.
+        public var dns: DNS?
+        /// The hosts to add to /etc/hosts for the container.
+        public var hosts: Hosts?
+
+        public init() {}
+    }
+
+    /// `IOHandler` informs the container process about what should be done
+    /// for the stdio streams.
+    struct IOHandler: Sendable {
+        public var stdin: ReaderStream?
+        public var stdout: Writer?
+        public var stderr: Writer?
+
+        init(stdin: ReaderStream? = nil, stdout: Writer? = nil, stderr: Writer? = nil) {
+            self.stdin = stdin
+            self.stdout = stdout
+            self.stderr = stderr
+        }
     }
 
     @SendablePropertyUnchecked
     private var state: State
 
-    private let config: Mutex<Configuration>
     // Ports to be allocated from for stdio and for
     // unix socket relays that are sharing a guest
     // uds to the host.
@@ -228,28 +314,26 @@ public final class LinuxContainer: Container, Sendable {
         _ id: String,
         rootfs: Mount,
         vmm: VirtualMachineManager,
-        logger: Logger? = nil
-    ) {
+        logger: Logger? = nil,
+        configuration: (inout Configuration) throws -> Void
+    ) throws {
         self.id = id
         self.vmm = vmm
         self.hostVsockPorts = Atomic<UInt32>(0x1000_0000)
         self.guestVsockPorts = Atomic<UInt32>(0x1000_0000)
         self.rootfs = rootfs
         self.logger = logger
-        let configuration = Configuration(
-            spec: Self.createDefaultRuntimeSpec(id),
-            mounts: Self.createDefaultMounts()
-        )
-        self.config = Mutex(configuration)
+
+        var config = Configuration()
+        try configuration(&config)
+
+        self.config = config
         self.state = .initialized
     }
 
     private static func createDefaultRuntimeSpec(_ id: String) -> Spec {
         .init(
-            process: .init(
-                cwd: "/",
-                env: ["PATH=\(Self.defaultPath)"]
-            ),
+            process: .init(),
             hostname: id,
             root: .init(
                 path: Self.guestRootfsPath(id),
@@ -261,11 +345,24 @@ public final class LinuxContainer: Container, Sendable {
         )
     }
 
-    private static func guestRootfsPath(_ id: String) -> String {
-        "/run/container/\(id)/rootfs"
+    private func generateRuntimeSpec() -> Spec {
+        var spec = Self.createDefaultRuntimeSpec(id)
+
+        // Process toggles.
+        spec.process = config.process.toOCI()
+
+        // General toggles.
+        spec.hostname = config.hostname
+
+        // Linux toggles.
+        var linux = ContainerizationOCI.Linux.init()
+        linux.sysctl = config.sysctl
+        spec.linux = linux
+
+        return spec
     }
 
-    private static func createDefaultMounts() -> [Mount] {
+    public static func defaultMounts() -> [Mount] {
         let defaultOptions = ["nosuid", "noexec", "nodev"]
         return [
             .any(type: "proc", source: "proc", destination: "/proc", options: defaultOptions),
@@ -277,240 +374,31 @@ public final class LinuxContainer: Container, Sendable {
             .any(type: "devpts", source: "devpts", destination: "/dev/pts", options: ["nosuid", "noexec", "gid=5", "mode=620", "ptmxmode=666"]),
         ]
     }
+
+    private static func guestRootfsPath(_ id: String) -> String {
+        "/run/container/\(id)/rootfs"
+    }
 }
 
 extension LinuxContainer {
     package var root: String {
-        config.withLock { $0.spec.root!.path }
+        Self.guestRootfsPath(id)
     }
 
     /// Number of CPU cores allocated.
     public var cpus: Int {
-        get {
-            config.withLock { $0.cpus }
-        }
-        set {
-            config.withLock { $0.cpus = newValue }
-        }
+        config.cpus
     }
 
     /// Amount of memory in bytes allocated for the container.
     /// This will be aligned to a 1MB boundary if it isn't already.
     public var memoryInBytes: UInt64 {
-        get {
-            config.withLock { $0.memoryInBytes }
-        }
-        set {
-            config.withLock { $0.memoryInBytes = newValue }
-        }
+        config.memoryInBytes
     }
 
     /// Network interfaces of the container.
     public var interfaces: [any Interface] {
-        get {
-            config.withLock { $0.interfaces }
-        }
-        set {
-            config.withLock { $0.interfaces = newValue }
-        }
-    }
-
-    /// DNS configuration for the container.
-    public var dns: DNS? {
-        get {
-            config.withLock { $0.dns }
-        }
-        set {
-            config.withLock { $0.dns = newValue }
-        }
-    }
-
-    /// Hostname mapping configurations for the container.
-    public var hosts: Hosts? {
-        get { config.withLock { $0.hosts } }
-        set { config.withLock { $0.hosts = newValue } }
-    }
-
-    /// Unix sockets to share into or out of the container.
-    ///
-    /// The VirtualMachineAgent used to launch the container
-    /// MUST conform to `SocketRelayAgent` to support this; otherwise,
-    /// a ContainerizationError will be returned on start with the code
-    /// set to `.unsupported`.
-    public var sockets: [UnixSocketConfiguration] {
-        get {
-            config.withLock { $0.sockets }
-        }
-        set {
-            config.withLock { $0.sockets = newValue }
-        }
-    }
-
-    /// Enable/disable x86-64 emulation in the container.
-    public var rosetta: Bool {
-        get {
-            config.withLock { $0.rosetta }
-        }
-        set {
-            config.withLock { $0.rosetta = newValue }
-        }
-    }
-
-    /// Enable/disable virtualization capabilities in the container.
-    public var virtualization: Bool {
-        get {
-            config.withLock { $0.virtualization }
-        }
-        set {
-            config.withLock { $0.virtualization = newValue }
-        }
-    }
-
-    /// Filesystem mounts for the container.
-    public var mounts: [Mount] {
-        get {
-            config.withLock { $0.mounts }
-        }
-        set {
-            config.withLock { $0.mounts = newValue }
-        }
-    }
-
-    /// Arguments passed to the container.
-    public var arguments: [String] {
-        get {
-            config.withLock { $0.spec.process!.args }
-        }
-        set {
-            config.withLock { $0.spec.process!.args = newValue }
-        }
-    }
-
-    /// Environment variables for the container.
-    public var environment: [String] {
-        get {
-            config.withLock { $0.spec.process!.env }
-        }
-        set {
-            config.withLock { $0.spec.process!.env = newValue }
-        }
-    }
-
-    /// The current working directory (cwd) for the container.
-    public var workingDirectory: String {
-        get {
-            config.withLock { $0.spec.process!.cwd }
-        }
-        set {
-            config.withLock { $0.spec.process!.cwd = newValue }
-        }
-    }
-
-    /// The User the container should execute under.
-    public var user: ContainerizationOCI.User {
-        get {
-            config.withLock { $0.spec.process!.user }
-        }
-        set {
-            config.withLock { $0.spec.process!.user = newValue }
-        }
-    }
-
-    /// Set the hostname for the container.
-    public var hostname: String {
-        get {
-            config.withLock { $0.spec.hostname }
-        }
-        set {
-            config.withLock { $0.spec.hostname = newValue }
-        }
-    }
-
-    /// Set any sysctls for the container's environment.
-    public var sysctl: [String: String]? {
-        get {
-            config.withLock { $0.spec.linux!.sysctl }
-        }
-        set {
-            config.withLock { $0.spec.linux!.sysctl = newValue }
-        }
-    }
-
-    /// Rlimits for the container.
-    public var rlimits: [POSIXRlimit] {
-        get {
-            config.withLock { $0.spec.process!.rlimits }
-        }
-        set {
-            config.withLock { $0.spec.process!.rlimits = newValue }
-        }
-    }
-
-    /// Set a pty device as the container's stdio. This additionally will
-    /// set the TERM=xterm environment variable, and the OCI runtime specs
-    /// `process.terminal` field to true.
-    public var terminalDevice: Terminal? {
-        get {
-            config.withLock { $0.terminal }
-        }
-        set {
-            config.withLock {
-                $0.spec.process!.terminal = newValue != nil ? true : false
-                $0.terminal = newValue
-                $0.spec.process!.env.append("TERM=xterm")
-                $0.ioHandlers.stdin = newValue
-                $0.ioHandlers.stdout = newValue
-                $0.ioHandlers.stderr = nil
-            }
-        }
-    }
-
-    /// If the container has a pty allocated.
-    public var terminal: Bool {
-        get {
-            config.withLock { $0.spec.process!.terminal }
-        }
-        set {
-            config.withLock {
-                $0.spec.process!.terminal = newValue
-                $0.spec.process!.env.append("TERM=xterm")
-            }
-        }
-    }
-
-    /// Set the stdin stream for the initial process of the container.
-    public var stdin: ReaderStream? {
-        get {
-            config.withLock { $0.ioHandlers.stdin }
-        }
-        set {
-            config.withLock { $0.ioHandlers.stdin = newValue }
-        }
-    }
-
-    /// Set the stdout handler for the initial process of the container.
-    public var stdout: Writer? {
-        get {
-            config.withLock { $0.ioHandlers.stdout }
-        }
-        set {
-            config.withLock { $0.ioHandlers.stdout = newValue }
-        }
-    }
-
-    /// Set the stderr handler for the initial process of the container.
-    public var stderr: Writer? {
-        get {
-            config.withLock { $0.ioHandlers.stderr }
-        }
-        set {
-            config.withLock { $0.ioHandlers.stderr = newValue }
-        }
-    }
-
-    public func setProcessConfig(from imageConfig: ImageConfig) {
-        let process = ContainerizationOCI.Process(from: imageConfig)
-        self.config.withLock { $0.spec.process = process }
+        config.interfaces
     }
 
     /// Create the underlying container's virtual machine
@@ -532,7 +420,7 @@ extension LinuxContainer {
                 try await agent.mount(rootfs)
 
                 // Start up our friendly unix socket relays.
-                for socket in self.sockets {
+                for socket in self.config.sockets {
                     try await self.relayUnixSocket(
                         socket: socket,
                         relayManager: relayManager,
@@ -554,10 +442,10 @@ extension LinuxContainer {
                 }
 
                 // Setup /etc/resolv.conf and /etc/hosts if asked for.
-                if let dns = self.dns {
+                if let dns = self.config.dns {
                     try await agent.configureDNS(config: dns, location: rootfs.destination)
                 }
-                if let hosts = self.hosts {
+                if let hosts = self.config.hosts {
                     try await agent.configureHosts(config: hosts, location: rootfs.destination)
                 }
 
@@ -577,21 +465,21 @@ extension LinuxContainer {
 
         let agent = try await vm.dialAgent()
         do {
-            var specCopy = config.withLock { $0.spec }
+            var spec = generateRuntimeSpec()
             // We don't need the rootfs, nor do OCI runtimes want it included.
-            specCopy.mounts = vm.mounts.dropFirst().map { $0.to }
+            spec.mounts = vm.mounts.dropFirst().map { $0.to }
 
             let stdio = Self.setupIO(
                 portAllocator: self.hostVsockPorts,
-                stdin: self.stdin,
-                stdout: self.stdout,
-                stderr: self.stderr
+                stdin: self.config.process.stdin,
+                stdout: self.config.process.stdout,
+                stderr: self.config.process.stderr
             )
 
             let process = LinuxProcess(
                 self.id,
                 containerID: self.id,
-                spec: specCopy,
+                spec: spec,
                 io: stdio,
                 agent: agent,
                 vm: vm,
@@ -667,7 +555,7 @@ extension LinuxContainer {
         try await startedState.vm.withAgent { agent in
             // First, we need to stop any unix socket relays as this will
             // keep the rootfs from being able to umount (EBUSY).
-            let sockets = config.withLock { $0.sockets }
+            let sockets = config.sockets
             if !sockets.isEmpty {
                 guard let relayAgent = agent as? SocketRelayAgent else {
                     throw ContainerizationError(
@@ -726,29 +614,51 @@ extension LinuxContainer {
     }
 
     /// Execute a new process in the container.
-    public func exec(
-        _ id: String,
-        configuration: ContainerizationOCI.Process,
-        stdin: ReaderStream? = nil,
-        stdout: Writer? = nil,
-        stderr: Writer? = nil
-    ) async throws -> LinuxProcess {
+    public func exec(_ id: String, configuration: (inout Configuration.Process) throws -> Void) async throws -> LinuxProcess {
         let state = try self.state.startedState("exec")
 
-        var specCopy = config.withLock { $0.spec }
-        specCopy.process = configuration
+        var spec = generateRuntimeSpec()
+        var config = Configuration.Process()
+        try configuration(&config)
+        spec.process = config.toOCI()
 
         let stdio = Self.setupIO(
             portAllocator: self.hostVsockPorts,
-            stdin: stdin,
-            stdout: stdout,
-            stderr: stderr
+            stdin: config.stdin,
+            stdout: config.stdout,
+            stderr: config.stderr
         )
         let agent = try await state.vm.dialAgent()
         let process = LinuxProcess(
             id,
             containerID: self.id,
-            spec: specCopy,
+            spec: spec,
+            io: stdio,
+            agent: agent,
+            vm: state.vm,
+            logger: self.logger
+        )
+        return process
+    }
+
+    /// Execute a new process in the container.
+    public func exec(_ id: String, configuration: Configuration.Process) async throws -> LinuxProcess {
+        let state = try self.state.startedState("exec")
+
+        var spec = generateRuntimeSpec()
+        spec.process = configuration.toOCI()
+
+        let stdio = Self.setupIO(
+            portAllocator: self.hostVsockPorts,
+            stdin: configuration.stdin,
+            stdout: configuration.stdout,
+            stderr: configuration.stderr
+        )
+        let agent = try await state.vm.dialAgent()
+        let process = LinuxProcess(
+            id,
+            containerID: self.id,
+            spec: spec,
             io: stdio,
             agent: agent,
             vm: state.vm,

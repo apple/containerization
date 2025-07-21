@@ -94,48 +94,48 @@ extension Application {
                 id: id,
                 reference: imageReference,
                 fsSizeInBytes: fsSizeInMB.mib()
-            )
-            container.cpus = cpus
-            container.memoryInBytes = memory.mib()
+            ) { config in
+                config.cpus = cpus
+                config.memoryInBytes = memory.mib()
+                config.process.setTerminalIO(terminal: current)
+                config.process.arguments = arguments
+                config.process.workingDirectory = cwd
 
-            container.terminalDevice = current
-            container.arguments = arguments
-            container.workingDirectory = cwd
-
-            for mount in self.mounts {
-                let paths = mount.split(separator: ":")
-                if paths.count != 2 {
-                    throw ContainerizationError(
-                        .invalidArgument,
-                        message: "incorrect mount format detected: \(mount)"
+                for mount in self.mounts {
+                    let paths = mount.split(separator: ":")
+                    if paths.count != 2 {
+                        throw ContainerizationError(
+                            .invalidArgument,
+                            message: "incorrect mount format detected: \(mount)"
+                        )
+                    }
+                    let host = String(paths[0])
+                    let guest = String(paths[1])
+                    let czMount = Containerization.Mount.share(
+                        source: host,
+                        destination: guest
                     )
+                    config.mounts.append(czMount)
                 }
-                let host = String(paths[0])
-                let guest = String(paths[1])
-                let czMount = Containerization.Mount.share(
-                    source: host,
-                    destination: guest
-                )
-                container.mounts.append(czMount)
-            }
 
-            var hosts = Hosts.default
-            if let ip {
-                guard let gateway else {
-                    throw ContainerizationError(.invalidArgument, message: "gateway must be specified")
+                var hosts = Hosts.default
+                if let ip {
+                    guard let gateway else {
+                        throw ContainerizationError(.invalidArgument, message: "gateway must be specified")
+                    }
+                    config.interfaces.append(NATInterface(address: ip, gateway: gateway))
+                    config.dns = .init(nameservers: [gateway])
+                    if nameservers.count > 0 {
+                        config.dns = .init(nameservers: nameservers)
+                    }
+                    hosts.entries.append(
+                        Hosts.Entry(
+                            ipAddress: ip,
+                            hostnames: [id]
+                        ))
                 }
-                container.interfaces.append(NATInterface(address: ip, gateway: gateway))
-                container.dns = .init(nameservers: [gateway])
-                if nameservers.count > 0 {
-                    container.dns = .init(nameservers: nameservers)
-                }
-                hosts.entries.append(
-                    Hosts.Entry(
-                        ipAddress: ip,
-                        hostnames: [id]
-                    ))
+                config.hosts = hosts
             }
-            container.hosts = hosts
 
             try await container.create()
             try await container.start()
