@@ -18,7 +18,7 @@ import ContainerizationIO
 import ContainerizationOS
 import Foundation
 import Logging
-import SendableProperty
+import Synchronization
 
 final class VsockProxy: Sendable {
     enum Action {
@@ -54,14 +54,13 @@ final class VsockProxy: Sendable {
     private let udsPerms: UInt32?
     private let log: Logger?
 
-    @SendableProperty
-    private var listener: Socket?
+    private let listener = Mutex<Socket?>(nil)
     private let task = Mutex<Task<(), Never>?>(nil)
 }
 
 extension VsockProxy {
     func close() throws {
-        guard let listener else {
+        guard let listener = listener.withLock({ $0 }) else {
             return
         }
 
@@ -99,7 +98,7 @@ extension VsockProxy {
         )
         let uds = try Socket(type: type)
         try uds.listen()
-        listener = uds
+        listener.withLock { $0 = uds }
 
         try self.acceptLoop(socketType: .unix)
     }
@@ -111,13 +110,13 @@ extension VsockProxy {
         )
         let vsock = try Socket(type: type)
         try vsock.listen()
-        listener = vsock
+        listener.withLock { $0 = vsock }
 
         try self.acceptLoop(socketType: .vsock)
     }
 
     private func acceptLoop(socketType: SocketType) throws {
-        guard let listener else {
+        guard let listener = listener.withLock({ $0 }) else {
             return
         }
 
