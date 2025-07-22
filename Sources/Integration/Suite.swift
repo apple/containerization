@@ -208,6 +208,9 @@ struct IntegrationSuite: AsyncParsableCommand {
             "container hostname": testHostname,
             "container hosts": testHostsFile,
             "container mount": testMounts,
+            "container pause and resume": testPauseResume,
+            "container pause, resume and wait": testPauseResumeWait,
+            "container pause, resume and verify io": testPauseResumeIO,
             "nested virt": testNestedVirtualizationEnabled,
         ]
 
