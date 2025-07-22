@@ -51,35 +51,35 @@ extension KernelImage {
     /// This will create a multi arch image containing kernel's for each provided architecture.
     public static func create(reference: String, binaries: [Kernel], labels: [String: String] = [:], imageStore: ImageStore, contentStore: ContentStore) async throws -> KernelImage
     {
-        let indexDescriptorStore = AsyncStore<Descriptor>()
+        let indexDescriptorStore = AsyncStore<OCIDescriptor>()
         try await contentStore.ingest { ingestPath in
-            var descriptors = [Descriptor]()
+            var descriptors = [OCIDescriptor]()
             let writer = try ContentWriter(for: ingestPath)
 
             for kernel in binaries {
                 var result = try writer.create(from: kernel.path)
                 let platform = kernel.platform.ociPlatform()
-                let layerDescriptor = Descriptor(
+                let layerDescriptor = OCIDescriptor(
                     mediaType: mediaType,
                     digest: result.digest.digestString,
                     size: result.size,
                     platform: platform)
-                let rootfsConfig = ContainerizationOCI.Rootfs(type: "layers", diffIDs: [result.digest.digestString])
-                let runtimeConfig = ContainerizationOCI.ImageConfig(labels: labels)
-                let imageConfig = ContainerizationOCI.Image(architecture: platform.architecture, os: platform.os, config: runtimeConfig, rootfs: rootfsConfig)
+                let rootfsConfig = OCIRootfs(type: "layers", diffIDs: [result.digest.digestString])
+                let runtimeConfig = OCIImageConfig(labels: labels)
+                let imageConfig = OCIImage(architecture: platform.architecture, os: platform.os, config: runtimeConfig, rootfs: rootfsConfig)
 
                 result = try writer.create(from: imageConfig)
-                let configDescriptor = Descriptor(mediaType: ContainerizationOCI.MediaTypes.imageConfig, digest: result.digest.digestString, size: result.size)
+                let configDescriptor = OCIDescriptor(mediaType: OCIMediaTypes.imageConfig, digest: result.digest.digestString, size: result.size)
 
-                let manifest = Manifest(config: configDescriptor, layers: [layerDescriptor])
+                let manifest = OCIManifest(config: configDescriptor, layers: [layerDescriptor])
                 result = try writer.create(from: manifest)
-                let manifestDescriptor = Descriptor(
-                    mediaType: ContainerizationOCI.MediaTypes.imageManifest, digest: result.digest.digestString, size: result.size, platform: platform)
+                let manifestDescriptor = OCIDescriptor(
+                    mediaType: OCIMediaTypes.imageManifest, digest: result.digest.digestString, size: result.size, platform: platform)
                 descriptors.append(manifestDescriptor)
             }
-            let index = ContainerizationOCI.Index(manifests: descriptors)
+            let index = OCIIndex(manifests: descriptors)
             let result = try writer.create(from: index)
-            let indexDescriptor = Descriptor(mediaType: ContainerizationOCI.MediaTypes.index, digest: result.digest.digestString, size: result.size)
+            let indexDescriptor = OCIDescriptor(mediaType: OCIMediaTypes.index, digest: result.digest.digestString, size: result.size)
             await indexDescriptorStore.set(indexDescriptor)
         }
 

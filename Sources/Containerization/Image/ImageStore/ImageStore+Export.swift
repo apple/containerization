@@ -40,9 +40,9 @@ extension ImageStore {
         }
 
         @discardableResult
-        internal func export(index: Descriptor, platforms: (Platform) -> Bool) async throws -> Descriptor {
-            var pushQueue: [[Descriptor]] = []
-            var current: [Descriptor] = [index]
+        internal func export(index: OCIDescriptor, platforms: (OCIPlatform) -> Bool) async throws -> OCIDescriptor {
+            var pushQueue: [[OCIDescriptor]] = []
+            var current: [OCIDescriptor] = [index]
             while !current.isEmpty {
                 let children = try await self.getChildren(descs: current)
                 let matches = try filterPlatforms(matcher: platforms, children).uniqued { $0.digest }
@@ -78,8 +78,8 @@ extension ImageStore {
             // Lastly, we need to construct and push a new index, since we may
             // have pushed content only for specific platforms.
             let digest = SHA256.hash(data: localIndexData)
-            let descriptor = Descriptor(
-                mediaType: MediaTypes.index,
+            let descriptor = OCIDescriptor(
+                mediaType: OCIMediaTypes.index,
                 digest: digest.digestString,
                 size: Int64(localIndexData.count))
             let stream = ReadStream(data: localIndexData)
@@ -87,7 +87,7 @@ extension ImageStore {
             return descriptor
         }
 
-        private func updatePushProgress(pushQueue: [[Descriptor]], localIndexData: Data) async {
+        private func updatePushProgress(pushQueue: [[OCIDescriptor]], localIndexData: Data) async {
             for layerGroup in pushQueue {
                 for desc in layerGroup {
                     await progress?([
@@ -102,13 +102,13 @@ extension ImageStore {
             ])
         }
 
-        private func createIndex(from index: Descriptor, matching: (Platform) -> Bool) async throws -> Data {
+        private func createIndex(from index: OCIDescriptor, matching: (OCIPlatform) -> Bool) async throws -> Data {
             guard let content = try await self.contentStore.get(digest: index.digest) else {
                 throw ContainerizationError(.notFound, message: "Content with digest \(index.digest)")
             }
-            var idx: Index = try content.decode()
+            var idx: OCIIndex = try content.decode()
             let manifests = idx.manifests
-            var matchedManifests: [Descriptor] = []
+            var matchedManifests: [OCIDescriptor] = []
             var skippedPlatforms = false
             for manifest in manifests {
                 guard let p = manifest.platform else {
@@ -127,7 +127,7 @@ extension ImageStore {
             return try JSONEncoder().encode(idx)
         }
 
-        private func pushContent(descriptor: Descriptor, stream: ReadStream) async throws {
+        private func pushContent(descriptor: OCIDescriptor, stream: ReadStream) async throws {
             do {
                 let generator = {
                     try stream.reset()
@@ -151,19 +151,19 @@ extension ImageStore {
             }
         }
 
-        private func getChildren(descs: [Descriptor]) async throws -> [Descriptor] {
-            var out: [Descriptor] = []
+        private func getChildren(descs: [OCIDescriptor]) async throws -> [OCIDescriptor] {
+            var out: [OCIDescriptor] = []
             for desc in descs {
                 let mediaType = desc.mediaType
                 guard let content = try await self.contentStore.get(digest: desc.digest) else {
                     throw ContainerizationError(.notFound, message: "Content with digest \(desc.digest)")
                 }
                 switch mediaType {
-                case MediaTypes.index, MediaTypes.dockerManifestList:
-                    let index: Index = try content.decode()
+                case OCIMediaTypes.index, OCIMediaTypes.dockerManifestList:
+                    let index: OCIIndex = try content.decode()
                     out.append(contentsOf: index.manifests)
-                case MediaTypes.imageManifest, MediaTypes.dockerManifest:
-                    let manifest: Manifest = try content.decode()
+                case OCIMediaTypes.imageManifest, OCIMediaTypes.dockerManifest:
+                    let manifest: OCIManifest = try content.decode()
                     out.append(manifest.config)
                     out.append(contentsOf: manifest.layers)
                 default:

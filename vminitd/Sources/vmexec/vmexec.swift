@@ -68,7 +68,7 @@ extension App {
         }
     }
 
-    static func exec(process: ContainerizationOCI.Process) throws {
+    static func exec(process: OCIProcess) throws {
         let executable = strdup(process.args[0])
         var argv = process.args.map { strdup($0) }
         argv += [nil]
@@ -87,7 +87,7 @@ extension App {
         fatalError("execvpe failed")
     }
 
-    static func setPermissions(user: ContainerizationOCI.User) throws {
+    static func setPermissions(user: OCIUser) throws {
         if user.additionalGids.count > 0 {
             guard setgroups(user.additionalGids.count, user.additionalGids) == 0 else {
                 throw App.Errno(stage: "setgroups()")
@@ -104,7 +104,7 @@ extension App {
         }
     }
 
-    static func fixStdioPerms(user: ContainerizationOCI.User) throws {
+    static func fixStdioPerms(user: OCIUser) throws {
         for i in 0...2 {
             var fdStat = stat()
             try withUnsafeMutablePointer(to: &fdStat) { pointer in
@@ -122,7 +122,7 @@ extension App {
         }
     }
 
-    static func setRLimits(rlimits: [ContainerizationOCI.POSIXRlimit]) throws {
+    static func setRLimits(rlimits: [OCIRlimit]) throws {
         for rl in rlimits {
             var limit = rlimit(rlim_cur: rl.soft, rlim_max: rl.hard)
             let resource: Int32
