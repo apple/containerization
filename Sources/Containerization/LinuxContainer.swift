@@ -20,7 +20,6 @@ import ContainerizationExtras
 import ContainerizationOCI
 import Foundation
 import Logging
-import SendableProperty
 import Synchronization
 
 import struct ContainerizationOS.Terminal
@@ -142,8 +141,7 @@ public final class LinuxContainer: Container, Sendable {
         }
     }
 
-    @SendablePropertyUnchecked
-    private var state: State
+    private let state: Mutex<State>
 
     // Ports to be allocated from for stdio and for
     // unix socket relays that are sharing a guest
@@ -232,7 +230,6 @@ public final class LinuxContainer: Container, Sendable {
                     .invalidState,
                     message: "container must be in creating state before created"
                 )
-
             }
         }
 
@@ -328,7 +325,7 @@ public final class LinuxContainer: Container, Sendable {
         try configuration(&config)
 
         self.config = config
-        self.state = .initialized
+        self.state = Mutex(.initialized)
     }
 
     private static func createDefaultRuntimeSpec(_ id: String) -> Spec {
@@ -404,7 +401,7 @@ extension LinuxContainer {
     /// Create the underlying container's virtual machine
     /// and set up the runtime environment.
     public func create() async throws {
-        try state.setCreating()
+        try self.state.withLock { try $0.setCreating() }
 
         let vm = try vmm.create(container: self)
         try await vm.start()
@@ -449,19 +446,18 @@ extension LinuxContainer {
                     try await agent.configureHosts(config: hosts, location: rootfs.destination)
                 }
 
-                try state.setCreated(vm: vm, relayManager: relayManager)
+                try self.state.withLock { try $0.setCreated(vm: vm, relayManager: relayManager) }
             }
         } catch {
             try? await vm.stop()
-
-            state.errored(error: error)
+            self.state.withLock { $0.errored(error: error) }
             throw error
         }
     }
 
     /// Start the container container's initial process.
     public func start() async throws {
-        let vm = try state.setStarting()
+        let vm = try self.state.withLock { try $0.setStarting() }
 
         let agent = try await vm.dialAgent()
         do {
@@ -487,11 +483,10 @@ extension LinuxContainer {
             )
             try await process.start()
 
-            try state.setStarted(process: process)
+            try self.state.withLock { try $0.setStarted(process: process) }
         } catch {
             try? await agent.close()
-
-            state.errored(error: error)
+            self.state.withLock { $0.errored(error: error) }
             throw error
         }
     }
@@ -538,7 +533,7 @@ extension LinuxContainer {
 
     /// Stop the container from executing.
     public func stop() async throws {
-        let startedState = try state.stopping()
+        let startedState = try self.state.withLock { try $0.stopping() }
 
         try await startedState.relayManager.stopAll()
 
@@ -548,7 +543,7 @@ extension LinuxContainer {
         // use a vsock handle like below here will cause NIO to
         // fatalError because we'll get an EBADF.
         if startedState.vm.state == .stopped {
-            try state.stopped()
+            try self.state.withLock { try $0.stopped() }
             return
         }
 
@@ -590,32 +585,32 @@ extension LinuxContainer {
         try? await startedState.process.delete()
 
         try await startedState.vm.stop()
-        try state.stopped()
+        try self.state.withLock { try $0.stopped() }
     }
 
     /// Send a signal to the container.
     public func kill(_ signal: Int32) async throws {
-        let state = try self.state.startedState("kill")
+        let state = try self.state.withLock { try $0.startedState("kill") }
         try await state.process.kill(signal)
     }
 
     /// Wait for the container to exit. Returns the exit code.
     @discardableResult
     public func wait(timeoutInSeconds: Int64? = nil) async throws -> Int32 {
-        let state = try self.state.startedState("wait")
+        let state = try self.state.withLock { try $0.startedState("wait") }
         return try await state.process.wait(timeoutInSeconds: timeoutInSeconds)
     }
 
     /// Resize the container's terminal (if one was requested). This
     /// will error if terminal was set to false before creating the container.
     public func resize(to: Terminal.Size) async throws {
-        let state = try self.state.startedState("resize")
+        let state = try self.state.withLock { try $0.startedState("resize") }
         try await state.process.resize(to: to)
     }
 
     /// Execute a new process in the container.
     public func exec(_ id: String, configuration: (inout Configuration.Process) throws -> Void) async throws -> LinuxProcess {
-        let state = try self.state.startedState("exec")
+        let state = try self.state.withLock { try $0.startedState("exec") }
 
         var spec = generateRuntimeSpec()
         var config = Configuration.Process()
@@ -643,7 +638,7 @@ extension LinuxContainer {
 
     /// Execute a new process in the container.
     public func exec(_ id: String, configuration: Configuration.Process) async throws -> LinuxProcess {
-        let state = try self.state.startedState("exec")
+        let state = try self.state.withLock { try $0.startedState("exec") }
 
         var spec = generateRuntimeSpec()
         spec.process = configuration.toOCI()
@@ -669,21 +664,21 @@ extension LinuxContainer {
 
     /// Dial a vsock port in the container.
     public func dialVsock(port: UInt32) async throws -> FileHandle {
-        let state = try self.state.startedState("dialVsock")
+        let state = try self.state.withLock { try $0.startedState("dialVsock") }
         return try await state.vm.dial(port)
     }
 
     /// Close the containers standard input to signal no more input is
     /// arriving.
     public func closeStdin() async throws {
-        let state = try self.state.startedState("closeStdin")
+        let state = try self.state.withLock { try $0.startedState("closeStdin") }
         return try await state.process.closeStdin()
     }
 
     /// Relay a unix socket from in the container to the host, or from the host
     /// to inside the container.
     public func relayUnixSocket(socket: UnixSocketConfiguration) async throws {
-        let state = try self.state.startedState("relayUnixSocket")
+        let state = try self.state.withLock { try $0.startedState("relayUnixSocket") }
 
         try await state.vm.withAgent { agent in
             try await self.relayUnixSocket(
