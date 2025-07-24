@@ -28,7 +28,7 @@ extension Application {
             abstract: "Run a container"
         )
 
-        @Option(name: [.customLong("image"), .customShort("i")], help: "image reference to base the container on")
+        @Option(name: [.customLong("image"), .customShort("i")], help: "Image reference to base the container on")
         var imageReference: String = "docker.io/library/alpine:3.16"
 
         @Option(name: .long, help: "id for the container")
@@ -43,16 +43,16 @@ extension Application {
         @Option(name: .customLong("fs-size"), help: "The size to create the block filesystem as")
         var fsSizeInMB: UInt64 = 2048
 
-        @Option(name: .customLong("mount"), help: "directory to share into the container (Example: /foo:/bar)")
+        @Option(name: .customLong("mount"), help: "Directory to share into the container (Example: /foo:/bar)")
         var mounts: [String] = []
 
-        @Option(name: .long, help: "ip address with subnet")
+        @Option(name: .long, help: "IP address with subnet")
         var ip: String?
 
-        @Option(name: .long, help: "gateway address")
+        @Option(name: .long, help: "Gateway address")
         var gateway: String?
 
-        @Option(name: .customLong("ns"), help: "nameserver addresses")
+        @Option(name: .customLong("ns"), help: "Nameserver addresses")
         var nameservers: [String] = []
 
         @Option(

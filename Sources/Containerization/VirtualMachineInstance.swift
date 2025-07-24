@@ -25,7 +25,7 @@ public enum VirtualMachineInstanceState: Sendable {
     case unknown
 }
 
-/// A manager that can spawn and manage a virtual machine.
+/// A live instance of a virtual machine.
 public protocol VirtualMachineInstance: Sendable {
     associatedtype Agent: VirtualMachineAgent
 
