@@ -56,6 +56,8 @@ extension Vminitd: VirtualMachineAgent {
         try await setenv(key: "PATH", value: Self.defaultPath)
 
         let mounts: [ContainerizationOCI.Mount] = [
+            // NOTE: /proc is always done implicitly by the guest agent.
+            .init(type: "tmpfs", source: "tmpfs", destination: "/run"),
             .init(type: "sysfs", source: "sysfs", destination: "/sys"),
             .init(type: "tmpfs", source: "tmpfs", destination: "/tmp"),
             .init(type: "devpts", source: "devpts", destination: "/dev/pts", options: ["gid=5", "mode=620", "ptmxmode=666"]),

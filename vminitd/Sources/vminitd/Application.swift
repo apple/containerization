@@ -99,10 +99,7 @@ struct Application {
             log.error("failed to mount /proc")
             exit(1)
         }
-        guard Musl.mount("tmpfs", "/run", "tmpfs", 0, "") == 0 else {
-            log.error("failed to mount /run")
-            exit(1)
-        }
+
         try Binfmt.mount()
 
         log.logLevel = .debug
