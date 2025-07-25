@@ -53,7 +53,7 @@ struct VZVirtualMachineInstance: VirtualMachineInstance, Sendable {
         public var interfaces: [any Interface]
         /// Kernel image.
         public var kernel: Kernel?
-        /// The root Filesystem.
+        /// The root filesystem.
         public var initialFilesystem: Mount?
         /// File path to store the sandbox boot logs.
         public var bootlog: URL?

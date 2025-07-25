@@ -33,16 +33,14 @@ public struct AttachedFilesystem: Sendable {
         switch mount.type {
         case "virtiofs":
             let name = try hashMountSource(source: mount.source)
-            self.type = mount.type
             self.source = name
         case "ext4":
             let char = try allocator.allocate()
-            self.type = mount.type
             self.source = "/dev/vd\(char)"
         default:
-            self.type = mount.type
             self.source = mount.source
         }
+        self.type = mount.type
         self.options = mount.options
         self.destination = mount.destination
     }

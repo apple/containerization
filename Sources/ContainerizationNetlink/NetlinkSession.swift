@@ -432,8 +432,8 @@ public struct NetlinkSession {
     }
 
     private func sendRequest(buffer: inout [UInt8]) throws {
-        log.debug("SEND-LENGTH: \(buffer.count)")
-        log.debug("SEND-DUMP: \(buffer[0..<buffer.count].hexEncodedString())")
+        log.trace("SEND-LENGTH: \(buffer.count)")
+        log.trace("SEND-DUMP: \(buffer[0..<buffer.count].hexEncodedString())")
         let sendLength = try socket.send(buf: &buffer, len: buffer.count, flags: 0)
         if sendLength != buffer.count {
             log.warning("sent length \(sendLength) not equal to packet length \(buffer.count)")
@@ -443,8 +443,8 @@ public struct NetlinkSession {
     private func receiveResponse() throws -> ([UInt8], Int) {
         var buffer = [UInt8](repeating: 0, count: Self.receiveDataLength)
         let size = try socket.recv(buf: &buffer, len: Self.receiveDataLength, flags: 0)
-        log.debug("RECV-LENGTH: \(size)")
-        log.debug("RECV-DUMP: \(buffer[0..<size].hexEncodedString())")
+        log.trace("RECV-LENGTH: \(size)")
+        log.trace("RECV-DUMP: \(buffer[0..<size].hexEncodedString())")
         return (buffer, size)
     }
 
@@ -463,11 +463,11 @@ public struct NetlinkSession {
             (header, offset) = try parseHeader(buffer: &buffer, offset: offset)
             if let infoType {
                 if header.type == infoType {
-                    log.debug(
+                    log.trace(
                         "RECV-INFO-DUMP:  dump = \(buffer[offset..<offset + InterfaceInfo.size].hexEncodedString())")
                     var info = infoProvider()
                     offset = try info.bindBuffer(&buffer, offset: offset)
-                    log.debug("RECV-INFO: \(info)")
+                    log.trace("RECV-INFO: \(info)")
 
                     let attrDatas: [RTAttributeData]
                     (attrDatas, offset) = try parseAttributes(
@@ -500,18 +500,18 @@ public struct NetlinkSession {
         }
 
         let rc = errorPtr.pointee
-        log.debug("RECV-ERR-CODE: \(rc)")
+        log.trace("RECV-ERR-CODE: \(rc)")
 
         return (rc, offset + MemoryLayout<Int32>.size)
     }
 
     private func parseErrorResponse(buffer: inout [UInt8], offset: Int) throws -> Int {
         var (rc, offset) = try parseErrorCode(buffer: &buffer, offset: offset)
-        log.debug(
+        log.trace(
             "RECV-ERR-HEADER-DUMP:  dump = \(buffer[offset..<offset + NetlinkMessageHeader.size].hexEncodedString())")
         var header = NetlinkMessageHeader()
         offset = try header.bindBuffer(&buffer, offset: offset)
-        log.debug("RECV-ERR-HEADER: \(header))")
+        log.trace("RECV-ERR-HEADER: \(header))")
 
         guard rc == 0 else {
             throw NetlinkDataError.responseError(rc: rc)
@@ -521,10 +521,10 @@ public struct NetlinkSession {
     }
 
     private func parseHeader(buffer: inout [UInt8], offset: Int) throws -> (NetlinkMessageHeader, Int) {
-        log.debug("RECV-HEADER-DUMP:  dump = \(buffer[offset..<offset + NetlinkMessageHeader.size].hexEncodedString())")
+        log.trace("RECV-HEADER-DUMP:  dump = \(buffer[offset..<offset + NetlinkMessageHeader.size].hexEncodedString())")
         var header = NetlinkMessageHeader()
         var offset = try header.bindBuffer(&buffer, offset: offset)
-        log.debug("RECV-HEADER: \(header)")
+        log.trace("RECV-HEADER: \(header)")
         switch header.type {
         case NetlinkType.NLMSG_ERROR:
             offset = try parseErrorResponse(buffer: &buffer, offset: offset)
@@ -546,23 +546,23 @@ public struct NetlinkSession {
         var attrDatas: [RTAttributeData] = []
         var offset = offset
         var residualCount = residualCount
-        log.debug("RECV-RESIDUAL: \(residualCount)")
+        log.trace("RECV-RESIDUAL: \(residualCount)")
 
         while residualCount > 0 {
             var attr = RTAttribute()
-            log.debug("  RECV-ATTR-DUMP: dump = \(buffer[offset..<offset + RTAttribute.size].hexEncodedString())")
+            log.trace("  RECV-ATTR-DUMP: dump = \(buffer[offset..<offset + RTAttribute.size].hexEncodedString())")
             offset = try attr.bindBuffer(&buffer, offset: offset)
-            log.debug("  RECV-ATTR: len = \(attr.len) type = \(attr.type)")
+            log.trace("  RECV-ATTR: len = \(attr.len) type = \(attr.type)")
             let dataLen = Int(attr.len) - RTAttribute.size
             if dataLen >= 0 {
-                log.debug("  RECV-ATTR-DATA-DUMP: dump = \(buffer[offset..<offset + dataLen].hexEncodedString())")
+                log.trace("  RECV-ATTR-DATA-DUMP: dump = \(buffer[offset..<offset + dataLen].hexEncodedString())")
                 attrDatas.append(RTAttributeData(attribute: attr, data: Array(buffer[offset..<offset + dataLen])))
             } else {
                 attrDatas.append(RTAttributeData(attribute: attr, data: []))
             }
             residualCount -= Int(attr.paddedLen)
             offset += attr.paddedLen - RTAttribute.size
-            log.debug("RECV-RESIDUAL: \(residualCount)")
+            log.trace("RECV-RESIDUAL: \(residualCount)")
         }
 
         return (attrDatas, offset)
