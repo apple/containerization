@@ -192,15 +192,76 @@ public struct ContainerManager: Sendable {
         }
     }
 
-    /// Create a new manager with the provided kernel and initfs mount.
+    /// Create a new manager with the provided kernel, initfs mount, image store
+    /// and optional network implementation.
     public init(
         kernel: Kernel,
         initfs: Mount,
+        imageStore: ImageStore,
         network: Network? = nil
     ) throws {
-        self.imageStore = ImageStore.default
+        self.imageStore = imageStore
         self.network = network
         try Self.createRootDirectory(path: self.imageStore.path)
+        self.vmm = VZVirtualMachineManager(
+            kernel: kernel,
+            initialFilesystem: initfs,
+            bootlog: self.imageStore.path.appendingPathComponent("bootlog.log").absolutePath()
+        )
+    }
+
+    /// Create a new manager with the provided kernel, initfs mount, root state
+    /// directory and optional network implementation.
+    public init(
+        kernel: Kernel,
+        initfs: Mount,
+        root: URL? = nil,
+        network: Network? = nil
+    ) throws {
+        if let root {
+            self.imageStore = try ImageStore(path: root)
+        } else {
+            self.imageStore = ImageStore.default
+        }
+        self.network = network
+        try Self.createRootDirectory(path: self.imageStore.path)
+        self.vmm = VZVirtualMachineManager(
+            kernel: kernel,
+            initialFilesystem: initfs,
+            bootlog: self.imageStore.path.appendingPathComponent("bootlog.log").absolutePath()
+        )
+    }
+
+    /// Create a new manager with the provided kernel, initfs reference, image store
+    /// and optional network implementation.
+    public init(
+        kernel: Kernel,
+        initfsReference: String,
+        imageStore: ImageStore,
+        network: Network? = nil
+    ) async throws {
+        self.imageStore = imageStore
+        self.network = network
+        try Self.createRootDirectory(path: self.imageStore.path)
+
+        let initPath = self.imageStore.path.appendingPathComponent("initfs.ext4")
+        let initImage = try await self.imageStore.getInitImage(reference: initfsReference)
+        let initfs = try await {
+            do {
+                return try await initImage.initBlock(at: initPath, for: .linuxArm)
+            } catch let err as ContainerizationError {
+                guard err.code == .exists else {
+                    throw err
+                }
+                return .block(
+                    format: "ext4",
+                    source: initPath.absolutePath(),
+                    destination: "/",
+                    options: ["ro"]
+                )
+            }
+        }()
+
         self.vmm = VZVirtualMachineManager(
             kernel: kernel,
             initialFilesystem: initfs,
@@ -212,9 +273,14 @@ public struct ContainerManager: Sendable {
     public init(
         kernel: Kernel,
         initfsReference: String,
+        root: URL? = nil,
         network: Network? = nil
     ) async throws {
-        self.imageStore = ImageStore.default
+        if let root {
+            self.imageStore = try ImageStore(path: root)
+        } else {
+            self.imageStore = ImageStore.default
+        }
         self.network = network
         try Self.createRootDirectory(path: self.imageStore.path)
 
