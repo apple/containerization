@@ -22,7 +22,7 @@ jobs:
       contents: read
       packages: write
     env:
-      DEVELOPER_DIR: "/Applications/Xcode_26.b1.app/Contents/Developer"
+      DEVELOPER_DIR: "/Applications/Xcode-latest.app/Contents/Developer"
 
     steps:
       - name: Checkout repository
