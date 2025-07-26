@@ -44,7 +44,7 @@ package final class IndexedAddressAllocator<AddressType: CustomStringConvertible
         }
     }
 
-    private let stateGuard: Mutex<State>
+    private let state: Mutex<State>
 
     /// Create an allocator with specified size and index mappings.
     package init(
@@ -57,11 +57,11 @@ package final class IndexedAddressAllocator<AddressType: CustomStringConvertible
             addressToIndex: addressToIndex,
             indexToAddress: indexToAddress
         )
-        self.stateGuard = Mutex(state)
+        self.state = Mutex(state)
     }
 
     public func allocate() throws -> AddressType {
-        try self.stateGuard.withLock { state in
+        try self.state.withLock { state in
             guard state.enabled else {
                 throw AllocatorError.allocatorDisabled
             }
@@ -81,7 +81,7 @@ package final class IndexedAddressAllocator<AddressType: CustomStringConvertible
     }
 
     package func reserve(_ address: AddressType) throws {
-        try self.stateGuard.withLock { state in
+        try self.state.withLock { state in
             guard state.enabled else {
                 throw AllocatorError.allocatorDisabled
             }
@@ -101,7 +101,7 @@ package final class IndexedAddressAllocator<AddressType: CustomStringConvertible
     }
 
     package func release(_ address: AddressType) throws {
-        try self.stateGuard.withLock { state in
+        try self.state.withLock { state in
             guard let index = state.addressToIndex(address) else {
                 throw AllocatorError.invalidAddress(address.description)
             }
@@ -116,7 +116,7 @@ package final class IndexedAddressAllocator<AddressType: CustomStringConvertible
     }
 
     package func disableAllocator() -> Bool {
-        self.stateGuard.withLock { state in
+        self.state.withLock { state in
             guard state.allocationCount == 0 else {
                 return false
             }

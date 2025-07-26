@@ -33,7 +33,6 @@ let package = Package(
         .library(name: "ContainerizationOS", targets: ["ContainerizationOS"]),
         .library(name: "ContainerizationExtras", targets: ["ContainerizationExtras"]),
         .library(name: "ContainerizationArchive", targets: ["ContainerizationArchive"]),
-        .library(name: "SendableProperty", targets: ["SendableProperty"]),
         .executable(name: "cctl", targets: ["cctl"]),
     ],
     dependencies: [
@@ -46,7 +45,6 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.80.0"),
         .package(url: "https://github.com/swift-server/async-http-client.git", from: "1.20.1"),
         .package(url: "https://github.com/apple/swift-system.git", from: "1.4.0"),
-        .package(url: "https://github.com/swiftlang/swift-syntax.git", "602.0.0-latest"..<"603.0.0"),
         .package(url: "https://github.com/swiftlang/swift-docc-plugin", from: "1.1.0"),
     ],
     targets: [
@@ -64,7 +62,6 @@ let package = Package(
                 "ContainerizationOS",
                 "ContainerizationIO",
                 "ContainerizationExtras",
-                "SendableProperty",
                 .target(name: "ContainerizationEXT4", condition: .when(platforms: [.macOS])),
             ],
             exclude: [
@@ -204,7 +201,6 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
                 "CShim",
                 "ContainerizationError",
-                "SendableProperty",
             ],
             exclude: [
                 "../ContainerizationOS/README.md"
@@ -244,25 +240,5 @@ let package = Package(
         .target(
             name: "CShim"
         ),
-        // Library that exposes a macro as part of its API, which is used in client programs.
-        .target(name: "SendableProperty", dependencies: ["SendablePropertyMacros"]),
-        // Macro implementation that performs the source transformation of a macro.
-        .macro(
-            name: "SendablePropertyMacros",
-            dependencies: [
-                .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
-                .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
-            ]
-        ),
-        // A test target used to develop the macro implementation.
-        .testTarget(
-            name: "SendablePropertyMacrosTests",
-            dependencies: [
-                "SendablePropertyMacros",
-                .product(name: "SwiftSyntaxMacrosTestSupport", package: "swift-syntax"),
-            ]
-        ),
-        // A test target for the macro implementation.
-        .testTarget(name: "SendablePropertyTests", dependencies: ["SendableProperty"]),
     ]
 )

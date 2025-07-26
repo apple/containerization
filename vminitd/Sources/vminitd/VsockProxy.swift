@@ -18,7 +18,7 @@ import ContainerizationIO
 import ContainerizationOS
 import Foundation
 import Logging
-import SendableProperty
+import Synchronization
 
 final class VsockProxy: Sendable {
     enum Action {
@@ -45,6 +45,8 @@ final class VsockProxy: Sendable {
         self.path = path
         self.udsPerms = udsPerms
         self.log = log
+        let state = State(listener: nil, task: nil)
+        self.state = Mutex(state)
     }
 
     public let id: String
@@ -54,13 +56,18 @@ final class VsockProxy: Sendable {
     private let udsPerms: UInt32?
     private let log: Logger?
 
-    @SendableProperty
-    private var listener: Socket?
-    private let task = Mutex<Task<(), Never>?>(nil)
+    private struct State {
+        var listener: Socket?
+        var task: Task<(), Never>?
+    }
+
+    private let state: Mutex<State>
 }
 
 extension VsockProxy {
     func close() throws {
+        let (listener, task) = state.withLock { ($0.listener, $0.task) }
+
         guard let listener else {
             return
         }
@@ -70,7 +77,6 @@ extension VsockProxy {
         if fm.fileExists(atPath: self.path.path) {
             try FileManager.default.removeItem(at: self.path)
         }
-        let task = task.withLock { $0 }
         task?.cancel()
     }
 
@@ -99,7 +105,7 @@ extension VsockProxy {
         )
         let uds = try Socket(type: type)
         try uds.listen()
-        listener = uds
+        state.withLock { $0.listener = uds }
 
         try self.acceptLoop(socketType: .unix)
     }
@@ -111,13 +117,13 @@ extension VsockProxy {
         )
         let vsock = try Socket(type: type)
         try vsock.listen()
-        listener = vsock
+        state.withLock { $0.listener = vsock }
 
         try self.acceptLoop(socketType: .vsock)
     }
 
     private func acceptLoop(socketType: SocketType) throws {
-        guard let listener else {
+        guard let listener = state.withLock({ $0.listener }) else {
             return
         }
 
@@ -140,7 +146,7 @@ extension VsockProxy {
                 self.log?.error("failed to accept connection: \(error)")
             }
         }
-        self.task.withLock { $0 = task }
+        state.withLock { $0.task = task }
     }
 
     private func handleConn(
