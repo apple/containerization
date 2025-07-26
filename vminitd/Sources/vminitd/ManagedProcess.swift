@@ -28,7 +28,7 @@ final class ManagedProcess: Sendable {
 
     private let log: Logger
     private let process: Command
-    private let lock: Mutex<State>
+    private let state: Mutex<State>
     private let syncfd: Pipe
     private let owningPid: Int32?
 
@@ -44,7 +44,7 @@ final class ManagedProcess: Sendable {
     }
 
     var pid: Int32 {
-        self.lock.withLock {
+        self.state.withLock {
             $0.pid
         }
     }
@@ -121,13 +121,13 @@ final class ManagedProcess: Sendable {
         try io.start(process: &process)
 
         self.process = process
-        self.lock = Mutex(State(io: io))
+        self.state = Mutex(State(io: io))
     }
 }
 
 extension ManagedProcess {
     func start() throws -> Int32 {
-        try self.lock.withLock {
+        try self.state.withLock {
             log.info(
                 "starting managed process",
                 metadata: [
@@ -164,7 +164,7 @@ extension ManagedProcess {
     }
 
     func setExit(_ status: Int32) {
-        self.lock.withLock {
+        self.state.withLock {
             self.log.info(
                 "managed process exit",
                 metadata: [
@@ -185,7 +185,7 @@ extension ManagedProcess {
     /// Wait on the process to exit
     func wait() async -> Int32 {
         await withCheckedContinuation { cont in
-            self.lock.withLock {
+            self.state.withLock {
                 if let status = $0.exitStatus {
                     cont.resume(returning: status)
                     return
@@ -196,7 +196,7 @@ extension ManagedProcess {
     }
 
     func kill(_ signal: Int32) throws {
-        try self.lock.withLock {
+        try self.state.withLock {
             guard $0.exitStatus == nil else {
                 return
             }
@@ -209,7 +209,7 @@ extension ManagedProcess {
     }
 
     func resize(size: Terminal.Size) throws {
-        try self.lock.withLock {
+        try self.state.withLock {
             guard $0.exitStatus == nil else {
                 return
             }
@@ -218,7 +218,7 @@ extension ManagedProcess {
     }
 
     func closeStdin() throws {
-        try self.lock.withLock {
+        try self.state.withLock {
             try $0.io.closeStdin()
         }
     }
