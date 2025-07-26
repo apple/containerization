@@ -127,20 +127,6 @@ public final class LinuxContainer: Container, Sendable {
         public init() {}
     }
 
-    /// `IOHandler` informs the container process about what should be done
-    /// for the stdio streams.
-    struct IOHandler: Sendable {
-        public var stdin: ReaderStream?
-        public var stdout: Writer?
-        public var stderr: Writer?
-
-        init(stdin: ReaderStream? = nil, stdout: Writer? = nil, stderr: Writer? = nil) {
-            self.stdin = stdin
-            self.stdout = stdout
-            self.stderr = stderr
-        }
-    }
-
     private let state: Mutex<State>
 
     // Ports to be allocated from for stdio and for
