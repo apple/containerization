@@ -60,7 +60,7 @@ final class VsockProxy: Sendable {
         var listener: Socket?
         var task: Task<(), Never>?
     }
-    
+
     private let state: Mutex<State>
 }
 
