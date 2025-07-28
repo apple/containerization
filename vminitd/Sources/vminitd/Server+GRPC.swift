@@ -173,7 +173,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 log: log
             )
 
-            try proxy.start()
+            try await proxy.start()
             try await state.add(proxy: proxy)
         } catch {
             log.error(
@@ -202,7 +202,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
 
         do {
             let proxy = try await state.remove(proxy: request.id)
-            try proxy.close()
+            try await proxy.close()
         } catch {
             log.error(
                 "stopVsockProxy",

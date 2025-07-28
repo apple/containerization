@@ -18,9 +18,8 @@ import ContainerizationIO
 import ContainerizationOS
 import Foundation
 import Logging
-import Synchronization
 
-final class VsockProxy: Sendable {
+actor VsockProxy {
     enum Action {
         case listen
         case dial
@@ -45,8 +44,6 @@ final class VsockProxy: Sendable {
         self.path = path
         self.udsPerms = udsPerms
         self.log = log
-        let state = State(listener: nil, task: nil)
-        self.state = Mutex(state)
     }
 
     public let id: String
@@ -56,18 +53,12 @@ final class VsockProxy: Sendable {
     private let udsPerms: UInt32?
     private let log: Logger?
 
-    private struct State {
-        var listener: Socket?
-        var task: Task<(), Never>?
-    }
-
-    private let state: Mutex<State>
+    private var listener: Socket?
+    private var task: Task<(), Never>?
 }
 
 extension VsockProxy {
     func close() throws {
-        let (listener, task) = state.withLock { ($0.listener, $0.task) }
-
         guard let listener else {
             return
         }
@@ -105,7 +96,7 @@ extension VsockProxy {
         )
         let uds = try Socket(type: type)
         try uds.listen()
-        state.withLock { $0.listener = uds }
+        listener = uds
 
         try self.acceptLoop(socketType: .unix)
     }
@@ -117,13 +108,13 @@ extension VsockProxy {
         )
         let vsock = try Socket(type: type)
         try vsock.listen()
-        state.withLock { $0.listener = vsock }
+        listener = vsock
 
         try self.acceptLoop(socketType: .vsock)
     }
 
     private func acceptLoop(socketType: SocketType) throws {
-        guard let listener = state.withLock({ $0.listener }) else {
+        guard let listener else {
             return
         }
 
@@ -146,7 +137,7 @@ extension VsockProxy {
                 self.log?.error("failed to accept connection: \(error)")
             }
         }
-        state.withLock { $0.task = task }
+        self.task = task
     }
 
     private func handleConn(
