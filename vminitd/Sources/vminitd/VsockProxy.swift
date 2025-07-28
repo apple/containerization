@@ -69,9 +69,13 @@ extension VsockProxy {
             try FileManager.default.removeItem(at: self.path)
         }
         task?.cancel()
+        self.listener = nil
     }
 
     func start() throws {
+        guard listener == nil else {
+            return
+        }
         switch self.action {
         case .dial:
             try dialHost()
