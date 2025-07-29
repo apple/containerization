@@ -53,6 +53,12 @@ let package = Package(
         .target(
             name: "ContainerizationError"
         ),
+        .testTarget(
+            name: "ContainerizationErrorTests",
+            dependencies: [
+                "ContainerizationError"
+            ]
+        ),
         .target(
             name: "Containerization",
             dependencies: [
