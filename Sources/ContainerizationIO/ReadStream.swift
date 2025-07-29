@@ -117,7 +117,7 @@ public class ReadStream {
 
 extension ReadStream {
     /// Errors that can be encountered while using a `ReadStream`.
-    public enum Error: Swift.Error, CustomStringConvertible {
+    public enum Error: Swift.Error, CustomStringConvertible, Equatable {
         case failedToCreateStream
         case noSuchFileOrDirectory(_ p: URL)
 
