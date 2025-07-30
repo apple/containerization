@@ -33,6 +33,11 @@ public struct Path {
     }
 
     private static func lookup(_ name: String, path: String) -> URL? {
+        // Return nil for empty names
+        if name.isEmpty {
+            return nil
+        }
+
         if name.contains("/") {
             if findExec(name) {
                 return URL(fileURLWithPath: name)
