@@ -42,7 +42,7 @@ public struct File: Sendable {
     ///   - path: The path to the file as a string.
     public static func info(_ path: String) throws -> FileInfo {
         var st = stat()
-        guard stat(path, &st) == 0 else {
+        guard lstat(path, &st) == 0 else {
             throw Error.errno(errno)
         }
         return FileInfo(path, stat: st)
