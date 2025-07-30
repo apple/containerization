@@ -16,7 +16,7 @@
 
 extension BinaryInteger {
     private func toUnsignedMemoryAmount(_ amount: UInt64) -> UInt64 {
-        guard self > 0 else {
+        guard self >= 0 else {
             fatalError("encountered negative number during conversion to memory amount")
         }
         let val = UInt64(self)
