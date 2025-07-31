@@ -27,22 +27,11 @@ import Synchronization
 @available(macOS 26, *)
 public final class NATNetworkInterface: Interface, Sendable {
     public var address: String {
-        get {
-            state.withLock { $0.address }
-        }
-        set {
-            state.withLock { $0.address = newValue }
-        }
-
+        state.withLock { $0.address }
     }
 
     public var gateway: String? {
-        get {
-            state.withLock { $0.gateway }
-        }
-        set {
-            state.withLock { $0.gateway = newValue }
-        }
+        state.withLock { $0.gateway }
     }
 
     @available(macOS 26, *)
@@ -51,12 +40,7 @@ public final class NATNetworkInterface: Interface, Sendable {
     }
 
     public var macAddress: String? {
-        get {
-            state.withLock { $0.macAddress }
-        }
-        set {
-            state.withLock { $0.macAddress = newValue }
-        }
+        state.withLock { $0.macAddress }
     }
 
     private struct State {
