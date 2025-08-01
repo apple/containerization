@@ -211,6 +211,7 @@ struct IntegrationSuite: AsyncParsableCommand {
             "container mount": testMounts,
             "nested virt": testNestedVirtualizationEnabled,
             "container manager": testContainerManagerCreate,
+            "container reuse": testContainerReuse,
         ]
 
         var passed = 0

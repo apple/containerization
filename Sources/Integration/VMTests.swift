@@ -121,6 +121,57 @@ extension IntegrationSuite {
         }
     }
 
+    func testContainerReuse() async throws {
+        let id = "test-container-reuse"
+
+        // Get the kernel from bootstrap
+        let bs = try await bootstrap()
+
+        // Create ContainerManager with kernel and initfs reference
+        let manager = try ContainerManager(vmm: bs.vmm)
+        defer {
+            try? manager.delete(id)
+        }
+
+        let buffer = BufferWriter()
+        let container = try await manager.create(
+            id,
+            image: bs.image,
+            rootfs: bs.rootfs
+        ) { config in
+            config.process.arguments = ["/bin/echo", "ContainerManager test"]
+            config.process.stdout = buffer
+        }
+
+        // Start the container
+        try await container.create()
+        try await container.start()
+
+        // Wait for completion
+        var status = try await container.wait()
+        guard status == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+        try await container.stop()
+
+        // Recreate things.
+        try await container.create()
+        try await container.start()
+
+        // Wait for completion.. again.
+        status = try await container.wait()
+        guard status == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        let output = String(data: buffer.data, encoding: .utf8)
+        let expected = "ContainerManager test\nContainerManager test\n"
+        guard output == expected else {
+            throw IntegrationError.assert(
+                msg: "process should have returned '\(expected)' != '\(output ?? "nil")'")
+        }
+    }
+
     private func createMountDirectory() throws -> URL {
         let dir = FileManager.default.uniqueTemporaryDirectory(create: true)
         try "hello".write(to: dir.appendingPathComponent("hi.txt"), atomically: true, encoding: .utf8)
