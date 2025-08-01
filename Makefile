@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Version and build configuration variables
+# Build configuration variables
 # The default version ID 0.0.0 indicates a local development build or PRB
 BUILD_CONFIGURATION ?= debug
 
@@ -42,10 +42,10 @@ release: all
 .PHONY: containerization
 containerization:
 	@echo Building containerization binaries...
-	@mkdir -p bin
 	@$(SWIFT) build -c $(BUILD_CONFIGURATION)
 
 	@echo Copying containerization binaries...
+	@mkdir -p bin
 	@install "$(BUILD_BIN_DIR)/cctl" ./bin/
 	@install "$(BUILD_BIN_DIR)/containerization-integration" ./bin/
 
@@ -147,7 +147,7 @@ cleancontent:
 
 .PHONY: clean
 clean:
-	@echo Cleaning the build files...
+	@echo Cleaning build files...
 	@rm -rf bin/
 	@rm -rf _site/
 	@rm -rf _serve/
