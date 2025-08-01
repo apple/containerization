@@ -52,6 +52,91 @@ extension IntegrationSuite {
         }
     }
 
+    func testPauseResume() async throws {
+        let id = "test-pause-resume"
+
+        let bs = try await bootstrap()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "infinity"]
+        }
+
+        try await container.create()
+        try await container.start()
+
+        // Very simple test of can we perform actions on the container after pause/resume.
+        try await container.pause()
+        try await Task.sleep(for: .milliseconds(500))
+        try await container.resume()
+
+        try await container.kill(SIGKILL)
+        try await container.wait()
+        try await container.stop()
+    }
+
+    func testPauseResumeWait() async throws {
+        let id = "test-pause-resume-wait"
+
+        let bs = try await bootstrap()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "2"]
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let t = Task {
+            try await container.wait(timeoutInSeconds: 5)
+        }
+
+        try await Task.sleep(for: .milliseconds(25))
+
+        try await container.pause()
+        try await Task.sleep(for: .milliseconds(500))
+        try await container.resume()
+
+        let status = try await t.value
+
+        guard status == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        try await container.stop()
+    }
+
+    func testPauseResumeIO() async throws {
+        let id = "test-pause-resume-io"
+
+        let bs = try await bootstrap()
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["ping", "-c", "5", "localhost"]
+            config.process.stdout = buffer
+        }
+
+        try await container.create()
+        try await container.start()
+
+        try await container.pause()
+        try await Task.sleep(for: .seconds(2))
+        try await container.resume()
+
+        try await container.wait()
+
+        guard let str = String(data: buffer.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert stdout to utf8")
+        }
+
+        // Should be 10 lines long. 5 of "filler" and 5 of actual
+        // output, however one of the lines is a blank newline.
+        let expectedLines = 9
+        let lines = str.split(separator: "\n")
+        guard lines.count == expectedLines else {
+            throw IntegrationError.assert(msg: "expected \(expectedLines), got \(lines.count)")
+        }
+
+        try await container.stop()
+    }
+
     func testNestedVirtualizationEnabled() async throws {
         let id = "test-nested-virt"
 
