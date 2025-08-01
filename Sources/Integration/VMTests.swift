@@ -27,8 +27,10 @@ extension IntegrationSuite {
 
         let bs = try await bootstrap()
         let buffer = BufferWriter()
+        let directory = try createMountDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
-            let directory = try createMountDirectory()
             config.process.arguments = ["/bin/cat", "/mnt/hi.txt"]
             config.mounts.append(.share(source: directory.path, destination: "/mnt"))
             config.process.stdout = buffer
@@ -118,6 +120,39 @@ extension IntegrationSuite {
         guard output == "ContainerManager test\n" else {
             throw IntegrationError.assert(
                 msg: "process should have returned 'ContainerManager test' != '\(output ?? "nil")'")
+        }
+    }
+
+    func testDuplicateMount() async throws {
+        let id = "test-duplicate-mounts"
+
+        let bs = try await bootstrap()
+        let buffer = BufferWriter()
+        let directory = try createMountDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/sh", "-c", "cat /mnt1/hi.txt && cat /mnt2/hi.txt"]
+            // Mount the same directory to two different destinations
+            config.mounts.append(.share(source: directory.path, destination: "/mnt1"))
+            config.mounts.append(.share(source: directory.path, destination: "/mnt2"))
+            config.process.stdout = buffer
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        let value = String(data: buffer.data, encoding: .utf8)
+        guard value == "hellohello" else {
+            throw IntegrationError.assert(
+                msg: "process should have returned 'hellohello' != '\(String(data: buffer.data, encoding: .utf8)!)'")
         }
     }
 
