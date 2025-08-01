@@ -132,7 +132,7 @@ public struct Mount: Sendable {
 #if os(macOS)
 
 extension Mount {
-    func configure(config: inout VZVirtualMachineConfiguration) throws {
+    func configure(config: inout VZVirtualMachineConfiguration, usedVirtioFSTags: inout Set<String>) throws {
         switch self.runtimeOptions {
         case .virtioblk(let options):
             let device = try VZDiskImageStorageDeviceAttachment.mountToVZAttachment(mount: self, options: options)
@@ -144,6 +144,13 @@ extension Mount {
             }
 
             let name = try hashMountSource(source: self.source)
+
+            // Skip creating VZVirtioFileSystemDeviceConfiguration if tag already exists.
+            if usedVirtioFSTags.contains(name) {
+                return
+            }
+
+            usedVirtioFSTags.insert(name)
             let urlSource = URL(fileURLWithPath: source)
 
             let device = VZVirtioFileSystemDeviceConfiguration(tag: name)

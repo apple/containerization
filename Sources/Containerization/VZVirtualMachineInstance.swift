@@ -57,6 +57,8 @@ struct VZVirtualMachineInstance: VirtualMachineInstance, Sendable {
         public var initialFilesystem: Mount?
         /// File path to store the sandbox boot logs.
         public var bootlog: URL?
+        /// Set of virtiofs tags that have already been configured to avoid duplicates.
+        var usedVirtioFSTags: Set<String> = []
 
         init() {
             self.cpus = 4
@@ -65,6 +67,7 @@ struct VZVirtualMachineInstance: VirtualMachineInstance, Sendable {
             self.nestedVirtualization = false
             self.mounts = []
             self.interfaces = []
+            self.usedVirtioFSTags = []
         }
     }
 
@@ -86,6 +89,7 @@ struct VZVirtualMachineInstance: VirtualMachineInstance, Sendable {
     }
 
     init(group: MultiThreadedEventLoopGroup, config: Configuration, logger: Logger?) throws {
+        var mutableConfig = config
         self.config = config
         self.group = group
         self.lock = .init()
@@ -95,7 +99,7 @@ struct VZVirtualMachineInstance: VirtualMachineInstance, Sendable {
         self.timeSyncer = .init(logger: logger)
 
         self.vm = VZVirtualMachine(
-            configuration: try config.toVZ(),
+            configuration: try mutableConfig.toVZ(),
             queue: self.queue
         )
     }
@@ -243,7 +247,7 @@ extension VZVirtualMachineInstance.Configuration {
         return [c]
     }
 
-    func toVZ() throws -> VZVirtualMachineConfiguration {
+    mutating func toVZ() throws -> VZVirtualMachineConfiguration {
         var config = VZVirtualMachineConfiguration()
 
         config.cpuCount = self.cpus
@@ -301,9 +305,9 @@ extension VZVirtualMachineInstance.Configuration {
         loader.commandLine = kernel.linuxCommandline(initialFilesystem: initialFilesystem)
         config.bootLoader = loader
 
-        try initialFilesystem.configure(config: &config)
+        try initialFilesystem.configure(config: &config, usedVirtioFSTags: &usedVirtioFSTags)
         for mount in self.mounts {
-            try mount.configure(config: &config)
+            try mount.configure(config: &config, usedVirtioFSTags: &usedVirtioFSTags)
         }
 
         let platform = VZGenericPlatformConfiguration()
