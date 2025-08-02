@@ -201,12 +201,14 @@ extension Socket {
     }
 
     public func write(data: any DataProtocol) throws -> Int {
-        guard state.withLock({ $0.socketState }) == .connected else {
-            throw SocketError.invalidOperationOnSocket("write")
-        }
-
-        guard let handle = state.withLock({ $0.handle }) else {
-            throw SocketError.closed
+        let handle = try state.withLock { currentState in
+            guard currentState.socketState == .connected else {
+                throw SocketError.invalidOperationOnSocket("write")
+            }
+            guard let handle = currentState.handle else {
+                throw SocketError.closed
+            }
+            return handle
         }
 
         if data.isEmpty {
@@ -269,29 +271,33 @@ extension Socket {
     }
 
     public func accept(closeOnDeinit: Bool = true) throws -> Socket {
-        guard state.withLock({ $0.socketState }) == .listening else {
-            throw SocketError.invalidOperationOnSocket("accept")
+        let (handle, socketType) = try state.withLock { currentState in
+            guard currentState.socketState == .listening else {
+                throw SocketError.invalidOperationOnSocket("accept")
+            }
+            guard let handle = currentState.handle else {
+                throw SocketError.closed
+            }
+            return (handle, currentState.type)
         }
 
-        guard let handle = state.withLock({ $0.handle }) else {
-            throw SocketError.closed
-        }
-
-        let (clientFD, socketType) = try state.withLock { try $0.type.accept(fd: handle.fileDescriptor) }
+        let (clientFD, newSocketType) = try socketType.accept(fd: handle.fileDescriptor)
         return Socket(
             fd: clientFD,
-            type: socketType,
+            type: newSocketType,
             closeOnDeinit: closeOnDeinit
         )
     }
 
     public func read(buffer: inout Data) throws -> Int {
-        guard state.withLock({ $0.socketState }) == .connected else {
-            throw SocketError.invalidOperationOnSocket("read")
-        }
-
-        guard let handle = state.withLock({ $0.handle }) else {
-            throw SocketError.closed
+        let handle = try state.withLock { currentState in
+            guard currentState.socketState == .connected else {
+                throw SocketError.invalidOperationOnSocket("read")
+            }
+            guard let handle = currentState.handle else {
+                throw SocketError.closed
+            }
+            return handle
         }
 
         var bytesRead = 0
