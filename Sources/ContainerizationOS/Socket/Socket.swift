@@ -122,18 +122,18 @@ extension Socket {
             guard let handle = currentState.handle else {
                 throw SocketError.closed
             }
-            
+
             var res: Int32 = 0
             try currentState.type.withSockAddr { (ptr, length) in
                 res = Syscall.retrying {
                     sysConnect(handle.fileDescriptor, ptr, length)
                 }
             }
-            
+
             if res == -1 {
                 throw Socket.errnoToError(msg: "could not connect to socket \(currentState.type)")
             }
-            
+
             currentState = State(
                 socketState: .connected,
                 handle: handle,
@@ -158,17 +158,17 @@ extension Socket {
             try currentState.type.withSockAddr { (ptr, length) in
                 rc = sysBind(handle.fileDescriptor, ptr, length)
             }
-            
+
             if rc < 0 {
                 throw Socket.errnoToError(msg: "could not bind to \(currentState.type)")
             }
 
             try currentState.type.beforeListen(fd: handle.fileDescriptor)
-            
+
             if sysListen(handle.fileDescriptor, SOMAXCONN) < 0 {
                 throw Socket.errnoToError(msg: "listen failed on \(currentState.type)")
             }
-            
+
             currentState = State(
                 socketState: .listening,
                 handle: handle,
@@ -184,17 +184,17 @@ extension Socket {
                 // Already closed.
                 return (nil, nil)
             }
-            
+
             currentState = State(
                 socketState: currentState.socketState,
                 handle: nil,
                 type: currentState.type,
                 acceptSource: nil
             )
-            
+
             return (handle, currentState.acceptSource)
         }
-        
+
         // Close outside the lock to avoid a deadlock.
         sourceToCancel?.cancel()
         try handleToClose?.close()
@@ -235,14 +235,14 @@ extension Socket {
                 fileDescriptor: handle.fileDescriptor,
                 queue: _queue
             )
-            
+
             currentState = State(
                 socketState: currentState.socketState,
                 handle: handle,
                 type: currentState.type,
                 acceptSource: source
             )
-            
+
             return source
         }
 
@@ -349,7 +349,7 @@ extension Socket {
             }
             return handle
         }
-        
+
         if setsockopt(handle.fileDescriptor, SOL_SOCKET, sockOpt, ptr, stride) < 0 {
             throw Socket.errnoToError(msg: "failed to set sockopt")
         }
