@@ -320,8 +320,11 @@ extension Socket {
     }
 
     public func shutdown(how: ShutdownOption) throws {
-        guard let handle = state.withLock({ $0.handle }) else {
-            throw SocketError.closed
+        let handle = try state.withLock { currentState in
+            guard let handle = currentState.handle else {
+                throw SocketError.closed
+            }
+            return handle
         }
 
         var howOpt: Int32 = 0
@@ -340,17 +343,24 @@ extension Socket {
     }
 
     public func setSockOpt(sockOpt: Int32 = 0, ptr: UnsafeRawPointer, stride: UInt32) throws {
-        guard let handle = state.withLock({ $0.handle }) else {
-            throw SocketError.closed
+        let handle = try state.withLock { currentState in
+            guard let handle = currentState.handle else {
+                throw SocketError.closed
+            }
+            return handle
         }
+        
         if setsockopt(handle.fileDescriptor, SOL_SOCKET, sockOpt, ptr, stride) < 0 {
             throw Socket.errnoToError(msg: "failed to set sockopt")
         }
     }
 
     public func setTimeout(option: TimeoutOption, seconds: Int) throws {
-        guard let handle = state.withLock({ $0.handle }) else {
-            throw SocketError.closed
+        let handle = try state.withLock { currentState in
+            guard let handle = currentState.handle else {
+                throw SocketError.closed
+            }
+            return handle
         }
 
         var sockOpt: Int32 = 0
