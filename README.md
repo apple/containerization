@@ -33,16 +33,14 @@ The API allows the runtime environment to be configured and containerized proces
 To build the Containerization package, you need:
 
 - Mac with Apple silicon
-- macOS 15 minimum, macOS 26 beta recommended
+- macOS 26 beta
 - Xcode 26 beta
 
-Applications built using the package will run on macOS 15 or later, but the following features are not available on macOS 15:
-
-- Non-isolated container networking - with macOS 15, containers on the same vmnet network cannot communicate with each other
+Older versions of macOS are not supported. 
 
 ## Example Usage
 
-For examples of how to use some of the libraries surface, the cctl executable is a good start. This tools primary job is as a playground to trial out the API. It contains commands that exercise some of the core functionality of the various products, such as:
+For examples of how to use some of the libraries surface, the cctl executable is a good start. This app is a useful playground for exploring the API. It contains commands that exercise some of the core functionality of the various products, such as:
 
 1. [Manipulating OCI images](./Sources/cctl/ImageCommand.swift)
 2. [Logging in to container registries](./Sources/cctl/LoginCommand.swift)
@@ -66,11 +64,9 @@ See the [README](/kernel/README.md) in the kernel directory for instructions on 
 
 ### Pre-built Kernel
 
-If you wish to consume a pre-built kernel it must have `VIRTIO` drivers compiled into the kernel, not as modules.
+If you wish to consume a pre-built kernel, make sure it has `VIRTIO` drivers compiled into the kernel (not merely as modules).
 
-The [Kata Containers](https://github.com/kata-containers/kata-containers) project provides an optimized kernel for containers with all the required configuration options enabled provided on the [releases](https://github.com/kata-containers/kata-containers/releases/) page.
-
-A kernel image named `vmlinux.container` can be found in the `/opt/kata/share/kata-containers/` directory of the release artifacts.
+The [Kata Containers](https://github.com/kata-containers/kata-containers) project provides a Linux kernel that is optimized for containers, with all required configuration options enabled. The [releases](https://github.com/kata-containers/kata-containers/releases/) page contains downloadable artifacts, and the image itself (`vmlinux.container`) can be found in the `/opt/kata/share/kata-containers/` directory. 
 
 ## Prepare to build package
 
