@@ -27,12 +27,17 @@ public struct AttachedFilesystem: Sendable {
     public var destination: String
     /// The options to use when mounting the filesystem.
     public var options: [String]
+    /// True if this is a single file mount requiring bind mounting
+    public var isFileBind: Bool
 
     #if os(macOS)
     public init(mount: Mount, allocator: any AddressAllocator<Character>) throws {
+        self.isFileBind = mount.isFile
+        
         switch mount.type {
         case "virtiofs":
-            let name = try hashMountSource(source: mount.source)
+            let shareSource = mount.isFile ? mount.parentDirectory : mount.source
+            let name = try hashMountSource(source: shareSource)
             self.source = name
         case "ext4":
             let char = try allocator.allocate()
