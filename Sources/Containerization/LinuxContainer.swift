@@ -463,9 +463,7 @@ extension LinuxContainer {
         do {
             var spec = generateRuntimeSpec()
             // We don't need the rootfs, nor do OCI runtimes want it included.
-            spec.mounts = vm.mounts.dropFirst().map {
-                .init(type: $0.type, source: $0.source, destination: $0.destination, options: $0.options)
-            }
+            spec.mounts = vm.mounts.dropFirst().map { $0.to }
 
             let stdio = Self.setupIO(
                 portAllocator: self.hostVsockPorts,
