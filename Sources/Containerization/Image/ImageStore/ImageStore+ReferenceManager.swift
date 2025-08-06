@@ -21,7 +21,7 @@ import Foundation
 extension ImageStore {
     /// A ReferenceManager handles the mappings between an image's
     /// reference and the underlying descriptor inside of a content store.
-    internal actor ReferenceManager: Sendable {
+    internal actor ReferenceManager {
         private let path: URL
 
         private typealias State = [String: Descriptor]
