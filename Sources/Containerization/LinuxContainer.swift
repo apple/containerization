@@ -398,9 +398,9 @@ extension LinuxContainer {
                 try await agent.standardSetup()
 
                 // Mount the rootfs.
-                var rootfs = vm.mounts[0]
+                var rootfs = vm.mounts[0].to
                 rootfs.destination = Self.guestRootfsPath(self.id)
-                try await agent.mount(rootfs.to)
+                try await agent.mount(rootfs)
 
                 // Handle file bind mounts for virtiofs shares
                 for (originalMount, attachedMount) in zip(self.config.mounts, vm.mounts.dropFirst()) where attachedMount.isFile {
