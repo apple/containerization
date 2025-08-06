@@ -398,20 +398,25 @@ extension LinuxContainer {
                 try await agent.standardSetup()
 
                 // Mount the rootfs.
-                var rootfs = vm.mounts[0].to
+                var rootfs = vm.mounts[0]
                 rootfs.destination = Self.guestRootfsPath(self.id)
-                try await agent.mount(rootfs)
+                try await agent.mount(.init(
+                    type: rootfs.type,
+                    source: rootfs.source,
+                    destination: rootfs.destination,
+                    options: rootfs.options
+                ))
                 
                 // Handle file bind mounts for virtiofs shares
-                for (originalMount, attachedMount) in zip(self.config.mounts, vm.mounts.dropFirst()) where attachedMount.to.isFileBind {
+                for (originalMount, attachedMount) in zip(self.config.mounts, vm.mounts.dropFirst()) where attachedMount.isFileBind {
                     let filename = URL(fileURLWithPath: originalMount.source).lastPathComponent
-                    let sharedFilePath = "/\(attachedMount.to.source)/\(filename)"
+                    let sharedFilePath = "/\(attachedMount.source)/\(filename)"
                     
                     try await agent.mount(.init(
                         type: "none",
                         source: sharedFilePath,
-                        destination: attachedMount.to.destination,
-                        options: ["bind"] + (attachedMount.to.options.contains("ro") ? ["ro"] : [])
+                        destination: attachedMount.destination,
+                        options: ["bind"] + (attachedMount.options.contains("ro") ? ["ro"] : [])
                     ))
                 }
 
@@ -462,7 +467,9 @@ extension LinuxContainer {
         do {
             var spec = generateRuntimeSpec()
             // We don't need the rootfs, nor do OCI runtimes want it included.
-            spec.mounts = vm.mounts.dropFirst().map { $0.to }
+            spec.mounts = vm.mounts.dropFirst().map { 
+                .init(type: $0.type, source: $0.source, destination: $0.destination, options: $0.options)
+            }
 
             let stdio = Self.setupIO(
                 portAllocator: self.hostVsockPorts,
