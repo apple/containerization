@@ -403,7 +403,7 @@ extension LinuxContainer {
                 try await agent.mount(rootfs)
                 
                 // Handle file bind mounts for virtiofs shares
-                for (originalMount, attachedMount) in zip(self.mounts, vm.mounts.dropFirst()) where attachedMount.to.isFileBind {
+                for (originalMount, attachedMount) in zip(self.config.mounts, vm.mounts.dropFirst()) where attachedMount.to.isFileBind {
                     let filename = URL(fileURLWithPath: originalMount.source).lastPathComponent
                     let sharedFilePath = "/\(attachedMount.to.source)/\(filename)"
                     
