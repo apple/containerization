@@ -400,16 +400,10 @@ extension LinuxContainer {
                 // Mount the rootfs.
                 var rootfs = vm.mounts[0]
                 rootfs.destination = Self.guestRootfsPath(self.id)
-                try await agent.mount(
-                    .init(
-                        type: rootfs.type,
-                        source: rootfs.source,
-                        destination: rootfs.destination,
-                        options: rootfs.options
-                    ))
+                try await agent.mount(rootfs.to)
 
                 // Handle file bind mounts for virtiofs shares
-                for (originalMount, attachedMount) in zip(self.config.mounts, vm.mounts.dropFirst()) where attachedMount.isFileBind {
+                for (originalMount, attachedMount) in zip(self.config.mounts, vm.mounts.dropFirst()) where attachedMount.isFile {
                     let filename = URL(fileURLWithPath: originalMount.source).lastPathComponent
                     let sharedFilePath = "/\(attachedMount.source)/\(filename)"
 

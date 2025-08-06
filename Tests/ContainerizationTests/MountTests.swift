@@ -64,7 +64,7 @@ final class MountTests {
         let allocator = Character.blockDeviceTagAllocator()
         let attached = try AttachedFilesystem(mount: mount, allocator: allocator)
 
-        #expect(attached.isFileBind == true)
+        #expect(attached.isFile == true)
         #expect(attached.type == "virtiofs")
     }
     #endif

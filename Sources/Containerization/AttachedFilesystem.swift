@@ -28,11 +28,11 @@ public struct AttachedFilesystem: Sendable {
     /// The options to use when mounting the filesystem.
     public var options: [String]
     /// True if this is a single file mount requiring bind mounting
-    public var isFileBind: Bool
+    var isFile: Bool
 
     #if os(macOS)
     public init(mount: Mount, allocator: any AddressAllocator<Character>) throws {
-        self.isFileBind = mount.isFile
+        self.isFile = mount.isFile
 
         switch mount.type {
         case "virtiofs":
