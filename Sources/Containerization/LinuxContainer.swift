@@ -400,24 +400,26 @@ extension LinuxContainer {
                 // Mount the rootfs.
                 var rootfs = vm.mounts[0]
                 rootfs.destination = Self.guestRootfsPath(self.id)
-                try await agent.mount(.init(
-                    type: rootfs.type,
-                    source: rootfs.source,
-                    destination: rootfs.destination,
-                    options: rootfs.options
-                ))
-                
+                try await agent.mount(
+                    .init(
+                        type: rootfs.type,
+                        source: rootfs.source,
+                        destination: rootfs.destination,
+                        options: rootfs.options
+                    ))
+
                 // Handle file bind mounts for virtiofs shares
                 for (originalMount, attachedMount) in zip(self.config.mounts, vm.mounts.dropFirst()) where attachedMount.isFileBind {
                     let filename = URL(fileURLWithPath: originalMount.source).lastPathComponent
                     let sharedFilePath = "/\(attachedMount.source)/\(filename)"
-                    
-                    try await agent.mount(.init(
-                        type: "none",
-                        source: sharedFilePath,
-                        destination: attachedMount.destination,
-                        options: ["bind"] + (attachedMount.options.contains("ro") ? ["ro"] : [])
-                    ))
+
+                    try await agent.mount(
+                        .init(
+                            type: "none",
+                            source: sharedFilePath,
+                            destination: attachedMount.destination,
+                            options: ["bind"] + (attachedMount.options.contains("ro") ? ["ro"] : [])
+                        ))
                 }
 
                 // Start up our friendly unix socket relays.
@@ -467,7 +469,7 @@ extension LinuxContainer {
         do {
             var spec = generateRuntimeSpec()
             // We don't need the rootfs, nor do OCI runtimes want it included.
-            spec.mounts = vm.mounts.dropFirst().map { 
+            spec.mounts = vm.mounts.dropFirst().map {
                 .init(type: $0.type, source: $0.source, destination: $0.destination, options: $0.options)
             }
 

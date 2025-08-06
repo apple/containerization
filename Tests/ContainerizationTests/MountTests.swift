@@ -23,47 +23,47 @@ final class MountTests {
     @Test func fileDetection() throws {
         let tempDir = FileManager.default.temporaryDirectory
         let testFile = tempDir.appendingPathComponent("testfile.txt")
-        
+
         try "test content".write(to: testFile, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: testFile) }
-        
+
         let mount = Mount.share(
             source: testFile.path,
             destination: "/app/config.txt"
         )
-        
+
         #expect(mount.isFile == true)
         #expect(mount.filename == "testfile.txt")
         #expect(mount.parentDirectory == tempDir.path)
     }
-    
+
     @Test func directoryDetection() throws {
         let tempDir = FileManager.default.temporaryDirectory
-        
+
         let mount = Mount.share(
             source: tempDir.path,
             destination: "/app/data"
         )
-        
+
         #expect(mount.isFile == false)
     }
-    
+
     #if os(macOS)
     @Test func attachedFilesystemBindFlag() throws {
         let tempDir = FileManager.default.temporaryDirectory
         let testFile = tempDir.appendingPathComponent("bindtest.txt")
-        
+
         try "bind test".write(to: testFile, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: testFile) }
-        
+
         let mount = Mount.share(
             source: testFile.path,
             destination: "/app/config.txt"
         )
-        
+
         let allocator = Character.blockDeviceTagAllocator()
         let attached = try AttachedFilesystem(mount: mount, allocator: allocator)
-        
+
         #expect(attached.isFileBind == true)
         #expect(attached.type == "virtiofs")
     }

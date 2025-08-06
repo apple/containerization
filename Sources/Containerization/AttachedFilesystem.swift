@@ -33,7 +33,7 @@ public struct AttachedFilesystem: Sendable {
     #if os(macOS)
     public init(mount: Mount, allocator: any AddressAllocator<Character>) throws {
         self.isFileBind = mount.isFile
-        
+
         switch mount.type {
         case "virtiofs":
             let shareSource = mount.isFile ? mount.parentDirectory : mount.source

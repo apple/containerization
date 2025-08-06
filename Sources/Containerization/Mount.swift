@@ -137,15 +137,15 @@ extension Mount {
         let exists = FileManager.default.fileExists(atPath: self.source, isDirectory: &isDirectory)
         return exists && !isDirectory.boolValue
     }
-    
+
     var parentDirectory: String {
         URL(fileURLWithPath: self.source).deletingLastPathComponent().path
     }
-    
+
     var filename: String {
         URL(fileURLWithPath: self.source).lastPathComponent
     }
-    
+
     func configure(config: inout VZVirtualMachineConfiguration) throws {
         switch self.runtimeOptions {
         case .virtioblk(let options):
@@ -163,7 +163,7 @@ extension Mount {
             } else {
                 shareSource = self.source
             }
-            
+
             let name = try hashMountSource(source: shareSource)
             let urlSource = URL(fileURLWithPath: shareSource)
 
