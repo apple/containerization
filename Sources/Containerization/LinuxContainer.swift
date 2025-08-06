@@ -194,7 +194,7 @@ public final class LinuxContainer: Container, Sendable {
 
         mutating func setCreating() throws {
             switch self {
-            case .initialized:
+            case .initialized, .stopped:
                 self = .creating(.init())
             default:
                 throw ContainerizationError(
