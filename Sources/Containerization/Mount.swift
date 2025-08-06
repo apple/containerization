@@ -132,6 +132,20 @@ public struct Mount: Sendable {
 #if os(macOS)
 
 extension Mount {
+    var isFile: Bool {
+        var isDirectory: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: self.source, isDirectory: &isDirectory)
+        return exists && !isDirectory.boolValue
+    }
+    
+    var parentDirectory: String {
+        URL(fileURLWithPath: self.source).deletingLastPathComponent().path
+    }
+    
+    var filename: String {
+        URL(fileURLWithPath: self.source).lastPathComponent
+    }
+    
     func configure(config: inout VZVirtualMachineConfiguration) throws {
         switch self.runtimeOptions {
         case .virtioblk(let options):
@@ -140,11 +154,18 @@ extension Mount {
             config.storageDevices.append(attachment)
         case .virtiofs(_):
             guard FileManager.default.fileExists(atPath: self.source) else {
-                throw ContainerizationError(.notFound, message: "directory \(source) does not exist")
+                throw ContainerizationError(.notFound, message: "path \(source) does not exist")
             }
 
-            let name = try hashMountSource(source: self.source)
-            let urlSource = URL(fileURLWithPath: source)
+            let shareSource: String
+            if isFile {
+                shareSource = parentDirectory
+            } else {
+                shareSource = self.source
+            }
+            
+            let name = try hashMountSource(source: shareSource)
+            let urlSource = URL(fileURLWithPath: shareSource)
 
             let device = VZVirtioFileSystemDeviceConfiguration(tag: name)
             device.share = VZSingleDirectoryShare(
