@@ -67,5 +67,100 @@ final class MountTests {
         #expect(attached.isFile == true)
         #expect(attached.type == "virtiofs")
     }
+
+    @Test func nonExistentFileMount() throws {
+        let nonExistentFile = "/path/that/does/not/exist.txt"
+
+        let mount = Mount.share(
+            source: nonExistentFile,
+            destination: "/app/config.txt"
+        )
+
+        #expect(mount.isFile == false)  // Non-existent files are treated as directories
+        #expect(mount.filename == "exist.txt")
+        #expect(mount.parentDirectory == "/path/that/does/not")
+    }
+
+    @Test func emptyFileMount() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+        let emptyFile = tempDir.appendingPathComponent("empty.txt")
+
+        try "".write(to: emptyFile, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: emptyFile) }
+
+        let mount = Mount.share(
+            source: emptyFile.path,
+            destination: "/app/empty.txt"
+        )
+
+        #expect(mount.isFile == true)
+        #expect(mount.filename == "empty.txt")
+        #expect(mount.parentDirectory == tempDir.path)
+    }
+
+    @Test func specialCharactersInFilename() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+        let specialFile = tempDir.appendingPathComponent("file with spaces & symbols!@#.txt")
+
+        try "special content".write(to: specialFile, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: specialFile) }
+
+        let mount = Mount.share(
+            source: specialFile.path,
+            destination: "/app/special.txt"
+        )
+
+        #expect(mount.isFile == true)
+        #expect(mount.filename == "file with spaces & symbols!@#.txt")
+        #expect(mount.parentDirectory == tempDir.path)
+
+        let allocator = Character.blockDeviceTagAllocator()
+        let attached = try AttachedFilesystem(mount: mount, allocator: allocator)
+        #expect(attached.isFile == true)
+    }
+
+    @Test func hiddenFileMount() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+        let hiddenFile = tempDir.appendingPathComponent(".hidden")
+
+        try "hidden content".write(to: hiddenFile, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: hiddenFile) }
+
+        let mount = Mount.share(
+            source: hiddenFile.path,
+            destination: "/app/.config"
+        )
+
+        #expect(mount.isFile == true)
+        #expect(mount.filename == ".hidden")
+        #expect(mount.parentDirectory == tempDir.path)
+    }
+
+    @Test func readOnlyFileMount() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+        let readOnlyFile = tempDir.appendingPathComponent("readonly.txt")
+
+        try "readonly content".write(to: readOnlyFile, atomically: true, encoding: .utf8)
+        defer {
+            // Remove read-only attribute before deletion
+            try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: readOnlyFile.path)
+            try? FileManager.default.removeItem(at: readOnlyFile)
+        }
+
+        // Make file read-only
+        try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: readOnlyFile.path)
+
+        let mount = Mount.share(
+            source: readOnlyFile.path,
+            destination: "/app/readonly.txt"
+        )
+
+        #expect(mount.isFile == true)
+        #expect(mount.filename == "readonly.txt")
+
+        let allocator = Character.blockDeviceTagAllocator()
+        let attached = try AttachedFilesystem(mount: mount, allocator: allocator)
+        #expect(attached.isFile == true)
+    }
     #endif
 }
