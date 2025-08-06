@@ -61,7 +61,7 @@ final class MountTests {
             destination: "/app/config.txt"
         )
         
-        let allocator = Character.allocator(start: "a")
+        let allocator = Character.blockDeviceTagAllocator()
         let attached = try AttachedFilesystem(mount: mount, allocator: allocator)
         
         #expect(attached.isFileBind == true)
