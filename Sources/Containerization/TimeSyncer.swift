@@ -17,7 +17,7 @@
 import Foundation
 import Logging
 
-actor TimeSyncer: Sendable {
+actor TimeSyncer {
     private var task: Task<Void, Never>?
     private var context: Vminitd?
     private let logger: Logger?
