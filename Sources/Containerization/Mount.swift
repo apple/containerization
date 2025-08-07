@@ -132,6 +132,41 @@ public struct Mount: Sendable {
 #if os(macOS)
 
 extension Mount {
+    var isFile: Bool {
+        var isDirectory: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: self.source, isDirectory: &isDirectory)
+        return exists && !isDirectory.boolValue
+    }
+
+    var parentDirectory: String {
+        URL(fileURLWithPath: self.source).deletingLastPathComponent().path
+    }
+
+    var filename: String {
+        URL(fileURLWithPath: self.source).lastPathComponent
+    }
+
+    /// Create an isolated temporary directory containing only the target file via hardlink
+    func createIsolatedFileShare() throws -> String {
+        // Create deterministic temp directory based on source file path
+        let sourceHash = try hashMountSource(source: self.source)
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("containerization-file-mount-\(sourceHash)")
+
+        // Create directory if it doesn't exist
+        if !FileManager.default.fileExists(atPath: tempDir.path) {
+            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+            let isolatedFile = tempDir.appendingPathComponent(filename)
+            let sourceFile = URL(fileURLWithPath: self.source)
+
+            // Create hardlink to isolate the single file
+            try FileManager.default.linkItem(at: sourceFile, to: isolatedFile)
+        }
+
+        return tempDir.path
+    }
+
     func configure(config: inout VZVirtualMachineConfiguration) throws {
         switch self.runtimeOptions {
         case .virtioblk(let options):
@@ -140,11 +175,18 @@ extension Mount {
             config.storageDevices.append(attachment)
         case .virtiofs(_):
             guard FileManager.default.fileExists(atPath: self.source) else {
-                throw ContainerizationError(.notFound, message: "directory \(source) does not exist")
+                throw ContainerizationError(.notFound, message: "path \(source) does not exist")
             }
 
-            let name = try hashMountSource(source: self.source)
-            let urlSource = URL(fileURLWithPath: source)
+            let shareSource: String
+            if isFile {
+                shareSource = try createIsolatedFileShare()
+            } else {
+                shareSource = self.source
+            }
+
+            let name = try hashMountSource(source: shareSource)
+            let urlSource = URL(fileURLWithPath: shareSource)
 
             let device = VZVirtioFileSystemDeviceConfiguration(tag: name)
             device.share = VZSingleDirectoryShare(

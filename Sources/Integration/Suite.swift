@@ -209,6 +209,8 @@ struct IntegrationSuite: AsyncParsableCommand {
             "container hostname": testHostname,
             "container hosts": testHostsFile,
             "container mount": testMounts,
+            "container single file mount": testSingleFileMount,
+            "container multiple single file mounts": testMultipleSingleFileMounts,
             "nested virt": testNestedVirtualizationEnabled,
             "container manager": testContainerManagerCreate,
             "container reuse": testContainerReuse,
