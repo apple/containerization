@@ -402,19 +402,6 @@ extension LinuxContainer {
                 rootfs.destination = Self.guestRootfsPath(self.id)
                 try await agent.mount(rootfs)
 
-                // Handle file bind mounts for virtiofs shares
-                for (originalMount, attachedMount) in zip(self.config.mounts, vm.mounts.dropFirst()) where attachedMount.isFile {
-                    let filename = URL(fileURLWithPath: originalMount.source).lastPathComponent
-                    let sharedFilePath = "/\(attachedMount.source)/\(filename)"
-
-                    try await agent.mount(
-                        .init(
-                            type: "none",
-                            source: sharedFilePath,
-                            destination: attachedMount.destination,
-                            options: ["bind"] + (attachedMount.options.contains("ro") ? ["ro"] : [])
-                        ))
-                }
 
                 // Start up our friendly unix socket relays.
                 for socket in self.config.sockets {
