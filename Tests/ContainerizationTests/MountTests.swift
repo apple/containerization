@@ -162,5 +162,61 @@ final class MountTests {
         let attached = try AttachedFilesystem(mount: mount, allocator: allocator)
         #expect(attached.isFile == true)
     }
+
+    @Test func hardlinkIsolation() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+        let testFile = tempDir.appendingPathComponent("isolation-test.txt")
+        let originalContent = "hardlink test content"
+
+        try originalContent.write(to: testFile, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: testFile) }
+
+        let mount = Mount.share(
+            source: testFile.path,
+            destination: "/app/config.txt"
+        )
+
+        // Create hardlink isolation
+        let isolatedDir = try mount.createIsolatedFileShare()
+        defer { try? FileManager.default.removeItem(atPath: isolatedDir) }
+
+        // Verify isolated directory contains only the target file
+        let isolatedContents = try FileManager.default.contentsOfDirectory(atPath: isolatedDir)
+        #expect(isolatedContents.count == 1)
+        #expect(isolatedContents.first == "isolation-test.txt")
+
+        // Verify hardlinked file has same content
+        let isolatedFile = URL(fileURLWithPath: isolatedDir).appendingPathComponent("isolation-test.txt")
+        let isolatedContent = try String(contentsOf: isolatedFile, encoding: .utf8)
+        #expect(isolatedContent == originalContent)
+
+        // Verify calling createIsolatedFileShare again returns same directory (deterministic)
+        let isolatedDir2 = try mount.createIsolatedFileShare()
+        #expect(isolatedDir == isolatedDir2)
+    }
+
+    @Test func fileMountDestinationAdjustment() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+        let testFile = tempDir.appendingPathComponent("dest-test.txt")
+
+        try "destination test".write(to: testFile, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: testFile) }
+
+        let mount = Mount.share(
+            source: testFile.path,
+            destination: "/app/subdir/config.txt"
+        )
+
+        let allocator = Character.blockDeviceTagAllocator()
+        let attached = try AttachedFilesystem(mount: mount, allocator: allocator)
+
+        // For file mounts, destination should be adjusted to parent directory
+        #expect(attached.destination == "/app/subdir")
+        #expect(attached.isFile == true)
+
+        // Clean up hardlink isolation directory
+        let isolatedDir = try mount.createIsolatedFileShare()
+        defer { try? FileManager.default.removeItem(atPath: isolatedDir) }
+    }
     #endif
 }

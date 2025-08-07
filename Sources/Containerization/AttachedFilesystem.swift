@@ -16,6 +16,7 @@
 
 import ContainerizationExtras
 import ContainerizationOCI
+import Foundation
 
 /// A filesystem that was attached and able to be mounted inside the runtime environment.
 public struct AttachedFilesystem: Sendable {
