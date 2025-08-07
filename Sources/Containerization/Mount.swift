@@ -146,6 +146,22 @@ extension Mount {
         URL(fileURLWithPath: self.source).lastPathComponent
     }
 
+    /// Create an isolated temporary directory containing only the target file via hardlink
+    func createIsolatedFileShare() throws -> String {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("containerization-file-mount-\(UUID().uuidString)")
+        
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        
+        let isolatedFile = tempDir.appendingPathComponent(filename)
+        let sourceFile = URL(fileURLWithPath: self.source)
+        
+        // Create hardlink to isolate the single file
+        try FileManager.default.linkItem(at: sourceFile, to: isolatedFile)
+        
+        return tempDir.path
+    }
+
     func configure(config: inout VZVirtualMachineConfiguration) throws {
         switch self.runtimeOptions {
         case .virtioblk(let options):
@@ -159,7 +175,7 @@ extension Mount {
 
             let shareSource: String
             if isFile {
-                shareSource = parentDirectory
+                shareSource = try createIsolatedFileShare()
             } else {
                 shareSource = self.source
             }
