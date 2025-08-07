@@ -23,15 +23,38 @@ public struct Timeout {
     /// doesn't finish in the provided `seconds` amount.
     public static func run<T: Sendable>(
         seconds: UInt32,
-        operation: @escaping @Sendable () async -> T
+        operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
         try await withThrowingTaskGroup(of: T.self) { group in
             group.addTask {
-                await operation()
+                try await operation()
             }
 
             group.addTask {
                 try await Task.sleep(for: .seconds(seconds))
+                throw CancellationError()
+            }
+
+            guard let result = try await group.next() else {
+                fatalError()
+            }
+
+            group.cancelAll()
+            return result
+        }
+    }
+
+    public static func run<T: Sendable>(
+        for duration: Duration,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask {
+                try await operation()
+            }
+
+            group.addTask {
+                try await Task.sleep(for: duration)
                 throw CancellationError()
             }
 
