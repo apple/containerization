@@ -152,18 +152,18 @@ extension Mount {
         let sourceHash = try hashMountSource(source: self.source)
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("containerization-file-mount-\(sourceHash)")
-        
+
         // Create directory if it doesn't exist
         if !FileManager.default.fileExists(atPath: tempDir.path) {
             try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-            
+
             let isolatedFile = tempDir.appendingPathComponent(filename)
             let sourceFile = URL(fileURLWithPath: self.source)
-            
+
             // Create hardlink to isolate the single file
             try FileManager.default.linkItem(at: sourceFile, to: isolatedFile)
         }
-        
+
         return tempDir.path
     }
 

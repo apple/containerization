@@ -34,7 +34,7 @@ public struct AttachedFilesystem: Sendable {
     #if os(macOS)
     public init(mount: Mount, allocator: any AddressAllocator<Character>) throws {
         self.isFile = mount.isFile
-        
+
         switch mount.type {
         case "virtiofs":
             let shareSource: String
@@ -53,7 +53,7 @@ public struct AttachedFilesystem: Sendable {
         }
         self.type = mount.type
         self.options = mount.options
-        
+
         // For file mounts with hardlink isolation, mount at parent directory
         if mount.isFile && mount.type == "virtiofs" {
             self.destination = URL(fileURLWithPath: mount.destination).deletingLastPathComponent().path

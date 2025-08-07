@@ -402,7 +402,6 @@ extension LinuxContainer {
                 rootfs.destination = Self.guestRootfsPath(self.id)
                 try await agent.mount(rootfs)
 
-
                 // Start up our friendly unix socket relays.
                 for socket in self.config.sockets {
                     try await self.relayUnixSocket(
