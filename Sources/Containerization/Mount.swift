@@ -148,16 +148,21 @@ extension Mount {
 
     /// Create an isolated temporary directory containing only the target file via hardlink
     func createIsolatedFileShare() throws -> String {
+        // Create deterministic temp directory based on source file path
+        let sourceHash = try hashMountSource(source: self.source)
         let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("containerization-file-mount-\(UUID().uuidString)")
+            .appendingPathComponent("containerization-file-mount-\(sourceHash)")
         
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        
-        let isolatedFile = tempDir.appendingPathComponent(filename)
-        let sourceFile = URL(fileURLWithPath: self.source)
-        
-        // Create hardlink to isolate the single file
-        try FileManager.default.linkItem(at: sourceFile, to: isolatedFile)
+        // Create directory if it doesn't exist
+        if !FileManager.default.fileExists(atPath: tempDir.path) {
+            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+            
+            let isolatedFile = tempDir.appendingPathComponent(filename)
+            let sourceFile = URL(fileURLWithPath: self.source)
+            
+            // Create hardlink to isolate the single file
+            try FileManager.default.linkItem(at: sourceFile, to: isolatedFile)
+        }
         
         return tempDir.path
     }
