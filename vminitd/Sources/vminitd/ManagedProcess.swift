@@ -29,8 +29,11 @@ final class ManagedProcess: Sendable {
     private let log: Logger
     private let process: Command
     private let state: Mutex<State>
-    private let syncfd: Pipe
     private let owningPid: Int32?
+    private let ackPipe: FileHandle
+    private let syncPipe: FileHandle
+    private let terminal: Bool
+    private let bundle: ContainerizationOCI.Bundle
 
     private struct State {
         init(io: IO) {
@@ -51,16 +54,21 @@ final class ManagedProcess: Sendable {
 
     // swiftlint: disable type_name
     protocol IO {
+        func attach(pid: Int32, fd: Int32) throws
         func start(process: inout Command) throws
-        func closeAfterExec() throws
         func resize(size: Terminal.Size) throws
+        func close() throws
         func closeStdin() throws
+        func closeAfterExec() throws
     }
     // swiftlint: enable type_name
 
     static func localizeLogger(log: inout Logger, id: String) {
         log[metadataKey: "id"] = "\(id)"
     }
+
+    private static let ackPid = "AckPid"
+    private static let ackConsole = "AckConsole"
 
     init(
         id: String,
@@ -75,9 +83,13 @@ final class ManagedProcess: Sendable {
         self.log = log
         self.owningPid = owningPid
 
-        let syncfd = Pipe()
-        try syncfd.setCloexec()
-        self.syncfd = syncfd
+        let syncPipe = Pipe()
+        try syncPipe.setCloexec()
+        self.syncPipe = syncPipe.fileHandleForReading
+
+        let ackPipe = Pipe()
+        try ackPipe.setCloexec()
+        self.ackPipe = ackPipe.fileHandleForWriting
 
         let args: [String]
         if let owningPid {
@@ -95,7 +107,10 @@ final class ManagedProcess: Sendable {
         var process = Command(
             "/sbin/vmexec",
             arguments: args,
-            extraFiles: [syncfd.fileHandleForWriting]
+            extraFiles: [
+                syncPipe.fileHandleForWriting,
+                ackPipe.fileHandleForReading,
+            ]
         )
 
         var io: IO
@@ -121,6 +136,8 @@ final class ManagedProcess: Sendable {
         try io.start(process: &process)
 
         self.process = process
+        self.terminal = stdio.terminal
+        self.bundle = bundle
         self.state = Mutex(State(io: io))
     }
 }
@@ -136,30 +153,77 @@ extension ManagedProcess {
 
             // Start the underlying process.
             try process.start()
+            defer {
+                try? self.ackPipe.close()
+                try? self.syncPipe.close()
+            }
 
             // Close our side of any pipes.
-            try syncfd.fileHandleForWriting.close()
             try $0.io.closeAfterExec()
 
-            guard let piddata = try syncfd.fileHandleForReading.readToEnd() else {
+            let size = MemoryLayout<Int32>.size
+            guard let piddata = try syncPipe.read(upToCount: size) else {
                 throw ContainerizationError(.internalError, message: "no pid data from sync pipe")
             }
 
-            let i = piddata.withUnsafeBytes { ptr in
+            guard piddata.count == size else {
+                throw ContainerizationError(.internalError, message: "invalid payload")
+            }
+
+            let pid = piddata.withUnsafeBytes { ptr in
                 ptr.load(as: Int32.self)
             }
 
-            log.info("got back pid data \(i)")
-            $0.pid = i
+            log.info(
+                "got back pid data",
+                metadata: [
+                    "id": "\(pid)"
+                ])
+            $0.pid = pid
+
+            // Ack the pid from the child.
+            log.info(
+                "sending pid acknowledgement",
+                metadata: [
+                    "pid": "\(pid)"
+                ])
+            try self.ackPipe.write(contentsOf: Self.ackPid.data(using: .utf8)!)
+
+            if self.terminal {
+                log.info(
+                    "wait for pty fd",
+                    metadata: [
+                        "id": "\(id)"
+                    ])
+
+                // Wait for a new write that will contain the pty fd if we asked for one.
+                guard let ptyFd = try syncPipe.read(upToCount: size) else {
+                    throw ContainerizationError(
+                        .internalError,
+                        message: "no pty data from sync pipe"
+                    )
+                }
+                let fd = ptyFd.withUnsafeBytes { ptr in
+                    ptr.load(as: Int32.self)
+                }
+                log.info(
+                    "received pty fd from container, attaching",
+                    metadata: [
+                        "id": "\(id)"
+                    ])
+
+                try $0.io.attach(pid: pid, fd: fd)
+                try self.ackPipe.write(contentsOf: Self.ackConsole.data(using: .utf8)!)
+            }
 
             log.info(
                 "started managed process",
                 metadata: [
-                    "pid": "\(i)",
+                    "pid": "\(pid)",
                     "id": "\(id)",
                 ])
 
-            return i
+            return pid
         }
     }
 
@@ -172,6 +236,12 @@ extension ManagedProcess {
                 ])
 
             $0.exitStatus = status
+
+            do {
+                try $0.io.close()
+            } catch {
+                self.log.error("failed to close io for process: \(error)")
+            }
 
             for waiter in $0.waiters {
                 waiter.resume(returning: status)

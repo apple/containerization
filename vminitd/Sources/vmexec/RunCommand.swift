@@ -49,92 +49,120 @@ struct RunCommand: ParsableCommand {
         try reOpenDevNull()
     }
 
-    private func execInNamespace(spec: ContainerizationOCI.Spec, log: Logger) throws {
+    private func childSetup(
+        spec: ContainerizationOCI.Spec,
+        ackPipe: FileHandle,
+        syncPipe: FileHandle,
+        log: Logger
+    ) throws {
         guard let process = spec.process else {
-            fatalError("no process configuration found in runtime spec")
+            throw App.Failure(message: "no process configuration found in runtime spec")
         }
         guard let root = spec.root else {
-            fatalError("no root found in runtime spec")
+            throw App.Failure(message: "no root found in runtime spec")
         }
 
-        let syncfd = FileHandle(fileDescriptor: 3)
-        if fcntl(3, F_SETFD, FD_CLOEXEC) == -1 {
-            throw App.Errno(stage: "cloexec(syncfd)")
+        // Wait for the grandparent to tell us that they acked our pid.
+        guard let data = try ackPipe.read(upToCount: App.ackPid.count) else {
+            throw App.Failure(message: "read ack pipe")
         }
+        guard let pidAckStr = String(data: data, encoding: .utf8) else {
+            throw App.Failure(message: "convert ack pipe data to string")
+        }
+
+        guard pidAckStr == App.ackPid else {
+            throw App.Failure(message: "received invalid acknowledgement string: \(pidAckStr)")
+        }
+
+        guard unshare(CLONE_NEWCGROUP) == 0 else {
+            throw App.Errno(stage: "unshare(cgroup)")
+        }
+
+        guard setsid() != -1 else {
+            throw App.Errno(stage: "setsid()")
+        }
+
+        try childRootSetup(rootfs: root, mounts: spec.mounts, log: log)
+
+        if process.terminal {
+            let pty = try Console()
+            try pty.configureStdIO()
+            var masterFD = pty.master
+
+            let data = Data(bytes: &masterFD, count: MemoryLayout.size(ofValue: masterFD))
+            try syncPipe.write(contentsOf: data)
+            try syncPipe.close()
+
+            // Wait for the grandparent to tell us that they acked our console.
+            guard let data = try ackPipe.read(upToCount: App.ackConsole.count) else {
+                throw App.Failure(message: "read ack pipe")
+            }
+
+            guard let consoleAckStr = String(data: data, encoding: .utf8) else {
+                throw App.Failure(message: "convert ack pipe data to string")
+            }
+
+            guard consoleAckStr == App.ackConsole else {
+                throw App.Failure(message: "received invalid acknowledgement string: \(consoleAckStr)")
+            }
+
+            guard ioctl(0, UInt(TIOCSCTTY), 0) != -1 else {
+                throw App.Errno(stage: "setctty(0)")
+            }
+
+            try mountConsole(path: pty.slavePath)
+            try pty.close()
+        }
+
+        if !spec.hostname.isEmpty {
+            let errCode = spec.hostname.withCString { ptr in
+                Musl.sethostname(ptr, spec.hostname.count)
+            }
+            guard errCode == 0 else {
+                throw App.Errno(stage: "sethostname()")
+            }
+        }
+
+        // Apply O_CLOEXEC to all file descriptors except stdio.
+        // This ensures that all unwanted fds we may have accidentally
+        // inherited are marked close-on-exec so they stay out of the
+        // container.
+        try App.applyCloseExecOnFDs()
+
+        try App.setRLimits(rlimits: process.rlimits)
+
+        // Change stdio to be owned by the requested user.
+        try App.fixStdioPerms(user: process.user)
+
+        // Set uid, gid, and supplementary groups.
+        try App.setPermissions(user: process.user)
+
+        // Finally execve the container process.
+        try App.exec(process: process)
+    }
+
+    private func execInNamespace(spec: ContainerizationOCI.Spec, log: Logger) throws {
+        let syncPipe = FileHandle(fileDescriptor: 3)
+        let ackPipe = FileHandle(fileDescriptor: 4)
 
         guard unshare(CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWUTS) == 0 else {
             throw App.Errno(stage: "unshare(pid|mnt|uts)")
         }
 
-        let childPipe = Pipe()
-        try childPipe.setCloexec()
         let processID = fork()
-
         guard processID != -1 else {
-            try? childPipe.fileHandleForReading.close()
-            try? childPipe.fileHandleForWriting.close()
-            try? syncfd.close()
-
+            try? syncPipe.close()
+            try? ackPipe.close()
             throw App.Errno(stage: "fork")
         }
 
         if processID == 0 {  // child
-            try childPipe.fileHandleForReading.close()
-            try syncfd.close()
-
-            guard unshare(CLONE_NEWCGROUP) == 0 else {
-                throw App.Errno(stage: "unshare(cgroup)")
-            }
-
-            guard setsid() != -1 else {
-                throw App.Errno(stage: "setsid()")
-            }
-
-            try childRootSetup(rootfs: root, mounts: spec.mounts, log: log)
-
-            if !spec.hostname.isEmpty {
-                let errCode = spec.hostname.withCString { ptr in
-                    Musl.sethostname(ptr, spec.hostname.count)
-                }
-                guard errCode == 0 else {
-                    throw App.Errno(stage: "sethostname()")
-                }
-            }
-
-            // Apply O_CLOEXEC to all file descriptors except stdio.
-            // This ensures that all unwanted fds we may have accidentally
-            // inherited are marked close-on-exec so they stay out of the
-            // container.
-            try App.applyCloseExecOnFDs()
-
-            try App.setRLimits(rlimits: process.rlimits)
-
-            // Change stdio to be owned by the requested user.
-            try App.fixStdioPerms(user: process.user)
-
-            // Set uid, gid, and supplementary groups.
-            try App.setPermissions(user: process.user)
-
-            if process.terminal {
-                guard ioctl(0, UInt(TIOCSCTTY), 0) != -1 else {
-                    throw App.Errno(stage: "setctty()")
-                }
-            }
-
-            try App.exec(process: process)
+            try childSetup(spec: spec, ackPipe: ackPipe, syncPipe: syncPipe, log: log)
         } else {  // parent process
-            try childPipe.fileHandleForWriting.close()
-
-            // wait until the pipe is closed then carry on.
-            _ = try childPipe.fileHandleForReading.readToEnd()
-            try childPipe.fileHandleForReading.close()
-
-            // send our child's pid to our parent before we exit.
+            // Send our child's pid before we exit.
             var childPid = processID
             let data = Data(bytes: &childPid, count: MemoryLayout.size(ofValue: childPid))
-
-            try syncfd.write(contentsOf: data)
-            try syncfd.close()
+            try syncPipe.write(contentsOf: data)
         }
     }
 
@@ -222,7 +250,6 @@ struct RunCommand: ParsableCommand {
         if newRoot <= 0 {
             throw App.Errno(stage: "open(newroot)")
         }
-
         defer { close(newRoot) }
 
         // change cwd to the new root
@@ -256,5 +283,20 @@ struct RunCommand: ParsableCommand {
         let cStringCopy = UnsafeMutableBufferPointer<CChar>.allocate(capacity: cString.count)
         _ = cStringCopy.initialize(from: cString)
         return UnsafeMutablePointer(cStringCopy.baseAddress)
+    }
+
+    private func mountConsole(path: String) throws {
+        let console = "/dev/console"
+        if access(console, F_OK) != 0 {
+            let fd = open(console, O_RDWR | O_CREAT, mode_t(UInt16(0o600)))
+            guard fd != -1 else {
+                throw App.Errno(stage: "open(/dev/console)")
+            }
+            close(fd)
+        }
+
+        guard mount(path, console, "bind", UInt(MS_BIND), nil) == 0 else {
+            throw App.Errno(stage: "mount(console)")
+        }
     }
 }

@@ -43,6 +43,9 @@ final class StandardIO: ManagedProcess.IO & Sendable {
         self.state = Mutex(State())
     }
 
+    // NOP
+    func attach(pid: Int32, fd: Int32) throws {}
+
     func start(process: inout Command) throws {
         try self.state.withLock {
             if let stdinPort = self.hostStdio.stdin {
@@ -60,6 +63,7 @@ final class StandardIO: ManagedProcess.IO & Sendable {
                 let pair = IOPair(
                     readFrom: stdinSocket,
                     writeTo: inPipe.fileHandleForWriting,
+                    reason: "StandardIO stdin",
                     logger: log
                 )
                 $0.stdin = pair
@@ -82,6 +86,7 @@ final class StandardIO: ManagedProcess.IO & Sendable {
                 let pair = IOPair(
                     readFrom: outPipe.fileHandleForReading,
                     writeTo: stdoutSocket,
+                    reason: "StandardIO stdout",
                     logger: log
                 )
                 $0.stdout = pair
@@ -104,6 +109,7 @@ final class StandardIO: ManagedProcess.IO & Sendable {
                 let pair = IOPair(
                     readFrom: errPipe.fileHandleForReading,
                     writeTo: stderrSocket,
+                    reason: "StandardIO stderr",
                     logger: log
                 )
                 $0.stderr = pair
@@ -115,6 +121,25 @@ final class StandardIO: ManagedProcess.IO & Sendable {
 
     // NOP
     func resize(size: Terminal.Size) throws {}
+
+    func close() throws {
+        self.state.withLock {
+            if let stdin = $0.stdin {
+                stdin.close()
+                $0.stdin = nil
+            }
+
+            if let stdout = $0.stdout {
+                stdout.close()
+                $0.stdout = nil
+            }
+
+            if let stderr = $0.stderr {
+                stderr.close()
+                $0.stderr = nil
+            }
+        }
+    }
 
     func closeStdin() throws {
         self.state.withLock {
@@ -129,12 +154,15 @@ final class StandardIO: ManagedProcess.IO & Sendable {
         try self.state.withLock {
             if let stdin = $0.stdinPipe {
                 try stdin.fileHandleForReading.close()
+                $0.stdinPipe = nil
             }
             if let stdout = $0.stdoutPipe {
                 try stdout.fileHandleForWriting.close()
+                $0.stdoutPipe = nil
             }
             if let stderr = $0.stderrPipe {
                 try stderr.fileHandleForWriting.close()
+                $0.stderrPipe = nil
             }
         }
     }

@@ -36,8 +36,7 @@ struct ContainerMount {
     }
 
     func configureConsole() throws {
-        let ptmx = self.rootfs.standardizingPath.appendingPathComponent("/dev/ptmx")
-
+        let ptmx = self.rootfs.standardizingPath.appendingPathComponent("dev/ptmx")
         guard remove(ptmx) == 0 else {
             throw App.Errno(stage: "remove(ptmx)")
         }

@@ -29,6 +29,9 @@ import Musl
 
 @main
 struct App: ParsableCommand {
+    static let ackPid = "AckPid"
+    static let ackConsole = "AckConsole"
+
     static let configuration = CommandConfiguration(
         commandName: "vmexec",
         version: "0.1.0",
@@ -160,5 +163,12 @@ extension App {
     static func Errno(stage: String, info: String = "") -> ContainerizationError {
         let posix = POSIXError(.init(rawValue: errno)!, userInfo: ["stage": stage])
         return ContainerizationError(.internalError, message: "\(info) \(String(describing: posix))")
+    }
+
+    static func Failure(message: String) -> ContainerizationError {
+        ContainerizationError(
+            .internalError,
+            message: message
+        )
     }
 }

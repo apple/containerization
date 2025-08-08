@@ -257,6 +257,54 @@ extension IntegrationSuite {
         }
     }
 
+    func testContainerDevConsole() async throws {
+        let id = "test-container-devconsole"
+
+        let bs = try await bootstrap()
+
+        let manager = try ContainerManager(vmm: bs.vmm)
+        defer {
+            try? manager.delete(id)
+        }
+
+        let buffer = BufferWriter()
+        let container = try await manager.create(
+            id,
+            image: bs.image,
+            rootfs: bs.rootfs
+        ) { config in
+            // We mount devtmpfs by default, and while this includes creating
+            // /dev/console typically that'll be pointing to /dev/hvc0 (the
+            // virtio serial console). This is just a character device, so a trivial
+            // way to check that our bind mounted console setup worked is by just
+            // parsing `mount`'s output and looking for /dev/console as it wouldn't
+            // be there normally without our dance.
+            config.process.arguments = ["mount"]
+            config.process.terminal = true
+            config.process.stdout = buffer
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+        guard status == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        guard let str = String(data: buffer.data, encoding: .utf8) else {
+            throw IntegrationError.assert(
+                msg: "failed to convert standard output to a UTF8 string")
+        }
+
+        let devConsole = "/dev/console"
+        guard str.contains(devConsole) else {
+            throw IntegrationError.assert(
+                msg: "process should have \(devConsole) in `mount` output")
+        }
+    }
+
     private func createMountDirectory() throws -> URL {
         let dir = FileManager.default.uniqueTemporaryDirectory(create: true)
         try "hello".write(to: dir.appendingPathComponent("hi.txt"), atomically: true, encoding: .utf8)
