@@ -65,7 +65,11 @@ package final class LocalOCILayoutClient: ContentClient {
                 let existingDigest = SHA256.hash(data: existingData)
 
                 guard existingDigest.digestString == expectedDigest.digestString else {
-                    throw ContainerizationError(.internalError, message: "File \(filePath) exists but contains different content. Expected digest: \(expectedDigest.digestString), existing digest: \(existingDigest.digestString)")
+                    throw ContainerizationError(
+                        .internalError,
+                        message:
+                            "File \(filePath) exists but contains different content. Expected digest: \(expectedDigest.digestString), existing digest: \(existingDigest.digestString)"
+                    )
                 }
 
                 if let progress, let fileSize = fileManager.fileSize(atPath: filePath) {
