@@ -184,12 +184,12 @@ extension Socket {
                 // Already closed.
                 return
             }
-            
+
             let acceptSource = currentState.acceptSource
-            
+
             acceptSource?.cancel()
             try handle.close()
-            
+
             currentState = State(
                 socketState: currentState.socketState,
                 handle: nil,
