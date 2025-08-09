@@ -179,25 +179,24 @@ extension Socket {
     }
 
     public func close() throws {
-        let (handleToClose, sourceToCancel) = state.withLock { currentState -> (FileHandle?, DispatchSourceRead?) in
+        try state.withLock { currentState in
             guard let handle = currentState.handle else {
                 // Already closed.
-                return (nil, nil)
+                return
             }
-
+            
+            let acceptSource = currentState.acceptSource
+            
+            acceptSource?.cancel()
+            try handle.close()
+            
             currentState = State(
                 socketState: currentState.socketState,
                 handle: nil,
                 type: currentState.type,
                 acceptSource: nil
             )
-
-            return (handle, currentState.acceptSource)
         }
-
-        // Close outside the lock to avoid a deadlock.
-        sourceToCancel?.cancel()
-        try handleToClose?.close()
     }
 
     public func write(data: any DataProtocol) throws -> Int {
