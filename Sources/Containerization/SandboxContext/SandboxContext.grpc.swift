@@ -74,6 +74,11 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtoc
     callOptions: CallOptions?
   ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_SetupEmulatorRequest, Com_Apple_Containerization_Sandbox_V3_SetupEmulatorResponse>
 
+  func writeFile(
+    _ request: Com_Apple_Containerization_Sandbox_V3_WriteFileRequest,
+    callOptions: CallOptions?
+  ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_WriteFileRequest, Com_Apple_Containerization_Sandbox_V3_WriteFileResponse>
+
   func createProcess(
     _ request: Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest,
     callOptions: CallOptions?
@@ -306,6 +311,24 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtocol {
       request: request,
       callOptions: callOptions ?? self.defaultCallOptions,
       interceptors: self.interceptors?.makeSetupEmulatorInterceptors() ?? []
+    )
+  }
+
+  /// Write data to an existing or new file.
+  ///
+  /// - Parameters:
+  ///   - request: Request to send to WriteFile.
+  ///   - callOptions: Call options.
+  /// - Returns: A `UnaryCall` with futures for the metadata, status and response.
+  public func writeFile(
+    _ request: Com_Apple_Containerization_Sandbox_V3_WriteFileRequest,
+    callOptions: CallOptions? = nil
+  ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_WriteFileRequest, Com_Apple_Containerization_Sandbox_V3_WriteFileResponse> {
+    return self.makeUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.writeFile.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeWriteFileInterceptors() ?? []
     )
   }
 
@@ -720,6 +743,11 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientP
     callOptions: CallOptions?
   ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_SetupEmulatorRequest, Com_Apple_Containerization_Sandbox_V3_SetupEmulatorResponse>
 
+  func makeWriteFileCall(
+    _ request: Com_Apple_Containerization_Sandbox_V3_WriteFileRequest,
+    callOptions: CallOptions?
+  ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_WriteFileRequest, Com_Apple_Containerization_Sandbox_V3_WriteFileResponse>
+
   func makeCreateProcessCall(
     _ request: Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest,
     callOptions: CallOptions?
@@ -909,6 +937,18 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientProtoco
       request: request,
       callOptions: callOptions ?? self.defaultCallOptions,
       interceptors: self.interceptors?.makeSetupEmulatorInterceptors() ?? []
+    )
+  }
+
+  public func makeWriteFileCall(
+    _ request: Com_Apple_Containerization_Sandbox_V3_WriteFileRequest,
+    callOptions: CallOptions? = nil
+  ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_WriteFileRequest, Com_Apple_Containerization_Sandbox_V3_WriteFileResponse> {
+    return self.makeAsyncUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.writeFile.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeWriteFileInterceptors() ?? []
     )
   }
 
@@ -1215,6 +1255,18 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientProtoco
     )
   }
 
+  public func writeFile(
+    _ request: Com_Apple_Containerization_Sandbox_V3_WriteFileRequest,
+    callOptions: CallOptions? = nil
+  ) async throws -> Com_Apple_Containerization_Sandbox_V3_WriteFileResponse {
+    return try await self.performAsyncUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.writeFile.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeWriteFileInterceptors() ?? []
+    )
+  }
+
   public func createProcess(
     _ request: Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest,
     callOptions: CallOptions? = nil
@@ -1463,6 +1515,9 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextClientInterc
   /// - Returns: Interceptors to use when invoking 'setupEmulator'.
   func makeSetupEmulatorInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_SetupEmulatorRequest, Com_Apple_Containerization_Sandbox_V3_SetupEmulatorResponse>]
 
+  /// - Returns: Interceptors to use when invoking 'writeFile'.
+  func makeWriteFileInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_WriteFileRequest, Com_Apple_Containerization_Sandbox_V3_WriteFileResponse>]
+
   /// - Returns: Interceptors to use when invoking 'createProcess'.
   func makeCreateProcessInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest, Com_Apple_Containerization_Sandbox_V3_CreateProcessResponse>]
 
@@ -1528,6 +1583,7 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.sysctl,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.setTime,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.setupEmulator,
+      Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.writeFile,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.createProcess,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.deleteProcess,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.startProcess,
@@ -1594,6 +1650,12 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
     public static let setupEmulator = GRPCMethodDescriptor(
       name: "SetupEmulator",
       path: "/com.apple.containerization.sandbox.v3.SandboxContext/SetupEmulator",
+      type: GRPCCallType.unary
+    )
+
+    public static let writeFile = GRPCMethodDescriptor(
+      name: "WriteFile",
+      path: "/com.apple.containerization.sandbox.v3.SandboxContext/WriteFile",
       type: GRPCCallType.unary
     )
 
@@ -1731,6 +1793,9 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider: Ca
   /// Set up an emulator in the guest for a specific binary format.
   func setupEmulator(request: Com_Apple_Containerization_Sandbox_V3_SetupEmulatorRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_SetupEmulatorResponse>
 
+  /// Write data to an existing or new file.
+  func writeFile(request: Com_Apple_Containerization_Sandbox_V3_WriteFileRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_WriteFileResponse>
+
   /// Create a new process inside the container.
   func createProcess(request: Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_CreateProcessResponse>
 
@@ -1866,6 +1931,15 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider {
         responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_SetupEmulatorResponse>(),
         interceptors: self.interceptors?.makeSetupEmulatorInterceptors() ?? [],
         userFunction: self.setupEmulator(request:context:)
+      )
+
+    case "WriteFile":
+      return UnaryServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_WriteFileRequest>(),
+        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_WriteFileResponse>(),
+        interceptors: self.interceptors?.makeWriteFileInterceptors() ?? [],
+        userFunction: self.writeFile(request:context:)
       )
 
     case "CreateProcess":
@@ -2083,6 +2157,12 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvide
     context: GRPCAsyncServerCallContext
   ) async throws -> Com_Apple_Containerization_Sandbox_V3_SetupEmulatorResponse
 
+  /// Write data to an existing or new file.
+  func writeFile(
+    request: Com_Apple_Containerization_Sandbox_V3_WriteFileRequest,
+    context: GRPCAsyncServerCallContext
+  ) async throws -> Com_Apple_Containerization_Sandbox_V3_WriteFileResponse
+
   /// Create a new process inside the container.
   func createProcess(
     request: Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest,
@@ -2278,6 +2358,15 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvider {
         wrapping: { try await self.setupEmulator(request: $0, context: $1) }
       )
 
+    case "WriteFile":
+      return GRPCAsyncServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_WriteFileRequest>(),
+        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_WriteFileResponse>(),
+        interceptors: self.interceptors?.makeWriteFileInterceptors() ?? [],
+        wrapping: { try await self.writeFile(request: $0, context: $1) }
+      )
+
     case "CreateProcess":
       return GRPCAsyncServerHandler(
         context: context,
@@ -2471,6 +2560,10 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextServerInterc
   ///   Defaults to calling `self.makeInterceptors()`.
   func makeSetupEmulatorInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_SetupEmulatorRequest, Com_Apple_Containerization_Sandbox_V3_SetupEmulatorResponse>]
 
+  /// - Returns: Interceptors to use when handling 'writeFile'.
+  ///   Defaults to calling `self.makeInterceptors()`.
+  func makeWriteFileInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_WriteFileRequest, Com_Apple_Containerization_Sandbox_V3_WriteFileResponse>]
+
   /// - Returns: Interceptors to use when handling 'createProcess'.
   ///   Defaults to calling `self.makeInterceptors()`.
   func makeCreateProcessInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest, Com_Apple_Containerization_Sandbox_V3_CreateProcessResponse>]
@@ -2553,6 +2646,7 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.sysctl,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.setTime,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.setupEmulator,
+      Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.writeFile,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.createProcess,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.deleteProcess,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.startProcess,
@@ -2619,6 +2713,12 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
     public static let setupEmulator = GRPCMethodDescriptor(
       name: "SetupEmulator",
       path: "/com.apple.containerization.sandbox.v3.SandboxContext/SetupEmulator",
+      type: GRPCCallType.unary
+    )
+
+    public static let writeFile = GRPCMethodDescriptor(
+      name: "WriteFile",
+      path: "/com.apple.containerization.sandbox.v3.SandboxContext/WriteFile",
       type: GRPCCallType.unary
     )
 

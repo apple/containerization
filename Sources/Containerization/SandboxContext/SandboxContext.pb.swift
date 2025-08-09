@@ -682,6 +682,59 @@ public struct Com_Apple_Containerization_Sandbox_V3_MkdirResponse: Sendable {
   public init() {}
 }
 
+public struct Com_Apple_Containerization_Sandbox_V3_WriteFileRequest: @unchecked Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var path: String = String()
+
+  public var data: Data = Data()
+
+  public var mode: UInt32 = 0
+
+  public var flags: Com_Apple_Containerization_Sandbox_V3_WriteFileRequest.WriteFileFlags {
+    get {return _flags ?? Com_Apple_Containerization_Sandbox_V3_WriteFileRequest.WriteFileFlags()}
+    set {_flags = newValue}
+  }
+  /// Returns true if `flags` has been explicitly set.
+  public var hasFlags: Bool {return self._flags != nil}
+  /// Clears the value of `flags`. Subsequent reads from it will return its default value.
+  public mutating func clearFlags() {self._flags = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public struct WriteFileFlags: Sendable {
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
+
+    public var createParentDirs: Bool = false
+
+    public var append: Bool = false
+
+    public var createIfMissing: Bool = false
+
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+    public init() {}
+  }
+
+  public init() {}
+
+  fileprivate var _flags: Com_Apple_Containerization_Sandbox_V3_WriteFileRequest.WriteFileFlags? = nil
+}
+
+public struct Com_Apple_Containerization_Sandbox_V3_WriteFileResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 public struct Com_Apple_Containerization_Sandbox_V3_IpLinkSetRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -2147,6 +2200,123 @@ extension Com_Apple_Containerization_Sandbox_V3_MkdirResponse: SwiftProtobuf.Mes
   }
 
   public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_MkdirResponse, rhs: Com_Apple_Containerization_Sandbox_V3_MkdirResponse) -> Bool {
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Com_Apple_Containerization_Sandbox_V3_WriteFileRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".WriteFileRequest"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "path"),
+    2: .same(proto: "data"),
+    3: .same(proto: "mode"),
+    4: .same(proto: "flags"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.path) }()
+      case 2: try { try decoder.decodeSingularBytesField(value: &self.data) }()
+      case 3: try { try decoder.decodeSingularUInt32Field(value: &self.mode) }()
+      case 4: try { try decoder.decodeSingularMessageField(value: &self._flags) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if !self.path.isEmpty {
+      try visitor.visitSingularStringField(value: self.path, fieldNumber: 1)
+    }
+    if !self.data.isEmpty {
+      try visitor.visitSingularBytesField(value: self.data, fieldNumber: 2)
+    }
+    if self.mode != 0 {
+      try visitor.visitSingularUInt32Field(value: self.mode, fieldNumber: 3)
+    }
+    try { if let v = self._flags {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_WriteFileRequest, rhs: Com_Apple_Containerization_Sandbox_V3_WriteFileRequest) -> Bool {
+    if lhs.path != rhs.path {return false}
+    if lhs.data != rhs.data {return false}
+    if lhs.mode != rhs.mode {return false}
+    if lhs._flags != rhs._flags {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Com_Apple_Containerization_Sandbox_V3_WriteFileRequest.WriteFileFlags: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = Com_Apple_Containerization_Sandbox_V3_WriteFileRequest.protoMessageName + ".WriteFileFlags"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .standard(proto: "create_parent_dirs"),
+    2: .same(proto: "append"),
+    3: .standard(proto: "create_if_missing"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBoolField(value: &self.createParentDirs) }()
+      case 2: try { try decoder.decodeSingularBoolField(value: &self.append) }()
+      case 3: try { try decoder.decodeSingularBoolField(value: &self.createIfMissing) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.createParentDirs != false {
+      try visitor.visitSingularBoolField(value: self.createParentDirs, fieldNumber: 1)
+    }
+    if self.append != false {
+      try visitor.visitSingularBoolField(value: self.append, fieldNumber: 2)
+    }
+    if self.createIfMissing != false {
+      try visitor.visitSingularBoolField(value: self.createIfMissing, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_WriteFileRequest.WriteFileFlags, rhs: Com_Apple_Containerization_Sandbox_V3_WriteFileRequest.WriteFileFlags) -> Bool {
+    if lhs.createParentDirs != rhs.createParentDirs {return false}
+    if lhs.append != rhs.append {return false}
+    if lhs.createIfMissing != rhs.createIfMissing {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Com_Apple_Containerization_Sandbox_V3_WriteFileResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".WriteFileResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_WriteFileResponse, rhs: Com_Apple_Containerization_Sandbox_V3_WriteFileResponse) -> Bool {
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
