@@ -109,16 +109,7 @@ public final class RegistryClient: ContentClient {
         self.retryOptions = retryOptions
         self.bufferSize = bufferSize
         var httpConfiguration = HTTPClient.Configuration()
-        let proxyConfig: HTTPClient.Configuration.Proxy? = {
-            let proxyEnv = ProcessInfo.processInfo.environment["HTTP_PROXY"]
-            guard let proxyEnv else {
-                return nil
-            }
-            guard let url = URL(string: proxyEnv), let host = url.host(), let port = url.port else {
-                return nil
-            }
-            return .server(host: host, port: port)
-        }()
+        let proxyConfig: ProxyConfig.proxy(for: components.url)
         httpConfiguration.proxy = proxyConfig
         if let logger {
             self.client = HTTPClient(eventLoopGroupProvider: .singleton, configuration: httpConfiguration, backgroundActivityLogger: logger)
