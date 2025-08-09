@@ -44,7 +44,8 @@ package final class LocalOCILayoutClient: ContentClient {
         let c = try await self._fetch(digest: descriptor.digest)
         let fileManager = FileManager.default
         let filePath = file.absolutePath()
-        if !fileManager.fileExists(atPath: filePath) {
+
+        do {
             let src = c.path
             try fileManager.copyItem(at: src, to: file)
 
@@ -53,7 +54,30 @@ package final class LocalOCILayoutClient: ContentClient {
                     ProgressEvent(event: "add-size", value: fileSize)
                 ])
             }
+        } catch let error as NSError {
+            guard error.code == NSFileWriteFileExistsError else {
+                throw error
+            }
+
+            do {
+                let expectedDigest = try c.digest()
+                let existingData = try Data(contentsOf: file)
+                let existingDigest = SHA256.hash(data: existingData)
+
+                guard existingDigest.digestString == expectedDigest.digestString else {
+                    throw ContainerizationError(.internalError, message: "File \(filePath) exists but contains different content. Expected digest: \(expectedDigest.digestString), existing digest: \(existingDigest.digestString)")
+                }
+
+                if let progress, let fileSize = fileManager.fileSize(atPath: filePath) {
+                    await progress([
+                        ProgressEvent(event: "add-size", value: fileSize)
+                    ])
+                }
+            } catch {
+                throw error
+            }
         }
+
         let size = try Int64(c.size())
         let digest = try c.digest()
         return (size, digest)
