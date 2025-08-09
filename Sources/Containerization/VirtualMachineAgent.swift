@@ -18,6 +18,12 @@ import ContainerizationError
 import ContainerizationOCI
 import Foundation
 
+public struct WriteFileFlags {
+    public var createParentDirectories = false
+    public var append = false
+    public var create = false
+}
+
 /// A protocol for the agent running inside a virtual machine. If an operation isn't
 /// supported the implementation MUST return a ContainerizationError with a code of
 /// `.unsupported`.
@@ -28,7 +34,7 @@ public protocol VirtualMachineAgent: Sendable {
     /// Close any resources held by the agent.
     func close() async throws
 
-    // POSIX
+    // POSIX-y
     func getenv(key: String) async throws -> String
     func setenv(key: String, value: String) async throws
     func mount(_ mount: ContainerizationOCI.Mount) async throws
@@ -36,6 +42,7 @@ public protocol VirtualMachineAgent: Sendable {
     func mkdir(path: String, all: Bool, perms: UInt32) async throws
     @discardableResult
     func kill(pid: Int32, signal: Int32) async throws -> Int32
+    func writeFile(path: String, data: Data, flags: WriteFileFlags, mode: UInt32) async throws
 
     // Process lifecycle
     func createProcess(
@@ -70,5 +77,9 @@ extension VirtualMachineAgent {
 
     public func configureHosts(config: Hosts, location: String) async throws {
         throw ContainerizationError(.unsupported, message: "configureHosts")
+    }
+
+    public func writeFile(path: String, data: Data, flags: WriteFileFlags, mode: UInt32) async throws {
+        throw ContainerizationError(.unsupported, message: "writeFile")
     }
 }

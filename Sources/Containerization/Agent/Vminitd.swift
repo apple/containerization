@@ -64,6 +64,29 @@ extension Vminitd: VirtualMachineAgent {
         for mount in mounts {
             try await self.mount(mount)
         }
+
+        // Setup root cg subtree_control.
+        let data = "+memory +pids +io +cpu +cpuset".data(using: .utf8)!
+        try await writeFile(
+            path: "/sys/fs/cgroup/cgroup.subtree_control",
+            data: data,
+            flags: .init(),
+            mode: 0
+        )
+    }
+
+    public func writeFile(path: String, data: Data, flags: WriteFileFlags, mode: UInt32) async throws {
+        _ = try await client.writeFile(
+            .with {
+                $0.path = path
+                $0.mode = mode
+                $0.data = data
+                $0.flags = .with {
+                    $0.append = flags.append
+                    $0.createIfMissing = flags.create
+                    $0.createParentDirs = flags.createParentDirectories
+                }
+            })
     }
 
     /// Mount a filesystem in the sandbox's environment.
