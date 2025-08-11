@@ -28,6 +28,32 @@ import Virtualization
 struct VZVirtualMachineInstance: VirtualMachineInstance, Sendable {
     typealias Agent = Vminitd
 
+    /// Cleanup registry for temporary directories
+    private static let tempDirectoryCleanup = Mutex<Set<String>>(Set<String>())
+
+    /// Register a temporary directory for cleanup
+    public static func registerTempDirectory(_ path: String) {
+        _ = tempDirectoryCleanup.withLock { $0.insert(path) }
+    }
+
+    /// Clean up all registered temporary directories
+    public static func cleanupTempDirectories() {
+        let directoriesToClean = tempDirectoryCleanup.withLock {
+            let dirs = Array($0)
+            $0.removeAll()
+            return dirs
+        }
+
+        for directory in directoriesToClean {
+            do {
+                try FileManager.default.removeItem(atPath: directory)
+            } catch {
+                // Log but don't fail - cleanup is best effort
+                print("Warning: Failed to cleanup temporary directory \(directory): \(error)")
+            }
+        }
+    }
+
     /// Attached mounts on the sandbox.
     public let mounts: [AttachedFilesystem]
 
@@ -412,27 +438,94 @@ extension VZVirtualMachineInstance.Configuration {
         let consolidatedTempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("containerization-consolidated-\(consolidatedHash)")
 
-        // Create directory if it doesn't exist
-        if !FileManager.default.fileExists(atPath: consolidatedTempDir.path) {
-            try FileManager.default.createDirectory(at: consolidatedTempDir, withIntermediateDirectories: true)
-
-            // Create hardlinks for all files with their destination filenames
-            for mount in fileMounts {
-                let destinationFilename = URL(fileURLWithPath: mount.destination).lastPathComponent
-                let consolidatedFile = consolidatedTempDir.appendingPathComponent(destinationFilename)
-                let sourceFile = URL(fileURLWithPath: mount.source)
-                try FileManager.default.linkItem(at: sourceFile, to: consolidatedFile)
-            }
-        }
+        // Atomically create directory to prevent TOCTOU race condition
+        try createConsolidatedDirectoryAtomically(at: consolidatedTempDir, fileMounts: fileMounts)
 
         // Create a consolidated mount targeting the parent directory
         let consolidatedMount = Mount.share(source: consolidatedTempDir.path, destination: parentDir)
         return consolidatedMount
     }
 
+    /// Atomically create consolidated directory and populate with hardlinks
+    private func createConsolidatedDirectoryAtomically(at url: URL, fileMounts: [Mount]) throws {
+        do {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            // Register for cleanup if this is a containerization temp directory
+            if url.path.contains("containerization-consolidated-") {
+                VZVirtualMachineInstance.registerTempDirectory(url.path)
+            }
+
+            // Create hardlinks for all files with their destination filenames
+            for mount in fileMounts {
+                // Validate each source file before creating hardlink
+                try validateSourceFileForMount(mount)
+
+                let destinationFilename = URL(fileURLWithPath: mount.destination).lastPathComponent
+                let consolidatedFile = url.appendingPathComponent(destinationFilename)
+                let sourceFile = URL(fileURLWithPath: mount.source)
+                try FileManager.default.linkItem(at: sourceFile, to: consolidatedFile)
+            }
+        } catch CocoaError.fileWriteFileExists {
+            // Directory already exists, verify it's actually a directory and has expected contents
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+                isDirectory.boolValue
+            else {
+                throw ContainerizationError(.invalidArgument, message: "Path exists but is not a directory: \(url.path)")
+            }
+
+            // Verify all expected hardlinks exist
+            for mount in fileMounts {
+                let destinationFilename = URL(fileURLWithPath: mount.destination).lastPathComponent
+                let consolidatedFile = url.appendingPathComponent(destinationFilename)
+                if !FileManager.default.fileExists(atPath: consolidatedFile.path) {
+                    // Missing hardlink, create it
+                    try validateSourceFileForMount(mount)
+                    let sourceFile = URL(fileURLWithPath: mount.source)
+                    try FileManager.default.linkItem(at: sourceFile, to: consolidatedFile)
+                }
+            }
+        } catch {
+            throw ContainerizationError(.internalError, message: "Failed to create consolidated directory \(url.path): \(error.localizedDescription)")
+        }
+    }
+
+    /// Validate source file for mount (extracted to avoid duplication)
+    private func validateSourceFileForMount(_ mount: Mount) throws {
+        let source = mount.source
+
+        // Check if file exists
+        guard FileManager.default.fileExists(atPath: source) else {
+            throw ContainerizationError(.notFound, message: "Source file does not exist: \(source)")
+        }
+
+        // Get file attributes to check if it's a regular file
+        let attributes = try FileManager.default.attributesOfItem(atPath: source)
+        let fileType = attributes[.type] as? FileAttributeType
+
+        // Reject symlinks to prevent following links to unintended targets
+        guard fileType != .typeSymbolicLink else {
+            throw ContainerizationError(.invalidArgument, message: "Cannot mount symlink: \(source)")
+        }
+
+        // Ensure it's a regular file
+        guard fileType == .typeRegular else {
+            throw ContainerizationError(.invalidArgument, message: "Source must be a regular file: \(source)")
+        }
+
+        // Check if file is readable
+        guard FileManager.default.isReadableFile(atPath: source) else {
+            throw ContainerizationError(.invalidArgument, message: "Source file is not readable: \(source)")
+        }
+    }
+
     private func hashMountSources(sources: [String]) throws -> String {
         // Create a deterministic hash of all source paths for consolidated mount
-        let combined = sources.sorted().joined(separator: "|")
+        // Sanitize paths by escaping the separator character to prevent hash collisions
+        let sanitizedSources = sources.sorted().map { source in
+            source.replacingOccurrences(of: "|", with: "\\|")
+        }
+        let combined = sanitizedSources.joined(separator: "|")
         return try hashMountSource(source: combined)
     }
 }

@@ -148,15 +148,16 @@ extension Mount {
 
     /// Create an isolated temporary directory containing only the target file via hardlink
     func createIsolatedFileShare() throws -> String {
+        // Validate source file exists and is a regular file
+        try validateSourceFile()
+
         // Create deterministic temp directory based on source file path
         let sourceHash = try hashMountSource(source: self.source)
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("containerization-file-mount-\(sourceHash)")
 
-        // Create directory if it doesn't exist
-        if !FileManager.default.fileExists(atPath: tempDir.path) {
-            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        }
+        // Atomically create directory
+        try createDirectory(at: tempDir)
 
         // Use destination filename for the hardlink instead of source filename
         let destinationFilename = URL(fileURLWithPath: self.destination).lastPathComponent
@@ -169,6 +170,56 @@ extension Mount {
         }
 
         return tempDir.path
+    }
+
+    /// Validate that the source file exists, is readable, and is not a symlink
+    private func validateSourceFile() throws {
+
+        // Check if file exists
+        guard FileManager.default.fileExists(atPath: self.source) else {
+            throw ContainerizationError(.notFound, message: "Source file does not exist: \(self.source)")
+        }
+
+        // Get file attributes to check if it's a regular file
+        let attributes = try FileManager.default.attributesOfItem(atPath: self.source)
+        let fileType = attributes[.type] as? FileAttributeType
+
+        // Reject symlinks to prevent following links to unintended targets
+        guard fileType != .typeSymbolicLink else {
+            throw ContainerizationError(.invalidArgument, message: "Cannot mount symlink: \(self.source)")
+        }
+
+        // Ensure it's a regular file
+        guard fileType == .typeRegular else {
+            throw ContainerizationError(.invalidArgument, message: "Source must be a regular file: \(self.source)")
+        }
+
+        // Check if file is readable
+        guard FileManager.default.isReadableFile(atPath: self.source) else {
+            throw ContainerizationError(.invalidArgument, message: "Source file is not readable: \(self.source)")
+        }
+    }
+
+    /// Atomically create directory (to prevent TOCTOU race conditions)
+    private func createDirectory(at url: URL) throws {
+        do {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            // Register for cleanup
+            if url.path.contains("containerization-file-mount-") {
+                VZVirtualMachineInstance.registerTempDirectory(url.path)
+            }
+        } catch CocoaError.fileWriteFileExists {
+            // Directory already exists, verify it's actually a directory
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+                isDirectory.boolValue
+            else {
+                throw ContainerizationError(.invalidArgument, message: "Path exists but is not a directory: \(url.path)")
+            }
+            // Directory exists and is valid, continue
+        } catch {
+            throw ContainerizationError(.internalError, message: "Failed to create directory \(url.path): \(error.localizedDescription)")
+        }
     }
 
     func configure(config: inout VZVirtualMachineConfiguration) throws {

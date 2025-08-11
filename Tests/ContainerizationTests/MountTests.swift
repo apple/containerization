@@ -18,6 +18,7 @@ import Foundation
 import Testing
 
 @testable import Containerization
+@testable import ContainerizationError
 
 final class MountTests {
     @Test func fileDetection() throws {
@@ -216,7 +217,67 @@ final class MountTests {
 
         // Clean up hardlink isolation directory
         let isolatedDir = try mount.createIsolatedFileShare()
-        defer { try? FileManager.default.removeItem(atPath: isolatedDir) }
+        do { try? FileManager.default.removeItem(atPath: isolatedDir) }
+    }
+
+    @Test func rejectsSymlinks() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+        let testFile = tempDir.appendingPathComponent("symlink-source.txt")
+        let symlinkFile = tempDir.appendingPathComponent("symlink-test.txt")
+
+        try "test content".write(to: testFile, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: testFile) }
+
+        try FileManager.default.createSymbolicLink(at: symlinkFile, withDestinationURL: testFile)
+        defer { try? FileManager.default.removeItem(at: symlinkFile) }
+
+        let mount = Mount.share(source: symlinkFile.path, destination: "/app/config.txt")
+
+        #expect(throws: ContainerizationError.self) {
+            try mount.createIsolatedFileShare()
+        }
+    }
+
+    @Test func rejectsNonExistentFiles() throws {
+        let mount = Mount.share(source: "/nonexistent/file.txt", destination: "/app/config.txt")
+
+        #expect(throws: ContainerizationError.self) {
+            try mount.createIsolatedFileShare()
+        }
+    }
+
+    @Test func rejectsDirectories() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+        let testDir = tempDir.appendingPathComponent("test-directory")
+
+        try FileManager.default.createDirectory(at: testDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: testDir) }
+
+        let mount = Mount.share(source: testDir.path, destination: "/app/config.txt")
+
+        #expect(throws: ContainerizationError.self) {
+            try mount.createIsolatedFileShare()
+        }
+    }
+
+    @Test func registersForCleanup() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+        let testFile = tempDir.appendingPathComponent("cleanup-test.txt")
+
+        try "test content".write(to: testFile, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: testFile) }
+
+        let mount = Mount.share(source: testFile.path, destination: "/app/config.txt")
+        let isolatedDir = try mount.createIsolatedFileShare()
+
+        // Verify directory was created
+        #expect(FileManager.default.fileExists(atPath: isolatedDir))
+
+        // Test cleanup functionality
+        VZVirtualMachineInstance.cleanupTempDirectories()
+
+        // Directory should be removed after cleanup
+        #expect(!FileManager.default.fileExists(atPath: isolatedDir))
     }
     #endif
 }
