@@ -127,6 +127,20 @@ public final class LinuxContainer: Container, Sendable {
         public init() {}
     }
 
+    private struct TemporaryMount {
+        let tempDestination: String
+        let destination: String
+
+        func toBindMount() -> ContainerizationOCI.Mount {
+            .init(
+                type: "bind",
+                source: tempDestination,
+                destination: destination,
+                options: ["bind"]
+            )
+        }
+    }
+
     private let state: Mutex<State>
 
     // Ports to be allocated from for stdio and for
@@ -166,15 +180,18 @@ public final class LinuxContainer: Container, Sendable {
         struct CreatedState: Sendable {
             let vm: any VirtualMachineInstance
             let relayManager: UnixSocketRelayManager
+            let tempMounts: [TemporaryMount]
         }
 
         struct StartingState: Sendable {
             let vm: any VirtualMachineInstance
             let relayManager: UnixSocketRelayManager
+            let tempMounts: [TemporaryMount]
 
             init(_ state: CreatedState) {
                 self.vm = state.vm
                 self.relayManager = state.relayManager
+                self.tempMounts = state.tempMounts
             }
         }
 
@@ -182,11 +199,13 @@ public final class LinuxContainer: Container, Sendable {
             let vm: any VirtualMachineInstance
             let relayManager: UnixSocketRelayManager
             let process: LinuxProcess
+            let tempMounts: [TemporaryMount]
 
             init(_ state: StartedState) {
                 self.vm = state.vm
                 self.relayManager = state.relayManager
                 self.process = state.process
+                self.tempMounts = state.tempMounts
             }
         }
 
@@ -194,11 +213,13 @@ public final class LinuxContainer: Container, Sendable {
             let vm: any VirtualMachineInstance
             let relayManager: UnixSocketRelayManager
             let process: LinuxProcess
+            let tempMounts: [TemporaryMount]
 
             init(_ state: PausingState) {
                 self.vm = state.vm
                 self.relayManager = state.relayManager
                 self.process = state.process
+                self.tempMounts = state.tempMounts
             }
         }
 
@@ -206,11 +227,13 @@ public final class LinuxContainer: Container, Sendable {
             let vm: any VirtualMachineInstance
             let relayManager: UnixSocketRelayManager
             let process: LinuxProcess
+            let tempMounts: [TemporaryMount]
 
             init(_ state: PausedState) {
                 self.vm = state.vm
                 self.relayManager = state.relayManager
                 self.process = state.process
+                self.tempMounts = state.tempMounts
             }
         }
 
@@ -218,17 +241,20 @@ public final class LinuxContainer: Container, Sendable {
             let vm: any VirtualMachineInstance
             let process: LinuxProcess
             let relayManager: UnixSocketRelayManager
+            let tempMounts: [TemporaryMount]
 
             init(_ state: StartingState, process: LinuxProcess) {
                 self.vm = state.vm
                 self.relayManager = state.relayManager
                 self.process = process
+                self.tempMounts = state.tempMounts
             }
 
             init(_ state: ResumingState) {
                 self.vm = state.vm
                 self.relayManager = state.relayManager
                 self.process = state.process
+                self.tempMounts = state.tempMounts
             }
         }
 
@@ -254,11 +280,12 @@ public final class LinuxContainer: Container, Sendable {
 
         mutating func setCreated(
             vm: any VirtualMachineInstance,
-            relayManager: UnixSocketRelayManager
+            relayManager: UnixSocketRelayManager,
+            tempMounts: [TemporaryMount]
         ) throws {
             switch self {
             case .creating:
-                self = .created(.init(vm: vm, relayManager: relayManager))
+                self = .created(.init(vm: vm, relayManager: relayManager, tempMounts: tempMounts))
             default:
                 throw ContainerizationError(
                     .invalidState,
@@ -267,11 +294,11 @@ public final class LinuxContainer: Container, Sendable {
             }
         }
 
-        mutating func setStarting() throws -> any VirtualMachineInstance {
+        mutating func setStarting() throws -> CreatedState {
             switch self {
             case .created(let state):
                 self = .starting(.init(state))
-                return state.vm
+                return state
             default:
                 throw ContainerizationError(
                     .invalidState,
@@ -384,6 +411,8 @@ public final class LinuxContainer: Container, Sendable {
         }
     }
 
+    private static let guestContainerPath = "/run/container/"
+
     private let vmm: VirtualMachineManager
     private let logger: Logger?
 
@@ -457,7 +486,11 @@ public final class LinuxContainer: Container, Sendable {
     }
 
     private static func guestRootfsPath(_ id: String) -> String {
-        "/run/container/\(id)/rootfs"
+        Self.guestContainerPath + "\(id)/rootfs"
+    }
+
+    private func guestTempMountPath() -> String {
+        Self.guestContainerPath + "\(id)/temp-mounts"
     }
 }
 
@@ -500,13 +533,26 @@ extension LinuxContainer {
                 rootfs.destination = Self.guestRootfsPath(self.id)
                 try await agent.mount(rootfs)
 
-                // Start up our friendly unix socket relays.
+                // For unix domain socket mounts we'll create these at a temporary
+                // holding spot and then bind them into our container.
+                var temporaryMounts = [TemporaryMount]()
                 for socket in self.config.sockets {
+                    var modifiedSocket = socket
+                    let hashedMountSource = try hashMountSource(source: modifiedSocket.source.path)
+                    let temporarySocketDestination = URL(filePath: guestTempMountPath()).appending(path: hashedMountSource)
+                    modifiedSocket.destination = temporarySocketDestination
+
                     try await self.relayUnixSocket(
-                        socket: socket,
+                        socket: modifiedSocket,
                         relayManager: relayManager,
                         agent: agent
                     )
+
+                    let tempMount = TemporaryMount(
+                        tempDestination: temporarySocketDestination.path,
+                        destination: socket.destination.path
+                    )
+                    temporaryMounts.append(tempMount)
                 }
 
                 // For every interface asked for:
@@ -530,7 +576,13 @@ extension LinuxContainer {
                     try await agent.configureHosts(config: hosts, location: rootfs.destination)
                 }
 
-                try self.state.withLock { try $0.setCreated(vm: vm, relayManager: relayManager) }
+                try self.state.withLock {
+                    try $0.setCreated(
+                        vm: vm,
+                        relayManager: relayManager,
+                        tempMounts: temporaryMounts
+                    )
+                }
             }
         } catch {
             try? await vm.stop()
@@ -541,13 +593,18 @@ extension LinuxContainer {
 
     /// Start the container container's initial process.
     public func start() async throws {
-        let vm = try self.state.withLock { try $0.setStarting() }
+        let createdState = try self.state.withLock { try $0.setStarting() }
 
-        let agent = try await vm.dialAgent()
+        let agent = try await createdState.vm.dialAgent()
         do {
             var spec = generateRuntimeSpec()
             // We don't need the rootfs, nor do OCI runtimes want it included.
-            spec.mounts = vm.mounts.dropFirst().map { $0.to }
+            spec.mounts = createdState.vm.mounts.dropFirst().map { $0.to }
+
+            // Add in all of our temporary holding spot mounts.
+            for mount in createdState.tempMounts {
+                spec.mounts.append(mount.toBindMount())
+            }
 
             let stdio = Self.setupIO(
                 portAllocator: self.hostVsockPorts,
@@ -562,7 +619,7 @@ extension LinuxContainer {
                 spec: spec,
                 io: stdio,
                 agent: agent,
-                vm: vm,
+                vm: createdState.vm,
                 logger: self.logger
             )
             try await process.start()
@@ -632,8 +689,6 @@ extension LinuxContainer {
         }
 
         try await startedState.vm.withAgent { agent in
-            // First, we need to stop any unix socket relays as this will
-            // keep the rootfs from being able to umount (EBUSY).
             let sockets = config.sockets
             if !sockets.isEmpty {
                 guard let relayAgent = agent as? SocketRelayAgent else {
@@ -781,20 +836,6 @@ extension LinuxContainer {
         return try await state.process.closeStdin()
     }
 
-    /// Relay a unix socket from in the container to the host, or from the host
-    /// to inside the container.
-    public func relayUnixSocket(socket: UnixSocketConfiguration) async throws {
-        let state = try self.state.withLock { try $0.startedState("relayUnixSocket") }
-
-        try await state.vm.withAgent { agent in
-            try await self.relayUnixSocket(
-                socket: socket,
-                relayManager: state.relayManager,
-                agent: agent
-            )
-        }
-    }
-
     private func relayUnixSocket(
         socket: UnixSocketConfiguration,
         relayManager: UnixSocketRelayManager,
@@ -810,9 +851,7 @@ extension LinuxContainer {
         var socket = socket
         let rootInGuest = URL(filePath: self.root)
 
-        if socket.direction == .into {
-            socket.destination = rootInGuest.appending(path: socket.destination.path)
-        } else {
+        if socket.direction == .outOf {
             socket.source = rootInGuest.appending(path: socket.source.path)
         }
 
