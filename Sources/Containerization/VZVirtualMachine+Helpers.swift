@@ -91,6 +91,34 @@ extension VZVirtualMachine {
             }
         }
     }
+
+    func pause(queue: DispatchQueue) async throws {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            queue.sync {
+                self.pause { result in
+                    if case .failure(let error) = result {
+                        cont.resume(throwing: error)
+                        return
+                    }
+                    cont.resume()
+                }
+            }
+        }
+    }
+
+    func resume(queue: DispatchQueue) async throws {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            queue.sync {
+                self.resume { result in
+                    if case .failure(let error) = result {
+                        cont.resume(throwing: error)
+                        return
+                    }
+                    cont.resume()
+                }
+            }
+        }
+    }
 }
 
 extension VZVirtualMachine {
