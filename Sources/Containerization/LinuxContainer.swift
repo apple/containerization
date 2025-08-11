@@ -154,6 +154,12 @@ public final class LinuxContainer: Container, Sendable {
         case stopped
         /// An error occurred during the lifetime of this class.
         case errored(Swift.Error)
+        /// The container is being paused.
+        case pausing(PausingState)
+        /// The container is paused.
+        case paused(PausedState)
+        /// The container is being resumed.
+        case resuming(ResumingState)
 
         struct CreatingState: Sendable {}
 
@@ -172,6 +178,42 @@ public final class LinuxContainer: Container, Sendable {
             }
         }
 
+        struct PausingState: Sendable {
+            let vm: any VirtualMachineInstance
+            let relayManager: UnixSocketRelayManager
+            let process: LinuxProcess
+
+            init(_ state: StartedState) {
+                self.vm = state.vm
+                self.relayManager = state.relayManager
+                self.process = state.process
+            }
+        }
+
+        struct PausedState: Sendable {
+            let vm: any VirtualMachineInstance
+            let relayManager: UnixSocketRelayManager
+            let process: LinuxProcess
+
+            init(_ state: PausingState) {
+                self.vm = state.vm
+                self.relayManager = state.relayManager
+                self.process = state.process
+            }
+        }
+
+        struct ResumingState: Sendable {
+            let vm: any VirtualMachineInstance
+            let relayManager: UnixSocketRelayManager
+            let process: LinuxProcess
+
+            init(_ state: PausedState) {
+                self.vm = state.vm
+                self.relayManager = state.relayManager
+                self.process = state.process
+            }
+        }
+
         struct StartedState: Sendable {
             let vm: any VirtualMachineInstance
             let process: LinuxProcess
@@ -181,6 +223,12 @@ public final class LinuxContainer: Container, Sendable {
                 self.vm = state.vm
                 self.relayManager = state.relayManager
                 self.process = process
+            }
+
+            init(_ state: ResumingState) {
+                self.vm = state.vm
+                self.relayManager = state.relayManager
+                self.process = state.process
             }
         }
 
@@ -244,6 +292,18 @@ public final class LinuxContainer: Container, Sendable {
             }
         }
 
+        mutating func setResumed() throws {
+            switch self {
+            case .resuming(let state):
+                self = .started(.init(state))
+            default:
+                throw ContainerizationError(
+                    .invalidState,
+                    message: "container must be in resuming state before being resumed"
+                )
+            }
+        }
+
         mutating func stopping() throws -> StartedState {
             switch self {
             case .started(let state):
@@ -265,6 +325,44 @@ public final class LinuxContainer: Container, Sendable {
                 throw ContainerizationError(
                     .invalidState,
                     message: "failed to \(operation): container must be running"
+                )
+            }
+        }
+
+        mutating func setPausing() throws -> StartedState {
+            switch self {
+            case .started(let state):
+                self = .pausing(.init(state))
+                return state
+            default:
+                throw ContainerizationError(
+                    .invalidState,
+                    message: "failed to pause: container must be running"
+                )
+            }
+        }
+
+        mutating func setPaused() throws {
+            switch self {
+            case .pausing(let state):
+                self = .paused(.init(state))
+            default:
+                throw ContainerizationError(
+                    .invalidState,
+                    message: "failed to pause: container must be running"
+                )
+            }
+        }
+
+        mutating func setResuming() throws -> PausedState {
+            switch self {
+            case .paused(let state):
+                self = .resuming(.init(state))
+                return state
+            default:
+                throw ContainerizationError(
+                    .invalidState,
+                    message: "failed to resume: container must be paused"
                 )
             }
         }
@@ -572,6 +670,28 @@ extension LinuxContainer {
 
         try await startedState.vm.stop()
         try self.state.withLock { try $0.stopped() }
+    }
+
+    /// Pause the container.
+    public func pause() async throws {
+        do {
+            let state = try self.state.withLock { try $0.setPausing() }
+            try await state.vm.pause()
+            try self.state.withLock { try $0.setPaused() }
+        } catch {
+            self.state.withLock { $0.errored(error: error) }
+        }
+    }
+
+    /// Resume the container.
+    public func resume() async throws {
+        do {
+            let state = try self.state.withLock { try $0.setResuming() }
+            try await state.vm.resume()
+            try self.state.withLock { try $0.setResumed() }
+        } catch {
+            self.state.withLock { $0.errored(error: error) }
+        }
     }
 
     /// Send a signal to the container.

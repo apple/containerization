@@ -56,8 +56,6 @@ extension Vminitd: VirtualMachineAgent {
         try await setenv(key: "PATH", value: Self.defaultPath)
 
         let mounts: [ContainerizationOCI.Mount] = [
-            // NOTE: /proc is always done implicitly by the guest agent.
-            .init(type: "tmpfs", source: "tmpfs", destination: "/run"),
             .init(type: "sysfs", source: "sysfs", destination: "/sys"),
             .init(type: "tmpfs", source: "tmpfs", destination: "/tmp"),
             .init(type: "devpts", source: "devpts", destination: "/dev/pts", options: ["gid=5", "mode=620", "ptmxmode=666"]),
@@ -66,6 +64,29 @@ extension Vminitd: VirtualMachineAgent {
         for mount in mounts {
             try await self.mount(mount)
         }
+
+        // Setup root cg subtree_control.
+        let data = "+memory +pids +io +cpu +cpuset".data(using: .utf8)!
+        try await writeFile(
+            path: "/sys/fs/cgroup/cgroup.subtree_control",
+            data: data,
+            flags: .init(),
+            mode: 0
+        )
+    }
+
+    public func writeFile(path: String, data: Data, flags: WriteFileFlags, mode: UInt32) async throws {
+        _ = try await client.writeFile(
+            .with {
+                $0.path = path
+                $0.mode = mode
+                $0.data = data
+                $0.flags = .with {
+                    $0.append = flags.append
+                    $0.createIfMissing = flags.create
+                    $0.createParentDirs = flags.createParentDirectories
+                }
+            })
     }
 
     /// Mount a filesystem in the sandbox's environment.

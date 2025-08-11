@@ -160,6 +160,7 @@ struct RunCommand: ParsableCommand {
             ("/proc/self/fd/0", "/dev/stdin"),
             ("/proc/self/fd/1", "/dev/stdout"),
             ("/proc/self/fd/2", "/dev/stderr"),
+            ("/dev/rtc0", "/dev/rtc"),
         ]
 
         let rootfsURL = URL(fileURLWithPath: rootfs)
@@ -169,7 +170,7 @@ struct RunCommand: ParsableCommand {
                 if errno == EEXIST {
                     continue
                 }
-                throw App.Errno(stage: "symlink()")
+                throw App.Errno(stage: "symlink(\(src) -> \(dest.path))")
             }
         }
     }

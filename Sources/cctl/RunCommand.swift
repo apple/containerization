@@ -43,6 +43,9 @@ extension Application {
         @Option(name: .customLong("fs-size"), help: "The size to create the block filesystem as")
         var fsSizeInMB: UInt64 = 2048
 
+        @Flag(name: .customLong("rosetta"), help: "Enable rosetta x64 emulation")
+        var rosetta = false
+
         @Option(name: .customLong("mount"), help: "Directory to share into the container (Example: /foo:/bar)")
         var mounts: [String] = []
 
@@ -92,6 +95,7 @@ extension Application {
                 config.process.setTerminalIO(terminal: current)
                 config.process.arguments = arguments
                 config.process.workingDirectory = cwd
+                config.rosetta = rosetta
 
                 for mount in self.mounts {
                     let paths = mount.split(separator: ":")

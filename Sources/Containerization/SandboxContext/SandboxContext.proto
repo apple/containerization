@@ -20,6 +20,8 @@ service SandboxContext {
   rpc SetTime(SetTimeRequest) returns (SetTimeResponse);
   // Set up an emulator in the guest for a specific binary format.
   rpc SetupEmulator(SetupEmulatorRequest) returns (SetupEmulatorResponse);
+  // Write data to an existing or new file.
+  rpc WriteFile(WriteFileRequest) returns (WriteFileResponse);
 
   // Create a new process inside the container.
   rpc CreateProcess(CreateProcessRequest) returns (CreateProcessResponse);
@@ -200,6 +202,20 @@ message MkdirRequest {
 }
 
 message MkdirResponse {}
+
+message WriteFileRequest {
+  message WriteFileFlags {
+    bool create_parent_dirs = 1;
+    bool append = 2;
+    bool create_if_missing = 3;
+  }
+  string path = 1;
+  bytes data = 2;
+  uint32 mode = 3;
+  WriteFileFlags flags = 4;
+}
+
+message WriteFileResponse {}
 
 message IpLinkSetRequest {
   string interface = 1;

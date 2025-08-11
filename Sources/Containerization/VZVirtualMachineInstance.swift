@@ -172,6 +172,20 @@ extension VZVirtualMachineInstance {
         }
     }
 
+    func pause() async throws {
+        try await lock.withLock { _ in
+            await self.timeSyncer.pause()
+            try await self.vm.pause(queue: self.queue)
+        }
+    }
+
+    func resume() async throws {
+        try await lock.withLock { _ in
+            try await self.vm.resume(queue: self.queue)
+            await self.timeSyncer.resume()
+        }
+    }
+
     public func dialAgent() async throws -> Vminitd {
         let conn = try await dial(Vminitd.port)
         return Vminitd(connection: conn, group: self.group)
