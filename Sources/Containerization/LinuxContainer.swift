@@ -448,6 +448,7 @@ extension LinuxContainer {
         let agent = try await vm.dialAgent()
         do {
             var spec = generateRuntimeSpec()
+
             // We don't need the rootfs, nor do OCI runtimes want it included.
             spec.mounts = vm.mounts.dropFirst().map { $0.to }
 

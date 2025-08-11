@@ -183,10 +183,10 @@ final class MountTests {
         // Verify isolated directory contains only the target file
         let isolatedContents = try FileManager.default.contentsOfDirectory(atPath: isolatedDir)
         #expect(isolatedContents.count == 1)
-        #expect(isolatedContents.first == "isolation-test.txt")
+        #expect(isolatedContents.first == "config.txt")
 
         // Verify hardlinked file has same content
-        let isolatedFile = URL(fileURLWithPath: isolatedDir).appendingPathComponent("isolation-test.txt")
+        let isolatedFile = URL(fileURLWithPath: isolatedDir).appendingPathComponent("config.txt")
         let isolatedContent = try String(contentsOf: isolatedFile, encoding: .utf8)
         #expect(isolatedContent == originalContent)
 

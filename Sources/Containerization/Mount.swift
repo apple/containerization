@@ -156,11 +156,15 @@ extension Mount {
         // Create directory if it doesn't exist
         if !FileManager.default.fileExists(atPath: tempDir.path) {
             try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        }
 
-            let isolatedFile = tempDir.appendingPathComponent(filename)
+        // Use destination filename for the hardlink instead of source filename
+        let destinationFilename = URL(fileURLWithPath: self.destination).lastPathComponent
+        let isolatedFile = tempDir.appendingPathComponent(destinationFilename)
+
+        // Create hardlink if it doesn't exist (handles reuse of existing temp directories)
+        if !FileManager.default.fileExists(atPath: isolatedFile.path) {
             let sourceFile = URL(fileURLWithPath: self.source)
-
-            // Create hardlink to isolate the single file
             try FileManager.default.linkItem(at: sourceFile, to: isolatedFile)
         }
 
