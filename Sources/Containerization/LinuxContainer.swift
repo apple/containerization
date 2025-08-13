@@ -421,7 +421,8 @@ public final class LinuxContainer: Container, Sendable {
                 readonly: false
             ),
             linux: .init(
-                resources: .init()
+                resources: .init(),
+                cgroupsPath: "/container/\(id)"
             )
         )
     }
@@ -436,9 +437,7 @@ public final class LinuxContainer: Container, Sendable {
         spec.hostname = config.hostname
 
         // Linux toggles.
-        var linux = ContainerizationOCI.Linux.init()
-        linux.sysctl = config.sysctl
-        spec.linux = linux
+        spec.linux?.sysctl = config.sysctl
 
         return spec
     }

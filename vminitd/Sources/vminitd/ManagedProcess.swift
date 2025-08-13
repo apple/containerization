@@ -34,6 +34,7 @@ final class ManagedProcess: Sendable {
     private let syncPipe: FileHandle
     private let terminal: Bool
     private let bundle: ContainerizationOCI.Bundle
+    private let cgroupManager: CgroupManager
 
     private struct State {
         init(io: IO) {
@@ -74,6 +75,7 @@ final class ManagedProcess: Sendable {
         id: String,
         stdio: HostStdio,
         bundle: ContainerizationOCI.Bundle,
+        cgroupManager: CgroupManager,
         owningPid: Int32? = nil,
         log: Logger
     ) throws {
@@ -82,6 +84,7 @@ final class ManagedProcess: Sendable {
         Self.localizeLogger(log: &log, id: id)
         self.log = log
         self.owningPid = owningPid
+        self.cgroupManager = cgroupManager
 
         let syncPipe = Pipe()
         try syncPipe.setCloexec()
@@ -181,7 +184,9 @@ extension ManagedProcess {
                 ])
             $0.pid = pid
 
-            // Ack the pid from the child.
+            // First add to our cg, then ack the pid.
+            try self.cgroupManager.addProcess(pid: pid)
+
             log.info(
                 "sending pid acknowledgement",
                 metadata: [

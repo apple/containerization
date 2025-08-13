@@ -66,7 +66,7 @@ extension Vminitd: VirtualMachineAgent {
         }
 
         // Setup root cg subtree_control.
-        let data = "+memory +pids +io +cpu +cpuset".data(using: .utf8)!
+        let data = "+memory +pids +io +cpu +cpuset +hugetlb".data(using: .utf8)!
         try await writeFile(
             path: "/sys/fs/cgroup/cgroup.subtree_control",
             data: data,

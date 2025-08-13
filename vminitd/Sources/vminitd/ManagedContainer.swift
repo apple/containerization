@@ -24,9 +24,10 @@ actor ManagedContainer {
     let id: String
     let initProcess: ManagedProcess
 
-    private let _log: Logger
-    private let _bundle: ContainerizationOCI.Bundle
-    private var _execs: [String: ManagedProcess] = [:]
+    private let cgroupManager: CgroupManager
+    private let log: Logger
+    private let bundle: ContainerizationOCI.Bundle
+    private var execs: [String: ManagedProcess] = [:]
 
     var pid: Int32 {
         self.initProcess.pid
@@ -44,10 +45,27 @@ actor ManagedContainer {
         )
         log.info("created bundle with spec \(spec)")
 
+        var cgroupsPath: String
+        if let cgPath = spec.linux?.cgroupsPath {
+            cgroupsPath = cgPath
+        } else {
+            cgroupsPath = "/container/\(id)"
+        }
+
+        let cgManager = try CgroupManager(
+            path: URL(filePath: cgroupsPath),
+            logger: log
+        )
+        try cgManager.toggleSubtreeControllers(
+            controllers: [.cpu, .cpuset, .hugetlb, .io, .memory, .pids],
+            enable: true
+        )
+
         let initProcess = try ManagedProcess(
             id: id,
             stdio: stdio,
             bundle: bundle,
+            cgroupManager: cgManager,
             owningPid: nil,
             log: log
         )
@@ -55,14 +73,15 @@ actor ManagedContainer {
 
         self.initProcess = initProcess
         self.id = id
-        self._bundle = bundle
-        self._log = log
+        self.cgroupManager = cgManager
+        self.bundle = bundle
+        self.log = log
     }
 }
 
 extension ManagedContainer {
     private func ensureExecExists(_ id: String) throws {
-        if self._execs[id] == nil {
+        if self.execs[id] == nil {
             throw ContainerizationError(
                 .invalidState,
                 message: "exec \(id) does not exist in container \(self.id)"
@@ -77,18 +96,19 @@ extension ManagedContainer {
     ) throws {
         // Write the process config to the bundle, and pass this on
         // over to ManagedProcess to deal with.
-        try self._bundle.createExecSpec(
+        try self.bundle.createExecSpec(
             id: id,
             process: process
         )
         let process = try ManagedProcess(
             id: id,
             stdio: stdio,
-            bundle: self._bundle,
+            bundle: self.bundle,
+            cgroupManager: self.cgroupManager,
             owningPid: self.initProcess.pid,
-            log: self._log
+            log: self.log
         )
-        self._execs[id] = process
+        self.execs[id] = process
     }
 
     func start(execID: String) async throws -> Int32 {
@@ -119,22 +139,23 @@ extension ManagedContainer {
     func deleteExec(id: String) throws {
         try ensureExecExists(id)
         do {
-            try self._bundle.deleteExecSpec(id: id)
+            try self.bundle.deleteExecSpec(id: id)
         } catch {
-            self._log.error("failed to remove exec spec from filesystem: \(error)")
+            self.log.error("failed to remove exec spec from filesystem: \(error)")
         }
-        self._execs.removeValue(forKey: id)
+        self.execs.removeValue(forKey: id)
     }
 
     func delete() throws {
-        try self._bundle.delete()
+        try self.bundle.delete()
+        try self.cgroupManager.delete(force: true)
     }
 
     func getExecOrInit(execID: String) throws -> ManagedProcess {
         if execID == self.id {
             return self.initProcess
         }
-        guard let proc = self._execs[execID] else {
+        guard let proc = self.execs[execID] else {
             throw ContainerizationError(
                 .invalidState,
                 message: "exec \(execID) does not exist in container \(self.id)"
