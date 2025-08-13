@@ -172,7 +172,7 @@ extension IntegrationSuite {
         let bs = try await bootstrap()
 
         // Create ContainerManager with kernel and initfs reference
-        let manager = try ContainerManager(vmm: bs.vmm)
+        var manager = try ContainerManager(vmm: bs.vmm)
         defer {
             try? manager.delete(id)
         }
@@ -213,7 +213,7 @@ extension IntegrationSuite {
         let bs = try await bootstrap()
 
         // Create ContainerManager with kernel and initfs reference
-        let manager = try ContainerManager(vmm: bs.vmm)
+        var manager = try ContainerManager(vmm: bs.vmm)
         defer {
             try? manager.delete(id)
         }
@@ -262,7 +262,7 @@ extension IntegrationSuite {
 
         let bs = try await bootstrap()
 
-        let manager = try ContainerManager(vmm: bs.vmm)
+        var manager = try ContainerManager(vmm: bs.vmm)
         defer {
             try? manager.delete(id)
         }

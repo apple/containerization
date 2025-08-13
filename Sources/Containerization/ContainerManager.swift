@@ -29,7 +29,7 @@ import vmnet
 public struct ContainerManager: Sendable {
     public let imageStore: ImageStore
     private let vmm: VirtualMachineManager
-    private let network: Network?
+    private var network: Network?
 
     private var containerRoot: URL {
         self.imageStore.path.appendingPathComponent("containers")
@@ -334,7 +334,7 @@ public struct ContainerManager: Sendable {
     ///   - id: The container ID.
     ///   - reference: The image reference.
     ///   - rootfsSizeInBytes: The size of the root filesystem in bytes. Defaults to 8 GiB.
-    public func create(
+    public mutating func create(
         _ id: String,
         reference: String,
         rootfsSizeInBytes: UInt64 = 8.gib(),
@@ -354,7 +354,7 @@ public struct ContainerManager: Sendable {
     ///   - id: The container ID.
     ///   - image: The image.
     ///   - rootfsSizeInBytes: The size of the root filesystem in bytes. Defaults to 8 GiB.
-    public func create(
+    public mutating func create(
         _ id: String,
         image: Image,
         rootfsSizeInBytes: UInt64 = 8.gib(),
@@ -380,7 +380,7 @@ public struct ContainerManager: Sendable {
     ///   - id: The container ID.
     ///   - image: The image.
     ///   - rootfs: The root filesystem mount pointing to an existing block file.
-    public func create(
+    public mutating func create(
         _ id: String,
         image: Image,
         rootfs: Mount,
@@ -407,7 +407,7 @@ public struct ContainerManager: Sendable {
     /// - Parameters:
     ///   - id: The container ID.
     ///   - image: The image.
-    public func get(
+    public mutating func get(
         _ id: String,
         image: Image,
     ) async throws -> LinuxContainer {
@@ -441,7 +441,7 @@ public struct ContainerManager: Sendable {
 
     /// Performs the cleanup of a container.
     /// - Parameter id: The container ID.
-    public func delete(_ id: String) throws {
+    public mutating func delete(_ id: String) throws {
         try self.network?.release(id)
         let path = containerRoot.appendingPathComponent(id)
         try FileManager.default.removeItem(at: path)

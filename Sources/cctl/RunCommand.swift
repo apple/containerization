@@ -76,7 +76,7 @@ extension Application {
                 path: URL(fileURLWithPath: kernel),
                 platform: .linuxArm
             )
-            let manager = try await ContainerManager(
+            var manager = try await ContainerManager(
                 kernel: kernel,
                 initfsReference: "vminit:latest",
             )
