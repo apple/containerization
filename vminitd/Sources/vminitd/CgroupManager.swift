@@ -19,7 +19,7 @@ import Foundation
 import Logging
 import Musl
 
-enum CgroupController: String {
+enum Cgroup2Controller: String {
     case pids
     case memory
     case cpuset
@@ -30,7 +30,7 @@ enum CgroupController: String {
 
 // Extremely simple cgroup manager. Our needs are simple for now, and this is
 // reflected in the type.
-internal struct CgroupManager {
+internal struct Cgroup2Manager {
     static let defaultMountPoint = URL(filePath: "/sys/fs/cgroup")
 
     static let killFile = "cgroup.kill"
@@ -71,7 +71,7 @@ internal struct CgroupManager {
         if fd == -1 {
             throw Error.errno(errno: errno, message: "failed to open \(file.path)")
         }
-        defer { Musl.close(fd) }
+        defer { close(fd) }
 
         let bytes = Array(value.utf8)
         let res = Syscall.retrying {
@@ -82,7 +82,7 @@ internal struct CgroupManager {
         }
     }
 
-    func toggleSubtreeControllers(controllers: [CgroupController], enable: Bool) throws {
+    func toggleSubtreeControllers(controllers: [Cgroup2Controller], enable: Bool) throws {
         let value = controllers.map { (enable ? "+" : "-") + $0.rawValue }.joined(separator: " ")
         let mountComponents = self.mountPoint.pathComponents
         let pathComponents = self.path.pathComponents
@@ -134,7 +134,7 @@ internal struct CgroupManager {
     }
 }
 
-extension CgroupManager {
+extension Cgroup2Manager {
     enum Error: Swift.Error, CustomStringConvertible {
         case errno(errno: Int32, message: String)
 

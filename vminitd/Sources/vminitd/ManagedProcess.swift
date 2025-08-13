@@ -34,7 +34,7 @@ final class ManagedProcess: Sendable {
     private let syncPipe: FileHandle
     private let terminal: Bool
     private let bundle: ContainerizationOCI.Bundle
-    private let cgroupManager: CgroupManager
+    private let cgroupManager: Cgroup2Manager
 
     private struct State {
         init(io: IO) {
@@ -75,7 +75,7 @@ final class ManagedProcess: Sendable {
         id: String,
         stdio: HostStdio,
         bundle: ContainerizationOCI.Bundle,
-        cgroupManager: CgroupManager,
+        cgroupManager: Cgroup2Manager,
         owningPid: Int32? = nil,
         log: Logger
     ) throws {

@@ -24,7 +24,7 @@ actor ManagedContainer {
     let id: String
     let initProcess: ManagedProcess
 
-    private let cgroupManager: CgroupManager
+    private let cgroupManager: Cgroup2Manager
     private let log: Logger
     private let bundle: ContainerizationOCI.Bundle
     private var execs: [String: ManagedProcess] = [:]
@@ -52,7 +52,7 @@ actor ManagedContainer {
             cgroupsPath = "/container/\(id)"
         }
 
-        let cgManager = try CgroupManager(
+        let cgManager = try Cgroup2Manager(
             path: URL(filePath: cgroupsPath),
             logger: log
         )
