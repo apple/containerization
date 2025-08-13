@@ -37,14 +37,14 @@ public struct ContainerManager: Sendable {
 
     /// A network that can allocate and release interfaces for use with containers.
     public protocol Network: Sendable {
-        func create(_ id: String) throws -> Interface?
-        func release(_ id: String) throws
+        mutating func create(_ id: String) throws -> Interface?
+        mutating func release(_ id: String) throws
     }
 
     /// A network backed by vmnet on macOS.
     @available(macOS 26.0, *)
     public struct VmnetNetwork: Network {
-        private let allocator: Allocator
+        private var allocator: Allocator
         nonisolated(unsafe) private let reference: vmnet_network_ref
 
         /// The IPv4 subnet of this network.
@@ -149,7 +149,7 @@ public struct ContainerManager: Sendable {
 
         /// Returns a new interface for use with a container.
         /// - Parameter id: The container ID.
-        public func create(_ id: String) throws -> Containerization.Interface? {
+        public mutating func create(_ id: String) throws -> Containerization.Interface? {
             let address = try allocator.allocate(id)
             return Self.Interface(
                 reference: self.reference,
@@ -160,7 +160,7 @@ public struct ContainerManager: Sendable {
 
         /// Performs cleanup of an interface.
         /// - Parameter id: The container ID.
-        public func release(_ id: String) throws {
+        public mutating func release(_ id: String) throws {
             try allocator.release(id)
         }
 
