@@ -70,18 +70,20 @@ public struct ContainerManager: Sendable {
                 )
             }
 
-            func allocate(_ id: String) throws -> String {
+            mutating func allocate(_ id: String) throws -> String {
                 if allocations[id] != nil {
                     throw ContainerizationError(.exists, message: "allocation with id \(id) already exists")
                 }
                 let index = try addressAllocator.allocate()
+                allocations[id] = index
                 let ip = IPv4Address(fromValue: index)
                 return try CIDRAddress(ip, prefixLength: cidr.prefixLength).description
             }
 
-            func release(_ id: String) throws {
+            mutating func release(_ id: String) throws {
                 if let index = self.allocations[id] {
                     try addressAllocator.release(index)
+                    allocations.removeValue(forKey: id)
                 }
             }
         }
