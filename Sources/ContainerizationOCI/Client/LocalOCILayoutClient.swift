@@ -35,6 +35,26 @@ package final class LocalOCILayoutClient: ContentClient {
         return c
     }
 
+    private func calculateFileDigest(at url: URL) throws -> SHA256Digest {
+        let fileHandle = try FileHandle(forReadingFrom: url)
+        defer {
+            try? fileHandle.close()
+        }
+
+        var hasher = SHA256()
+        let chunkSize = 1024 * 1024
+
+        while true {
+            let chunk = fileHandle.readData(ofLength: chunkSize)
+            if chunk.isEmpty {
+                break
+            }
+            hasher.update(data: chunk)
+        }
+
+        return hasher.finalize()
+    }
+
     package func fetch<T: Codable>(name: String, descriptor: Descriptor) async throws -> T {
         let c = try await self._fetch(digest: descriptor.digest)
         return try c.decode()
@@ -61,24 +81,7 @@ package final class LocalOCILayoutClient: ContentClient {
 
             do {
                 let expectedDigest = try c.digest()
-
-                let fileHandle = try FileHandle(forReadingFrom: file)
-                defer {
-                    try? fileHandle.close()
-                }
-
-                var hasher = SHA256()
-                let chunkSize = 1024 * 1024
-
-                while true {
-                    let chunk = fileHandle.readData(ofLength: chunkSize)
-                    if chunk.isEmpty {
-                        break
-                    }
-                    hasher.update(data: chunk)
-                }
-
-                let existingDigest = hasher.finalize()
+                let existingDigest = try calculateFileDigest(at: file)
 
                 guard existingDigest.digestString == expectedDigest.digestString else {
                     throw ContainerizationError(
