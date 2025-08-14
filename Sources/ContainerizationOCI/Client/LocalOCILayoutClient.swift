@@ -61,8 +61,24 @@ package final class LocalOCILayoutClient: ContentClient {
 
             do {
                 let expectedDigest = try c.digest()
-                let existingData = try Data(contentsOf: file)
-                let existingDigest = SHA256.hash(data: existingData)
+
+                let fileHandle = try FileHandle(forReadingFrom: file)
+                defer {
+                    try? fileHandle.close()
+                }
+
+                var hasher = SHA256()
+                let chunkSize = 1024 * 1024
+
+                while true {
+                    let chunk = fileHandle.readData(ofLength: chunkSize)
+                    if chunk.isEmpty {
+                        break
+                    }
+                    hasher.update(data: chunk)
+                }
+
+                let existingDigest = hasher.finalize()
 
                 guard existingDigest.digestString == expectedDigest.digestString else {
                     throw ContainerizationError(
