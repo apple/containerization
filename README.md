@@ -62,6 +62,10 @@ This enables containers to be developed and validated across different kernel ve
 
 See the [README](/kernel/README.md) in the kernel directory for instructions on how to compile the optimized kernel.
 
+### Kernel Support
+
+Containerization allows user provided kernels but tests functionality starting with kernel version `6.14.9`.
+
 ### Pre-built Kernel
 
 If you wish to consume a pre-built kernel, make sure it has `VIRTIO` drivers compiled into the kernel (not merely as modules).
