@@ -57,7 +57,12 @@ containerization:
 init: containerization vminitd
 	@echo Creating init.ext4...
 	@rm -f bin/init.rootfs.tar.gz bin/init.block
-	@./bin/cctl rootfs create --vminitd vminitd/bin/vminitd --labels org.opencontainers.image.source=https://github.com/apple/containerization --vmexec vminitd/bin/vmexec bin/init.rootfs.tar.gz vminit:latest
+	@./bin/cctl rootfs create \
+		--vminitd vminitd/bin/vminitd \
+		--labels org.opencontainers.image.source=https://github.com/apple/containerization \
+		--vmexec vminitd/bin/vmexec \
+		--image vminit:latest \
+		bin/init.rootfs.tar.gz
 
 .PHONY: cross-prep
 cross-prep:

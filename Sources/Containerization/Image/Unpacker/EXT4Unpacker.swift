@@ -32,13 +32,56 @@ public struct EXT4Unpacker: Unpacker {
         self.blockSizeInBytes = blockSizeInBytes
     }
 
-    public func unpack(_ image: Image, for platform: Platform, at path: URL, progress: ProgressHandler? = nil) async throws -> Mount {
+    #if os(macOS)
+    /// Performs the unpacking of a tar archive into a filesystem.
+    /// - Parameters:
+    ///   - archive: The archive to unpack.
+    ///   - compression: The compression to use when unpacking the image.
+    ///   - path: The path to the filesystem that will be created.
+    public func unpack(
+        archive: URL,
+        compression: ContainerizationArchive.Filter,
+        at path: URL
+    ) throws {
+        let cleanedPath = try prepareUnpackPath(path: path)
+        let filesystem = try EXT4.Formatter(
+            FilePath(cleanedPath),
+            minDiskSize: blockSizeInBytes
+        )
+        defer { try? filesystem.close() }
+
+        try filesystem.unpack(
+            source: archive,
+            format: .paxRestricted,
+            compression: compression,
+            progress: nil
+        )
+    }
+    #endif
+
+    /// Returns a `Mount` point after unpacking the image into a filesystem.
+    /// - Parameters:
+    ///   - image: The image to unpack.
+    ///   - platform: The platform content to unpack.
+    ///   - path: The path to the directory where the filesystem will be created.
+    ///   - progress: The progress handler to invoke as the unpacking progresses.
+    public func unpack(
+        _ image: Image,
+        for platform: Platform,
+        at path: URL,
+        progress: ProgressHandler? = nil
+    ) async throws -> Mount {
         #if !os(macOS)
         throw ContainerizationError(.unsupported, message: "Cannot unpack an image on current platform")
         #else
-        let blockPath = try prepareUnpackPath(path: path)
+        let cleanedPath = try prepareUnpackPath(path: path)
         let manifest = try await image.manifest(for: platform)
-        let filesystem = try EXT4.Formatter(FilePath(path), minDiskSize: blockSizeInBytes)
+        let filesystem = try EXT4.Formatter(
+            FilePath(
+                cleanedPath
+            ),
+            minDiskSize: blockSizeInBytes
+        )
         defer { try? filesystem.close() }
 
         for layer in manifest.layers {
@@ -64,7 +107,7 @@ public struct EXT4Unpacker: Unpacker {
 
         return .block(
             format: "ext4",
-            source: blockPath,
+            source: cleanedPath,
             destination: "/",
             options: []
         )
