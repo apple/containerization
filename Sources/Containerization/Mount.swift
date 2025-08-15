@@ -151,8 +151,9 @@ extension Mount {
         // Validate source file exists and is a regular file
         try validateSourceFile()
 
-        // Create deterministic temp directory based on source file path
-        let sourceHash = try hashMountSource(source: self.source)
+        // Create deterministic temp directory based on source and destination paths to avoid collisions
+        let combinedPath = "\(self.source)|\(self.destination)"
+        let sourceHash = try hashMountSource(source: combinedPath)
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("containerization-file-mount-\(sourceHash)")
 
