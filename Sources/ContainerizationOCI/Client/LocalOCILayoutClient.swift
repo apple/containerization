@@ -42,7 +42,7 @@ package final class LocalOCILayoutClient: ContentClient {
         }
 
         var hasher = SHA256()
-        let chunkSize = 1024 * 1024
+        let chunkSize = Int(getpagesize()) * 1024
 
         while true {
             let chunk = fileHandle.readData(ofLength: chunkSize)
