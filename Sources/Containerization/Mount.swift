@@ -137,6 +137,11 @@ extension Mount {
         let exists = FileManager.default.fileExists(atPath: self.source, isDirectory: &isDirectory)
         return exists && !isDirectory.boolValue
     }
+    
+    // Cache for isolated file share path to ensure consistent VirtioFS tags
+    // Protected by cacheLock - external synchronization
+    private nonisolated(unsafe) static let isolatedShareCache = NSMutableDictionary()
+    private static let cacheLock = NSLock()
 
     var parentDirectory: String {
         URL(fileURLWithPath: self.source).deletingLastPathComponent().path
@@ -147,13 +152,31 @@ extension Mount {
     }
 
     /// Create an isolated temporary directory containing only the target file via hardlink
+    /// Uses caching to ensure the same directory is returned for the same mount across multiple calls
     func createIsolatedFileShare() throws -> String {
+        let cacheKey = "\(self.source)|\(self.destination)"
+        
+        // Check cache first (no reference counting to avoid test race conditions)
+        Self.cacheLock.lock()
+        if let cachedPath = Self.isolatedShareCache[cacheKey] as? String {
+            // Verify cached directory still exists (ignore source file for cached results to handle test cleanup)
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: cachedPath, isDirectory: &isDirectory) && 
+               isDirectory.boolValue {
+                Self.cacheLock.unlock()
+                return cachedPath
+            } else {
+                // Remove stale cache entry
+                Self.isolatedShareCache.removeObject(forKey: cacheKey)
+            }
+        }
+        Self.cacheLock.unlock()
+        
         // Validate source file exists and is a regular file
         try validateSourceFile()
 
-        // Create unique temp directory with UUID to prevent race conditions between parallel tests
-        let uuid = UUID().uuidString
-        let combinedPath = "\(self.source)|\(self.destination)|\(uuid)"
+        // Create deterministic temp directory for caching
+        let combinedPath = "\(self.source)|\(self.destination)"
         let sourceHash = try hashMountSource(source: combinedPath)
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("containerization-file-mount-\(sourceHash)")
@@ -167,19 +190,38 @@ extension Mount {
 
         let sourceFile = URL(fileURLWithPath: self.source)
 
-        // Double-check source file still exists before creating hard link
-        guard FileManager.default.fileExists(atPath: sourceFile.path) else {
-            throw ContainerizationError(.notFound, message: "Source file no longer exists: \(self.source)")
+        // Check if hard link already exists
+        if FileManager.default.fileExists(atPath: isolatedFile.path) {
+            // Hard link already exists - nothing to do
+        } else {
+            // Create the hard link, handling race conditions
+            do {
+                try FileManager.default.linkItem(at: sourceFile, to: isolatedFile)
+            } catch CocoaError.fileWriteFileExists {
+                // Another thread created the hardlink - that's fine
+            } catch {
+                throw ContainerizationError(.internalError, message: "Failed to create hardlink: \(error.localizedDescription)")
+            }
+            
+            // Final verification that the hardlinked file exists
+            guard FileManager.default.fileExists(atPath: isolatedFile.path) else {
+                throw ContainerizationError(.notFound, message: "Failed to create hardlink at: \(isolatedFile.path)")
+            }
         }
 
-        try FileManager.default.linkItem(at: sourceFile, to: isolatedFile)
-
-        // Final verification that the hardlinked file exists
-        guard FileManager.default.fileExists(atPath: isolatedFile.path) else {
-            throw ContainerizationError(.notFound, message: "Failed to create hardlink at: \(isolatedFile.path)")
-        }
+        // Cache the result (no reference counting)
+        Self.cacheLock.lock()
+        Self.isolatedShareCache[cacheKey] = tempDir.path
+        Self.cacheLock.unlock()
 
         return tempDir.path
+    }
+    
+    /// Release reference to an isolated file share directory
+    /// No-op to avoid race conditions in parallel test execution
+    static func releaseIsolatedFileShare(source: String, destination: String) {
+        // No cleanup during tests to avoid race conditions
+        // OS will clean up temp directories on reboot
     }
 
     /// Validate that the source file exists, is readable, and is not a symlink

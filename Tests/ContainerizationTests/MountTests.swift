@@ -179,7 +179,7 @@ final class MountTests {
 
         // Create hardlink isolation
         let isolatedDir = try mount.createIsolatedFileShare()
-        defer { try? FileManager.default.removeItem(atPath: isolatedDir) }
+        defer { Mount.releaseIsolatedFileShare(source: testFile.path, destination: "/app/config.txt") }
 
         // Verify isolated directory contains only the target file
         let isolatedContents = try FileManager.default.contentsOfDirectory(atPath: isolatedDir)
@@ -191,12 +191,11 @@ final class MountTests {
         let isolatedContent = try String(contentsOf: isolatedFile, encoding: .utf8)
         #expect(isolatedContent == originalContent)
 
-        // Verify calling createIsolatedFileShare again creates a different directory (UUID-based)
+        // Verify calling createIsolatedFileShare again returns the same directory (cached)
         let isolatedDir2 = try mount.createIsolatedFileShare()
-        defer { try? FileManager.default.removeItem(atPath: isolatedDir2) }
-        #expect(isolatedDir != isolatedDir2)
+        #expect(isolatedDir == isolatedDir2)
 
-        // But both should contain the same file content
+        // Verify the cached directory still contains the same file content
         let isolatedFile2 = URL(fileURLWithPath: isolatedDir2).appendingPathComponent("config.txt")
         let isolatedContent2 = try String(contentsOf: isolatedFile2, encoding: .utf8)
         #expect(isolatedContent2 == originalContent)
@@ -221,9 +220,9 @@ final class MountTests {
         #expect(attached.destination == "/app/subdir")
         #expect(attached.isFile == true)
 
-        // Clean up hardlink isolation directory
-        let isolatedDir = try mount.createIsolatedFileShare()
-        do { try? FileManager.default.removeItem(atPath: isolatedDir) }
+        // Clean up hardlink isolation directory (should return cached directory)
+        _ = try mount.createIsolatedFileShare()
+        Mount.releaseIsolatedFileShare(source: testFile.path, destination: "/app/subdir/config.txt")
     }
 
     @Test func rejectsSymlinks() throws {

@@ -419,14 +419,9 @@ extension VZVirtualMachineInstance.Configuration {
 
         // Create consolidated mounts for each parent directory
         for (parentDir, fileMounts) in fileMountsByParent {
-            if fileMounts.count == 1 {
-                // Single file mount, no consolidation needed
-                consolidatedMounts.append(fileMounts[0])
-            } else {
-                // Multiple file mounts to same parent - create consolidated mount
-                let consolidatedMount = try createConsolidatedMount(fileMounts: fileMounts, parentDir: parentDir)
-                consolidatedMounts.append(consolidatedMount)
-            }
+            // Both single and multiple file mounts need consolidation to ensure consistent VirtioFS tags
+            let consolidatedMount = try createConsolidatedMount(fileMounts: fileMounts, parentDir: parentDir)
+            consolidatedMounts.append(consolidatedMount)
         }
 
         return consolidatedMounts
