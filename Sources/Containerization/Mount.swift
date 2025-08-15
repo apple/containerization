@@ -166,7 +166,18 @@ extension Mount {
         // Create hardlink if it doesn't exist (handles reuse of existing temp directories)
         if !FileManager.default.fileExists(atPath: isolatedFile.path) {
             let sourceFile = URL(fileURLWithPath: self.source)
+
+            // Double-check source file still exists before creating hard link
+            guard FileManager.default.fileExists(atPath: sourceFile.path) else {
+                throw ContainerizationError(.notFound, message: "Source file no longer exists: \(self.source)")
+            }
+
             try FileManager.default.linkItem(at: sourceFile, to: isolatedFile)
+        }
+
+        // Final verification that the hardlinked file exists
+        guard FileManager.default.fileExists(atPath: isolatedFile.path) else {
+            throw ContainerizationError(.notFound, message: "Failed to create hardlink at: \(isolatedFile.path)")
         }
 
         return tempDir.path
