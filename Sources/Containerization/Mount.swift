@@ -137,7 +137,7 @@ extension Mount {
         let exists = FileManager.default.fileExists(atPath: self.source, isDirectory: &isDirectory)
         return exists && !isDirectory.boolValue
     }
-    
+
     // Cache for isolated file share path to ensure consistent VirtioFS tags
     // Protected by cacheLock - external synchronization
     private nonisolated(unsafe) static let isolatedShareCache = NSMutableDictionary()
@@ -155,14 +155,13 @@ extension Mount {
     /// Uses caching to ensure the same directory is returned for the same mount across multiple calls
     func createIsolatedFileShare() throws -> String {
         let cacheKey = "\(self.source)|\(self.destination)"
-        
+
         // Check cache first (no reference counting to avoid test race conditions)
         Self.cacheLock.lock()
         if let cachedPath = Self.isolatedShareCache[cacheKey] as? String {
             // Verify cached directory still exists (ignore source file for cached results to handle test cleanup)
             var isDirectory: ObjCBool = false
-            if FileManager.default.fileExists(atPath: cachedPath, isDirectory: &isDirectory) && 
-               isDirectory.boolValue {
+            if FileManager.default.fileExists(atPath: cachedPath, isDirectory: &isDirectory) && isDirectory.boolValue {
                 Self.cacheLock.unlock()
                 return cachedPath
             } else {
@@ -171,7 +170,7 @@ extension Mount {
             }
         }
         Self.cacheLock.unlock()
-        
+
         // Validate source file exists and is a regular file
         try validateSourceFile()
 
@@ -202,7 +201,7 @@ extension Mount {
             } catch {
                 throw ContainerizationError(.internalError, message: "Failed to create hardlink: \(error.localizedDescription)")
             }
-            
+
             // Final verification that the hardlinked file exists
             guard FileManager.default.fileExists(atPath: isolatedFile.path) else {
                 throw ContainerizationError(.notFound, message: "Failed to create hardlink at: \(isolatedFile.path)")
@@ -216,7 +215,7 @@ extension Mount {
 
         return tempDir.path
     }
-    
+
     /// Release reference to an isolated file share directory
     /// No-op to avoid race conditions in parallel test execution
     static func releaseIsolatedFileShare(source: String, destination: String) {
