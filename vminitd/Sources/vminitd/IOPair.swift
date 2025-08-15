@@ -21,104 +21,162 @@ import Logging
 import Synchronization
 
 final class IOPair: Sendable {
-    let readFrom: IOCloser
-    let writeTo: IOCloser
-    nonisolated(unsafe) let buffer: UnsafeMutableBufferPointer<UInt8>
+    private let io: Mutex<IO>
     private let logger: Logger?
+    private let reason: String
 
-    private let done: Atomic<Bool>
+    private struct IO {
+        let from: IOCloser
+        let to: IOCloser
+        let buffer: UnsafeMutableBufferPointer<UInt8>
+        var closed: Bool
+        let logger: Logger?
 
-    init(readFrom: IOCloser, writeTo: IOCloser, logger: Logger? = nil) {
-        self.readFrom = readFrom
-        self.writeTo = writeTo
-        self.done = Atomic(false)
-        self.buffer = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: Int(getpagesize()))
-        self.logger = logger
-    }
+        func drain() {
+            let readFrom = OSFile(fd: from.fileDescriptor)
+            let writeTo = OSFile(fd: to.fileDescriptor)
 
-    func relay() throws {
-        let readFromFd = self.readFrom.fileDescriptor
-        let writeToFd = self.writeTo.fileDescriptor
-
-        let readFrom = OSFile(fd: readFromFd)
-        let writeTo = OSFile(fd: writeToFd)
-
-        try ProcessSupervisor.default.poller.add(readFromFd, mask: EPOLLIN) { mask in
-            if mask.isHangup && !mask.readyToRead {
-                self.close()
-                return
-            }
-            // Loop so that in the case that someone wrote > buf.count down the pipe
-            // we properly will drain it fully.
             while true {
-                let r = readFrom.read(self.buffer)
+                let r = readFrom.read(buffer)
                 if r.read > 0 {
                     let view = UnsafeMutableBufferPointer(
-                        start: self.buffer.baseAddress,
+                        start: buffer.baseAddress,
                         count: r.read
                     )
 
                     let w = writeTo.write(view)
                     if w.wrote != r.read {
-                        self.logger?.error("stopping relay: short write for stdio")
-                        self.close()
                         return
                     }
                 }
 
                 switch r.action {
-                case .error(let errno):
-                    self.logger?.error("failed with errno \(errno) while reading for fd \(readFromFd)")
-                    fallthrough
-                case .eof:
-                    self.close()
-                    self.logger?.debug("closing relay for \(readFromFd)")
-                    return
-                case .again:
-                    // We read all we could, exit.
-                    if mask.isHangup {
-                        self.close()
-                    }
+                case .eof, .again, .error(_):
                     return
                 default:
                     break
                 }
             }
         }
+
+        mutating func close() {
+            if self.closed {
+                return
+            }
+
+            // Try and drain IO first.
+            self.drain()
+
+            // Remove the fd from our global epoll instance first.
+            let readFromFd = self.from.fileDescriptor
+            do {
+                try ProcessSupervisor.default.poller.delete(readFromFd)
+            } catch {
+                self.logger?.error("failed to delete fd from epoll \(readFromFd): \(error)")
+            }
+
+            do {
+                try self.from.close()
+            } catch {
+                self.logger?.error("failed to close reader fd for IOPair: \(error)")
+            }
+
+            do {
+                try self.to.close()
+            } catch {
+                self.logger?.error("failed to close writer fd for IOPair: \(error)")
+            }
+            self.buffer.deallocate()
+            self.closed = true
+        }
+    }
+
+    init(
+        readFrom: IOCloser,
+        writeTo: IOCloser,
+        reason: String,
+        logger: Logger? = nil
+    ) {
+        let buffer = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: Int(getpagesize()))
+        self.io = Mutex(
+            IO(
+                from: readFrom,
+                to: writeTo,
+                buffer: buffer,
+                closed: false,
+                logger: logger
+            ))
+        self.reason = reason
+        self.logger = logger
+    }
+
+    func relay(ignoreHup: Bool = false) throws {
+        self.logger?.info("setting up relay for \(reason)")
+
+        let (readFromFd, writeToFd) = self.io.withLock { io in
+            (io.from.fileDescriptor, io.to.fileDescriptor)
+        }
+
+        let readFrom = OSFile(fd: readFromFd)
+        let writeTo = OSFile(fd: writeToFd)
+
+        try ProcessSupervisor.default.poller.add(readFromFd, mask: EPOLLIN) { mask in
+            self.io.withLock { io in
+                if io.closed {
+                    return
+                }
+
+                if mask.isHangup && !mask.readyToRead {
+                    self.logger?.debug("received EPOLLHUP with no EPOLLIN")
+                    if !ignoreHup {
+                        io.close()
+                    }
+                    return
+                }
+
+                // Loop so we drain fully.
+                while true {
+                    let r = readFrom.read(io.buffer)
+                    if r.read > 0 {
+                        let view = UnsafeMutableBufferPointer(
+                            start: io.buffer.baseAddress,
+                            count: r.read
+                        )
+
+                        let w = writeTo.write(view)
+                        if w.wrote != r.read {
+                            self.logger?.error("stopping relay: short write for stdio")
+                            io.close()
+                            return
+                        }
+                    }
+
+                    switch r.action {
+                    case .error(let errno):
+                        self.logger?.error("failed with errno \(errno) while reading for fd \(readFromFd)")
+                        fallthrough
+                    case .eof:
+                        self.logger?.debug("closing relay for \(readFromFd)")
+                        io.close()
+                        return
+                    case .again:
+                        if mask.isHangup && !ignoreHup {
+                            self.logger?.error("received EPOLLHUP and EAGAIN exiting")
+                            self.close()
+                        }
+                        return
+                    default:
+                        break
+                    }
+                }
+            }
+        }
     }
 
     func close() {
-        guard
-            self.done.compareExchange(
-                expected: false,
-                desired: true,
-                successOrdering: .acquiringAndReleasing,
-                failureOrdering: .acquiring
-            ).exchanged
-        else {
-            return
-        }
-
-        self.buffer.deallocate()
-
-        let readFromFd = self.readFrom.fileDescriptor
-        // Remove the fd from our global epoll instance first.
-        do {
-            try ProcessSupervisor.default.poller.delete(readFromFd)
-        } catch {
-            self.logger?.error("failed to delete fd from epoll \(readFromFd): \(error)")
-        }
-
-        do {
-            try self.readFrom.close()
-        } catch {
-            self.logger?.error("failed to close reader fd for IOPair: \(error)")
-        }
-
-        do {
-            try self.writeTo.close()
-        } catch {
-            self.logger?.error("failed to close writer fd for IOPair: \(error)")
+        self.io.withLock { io in
+            self.logger?.info("closing relay for \(reason)")
+            io.close()
         }
     }
 }

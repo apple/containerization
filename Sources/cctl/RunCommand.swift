@@ -68,14 +68,15 @@ extension Application {
         @Option(name: .long, help: "Current working directory")
         var cwd: String = "/"
 
-        @Argument var arguments: [String] = ["/bin/sh"]
+        @Argument(parsing: .captureForPassthrough)
+        var arguments: [String] = ["/bin/sh"]
 
         func run() async throws {
             let kernel = Kernel(
                 path: URL(fileURLWithPath: kernel),
                 platform: .linuxArm
             )
-            let manager = try await ContainerManager(
+            var manager = try await ContainerManager(
                 kernel: kernel,
                 initfsReference: "vminit:latest",
             )

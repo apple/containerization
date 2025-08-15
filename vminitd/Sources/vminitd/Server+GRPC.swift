@@ -245,6 +245,65 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         return .init()
     }
 
+    func writeFile(request: Com_Apple_Containerization_Sandbox_V3_WriteFileRequest, context: GRPC.GRPCAsyncServerCallContext)
+        async throws -> Com_Apple_Containerization_Sandbox_V3_WriteFileResponse
+    {
+        log.debug(
+            "writeFile",
+            metadata: [
+                "path": "\(request.path)",
+                "mode": "\(request.mode)",
+                "dataSize": "\(request.data.count)",
+            ])
+
+        do {
+            if request.flags.createParentDirs {
+                let fileURL = URL(fileURLWithPath: request.path)
+                let parentDir = fileURL.deletingLastPathComponent()
+                try FileManager.default.createDirectory(
+                    at: parentDir,
+                    withIntermediateDirectories: true
+                )
+            }
+
+            var flags = O_WRONLY
+            if request.flags.createIfMissing {
+                flags |= O_CREAT
+            }
+            if request.flags.append {
+                flags |= O_APPEND
+            }
+
+            let mode = request.mode > 0 ? mode_t(request.mode) : mode_t(0644)
+            let fd = open(request.path, flags, mode)
+            guard fd != -1 else {
+                let error = swiftErrno("open")
+                throw GRPCStatus(
+                    code: .internalError,
+                    message: "writeFile: failed to open file: \(error)"
+                )
+            }
+
+            let fh = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+            try fh.write(contentsOf: request.data)
+        } catch {
+            log.error(
+                "writeFile",
+                metadata: [
+                    "error": "\(error)"
+                ])
+            if error is GRPCStatus {
+                throw error
+            }
+            throw GRPCStatus(
+                code: .internalError,
+                message: "writeFile: \(error)"
+            )
+        }
+
+        return .init()
+    }
+
     func mount(request: Com_Apple_Containerization_Sandbox_V3_MountRequest, context: GRPC.GRPCAsyncServerCallContext)
         async throws -> Com_Apple_Containerization_Sandbox_V3_MountResponse
     {
