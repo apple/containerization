@@ -191,9 +191,15 @@ final class MountTests {
         let isolatedContent = try String(contentsOf: isolatedFile, encoding: .utf8)
         #expect(isolatedContent == originalContent)
 
-        // Verify calling createIsolatedFileShare again returns same directory (deterministic)
+        // Verify calling createIsolatedFileShare again creates a different directory (UUID-based)
         let isolatedDir2 = try mount.createIsolatedFileShare()
-        #expect(isolatedDir == isolatedDir2)
+        defer { try? FileManager.default.removeItem(atPath: isolatedDir2) }
+        #expect(isolatedDir != isolatedDir2)
+        
+        // But both should contain the same file content
+        let isolatedFile2 = URL(fileURLWithPath: isolatedDir2).appendingPathComponent("config.txt")
+        let isolatedContent2 = try String(contentsOf: isolatedFile2, encoding: .utf8)
+        #expect(isolatedContent2 == originalContent)
     }
 
     @Test func fileMountDestinationAdjustment() throws {

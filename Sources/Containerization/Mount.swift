@@ -151,8 +151,9 @@ extension Mount {
         // Validate source file exists and is a regular file
         try validateSourceFile()
 
-        // Create deterministic temp directory based on source and destination paths to avoid collisions
-        let combinedPath = "\(self.source)|\(self.destination)"
+        // Create unique temp directory with UUID to prevent race conditions between parallel tests
+        let uuid = UUID().uuidString
+        let combinedPath = "\(self.source)|\(self.destination)|\(uuid)"
         let sourceHash = try hashMountSource(source: combinedPath)
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("containerization-file-mount-\(sourceHash)")
@@ -164,17 +165,14 @@ extension Mount {
         let destinationFilename = URL(fileURLWithPath: self.destination).lastPathComponent
         let isolatedFile = tempDir.appendingPathComponent(destinationFilename)
 
-        // Create hardlink if it doesn't exist (handles reuse of existing temp directories)
-        if !FileManager.default.fileExists(atPath: isolatedFile.path) {
-            let sourceFile = URL(fileURLWithPath: self.source)
+        let sourceFile = URL(fileURLWithPath: self.source)
 
-            // Double-check source file still exists before creating hard link
-            guard FileManager.default.fileExists(atPath: sourceFile.path) else {
-                throw ContainerizationError(.notFound, message: "Source file no longer exists: \(self.source)")
-            }
-
-            try FileManager.default.linkItem(at: sourceFile, to: isolatedFile)
+        // Double-check source file still exists before creating hard link
+        guard FileManager.default.fileExists(atPath: sourceFile.path) else {
+            throw ContainerizationError(.notFound, message: "Source file no longer exists: \(self.source)")
         }
+
+        try FileManager.default.linkItem(at: sourceFile, to: isolatedFile)
 
         // Final verification that the hardlinked file exists
         guard FileManager.default.fileExists(atPath: isolatedFile.path) else {
