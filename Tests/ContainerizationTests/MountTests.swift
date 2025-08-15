@@ -191,11 +191,11 @@ final class MountTests {
         let isolatedContent = try String(contentsOf: isolatedFile, encoding: .utf8)
         #expect(isolatedContent == originalContent)
 
-        // Verify calling createIsolatedFileShare again returns the same directory (cached)
+        // Verify calling createIsolatedFileShare again returns the same directory (deterministic)
         let isolatedDir2 = try mount.createIsolatedFileShare()
         #expect(isolatedDir == isolatedDir2)
 
-        // Verify the cached directory still contains the same file content
+        // Verify the directory still contains the same file content
         let isolatedFile2 = URL(fileURLWithPath: isolatedDir2).appendingPathComponent("config.txt")
         let isolatedContent2 = try String(contentsOf: isolatedFile2, encoding: .utf8)
         #expect(isolatedContent2 == originalContent)
@@ -220,7 +220,7 @@ final class MountTests {
         #expect(attached.destination == "/app/subdir")
         #expect(attached.isFile == true)
 
-        // Clean up hardlink isolation directory (should return cached directory)
+        // Clean up hardlink isolation directory (should return same deterministic directory)
         _ = try mount.createIsolatedFileShare()
         Mount.releaseIsolatedFileShare(source: testFile.path, destination: "/app/subdir/config.txt")
     }

@@ -138,10 +138,6 @@ extension Mount {
         return exists && !isDirectory.boolValue
     }
 
-    // Cache for isolated file share path to ensure consistent VirtioFS tags
-    // Protected by cacheLock - external synchronization
-    private nonisolated(unsafe) static let isolatedShareCache = NSMutableDictionary()
-    private static let cacheLock = NSLock()
 
     var parentDirectory: String {
         URL(fileURLWithPath: self.source).deletingLastPathComponent().path
@@ -152,66 +148,44 @@ extension Mount {
     }
 
     /// Create an isolated temporary directory containing only the target file via hardlink
-    /// Uses caching to ensure the same directory is returned for the same mount across multiple calls
     func createIsolatedFileShare() throws -> String {
-        let cacheKey = "\(self.source)|\(self.destination)"
-
-        // Check cache first (no reference counting to avoid test race conditions)
-        Self.cacheLock.lock()
-        if let cachedPath = Self.isolatedShareCache[cacheKey] as? String {
-            // Verify cached directory still exists (ignore source file for cached results to handle test cleanup)
-            var isDirectory: ObjCBool = false
-            if FileManager.default.fileExists(atPath: cachedPath, isDirectory: &isDirectory) && isDirectory.boolValue {
-                Self.cacheLock.unlock()
-                return cachedPath
-            } else {
-                // Remove stale cache entry
-                Self.isolatedShareCache.removeObject(forKey: cacheKey)
-            }
-        }
-        Self.cacheLock.unlock()
-
-        // Validate source file exists and is a regular file
-        try validateSourceFile()
-
-        // Create deterministic temp directory for caching
+        // Create deterministic temp directory
         let combinedPath = "\(self.source)|\(self.destination)"
         let sourceHash = try hashMountSource(source: combinedPath)
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("containerization-file-mount-\(sourceHash)")
 
-        // Atomically create directory
-        try createDirectory(at: tempDir)
-
         // Use destination filename for the hardlink instead of source filename
         let destinationFilename = URL(fileURLWithPath: self.destination).lastPathComponent
         let isolatedFile = tempDir.appendingPathComponent(destinationFilename)
 
-        let sourceFile = URL(fileURLWithPath: self.source)
-
         // Check if hard link already exists
         if FileManager.default.fileExists(atPath: isolatedFile.path) {
             // Hard link already exists - nothing to do
-        } else {
-            // Create the hard link, handling race conditions
-            do {
-                try FileManager.default.linkItem(at: sourceFile, to: isolatedFile)
-            } catch CocoaError.fileWriteFileExists {
-                // Another thread created the hardlink - that's fine
-            } catch {
-                throw ContainerizationError(.internalError, message: "Failed to create hardlink: \(error.localizedDescription)")
-            }
-
-            // Final verification that the hardlinked file exists
-            guard FileManager.default.fileExists(atPath: isolatedFile.path) else {
-                throw ContainerizationError(.notFound, message: "Failed to create hardlink at: \(isolatedFile.path)")
-            }
+            return tempDir.path
         }
 
-        // Cache the result (no reference counting)
-        Self.cacheLock.lock()
-        Self.isolatedShareCache[cacheKey] = tempDir.path
-        Self.cacheLock.unlock()
+        // Validate source file exists and is a regular file
+        try validateSourceFile()
+
+        // Atomically create directory
+        try createDirectory(at: tempDir)
+
+        let sourceFile = URL(fileURLWithPath: self.source)
+        
+        // Create the hard link, handling race conditions
+        do {
+            try FileManager.default.linkItem(at: sourceFile, to: isolatedFile)
+        } catch CocoaError.fileWriteFileExists {
+            // Another thread created the hardlink - that's fine
+        } catch {
+            throw ContainerizationError(.internalError, message: "Failed to create hardlink: \(error.localizedDescription)")
+        }
+
+        // Final verification that the hardlinked file exists
+        guard FileManager.default.fileExists(atPath: isolatedFile.path) else {
+            throw ContainerizationError(.notFound, message: "Failed to create hardlink at: \(isolatedFile.path)")
+        }
 
         return tempDir.path
     }
