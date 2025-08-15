@@ -195,7 +195,7 @@ final class MountTests {
         let isolatedDir2 = try mount.createIsolatedFileShare()
         defer { try? FileManager.default.removeItem(atPath: isolatedDir2) }
         #expect(isolatedDir != isolatedDir2)
-        
+
         // But both should contain the same file content
         let isolatedFile2 = URL(fileURLWithPath: isolatedDir2).appendingPathComponent("config.txt")
         let isolatedContent2 = try String(contentsOf: isolatedFile2, encoding: .utf8)
