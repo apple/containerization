@@ -51,7 +51,7 @@ internal struct Cgroup2Manager {
         self.path = mountPoint.appending(path: path.path)
         self.logger = logger
 
-        self.logger?.error(
+        self.logger?.info(
             "creating cgroup manager",
             metadata: [
                 "mountpoint": "\(self.mountPoint.path)",
@@ -127,6 +127,13 @@ internal struct Cgroup2Manager {
     }
 
     func delete(force: Bool = false) throws {
+        self.logger?.info(
+            "deleting cgroup manager",
+            metadata: [
+                "mountpoint": "\(self.mountPoint.path)",
+                "path": "\(self.path.path)",
+            ])
+
         if force {
             try self.kill()
         }
