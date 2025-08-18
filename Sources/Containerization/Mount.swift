@@ -138,7 +138,6 @@ extension Mount {
         return exists && !isDirectory.boolValue
     }
 
-
     var parentDirectory: String {
         URL(fileURLWithPath: self.source).deletingLastPathComponent().path
     }
@@ -172,7 +171,7 @@ extension Mount {
         try createDirectory(at: tempDir)
 
         let sourceFile = URL(fileURLWithPath: self.source)
-        
+
         // Create the hard link, handling race conditions
         do {
             try FileManager.default.linkItem(at: sourceFile, to: isolatedFile)

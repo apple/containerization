@@ -23,7 +23,7 @@ import Testing
 final class MountTests {
     @Test func fileDetection() throws {
         let tempDir = FileManager.default.temporaryDirectory
-        let testFile = tempDir.appendingPathComponent("testfile.txt")
+        let testFile = tempDir.appendingPathComponent("testfile-\(#function).txt")
 
         try "test content".write(to: testFile, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: testFile) }
@@ -34,7 +34,7 @@ final class MountTests {
         )
 
         #expect(mount.isFile == true)
-        #expect(mount.filename == "testfile.txt")
+        #expect(mount.filename.hasPrefix("testfile-"))
         #expect(mount.parentDirectory == tempDir.path)
     }
 
@@ -52,14 +52,14 @@ final class MountTests {
     #if os(macOS)
     @Test func attachedFilesystemBindFlag() throws {
         let tempDir = FileManager.default.temporaryDirectory
-        let testFile = tempDir.appendingPathComponent("bindtest.txt")
+        let testFile = tempDir.appendingPathComponent("bindtest-\(#function).txt")
 
         try "bind test".write(to: testFile, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: testFile) }
 
         let mount = Mount.share(
             source: testFile.path,
-            destination: "/app/config.txt"
+            destination: "/app/config-\(#function).txt"
         )
 
         let allocator = Character.blockDeviceTagAllocator()
@@ -84,7 +84,7 @@ final class MountTests {
 
     @Test func emptyFileMount() throws {
         let tempDir = FileManager.default.temporaryDirectory
-        let emptyFile = tempDir.appendingPathComponent("empty.txt")
+        let emptyFile = tempDir.appendingPathComponent("empty-\(#function).txt")
 
         try "".write(to: emptyFile, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: emptyFile) }
@@ -95,13 +95,13 @@ final class MountTests {
         )
 
         #expect(mount.isFile == true)
-        #expect(mount.filename == "empty.txt")
+        #expect(mount.filename.hasPrefix("empty-"))
         #expect(mount.parentDirectory == tempDir.path)
     }
 
     @Test func specialCharactersInFilename() throws {
         let tempDir = FileManager.default.temporaryDirectory
-        let specialFile = tempDir.appendingPathComponent("file with spaces & symbols!@#.txt")
+        let specialFile = tempDir.appendingPathComponent("file with spaces & symbols!@#-\(#function).txt")
 
         try "special content".write(to: specialFile, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: specialFile) }
@@ -112,7 +112,7 @@ final class MountTests {
         )
 
         #expect(mount.isFile == true)
-        #expect(mount.filename == "file with spaces & symbols!@#.txt")
+        #expect(mount.filename.hasPrefix("file with spaces & symbols!@#-"))
         #expect(mount.parentDirectory == tempDir.path)
 
         let allocator = Character.blockDeviceTagAllocator()
@@ -122,7 +122,7 @@ final class MountTests {
 
     @Test func hiddenFileMount() throws {
         let tempDir = FileManager.default.temporaryDirectory
-        let hiddenFile = tempDir.appendingPathComponent(".hidden")
+        let hiddenFile = tempDir.appendingPathComponent(".hidden-\(#function)")
 
         try "hidden content".write(to: hiddenFile, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: hiddenFile) }
@@ -133,13 +133,13 @@ final class MountTests {
         )
 
         #expect(mount.isFile == true)
-        #expect(mount.filename == ".hidden")
+        #expect(mount.filename.hasPrefix(".hidden-"))
         #expect(mount.parentDirectory == tempDir.path)
     }
 
     @Test func readOnlyFileMount() throws {
         let tempDir = FileManager.default.temporaryDirectory
-        let readOnlyFile = tempDir.appendingPathComponent("readonly.txt")
+        let readOnlyFile = tempDir.appendingPathComponent("readonly-\(#function).txt")
 
         try "readonly content".write(to: readOnlyFile, atomically: true, encoding: .utf8)
         defer {
@@ -157,7 +157,7 @@ final class MountTests {
         )
 
         #expect(mount.isFile == true)
-        #expect(mount.filename == "readonly.txt")
+        #expect(mount.filename.hasPrefix("readonly-"))
 
         let allocator = Character.blockDeviceTagAllocator()
         let attached = try AttachedFilesystem(mount: mount, allocator: allocator)
@@ -166,28 +166,30 @@ final class MountTests {
 
     @Test func hardlinkIsolation() throws {
         let tempDir = FileManager.default.temporaryDirectory
-        let testFile = tempDir.appendingPathComponent("isolation-test.txt")
+        let testFile = tempDir.appendingPathComponent("isolation-test-\(#function).txt")
         let originalContent = "hardlink test content"
 
         try originalContent.write(to: testFile, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: testFile) }
 
         let mount = Mount.share(
             source: testFile.path,
-            destination: "/app/config.txt"
+            destination: "/app/config-\(#function).txt"
         )
 
         // Create hardlink isolation
         let isolatedDir = try mount.createIsolatedFileShare()
-        defer { Mount.releaseIsolatedFileShare(source: testFile.path, destination: "/app/config.txt") }
+
+        // Cleanup in reverse order to prevent race conditions
+        defer { try? FileManager.default.removeItem(at: testFile) }
+        defer { Mount.releaseIsolatedFileShare(source: testFile.path, destination: "/app/config-\(#function).txt") }
 
         // Verify isolated directory contains only the target file
         let isolatedContents = try FileManager.default.contentsOfDirectory(atPath: isolatedDir)
         #expect(isolatedContents.count == 1)
-        #expect(isolatedContents.first == "config.txt")
+        #expect(isolatedContents.first == "config-hardlinkIsolation().txt")
 
         // Verify hardlinked file has same content
-        let isolatedFile = URL(fileURLWithPath: isolatedDir).appendingPathComponent("config.txt")
+        let isolatedFile = URL(fileURLWithPath: isolatedDir).appendingPathComponent("config-hardlinkIsolation().txt")
         let isolatedContent = try String(contentsOf: isolatedFile, encoding: .utf8)
         #expect(isolatedContent == originalContent)
 
@@ -196,21 +198,21 @@ final class MountTests {
         #expect(isolatedDir == isolatedDir2)
 
         // Verify the directory still contains the same file content
-        let isolatedFile2 = URL(fileURLWithPath: isolatedDir2).appendingPathComponent("config.txt")
+        let isolatedFile2 = URL(fileURLWithPath: isolatedDir2).appendingPathComponent("config-hardlinkIsolation().txt")
         let isolatedContent2 = try String(contentsOf: isolatedFile2, encoding: .utf8)
         #expect(isolatedContent2 == originalContent)
     }
 
     @Test func fileMountDestinationAdjustment() throws {
         let tempDir = FileManager.default.temporaryDirectory
-        let testFile = tempDir.appendingPathComponent("dest-test.txt")
+        let testFile = tempDir.appendingPathComponent("dest-test-\(#function).txt")
 
         try "destination test".write(to: testFile, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: testFile) }
 
         let mount = Mount.share(
             source: testFile.path,
-            destination: "/app/subdir/config.txt"
+            destination: "/app/subdir/config-\(#function).txt"
         )
 
         let allocator = Character.blockDeviceTagAllocator()
@@ -222,13 +224,13 @@ final class MountTests {
 
         // Clean up hardlink isolation directory (should return same deterministic directory)
         _ = try mount.createIsolatedFileShare()
-        Mount.releaseIsolatedFileShare(source: testFile.path, destination: "/app/subdir/config.txt")
+        Mount.releaseIsolatedFileShare(source: testFile.path, destination: "/app/subdir/config-\(#function).txt")
     }
 
     @Test func rejectsSymlinks() throws {
         let tempDir = FileManager.default.temporaryDirectory
-        let testFile = tempDir.appendingPathComponent("symlink-source.txt")
-        let symlinkFile = tempDir.appendingPathComponent("symlink-test.txt")
+        let testFile = tempDir.appendingPathComponent("symlink-source-\(#function).txt")
+        let symlinkFile = tempDir.appendingPathComponent("symlink-test-\(#function).txt")
 
         try "test content".write(to: testFile, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: testFile) }
@@ -236,7 +238,7 @@ final class MountTests {
         try FileManager.default.createSymbolicLink(at: symlinkFile, withDestinationURL: testFile)
         defer { try? FileManager.default.removeItem(at: symlinkFile) }
 
-        let mount = Mount.share(source: symlinkFile.path, destination: "/app/config.txt")
+        let mount = Mount.share(source: symlinkFile.path, destination: "/app/config-\(#function).txt")
 
         #expect(throws: ContainerizationError.self) {
             try mount.createIsolatedFileShare()
@@ -244,7 +246,7 @@ final class MountTests {
     }
 
     @Test func rejectsNonExistentFiles() throws {
-        let mount = Mount.share(source: "/nonexistent/file.txt", destination: "/app/config.txt")
+        let mount = Mount.share(source: "/nonexistent/file.txt", destination: "/app/config-\(#function).txt")
 
         #expect(throws: ContainerizationError.self) {
             try mount.createIsolatedFileShare()
@@ -253,12 +255,12 @@ final class MountTests {
 
     @Test func rejectsDirectories() throws {
         let tempDir = FileManager.default.temporaryDirectory
-        let testDir = tempDir.appendingPathComponent("test-directory")
+        let testDir = tempDir.appendingPathComponent("test-directory-\(#function)")
 
         try FileManager.default.createDirectory(at: testDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: testDir) }
 
-        let mount = Mount.share(source: testDir.path, destination: "/app/config.txt")
+        let mount = Mount.share(source: testDir.path, destination: "/app/config-\(#function).txt")
 
         #expect(throws: ContainerizationError.self) {
             try mount.createIsolatedFileShare()
@@ -267,12 +269,12 @@ final class MountTests {
 
     @Test func registersForCleanup() throws {
         let tempDir = FileManager.default.temporaryDirectory
-        let testFile = tempDir.appendingPathComponent("cleanup-test.txt")
+        let testFile = tempDir.appendingPathComponent("cleanup-test-\(#function).txt")
 
         try "test content".write(to: testFile, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: testFile) }
 
-        let mount = Mount.share(source: testFile.path, destination: "/app/config.txt")
+        let mount = Mount.share(source: testFile.path, destination: "/app/config-\(#function).txt")
         let isolatedDir = try mount.createIsolatedFileShare()
 
         // Verify directory was created
