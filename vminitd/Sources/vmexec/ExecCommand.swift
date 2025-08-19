@@ -46,14 +46,8 @@ struct ExecCommand: ParsableCommand {
         try execInNamespaces(process: process, log: log)
     }
 
-    static func enterNS(path: String, nsType: Int32) throws {
-        let fd = open(path, O_RDONLY)
-        if fd <= 0 {
-            throw App.Errno(stage: "open(ns)")
-        }
-        defer { close(fd) }
-
-        guard setns(fd, nsType) == 0 else {
+    static func enterNS(pidFd: Int32, nsType: Int32) throws {
+        guard setns(pidFd, nsType) == 0 else {
             throw App.Errno(stage: "setns(fd)")
         }
     }
@@ -65,10 +59,14 @@ struct ExecCommand: ParsableCommand {
         let syncPipe = FileHandle(fileDescriptor: 3)
         let ackPipe = FileHandle(fileDescriptor: 4)
 
-        try Self.enterNS(path: "/proc/\(self.parentPid)/ns/cgroup", nsType: CLONE_NEWCGROUP)
-        try Self.enterNS(path: "/proc/\(self.parentPid)/ns/pid", nsType: CLONE_NEWPID)
-        try Self.enterNS(path: "/proc/\(self.parentPid)/ns/uts", nsType: CLONE_NEWUTS)
-        try Self.enterNS(path: "/proc/\(self.parentPid)/ns/mnt", nsType: CLONE_NEWNS)
+        let pidFd = CZ_pidfd_open(Int32(parentPid), 0)
+        guard pidFd > 0 else {
+            throw App.Errno(stage: "pidfd_open(\(parentPid))")
+        }
+        try Self.enterNS(
+            pidFd: pidFd,
+            nsType: CLONE_NEWCGROUP | CLONE_NEWPID | CLONE_NEWUTS | CLONE_NEWNS
+        )
 
         let processID = fork()
 

@@ -14,10 +14,17 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
+#if canImport(Musl)
+import Musl
+#elseif canImport(Glibc)
+import Glibc
+#endif
+
 import ContainerizationOS
 import Foundation
 import Logging
-import Musl
 
 enum Cgroup2Controller: String {
     case pids
@@ -30,27 +37,71 @@ enum Cgroup2Controller: String {
 
 // Extremely simple cgroup manager. Our needs are simple for now, and this is
 // reflected in the type.
-internal struct Cgroup2Manager {
+struct Cgroup2Manager: Sendable {
     static let defaultMountPoint = URL(filePath: "/sys/fs/cgroup")
 
-    static let killFile = "cgroup.kill"
-    static let procsFile = "cgroup.procs"
-    static let subtreeControlFile = "cgroup.subtree_control"
+    private static let killFile = "cgroup.kill"
+    private static let procsFile = "cgroup.procs"
+    private static let subtreeControlFile = "cgroup.subtree_control"
+
+    private static let cg2Magic = 0x6367_7270
 
     private let mountPoint: URL
     private let path: URL
     private let logger: Logger?
 
     init(
-        mountPoint: URL = defaultMountPoint,
-        path: URL,
-        perms: Int16 = 0o755,
+        mountPoint: URL = Self.defaultMountPoint,
+        group: URL,
         logger: Logger? = nil
-    ) throws {
+    ) {
         self.mountPoint = mountPoint
-        self.path = mountPoint.appending(path: path.path)
+        self.path = mountPoint.appending(path: group.path)
         self.logger = logger
+    }
 
+    static func load(
+        mountPoint: URL = Self.defaultMountPoint,
+        group: URL,
+        logger: Logger? = nil
+    ) throws -> Cgroup2Manager {
+        let path = mountPoint.appending(path: group.path)
+        var s = statfs()
+        let res = statfs(path.path, &s)
+        if res != 0 {
+            throw Error.errno(errno: errno, message: "failed to statfs \(path.path)")
+        }
+        if Int64(s.f_type) != Self.cg2Magic {
+            throw Error.notCgroup
+        }
+        return Cgroup2Manager(
+            mountPoint: mountPoint,
+            group: group,
+            logger: logger
+        )
+    }
+
+    static func loadFromPid(pid: Int32, logger: Logger? = nil) throws -> Cgroup2Manager {
+        let procCgPath = URL(filePath: "/proc/\(pid)/cgroup")
+        let fh = try FileHandle(forReadingFrom: procCgPath)
+        guard let data = try fh.readToEnd() else {
+            throw Error.errno(errno: errno, message: "failed to read \(procCgPath)")
+        }
+
+        // If this fails we have bigger problems.
+        let str = String(data: data, encoding: .utf8)!
+        let parts = str.split(separator: ":")
+        if parts[0] != "0" {
+            throw Error.cgroup1
+        }
+
+        // We should really read /proc/pid/mountinfo, but for now just assume
+        // it's always at /sys/fs/cgroup.
+        let path = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        return Cgroup2Manager(group: URL(filePath: String(path)), logger: logger)
+    }
+
+    func create(perms: Int16 = 0o755) throws {
         self.logger?.info(
             "creating cgroup manager",
             metadata: [
@@ -110,6 +161,13 @@ internal struct Cgroup2Manager {
     }
 
     func addProcess(pid: Int32) throws {
+        self.logger?.debug(
+            "adding new proc to cgroup",
+            metadata: [
+                "mountpoint": "\(self.mountPoint.path)",
+                "path": "\(self.path.path)",
+            ])
+
         let pidStr = String(pid)
         try Self.writeValue(
             path: self.path,
@@ -143,13 +201,24 @@ internal struct Cgroup2Manager {
 
 extension Cgroup2Manager {
     enum Error: Swift.Error, CustomStringConvertible {
+        case notCgroup
+        case cgroup1
         case errno(errno: Int32, message: String)
+        case notExist(path: String)
 
         var description: String {
             switch self {
             case .errno(let errno, let message):
                 return "failed with errno \(errno): \(message)"
+            case .notExist(let path):
+                return "cgroup at path \(path) does not exist"
+            case .cgroup1:
+                return "tried to load a cgroup v1 path"
+            case .notCgroup:
+                return "path is not a cgroup mountpoint"
             }
         }
     }
 }
+
+#endif

@@ -34,7 +34,7 @@ final class ManagedProcess: Sendable {
     private let syncPipe: FileHandle
     private let terminal: Bool
     private let bundle: ContainerizationOCI.Bundle
-    private let cgroupManager: Cgroup2Manager
+    private let cgroupManager: Cgroup2Manager?
 
     private struct State {
         init(io: IO) {
@@ -75,7 +75,7 @@ final class ManagedProcess: Sendable {
         id: String,
         stdio: HostStdio,
         bundle: ContainerizationOCI.Bundle,
-        cgroupManager: Cgroup2Manager,
+        cgroupManager: Cgroup2Manager? = nil,
         owningPid: Int32? = nil,
         log: Logger
     ) throws {
@@ -84,7 +84,6 @@ final class ManagedProcess: Sendable {
         Self.localizeLogger(log: &log, id: id)
         self.log = log
         self.owningPid = owningPid
-        self.cgroupManager = cgroupManager
 
         let syncPipe = Pipe()
         try syncPipe.setCloexec()
@@ -138,6 +137,7 @@ final class ManagedProcess: Sendable {
         // Setup IO early. We expect the host to be listening already.
         try io.start(process: &process)
 
+        self.cgroupManager = cgroupManager
         self.process = process
         self.terminal = stdio.terminal
         self.bundle = bundle
@@ -184,8 +184,17 @@ extension ManagedProcess {
                 ])
             $0.pid = pid
 
-            // First add to our cg, then ack the pid.
-            try self.cgroupManager.addProcess(pid: pid)
+            // Add to our cgroup. For execs (owningPid is non-nil) we'll
+            // see where the init process is actually located now (systemd
+            // loves to move all its processes to a child /init.scope cg).
+            if let cgroupManager {
+                try cgroupManager.addProcess(pid: pid)
+            } else {
+                if let owningPid {
+                    let cgManager = try Cgroup2Manager.loadFromPid(pid: owningPid)
+                    try cgManager.addProcess(pid: pid)
+                }
+            }
 
             log.info(
                 "sending pid acknowledgement",

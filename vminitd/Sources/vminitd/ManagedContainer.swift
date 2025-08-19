@@ -39,12 +39,6 @@ actor ManagedContainer {
         spec: ContainerizationOCI.Spec,
         log: Logger
     ) throws {
-        let bundle = try ContainerizationOCI.Bundle.create(
-            path: Self.craftBundlePath(id: id),
-            spec: spec
-        )
-        log.info("created bundle with spec \(spec)")
-
         var cgroupsPath: String
         if let cgPath = spec.linux?.cgroupsPath {
             cgroupsPath = cgPath
@@ -52,30 +46,43 @@ actor ManagedContainer {
             cgroupsPath = "/container/\(id)"
         }
 
-        let cgManager = try Cgroup2Manager(
-            path: URL(filePath: cgroupsPath),
+        let bundle = try ContainerizationOCI.Bundle.create(
+            path: Self.craftBundlePath(id: id),
+            spec: spec
+        )
+        log.info("created bundle with spec \(spec)")
+
+        let cgManager = Cgroup2Manager(
+            group: URL(filePath: cgroupsPath),
             logger: log
         )
-        try cgManager.toggleSubtreeControllers(
-            controllers: [.cpu, .cpuset, .hugetlb, .io, .memory, .pids],
-            enable: true
-        )
+        try cgManager.create()
 
-        let initProcess = try ManagedProcess(
-            id: id,
-            stdio: stdio,
-            bundle: bundle,
-            cgroupManager: cgManager,
-            owningPid: nil,
-            log: log
-        )
-        log.info("created managed init process")
+        do {
+            try cgManager.toggleSubtreeControllers(
+                controllers: [.cpu, .cpuset, .hugetlb, .io, .memory, .pids],
+                enable: true
+            )
 
-        self.initProcess = initProcess
-        self.id = id
-        self.cgroupManager = cgManager
-        self.bundle = bundle
-        self.log = log
+            let initProcess = try ManagedProcess(
+                id: id,
+                stdio: stdio,
+                bundle: bundle,
+                cgroupManager: cgManager,
+                owningPid: nil,
+                log: log
+            )
+            log.info("created managed init process")
+
+            self.cgroupManager = cgManager
+            self.initProcess = initProcess
+            self.id = id
+            self.bundle = bundle
+            self.log = log
+        } catch {
+            try? cgManager.delete()
+            throw error
+        }
     }
 }
 
@@ -104,7 +111,6 @@ extension ManagedContainer {
             id: id,
             stdio: stdio,
             bundle: self.bundle,
-            cgroupManager: self.cgroupManager,
             owningPid: self.initProcess.pid,
             log: self.log
         )

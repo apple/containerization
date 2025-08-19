@@ -439,7 +439,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 from: request.configuration
             )
 
-            try ociAlterations(ociSpec: &ociSpec)
+            try ociAlterations(id: request.id, ociSpec: &ociSpec)
 
             guard let process = ociSpec.process else {
                 throw ContainerizationError(
@@ -940,7 +940,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest {
 }
 
 extension Initd {
-    func ociAlterations(ociSpec: inout ContainerizationOCI.Spec) throws {
+    func ociAlterations(id: String, ociSpec: inout ContainerizationOCI.Spec) throws {
         guard var process = ociSpec.process else {
             throw ContainerizationError(
                 .invalidArgument,
@@ -952,6 +952,10 @@ extension Initd {
                 .invalidArgument,
                 message: "runtime spec without root field present"
             )
+        }
+
+        if ociSpec.linux!.cgroupsPath.isEmpty {
+            ociSpec.linux!.cgroupsPath = "/container/\(id)"
         }
 
         if process.cwd.isEmpty {
