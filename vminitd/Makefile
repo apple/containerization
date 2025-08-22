@@ -42,6 +42,10 @@ all:
 	@install "$(VMINITD_BIN_PATH)/vminitd" ./bin/
 	@install "$(VMINITD_BIN_PATH)/vmexec" ./bin/
 
+.PHONY: allow-warnings
+allow-warnings: WARNINGS_AS_ERRORS = false
+allow-warnings: all
+
 .PHONY: cross-prep
 cross-prep: linux-sdk macos-sdk
 

@@ -41,6 +41,10 @@ all: init
 release: BUILD_CONFIGURATION = release
 release: all
 
+.PHONY: allow-warnings
+allow-warnings: WARNINGS_AS_ERRORS = false
+allow-warnings: all
+
 .PHONY: containerization
 containerization:
 	@echo Building containerization binaries...
