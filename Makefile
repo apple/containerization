@@ -73,7 +73,7 @@ cross-prep:
 .PHONY: vminitd
 vminitd:
 	@mkdir -p ./bin
-	@"$(MAKE)" -C vminitd BUILD_CONFIGURATION=$(BUILD_CONFIGURATION)
+	@"$(MAKE)" -C vminitd BUILD_CONFIGURATION=$(BUILD_CONFIGURATION) WARNINGS_AS_ERRORS=$(WARNINGS_AS_ERRORS)
 
 .PHONY: update-libarchive-source
 update-libarchive-source:
