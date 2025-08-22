@@ -39,4 +39,20 @@ final class KernelTests {
         let cmdline = kernel.commandLine.kernelArgs.joined(separator: " ")
         #expect(cmdline == expected)
     }
+
+    @Test func kernelCommandLineInitWithDebugTrue() {
+        let commandLine = Kernel.CommandLine(debug: true, panic: 5, initArgs: ["--verbose"])
+
+        #expect(commandLine.kernelArgs == ["console=hvc0", "tsc=reliable", "debug", "panic=5"])
+        #expect(commandLine.initArgs == ["--verbose"])
+    }
+
+    @Test func kernelCommandLineMutatingMethods() {
+        var commandLine = Kernel.CommandLine(kernelArgs: ["console=hvc0"], initArgs: [])
+
+        commandLine.addDebug()
+        commandLine.addPanic(level: 10)
+
+        #expect(commandLine.kernelArgs == ["console=hvc0", "debug", "panic=10"])
+    }
 }
