@@ -13,7 +13,9 @@
 # limitations under the License.
 
 BUILD_CONFIGURATION := debug
-SWIFT_CONFIGURATION := --swift-sdk aarch64-swift-linux-musl
+WARNINGS_AS_ERRORS ?= true
+SWIFT_WARNING_CONFIG = $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors)
+SWIFT_CONFIGURATION := --swift-sdk aarch64-swift-linux-musl $(SWIFT_WARNING_CONFIG)
 
 SWIFT_VERSION = 6.2-snapshot-2025-06-25
 SWIFT_SDK_URL = https://download.swift.org/swift-6.2-branch/static-sdk/swift-6.2-DEVELOPMENT-SNAPSHOT-2025-06-25-a/swift-6.2-DEVELOPMENT-SNAPSHOT-2025-06-25-a_static-linux-0.0.1.artifactbundle.tar.gz
@@ -39,6 +41,10 @@ all:
 	@swift build -c $(BUILD_CONFIGURATION) $(SWIFT_CONFIGURATION)
 	@install "$(VMINITD_BIN_PATH)/vminitd" ./bin/
 	@install "$(VMINITD_BIN_PATH)/vmexec" ./bin/
+
+.PHONY: allow-warnings
+allow-warnings: WARNINGS_AS_ERRORS = false
+allow-warnings: all
 
 .PHONY: cross-prep
 cross-prep: linux-sdk macos-sdk
