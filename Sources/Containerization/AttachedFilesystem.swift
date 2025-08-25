@@ -16,6 +16,7 @@
 
 import ContainerizationExtras
 import ContainerizationOCI
+import Foundation
 
 /// A filesystem that was attached and able to be mounted inside the runtime environment.
 public struct AttachedFilesystem: Sendable {
@@ -27,12 +28,22 @@ public struct AttachedFilesystem: Sendable {
     public var destination: String
     /// The options to use when mounting the filesystem.
     public var options: [String]
+    /// True if this is a single file mount using hardlink isolation
+    var isFile: Bool
 
     #if os(macOS)
     public init(mount: Mount, allocator: any AddressAllocator<Character>) throws {
+        self.isFile = mount.isFile
+
         switch mount.type {
         case "virtiofs":
-            let name = try hashMountSource(source: mount.source)
+            let shareSource: String
+            if mount.isFile {
+                shareSource = try mount.createIsolatedFileShare()
+            } else {
+                shareSource = mount.source
+            }
+            let name = try hashMountSource(source: shareSource)
             self.source = name
         case "ext4":
             let char = try allocator.allocate()
@@ -42,7 +53,13 @@ public struct AttachedFilesystem: Sendable {
         }
         self.type = mount.type
         self.options = mount.options
-        self.destination = mount.destination
+
+        // For file mounts with hardlink isolation, mount at parent directory
+        if mount.isFile && mount.type == "virtiofs" {
+            self.destination = URL(fileURLWithPath: mount.destination).deletingLastPathComponent().path
+        } else {
+            self.destination = mount.destination
+        }
     }
     #endif
 }
