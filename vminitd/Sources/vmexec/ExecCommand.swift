@@ -101,7 +101,6 @@ struct ExecCommand: ParsableCommand {
 
                 let data = Data(bytes: &masterFD, count: MemoryLayout.size(ofValue: masterFD))
                 try syncPipe.write(contentsOf: data)
-                try syncPipe.close()
 
                 // Wait for the grandparent to tell us that they acked our console.
                 guard let data = try ackPipe.read(upToCount: App.ackConsole.count) else {
