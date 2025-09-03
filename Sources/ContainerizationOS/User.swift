@@ -18,39 +18,52 @@ import ContainerizationError
 import Foundation
 
 /// `User` provides utilities to ensure that a given username exists in
-/// /etc/passwd (and /etc/group).
+/// /etc/passwd (and /etc/group). Largely inspired by runc (and moby's)
+/// `user` packages.
 public enum User {
-    private static let passwdFile = "/etc/passwd"
-    private static let groupFile = "/etc/group"
+    public static let passwdFilePath = URL(filePath: "/etc/passwd")
+    public static let groupFilePath = URL(filePath: "/etc/group")
+
+    private static let minID: UInt32 = 0
+    private static let maxID: UInt32 = 2_147_483_647
 
     public struct ExecUser: Sendable {
         public var uid: UInt32
         public var gid: UInt32
         public var sgids: [UInt32]
         public var home: String
+        public var shell: String
+
+        public init(uid: UInt32, gid: UInt32, sgids: [UInt32], home: String, shell: String) {
+            self.uid = uid
+            self.gid = gid
+            self.sgids = sgids
+            self.home = home
+            self.shell = shell
+        }
     }
 
-    private struct User {
-        let name: String
-        let password: String
-        let uid: UInt32
-        let gid: UInt32
-        let gecos: String
-        let home: String
-        let shell: String
+    public struct User {
+        public var name: String
+        public var password: String
+        public var uid: UInt32
+        public var gid: UInt32
+        public var gecos: String
+        public var home: String
+        public var shell: String
 
         /// The argument `rawString` must follow the below format.
         /// Name:Password:Uid:Gid:Gecos:Home:Shell
         init(rawString: String) throws {
             let args = rawString.split(separator: ":", omittingEmptySubsequences: false)
             guard args.count == 7 else {
-                throw ContainerizationError.init(.invalidArgument, message: "Cannot parse User from '\(rawString)'")
+                throw Error.parseError("Cannot parse User from '\(rawString)'")
             }
             guard let uid = UInt32(args[2]) else {
-                throw ContainerizationError.init(.invalidArgument, message: "Cannot parse uid from '\(args[2])'")
+                throw Error.parseError("Cannot parse uid from '\(args[2])'")
             }
             guard let gid = UInt32(args[3]) else {
-                throw ContainerizationError.init(.invalidArgument, message: "Cannot parse gid from '\(args[3])'")
+                throw Error.parseError("Cannot parse gid from '\(args[3])'")
             }
             self.name = String(args[0])
             self.password = String(args[1])
@@ -62,21 +75,21 @@ public enum User {
         }
     }
 
-    private struct Group {
-        let name: String
-        let password: String
-        let gid: UInt32
-        let users: [String]
+    struct Group {
+        var name: String
+        var password: String
+        var gid: UInt32
+        var users: [String]
 
         /// The argument `rawString` must follow the below format.
         /// Name:Password:Gid:user1,user2
         init(rawString: String) throws {
             let args = rawString.split(separator: ":", omittingEmptySubsequences: false)
             guard args.count == 4 else {
-                throw ContainerizationError.init(.invalidArgument, message: "Cannot parse Group from '\(rawString)'")
+                throw Error.parseError("Cannot parse Group from '\(rawString)'")
             }
             guard let gid = UInt32(args[2]) else {
-                throw ContainerizationError.init(.invalidArgument, message: "Cannot parse gid from '\(args[2])'")
+                throw Error.parseError("Cannot parse gid from '\(args[2])'")
             }
             self.name = String(args[0])
             self.password = String(args[1])
@@ -89,30 +102,10 @@ public enum User {
 // MARK: Private methods
 
 extension User {
-    /// Parse the contents of the passwd file
-    private static func parsePasswd(passwdFile: URL) throws -> [User] {
-        var users: [User] = []
-        try self.parse(file: passwdFile) { line in
-            let user = try User(rawString: line)
-            users.append(user)
-        }
-        return users
-    }
-
-    /// Parse the contents of the group file
-    private static func parseGroup(groupFile: URL) throws -> [Group] {
-        var groups: [Group] = []
-        try self.parse(file: groupFile) { line in
-            let group = try Group(rawString: line)
-            groups.append(group)
-        }
-        return groups
-    }
-
     private static func parse(file: URL, handler: (_ line: String) throws -> Void) throws {
         let fm = FileManager.default
         guard fm.fileExists(atPath: file.absolutePath()) else {
-            throw ContainerizationError(.notFound, message: "File \(file.absolutePath()) does not exist")
+            throw Error.missingFile(file.absolutePath())
         }
         let content = try String(contentsOf: file, encoding: .ascii)
         let lines = content.components(separatedBy: .newlines)
@@ -123,100 +116,160 @@ extension User {
             try handler(line.trimmingCharacters(in: .whitespaces))
         }
     }
+
+    /// Parse the contents of the passwd file with a provided filter function.
+    static func parsePasswd(passwdFile: URL, filter: ((User) -> Bool)? = nil) throws -> [User] {
+        var users: [User] = []
+        try self.parse(file: passwdFile) { line in
+            let user = try User(rawString: line)
+            if let filter {
+                guard filter(user) else {
+                    return
+                }
+            }
+            users.append(user)
+        }
+        return users
+    }
+
+    /// Parse the contents of the group file with a provided filter function.
+    static func parseGroup(groupFile: URL, filter: ((Group) -> Bool)? = nil) throws -> [Group] {
+        var groups: [Group] = []
+        try self.parse(file: groupFile) { line in
+            let group = try Group(rawString: line)
+            if let filter {
+                guard filter(group) else {
+                    return
+                }
+            }
+            groups.append(group)
+        }
+        return groups
+    }
 }
 
 // MARK: Public methods
 
 extension User {
-    public static func parseUser(root: String, userString: String) throws -> ExecUser {
-        let defaultUser = ExecUser(uid: 0, gid: 0, sgids: [], home: "/")
-        guard !userString.isEmpty else {
-            return defaultUser
+    /// Looks up uid in the password file specified by `passwdPath`.
+    public static func lookupUid(passwdPath: URL = Self.passwdFilePath, uid: UInt32) throws -> User {
+        let users = try parsePasswd(
+            passwdFile: passwdPath,
+            filter: { u in
+                u.uid == uid
+            })
+        if users.count == 0 {
+            throw Error.noPasswdEntries
         }
+        return users[0]
+    }
 
-        let passwdPath = URL(filePath: root).appending(path: Self.passwdFile)
-        let groupPath = URL(filePath: root).appending(path: Self.groupFile)
-        let parts = userString.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+    /// Parses a user string in any of the following formats:
+    /// "user, uid, user:group, uid:gid, uid:group, user:gid"
+    /// and returns an ExecUser type from the information.
+    public static func getExecUser(
+        userString: String,
+        defaults: ExecUser? = nil,
+        passwdPath: URL = Self.passwdFilePath,
+        groupPath: URL = Self.groupFilePath
+    ) throws -> ExecUser {
+        let defaults = defaults ?? ExecUser(uid: 0, gid: 0, sgids: [], home: "/", shell: "")
 
-        let userArg = String(parts[0])
-        let userIdArg = Int(userArg)
+        var user = ExecUser(
+            uid: defaults.uid,
+            gid: defaults.gid,
+            sgids: defaults.sgids,
+            home: defaults.home,
+            shell: defaults.shell
+        )
 
-        guard FileManager.default.fileExists(atPath: passwdPath.absolutePath()) else {
-            guard let userIdArg else {
-                throw ContainerizationError(.internalError, message: "Cannot parse username \(userArg)")
+        let parts = userString.split(
+            separator: ":",
+            maxSplits: 1,
+            omittingEmptySubsequences: false
+        )
+        let userArg = parts.isEmpty ? "" : String(parts[0])
+        let groupArg = parts.count > 1 ? String(parts[1]) : ""
+
+        let uidArg = UInt32(userArg)
+        let notUID = uidArg == nil
+        let gidArg = UInt32(groupArg)
+        let notGID = gidArg == nil
+
+        let users: [User]
+        do {
+            users = try parsePasswd(passwdFile: passwdPath) { u in
+                if userArg.isEmpty {
+                    return u.uid == user.uid
+                }
+                if !notUID {
+                    return uidArg! == u.uid
+                }
+                return u.name == userArg
             }
-            let uid = UInt32(userIdArg)
-            guard parts.count > 1 else {
-                return ExecUser(uid: uid, gid: uid, sgids: [], home: "/")
+        } catch Error.missingFile {
+            users = []
+        }
+
+        var matchedUserName = ""
+        if !users.isEmpty {
+            let matchedUser = users[0]
+            matchedUserName = matchedUser.name
+            user.uid = matchedUser.uid
+            user.gid = matchedUser.gid
+            user.home = matchedUser.home
+            user.shell = matchedUser.shell
+        } else if !userArg.isEmpty {
+            if notUID {
+                throw Error.noPasswdEntries
             }
-            guard let gid = UInt32(String(parts[1])) else {
-                throw ContainerizationError(.internalError, message: "Cannot parse user group from \(userString)")
+
+            user.uid = uidArg!
+            if user.uid < minID || user.uid > maxID {
+                throw Error.range
             }
-            return ExecUser(uid: uid, gid: gid, sgids: [], home: "/")
         }
 
-        let registeredUsers = try parsePasswd(passwdFile: passwdPath)
-        guard registeredUsers.count > 0 else {
-            throw ContainerizationError(.internalError, message: "No users configured in passwd file.")
-        }
-        let matches = registeredUsers.filter { registeredUser in
-            // Check for a match (either uid/name) against the configured users from the passwd file.
-            // We have to check both the uid and the name cause we dont know the type of `userString`
-            registeredUser.name == userArg || registeredUser.uid == (userIdArg ?? -1)
-        }
-        guard let match = matches.first else {
-            // We did not find a matching uid/username in the passwd file
-            throw ContainerizationError(.internalError, message: "Cannot find User '\(userArg)' in passwd file.")
-        }
-
-        var user = ExecUser(uid: match.uid, gid: match.gid, sgids: [match.gid], home: match.home)
-
-        guard !match.name.isEmpty else {
-            return user
-        }
-        let matchedUser = match.name
-        var groupArg = ""
-        var groupIdArg: Int? = nil
-        if parts.count > 1 {
-            groupArg = String(parts[1])
-            groupIdArg = Int(groupArg)
-        }
-
-        let registeredGroups: [Group] = {
+        if !groupArg.isEmpty || !matchedUserName.isEmpty {
+            let groups: [Group]
             do {
-                // Parse the <root>/etc/group file for a list of registered groups.
-                // If the file is missing / malformed, we bail out
-                return try parseGroup(groupFile: groupPath)
-            } catch {
-                return []
+                groups = try parseGroup(groupFile: groupPath) { g in
+                    if groupArg.isEmpty {
+                        return g.users.contains(matchedUserName)
+                    }
+                    if !notGID {
+                        return gidArg! == g.gid
+                    }
+                    return g.name == groupArg
+                }
+            } catch Error.missingFile {
+                groups = []
             }
-        }()
-        guard registeredGroups.count > 0 else {
-            return user
-        }
-        let matchingGroups = registeredGroups.filter { registeredGroup in
+
             if !groupArg.isEmpty {
-                return registeredGroup.gid == (groupIdArg ?? -1) || registeredGroup.name == groupArg
+                if !groups.isEmpty {
+                    user.gid = groups[0].gid
+                } else {
+                    if notGID {
+                        throw Error.noGroupEntries
+                    }
+
+                    user.gid = gidArg!
+                    if user.gid < minID || user.gid > maxID {
+                        throw Error.range
+                    }
+                }
             }
-            return registeredGroup.users.contains(matchedUser) || registeredGroup.gid == match.gid
-        }
-        guard matchingGroups.count > 0 else {
-            throw ContainerizationError(.internalError, message: "Cannot find Group '\(groupArg)' in groups file.")
-        }
-        // We have found a list of groups that match the group specified in the argument `userString`.
-        // Set the matched groups as the supplement groups for the user
-        if !groupArg.isEmpty {
-            // Reassign the user's group only we were explicitly asked for a group
-            user.gid = matchingGroups.first!.gid
-            user.sgids = matchingGroups.map { group in
-                group.gid
-            }
-        } else {
-            user.sgids.append(
-                contentsOf: matchingGroups.map { group in
-                    group.gid
-                })
+            user.sgids = groups.map { $0.gid }
         }
         return user
+    }
+
+    public enum Error: Swift.Error {
+        case missingFile(String)
+        case range
+        case noPasswdEntries
+        case noGroupEntries
+        case parseError(String)
     }
 }

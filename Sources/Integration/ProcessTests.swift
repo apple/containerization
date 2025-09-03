@@ -233,8 +233,8 @@ extension IntegrationSuite {
         let id = "test-process-user"
 
         let bs = try await bootstrap()
-        let buffer = BufferWriter()
-        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+        var buffer = BufferWriter()
+        var container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["/usr/bin/id"]
             config.process.user = .init(uid: 1, gid: 1, additionalGids: [1])
             config.process.stdout = buffer
@@ -243,18 +243,82 @@ extension IntegrationSuite {
         try await container.create()
         try await container.start()
 
-        let status = try await container.wait()
+        var status = try await container.wait()
         try await container.stop()
 
         guard status == 0 else {
             throw IntegrationError.assert(msg: "process status \(status) != 0")
         }
-        let expected = "uid=1(bin) gid=1(bin) groups=1(bin)"
 
+        var expected = "uid=1(bin) gid=1(bin) groups=1(bin)"
         guard String(data: buffer.data, encoding: .utf8) == "\(expected)\n" else {
             throw IntegrationError.assert(
                 msg: "process should have returned on stdout '\(expected)' != '\(String(data: buffer.data, encoding: .utf8)!)'")
         }
+
+        buffer = BufferWriter()
+        container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/usr/bin/id"]
+            // Try some uid that doesn't exist. This is supported.
+            config.process.user = .init(uid: 40000, gid: 40000)
+            config.process.stdout = buffer
+        }
+
+        try await container.create()
+        try await container.start()
+
+        status = try await container.wait()
+        try await container.stop()
+
+        guard status == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        expected = "uid=40000 gid=40000 groups=40000"
+        guard String(data: buffer.data, encoding: .utf8) == "\(expected)\n" else {
+            throw IntegrationError.assert(
+                msg: "process should have returned on stdout '\(expected)' != '\(String(data: buffer.data, encoding: .utf8)!)'")
+        }
+
+        buffer = BufferWriter()
+        container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/usr/bin/id"]
+            // Try some uid that doesn't exist. This is supported.
+            config.process.user = .init(username: "40000:40000")
+            config.process.stdout = buffer
+        }
+
+        try await container.create()
+        try await container.start()
+
+        status = try await container.wait()
+        try await container.stop()
+
+        guard status == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        expected = "uid=40000 gid=40000 groups=40000"
+        guard String(data: buffer.data, encoding: .utf8) == "\(expected)\n" else {
+            throw IntegrationError.assert(
+                msg: "process should have returned on stdout '\(expected)' != '\(String(data: buffer.data, encoding: .utf8)!)'")
+        }
+
+        buffer = BufferWriter()
+        container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/usr/bin/id"]
+            // Now for our final trick, try and run a username that doesn't exist.
+            config.process.user = .init(username: "thisdoesntexist")
+            config.process.stdout = buffer
+        }
+
+        try await container.create()
+        do {
+            try await container.start()
+        } catch {
+            return
+        }
+        throw IntegrationError.assert(msg: "container start should have failed")
     }
 
     // Ensure if we ask for a terminal we set TERM.
