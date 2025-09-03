@@ -195,7 +195,12 @@ extension RegistryClient {
             try await writer.flush()
             try await handle.close()
         } catch {
-            try? await handle.close()
+            do {
+                try await handle.close()
+            } catch {
+                // Use `detachUnsafeFileDescriptor()` as suggested by the error message to prevent a leak detection crash when `close()` fails.
+                _ = try handle.detachUnsafeFileDescriptor()
+            }
             throw error
         }
         let computedDigest = hasher.finalize()
