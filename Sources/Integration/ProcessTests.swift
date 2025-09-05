@@ -62,6 +62,7 @@ extension IntegrationSuite {
     }
 
     final class BufferWriter: Writer {
+        // `data` isn't used concurrently.
         nonisolated(unsafe) var data = Data()
 
         func write(_ data: Data) throws {
