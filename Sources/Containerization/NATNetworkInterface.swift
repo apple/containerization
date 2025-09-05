@@ -31,6 +31,7 @@ public final class NATNetworkInterface: Interface, Sendable {
     public let macAddress: String?
 
     @available(macOS 26, *)
+    // `reference` isn't used concurrently.
     public nonisolated(unsafe) let reference: vmnet_network_ref!
 
     @available(macOS 26, *)
