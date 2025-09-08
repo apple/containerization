@@ -480,9 +480,4 @@ extension CIDRAddress {
     }
 }
 
-@available(macOS 26.0, *)
-private struct SendableReference: Sendable {
-    nonisolated(unsafe) private let reference: vmnet_network_ref
-}
-
 #endif
