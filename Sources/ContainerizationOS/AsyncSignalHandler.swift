@@ -53,6 +53,7 @@ public final class AsyncSignalHandler: Sendable {
 
     struct State: Sendable {
         var conts: [AsyncStream<Int32>.Continuation] = []
+        // `sources` isn't used concurrently.
         nonisolated(unsafe) var sources: [any DispatchSourceSignal] = []
     }
 
