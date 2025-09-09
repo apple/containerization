@@ -22,7 +22,7 @@ import ContainerizationOCI
 import Foundation
 
 extension ImageStore {
-    internal struct ImportOperation {
+    public struct ImportOperation: Sendable {
         static let decoder = JSONDecoder()
 
         let client: ContentClient
@@ -31,7 +31,7 @@ extension ImageStore {
         let progress: ProgressHandler?
         let name: String
 
-        init(name: String, contentStore: ContentStore, client: ContentClient, ingestDir: URL, progress: ProgressHandler? = nil) {
+        public init(name: String, contentStore: ContentStore, client: ContentClient, ingestDir: URL, progress: ProgressHandler? = nil) {
             self.client = client
             self.ingestDir = ingestDir
             self.contentStore = contentStore
@@ -40,7 +40,7 @@ extension ImageStore {
         }
 
         /// Pull the required image layers for the provided descriptor and platform(s) into the given directory using the provided client. Returns a descriptor to the Index manifest.
-        internal func `import`(root: Descriptor, matcher: (ContainerizationOCI.Platform) -> Bool) async throws -> Descriptor {
+        public func `import`(root: Descriptor, matcher: (ContainerizationOCI.Platform) -> Bool) async throws -> Descriptor {
             var toProcess = [root]
             while !toProcess.isEmpty {
                 // Count the total number of blobs and their size
@@ -123,14 +123,14 @@ extension ImageStore {
                 for _ in 0..<8 {
                     if let desc = iterator.next() {
                         group.addTask {
-                            try await fetch(desc)
+                            try await self.fetch(desc)
                         }
                     }
                 }
                 for try await _ in group {
                     if let desc = iterator.next() {
                         group.addTask {
-                            try await fetch(desc)
+                            try await self.fetch(desc)
                         }
                     }
                 }
