@@ -140,12 +140,27 @@ extension Mount {
         // Ensure propagation type change flags aren't included in other calls.
         let originalFlags = opts.flags & ~(propagationTypes)
 
-        let targetURL = URL(fileURLWithPath: self.target)
+        let targetURL = URL(fileURLWithPath: target)
         let targetParent = targetURL.deletingLastPathComponent().path
-        if let perms = createWithPerms {
-            try mkdirAll(targetParent, perms)
+        let perms = createWithPerms ?? 0o755
+
+        // See if it's a bind mount, and if so and it's to a regular file
+        // only create up to the parent dir.
+        if opts.flags & MS_BIND == MS_BIND {
+            let fileInfo = try File.info(self.source)
+            if fileInfo.isRegularFile || fileInfo.isSocket {
+                try mkdirAll(targetParent, perms)
+                let fd = open(target, O_RDONLY | O_CREAT, 0o755)
+                if fd == -1 {
+                    throw Error.errno(errno, "failed to create bind mount target at \(target)")
+                }
+                close(fd)
+            } else {
+                try mkdirAll(target, perms)
+            }
+        } else {
+            try mkdirAll(target, perms)
         }
-        try mkdirAll(target, 0o755)
 
         if opts.flags & MS_REMOUNT == 0 || !dataString.isEmpty {
             guard _mount(self.source, target, self.type, UInt(originalFlags), dataString) == 0 else {
