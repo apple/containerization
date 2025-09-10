@@ -362,7 +362,7 @@ extension EXT4 {
         public static let TypeMask = FileModeFlag(rawValue: 0xF000)
     }
 
-    typealias InodeNumber = UInt32
+    public typealias InodeNumber = UInt32
 
     public struct Inode {
         var mode: UInt16 = 0
@@ -618,4 +618,5 @@ extension EXT4.Inode {
         inode.extraIsize = UInt16(EXT4.ExtraIsize)
         return inode
     }
+
 }
