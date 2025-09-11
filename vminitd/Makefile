@@ -38,6 +38,7 @@ all:
 	@mkdir -p ./bin/
 	@rm -f ./bin/vminitd
 	@rm -f ./bin/vmexec
+	@swift --version
 	@swift build -c $(BUILD_CONFIGURATION) $(SWIFT_CONFIGURATION)
 	@install "$(VMINITD_BIN_PATH)/vminitd" ./bin/
 	@install "$(VMINITD_BIN_PATH)/vmexec" ./bin/

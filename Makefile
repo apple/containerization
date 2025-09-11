@@ -44,6 +44,7 @@ release: all
 .PHONY: containerization
 containerization:
 	@echo Building containerization binaries...
+	@$(SWIFT) --version
 	@$(SWIFT) build -c $(BUILD_CONFIGURATION) $(SWIFT_CONFIGURATION)
 
 	@echo Copying containerization binaries...
