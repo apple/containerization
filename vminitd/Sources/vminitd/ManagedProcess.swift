@@ -30,11 +30,11 @@ final class ManagedProcess: Sendable {
     private let process: Command
     private let state: Mutex<State>
     private let owningPid: Int32?
-    private let ackPipe: FileHandle
-    private let syncPipe: FileHandle
+    private let ackPipe: Pipe
+    private let syncPipe: Pipe
     private let terminal: Bool
     private let bundle: ContainerizationOCI.Bundle
-    private let cgroupManager: Cgroup2Manager
+    private let cgroupManager: Cgroup2Manager?
 
     private struct State {
         init(io: IO) {
@@ -75,7 +75,7 @@ final class ManagedProcess: Sendable {
         id: String,
         stdio: HostStdio,
         bundle: ContainerizationOCI.Bundle,
-        cgroupManager: Cgroup2Manager,
+        cgroupManager: Cgroup2Manager? = nil,
         owningPid: Int32? = nil,
         log: Logger
     ) throws {
@@ -84,15 +84,14 @@ final class ManagedProcess: Sendable {
         Self.localizeLogger(log: &log, id: id)
         self.log = log
         self.owningPid = owningPid
-        self.cgroupManager = cgroupManager
 
         let syncPipe = Pipe()
         try syncPipe.setCloexec()
-        self.syncPipe = syncPipe.fileHandleForReading
+        self.syncPipe = syncPipe
 
         let ackPipe = Pipe()
         try ackPipe.setCloexec()
-        self.ackPipe = ackPipe.fileHandleForWriting
+        self.ackPipe = ackPipe
 
         let args: [String]
         if let owningPid {
@@ -138,6 +137,7 @@ final class ManagedProcess: Sendable {
         // Setup IO early. We expect the host to be listening already.
         try io.start(process: &process)
 
+        self.cgroupManager = cgroupManager
         self.process = process
         self.terminal = stdio.terminal
         self.bundle = bundle
@@ -157,15 +157,19 @@ extension ManagedProcess {
             // Start the underlying process.
             try process.start()
             defer {
-                try? self.ackPipe.close()
-                try? self.syncPipe.close()
+                try? self.ackPipe.fileHandleForWriting.close()
+                try? self.syncPipe.fileHandleForReading.close()
+                try? self.ackPipe.fileHandleForReading.close()
+                try? self.syncPipe.fileHandleForWriting.close()
             }
 
             // Close our side of any pipes.
             try $0.io.closeAfterExec()
+            try self.ackPipe.fileHandleForReading.close()
+            try self.syncPipe.fileHandleForWriting.close()
 
             let size = MemoryLayout<Int32>.size
-            guard let piddata = try syncPipe.read(upToCount: size) else {
+            guard let piddata = try syncPipe.fileHandleForReading.read(upToCount: size) else {
                 throw ContainerizationError(.internalError, message: "no pid data from sync pipe")
             }
 
@@ -184,15 +188,24 @@ extension ManagedProcess {
                 ])
             $0.pid = pid
 
-            // First add to our cg, then ack the pid.
-            try self.cgroupManager.addProcess(pid: pid)
+            // Add to our cgroup. For execs (owningPid is non-nil) we'll
+            // see where the init process is actually located now (systemd
+            // loves to move all its processes to a child /init.scope cg).
+            if let cgroupManager {
+                try cgroupManager.addProcess(pid: pid)
+            } else {
+                if let owningPid {
+                    let cgManager = try Cgroup2Manager.loadFromPid(pid: owningPid)
+                    try cgManager.addProcess(pid: pid)
+                }
+            }
 
             log.info(
                 "sending pid acknowledgement",
                 metadata: [
                     "pid": "\(pid)"
                 ])
-            try self.ackPipe.write(contentsOf: Self.ackPid.data(using: .utf8)!)
+            try self.ackPipe.fileHandleForWriting.write(contentsOf: Self.ackPid.data(using: .utf8)!)
 
             if self.terminal {
                 log.info(
@@ -202,7 +215,7 @@ extension ManagedProcess {
                     ])
 
                 // Wait for a new write that will contain the pty fd if we asked for one.
-                guard let ptyFd = try syncPipe.read(upToCount: size) else {
+                guard let ptyFd = try self.syncPipe.fileHandleForReading.read(upToCount: size) else {
                     throw ContainerizationError(
                         .internalError,
                         message: "no pty data from sync pipe"
@@ -218,8 +231,11 @@ extension ManagedProcess {
                     ])
 
                 try $0.io.attach(pid: pid, fd: fd)
-                try self.ackPipe.write(contentsOf: Self.ackConsole.data(using: .utf8)!)
+                try self.ackPipe.fileHandleForWriting.write(contentsOf: Self.ackConsole.data(using: .utf8)!)
             }
+
+            // Wait for the syncPipe to close (after exec).
+            _ = try self.syncPipe.fileHandleForReading.readToEnd()
 
             log.info(
                 "started managed process",

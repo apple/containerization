@@ -481,8 +481,9 @@ extension LinuxContainer {
         config.interfaces
     }
 
-    /// Create the underlying container's virtual machine
-    /// and set up the runtime environment.
+    /// Create and start the underlying container's virtual machine
+    /// and set up the runtime environment. The container's init process
+    /// is NOT running afterwards.
     public func create() async throws {
         try self.state.withLock { try $0.setCreating() }
 
@@ -538,7 +539,7 @@ extension LinuxContainer {
         }
     }
 
-    /// Start the container container's initial process.
+    /// Start the container's initial process.
     public func start() async throws {
         let vm = try self.state.withLock { try $0.setStarting() }
 
@@ -569,6 +570,7 @@ extension LinuxContainer {
             try self.state.withLock { try $0.setStarted(process: process) }
         } catch {
             try? await agent.close()
+            try? await vm.stop()
             self.state.withLock { $0.errored(error: error) }
             throw error
         }

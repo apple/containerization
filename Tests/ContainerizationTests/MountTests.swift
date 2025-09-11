@@ -21,6 +21,26 @@ import Testing
 @testable import ContainerizationError
 
 final class MountTests {
+    @Test func mountShareCreatesVirtiofsMount() {
+        let mount = Mount.share(
+            source: "/host/shared",
+            destination: "/guest/shared",
+            options: ["rw", "noatime"],
+            runtimeOptions: ["tag=shared"]
+        )
+
+        #expect(mount.type == "virtiofs")
+        #expect(mount.source == "/host/shared")
+        #expect(mount.destination == "/guest/shared")
+        #expect(mount.options == ["rw", "noatime"])
+
+        if case .virtiofs(let opts) = mount.runtimeOptions {
+            #expect(opts == ["tag=shared"])
+        } else {
+            #expect(Bool(false), "Expected virtiofs runtime options")
+        }
+    }
+
     @Test func fileDetection() throws {
         let tempDir = FileManager.default.temporaryDirectory
         let testFile = tempDir.appendingPathComponent("testfile-\(#function).txt")

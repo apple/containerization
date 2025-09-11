@@ -24,14 +24,14 @@ import Crypto
 import Foundation
 
 extension ImageStore {
-    internal struct ExportOperation {
+    public struct ExportOperation: Sendable {
         let name: String
         let tag: String
         let contentStore: ContentStore
         let client: ContentClient
         let progress: ProgressHandler?
 
-        init(name: String, tag: String, contentStore: ContentStore, client: ContentClient, progress: ProgressHandler? = nil) {
+        public init(name: String, tag: String, contentStore: ContentStore, client: ContentClient, progress: ProgressHandler? = nil) {
             self.contentStore = contentStore
             self.client = client
             self.progress = progress
@@ -40,7 +40,7 @@ extension ImageStore {
         }
 
         @discardableResult
-        internal func export(index: Descriptor, platforms: (Platform) -> Bool) async throws -> Descriptor {
+        public func export(index: Descriptor, platforms: (Platform) -> Bool) async throws -> Descriptor {
             var pushQueue: [[Descriptor]] = []
             var current: [Descriptor] = [index]
             while !current.isEmpty {

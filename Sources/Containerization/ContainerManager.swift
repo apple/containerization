@@ -45,6 +45,7 @@ public struct ContainerManager: Sendable {
     @available(macOS 26.0, *)
     public struct VmnetNetwork: Network {
         private var allocator: Allocator
+        // `reference` isn't used concurrently.
         nonisolated(unsafe) private let reference: vmnet_network_ref
 
         /// The IPv4 subnet of this network.
@@ -94,6 +95,7 @@ public struct ContainerManager: Sendable {
             public let gateway: String?
             public let macAddress: String?
 
+            // `reference` isn't used concurrently.
             nonisolated(unsafe) private let reference: vmnet_network_ref
 
             public init(
@@ -476,11 +478,6 @@ extension CIDRAddress {
     public var gateway: IPv4Address {
         IPv4Address(fromValue: self.lower.value + 1)
     }
-}
-
-@available(macOS 26.0, *)
-private struct SendableReference: Sendable {
-    nonisolated(unsafe) private let reference: vmnet_network_ref
 }
 
 #endif

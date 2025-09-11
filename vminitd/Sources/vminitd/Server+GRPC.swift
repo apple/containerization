@@ -439,7 +439,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 from: request.configuration
             )
 
-            try ociAlterations(ociSpec: &ociSpec)
+            try ociAlterations(id: request.id, ociSpec: &ociSpec)
 
             guard let process = ociSpec.process else {
                 throw ContainerizationError(
@@ -940,7 +940,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest {
 }
 
 extension Initd {
-    func ociAlterations(ociSpec: inout ContainerizationOCI.Spec) throws {
+    func ociAlterations(id: String, ociSpec: inout ContainerizationOCI.Spec) throws {
         guard var process = ociSpec.process else {
             throw ContainerizationError(
                 .invalidArgument,
@@ -954,17 +954,33 @@ extension Initd {
             )
         }
 
+        if ociSpec.linux!.cgroupsPath.isEmpty {
+            ociSpec.linux!.cgroupsPath = "/container/\(id)"
+        }
+
         if process.cwd.isEmpty {
             process.cwd = "/"
         }
 
-        // Username is truthfully a Windows field, but we use this as away to pass through
-        // the exact string representation of a username a client may have given us.
+        // NOTE: The OCI runtime specs Username field is truthfully Windows exclusive, but we use this as a way
+        // to pass through the exact string representation of a username (or username:group, uid:group etc.) a client
+        // may have given us.
         let username = process.user.username.isEmpty ? "\(process.user.uid):\(process.user.gid)" : process.user.username
-        let parsedUser = try User.parseUser(root: root.path, userString: username)
+        let parsedUser = try User.getExecUser(
+            userString: username,
+            passwdPath: URL(filePath: root.path).appending(path: "etc/passwd"),
+            groupPath: URL(filePath: root.path).appending(path: "etc/group")
+        )
         process.user.uid = parsedUser.uid
         process.user.gid = parsedUser.gid
-        process.user.additionalGids = parsedUser.sgids
+        process.user.additionalGids.append(contentsOf: parsedUser.sgids)
+        process.user.additionalGids.append(process.user.gid)
+
+        var seenSuppGids = Set<UInt32>()
+        process.user.additionalGids = process.user.additionalGids.filter {
+            seenSuppGids.insert($0).inserted
+        }
+
         if !process.env.contains(where: { $0.hasPrefix("HOME=") }) {
             process.env.append("HOME=\(parsedUser.home)")
         }

@@ -15,6 +15,8 @@
 # Build configuration variables
 # The default version ID 0.0.0 indicates a local development build or PRB
 BUILD_CONFIGURATION ?= debug
+WARNINGS_AS_ERRORS ?= true
+SWIFT_CONFIGURATION = $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors)
 
 # Commonly used locations
 SWIFT := "/usr/bin/swift"
@@ -42,7 +44,7 @@ release: all
 .PHONY: containerization
 containerization:
 	@echo Building containerization binaries...
-	@$(SWIFT) build -c $(BUILD_CONFIGURATION)
+	@$(SWIFT) build -c $(BUILD_CONFIGURATION) $(SWIFT_CONFIGURATION)
 
 	@echo Copying containerization binaries...
 	@mkdir -p bin
@@ -71,7 +73,7 @@ cross-prep:
 .PHONY: vminitd
 vminitd:
 	@mkdir -p ./bin
-	@"$(MAKE)" -C vminitd BUILD_CONFIGURATION=$(BUILD_CONFIGURATION)
+	@"$(MAKE)" -C vminitd BUILD_CONFIGURATION=$(BUILD_CONFIGURATION) WARNINGS_AS_ERRORS=$(WARNINGS_AS_ERRORS)
 
 .PHONY: update-libarchive-source
 update-libarchive-source:
@@ -85,7 +87,7 @@ update-libarchive-source:
 .PHONY: test
 test:
 	@echo Testing all test targets...
-	@$(SWIFT) test --enable-code-coverage
+	@$(SWIFT) test --enable-code-coverage $(SWIFT_CONFIGURATION)
 
 .PHONY: integration
 integration:

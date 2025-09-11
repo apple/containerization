@@ -108,6 +108,7 @@ struct VZVirtualMachineInstance: VirtualMachineInstance, Sendable {
         }
     }
 
+    // `vm` isn't used concurrently.
     private nonisolated(unsafe) let vm: VZVirtualMachine
     private let queue: DispatchQueue
     private let group: MultiThreadedEventLoopGroup
