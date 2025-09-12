@@ -267,7 +267,6 @@ extension SocketRelay {
             )
         }
 
-        // `buf1` isn't used concurrently.
         nonisolated(unsafe) let buf1 = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: Int(getpagesize()))
         connSource.setEventHandler {
             Self.fdCopyHandler(
@@ -279,7 +278,6 @@ extension SocketRelay {
         }
 
         nonisolated(unsafe) let buf2 = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: Int(getpagesize()))
-        // `buf2` isn't used concurrently.
         vsockConnectionSource.setEventHandler {
             Self.fdCopyHandler(
                 buffer: buf2,
