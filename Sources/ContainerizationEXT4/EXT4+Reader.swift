@@ -189,7 +189,7 @@ extension EXT4 {
             }
         }
 
-        private func getExtents(inode: InodeNumber) throws -> [(start: UInt32, end: UInt32)]? {
+        func getExtents(inode: InodeNumber) throws -> [(start: UInt32, end: UInt32)]? {
             let inode = try self.getInode(number: inode)
             let inodeBlock = Data(tupleToArray(inode.block))
             var offset = 0
