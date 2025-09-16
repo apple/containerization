@@ -430,7 +430,10 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             ])
 
         if !request.hasContainerID {
-            fatalError("processes in the root of the vm not implemented")
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "processes in the root of the vm not implemented"
+            )
         }
 
         do {
@@ -520,7 +523,10 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             ])
 
         if !request.hasContainerID {
-            fatalError("processes in the root of the vm not implemented")
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "processes in the root of the vm not implemented"
+            )
         }
 
         let ctr = try await self.state.get(container: request.containerID)
@@ -540,7 +546,10 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             ])
 
         if !request.hasContainerID {
-            fatalError("processes in the root of the vm not implemented")
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "processes in the root of the vm not implemented"
+            )
         }
 
         let ctr = try await self.state.get(container: request.containerID)
@@ -568,7 +577,10 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             ])
 
         if !request.hasContainerID {
-            fatalError("processes in the root of the vm not implemented")
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "processes in the root of the vm not implemented"
+            )
         }
 
         do {
@@ -604,7 +616,10 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             ])
 
         if !request.hasContainerID {
-            fatalError("processes in the root of the vm not implemented")
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "processes in the root of the vm not implemented"
+            )
         }
 
         do {
@@ -642,7 +657,10 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             ])
 
         if !request.hasContainerID {
-            fatalError("processes in the root of the vm not implemented")
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "processes in the root of the vm not implemented"
+            )
         }
 
         do {
@@ -679,7 +697,10 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             ])
 
         if !request.hasContainerID {
-            fatalError("processes in the root of the vm not implemented")
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "processes in the root of the vm not implemented"
+            )
         }
 
         do {
