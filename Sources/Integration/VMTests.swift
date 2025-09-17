@@ -20,6 +20,8 @@ import ContainerizationError
 import ContainerizationOCI
 import Foundation
 import Logging
+import NIOCore
+import NIOPosix
 
 extension IntegrationSuite {
     func testMounts() async throws {
@@ -389,6 +391,94 @@ extension IntegrationSuite {
             throw IntegrationError.assert(
                 msg: "process should have \(devConsole) in `mount` output")
         }
+    }
+
+    func testFSNotifyEvents() async throws {
+        let id = "test-fsnotify-events"
+
+        let bs = try await bootstrap()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            let directory = try createFSNotifyTestDirectory()
+            config.process.arguments = ["/bin/sh", "-c", "sleep 30"]  // Keep container running
+            config.mounts.append(.share(source: directory.path, destination: "/mnt/test"))
+        }
+
+        try await container.create()
+        try await container.start()
+
+        // Get the vminitd agent to send notifications
+        let connection = try await container.dialVsock(port: 1024)  // Default vminitd port
+        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        let agent = Vminitd(connection: connection, group: group)
+
+        // Test 1: CREATE event
+        print("Testing CREATE event...")
+        let createResponse = try await agent.notifyFileSystemEvent(path: "/mnt/test/new_file.txt", eventType: .create)
+        guard createResponse.success else {
+            throw IntegrationError.assert(msg: "CREATE event failed: \(createResponse.error)")
+        }
+
+        // Verify file was created in guest
+        let buffer1 = BufferWriter()
+        let process1 = try await container.exec("check-create") { config in
+            config.arguments = ["/bin/ls", "-la", "/mnt/test/new_file.txt"]
+            config.stdout = buffer1
+        }
+
+        try await process1.start()
+        let status1 = try await process1.wait()
+        guard status1 == 0 else {
+            throw IntegrationError.assert(msg: "File creation verification failed")
+        }
+
+        // Test 2: MODIFY event on existing file
+        print("Testing MODIFY event...")
+        let modifyResponse = try await agent.notifyFileSystemEvent(path: "/mnt/test/existing.txt", eventType: .modify)
+        guard modifyResponse.success else {
+            throw IntegrationError.assert(msg: "MODIFY event failed: \(modifyResponse.error)")
+        }
+
+        // Verify file timestamp was updated
+        let buffer2 = BufferWriter()
+        let process2 = try await container.exec("check-modify") { config in
+            config.arguments = ["/bin/stat", "/mnt/test/existing.txt"]
+            config.stdout = buffer2
+        }
+
+        try await process2.start()
+        let status2 = try await process2.wait()
+        guard status2 == 0 else {
+            throw IntegrationError.assert(msg: "File modification verification failed")
+        }
+
+        // Test 3: Test unsupported DELETE event (should log warning but not fail)
+        print("Testing DELETE event (should log warning)...")
+        let deleteResponse = try await agent.notifyFileSystemEvent(path: "/mnt/test/nonexistent.txt", eventType: .delete)
+        guard deleteResponse.success else {
+            throw IntegrationError.assert(msg: "DELETE event should succeed with warning, not fail")
+        }
+
+        // Clean up
+        try await agent.close()
+        try await group.shutdownGracefully()
+        try await container.stop()
+
+        print("All FSNotify events tested successfully")
+    }
+
+    private func createFSNotifyTestDirectory() throws -> URL {
+        let dir = FileManager.default.uniqueTemporaryDirectory(create: true)
+
+        // Create some test files and directories
+        try "initial content".write(to: dir.appendingPathComponent("existing.txt"), atomically: true, encoding: .utf8)
+        try "hello world".write(to: dir.appendingPathComponent("hello.txt"), atomically: true, encoding: .utf8)
+
+        // Create a subdirectory
+        let subdir = dir.appendingPathComponent("subdir")
+        try FileManager.default.createDirectory(at: subdir, withIntermediateDirectories: true)
+        try "nested file".write(to: subdir.appendingPathComponent("nested.txt"), atomically: true, encoding: .utf8)
+
+        return dir
     }
 
     private func createMountDirectory() throws -> URL {
