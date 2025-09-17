@@ -216,6 +216,7 @@ struct IntegrationSuite: AsyncParsableCommand {
             "container manager": testContainerManagerCreate,
             "container reuse": testContainerReuse,
             "container /dev/console": testContainerDevConsole,
+            "fsnotify events": testFSNotifyEvents,
         ]
 
         var passed = 0
