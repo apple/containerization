@@ -161,6 +161,8 @@ public final class LinuxContainer: Container, Sendable {
         /// The container is being resumed.
         case resuming(ResumingState)
 
+        struct Idempotent: Swift.Error {}
+
         struct CreatingState: Sendable {}
 
         struct CreatedState: Sendable {
@@ -244,6 +246,8 @@ public final class LinuxContainer: Container, Sendable {
             switch self {
             case .initialized, .stopped:
                 self = .creating(.init())
+            case .errored(let err):
+                throw err
             default:
                 throw ContainerizationError(
                     .invalidState,
@@ -259,6 +263,8 @@ public final class LinuxContainer: Container, Sendable {
             switch self {
             case .creating:
                 self = .created(.init(vm: vm, relayManager: relayManager))
+            case .errored(let err):
+                throw err
             default:
                 throw ContainerizationError(
                     .invalidState,
@@ -272,6 +278,8 @@ public final class LinuxContainer: Container, Sendable {
             case .created(let state):
                 self = .starting(.init(state))
                 return state.vm
+            case .errored(let err):
+                throw err
             default:
                 throw ContainerizationError(
                     .invalidState,
@@ -284,6 +292,8 @@ public final class LinuxContainer: Container, Sendable {
             switch self {
             case .starting(let state):
                 self = .started(.init(state, process: process))
+            case .errored(let err):
+                throw err
             default:
                 throw ContainerizationError(
                     .invalidState,
@@ -296,6 +306,8 @@ public final class LinuxContainer: Container, Sendable {
             switch self {
             case .resuming(let state):
                 self = .started(.init(state))
+            case .errored(let err):
+                throw err
             default:
                 throw ContainerizationError(
                     .invalidState,
@@ -304,11 +316,15 @@ public final class LinuxContainer: Container, Sendable {
             }
         }
 
-        mutating func stopping() throws -> StartedState {
+        mutating func setStopping() throws -> StartedState {
             switch self {
             case .started(let state):
                 self = .stopping(.init(state))
                 return state
+            case .stopping(_), .stopped:
+                throw Idempotent()
+            case .errored(let err):
+                throw err
             default:
                 throw ContainerizationError(
                     .invalidState,
@@ -321,6 +337,8 @@ public final class LinuxContainer: Container, Sendable {
             switch self {
             case .started(let state):
                 return state
+            case .errored(let err):
+                throw err
             default:
                 throw ContainerizationError(
                     .invalidState,
@@ -334,6 +352,8 @@ public final class LinuxContainer: Container, Sendable {
             case .started(let state):
                 self = .pausing(.init(state))
                 return state
+            case .errored(let err):
+                throw err
             default:
                 throw ContainerizationError(
                     .invalidState,
@@ -346,6 +366,8 @@ public final class LinuxContainer: Container, Sendable {
             switch self {
             case .pausing(let state):
                 self = .paused(.init(state))
+            case .errored(let err):
+                throw err
             default:
                 throw ContainerizationError(
                     .invalidState,
@@ -359,6 +381,8 @@ public final class LinuxContainer: Container, Sendable {
             case .paused(let state):
                 self = .resuming(.init(state))
                 return state
+            case .errored(let err):
+                throw err
             default:
                 throw ContainerizationError(
                     .invalidState,
@@ -367,10 +391,14 @@ public final class LinuxContainer: Container, Sendable {
             }
         }
 
-        mutating func stopped() throws {
+        mutating func setStopped() throws {
             switch self {
             case .stopping(_):
                 self = .stopped
+            case .stopped:
+                throw Idempotent()
+            case .errored(let err):
+                throw err
             default:
                 throw ContainerizationError(
                     .invalidState,
@@ -379,7 +407,7 @@ public final class LinuxContainer: Container, Sendable {
             }
         }
 
-        mutating func errored(error: Swift.Error) {
+        mutating func setErrored(error: Swift.Error) {
             self = .errored(error)
         }
     }
@@ -534,7 +562,7 @@ extension LinuxContainer {
             }
         } catch {
             try? await vm.stop()
-            self.state.withLock { $0.errored(error: error) }
+            self.state.withLock { $0.setErrored(error: error) }
             throw error
         }
     }
@@ -571,7 +599,7 @@ extension LinuxContainer {
         } catch {
             try? await agent.close()
             try? await vm.stop()
-            self.state.withLock { $0.errored(error: error) }
+            self.state.withLock { $0.setErrored(error: error) }
             throw error
         }
     }
@@ -616,61 +644,72 @@ extension LinuxContainer {
         )
     }
 
-    /// Stop the container from executing.
+    /// Stop the container from executing. This MUST be called even if wait() has returned
+    /// as their are additional
     public func stop() async throws {
-        let startedState = try self.state.withLock { try $0.stopping() }
-
-        try await startedState.relayManager.stopAll()
-
-        // It's possible the state of the vm is not in a great spot
-        // if the guest panicked or had any sort of bug/fault.
-        // First check if the vm is even still running, as trying to
-        // use a vsock handle like below here will cause NIO to
-        // fatalError because we'll get an EBADF.
-        if startedState.vm.state == .stopped {
-            try self.state.withLock { try $0.stopped() }
+        let startedState: State.StartedState
+        do {
+            startedState = try self.state.withLock { try $0.setStopping() }
+        } catch _ as State.Idempotent {
             return
         }
 
-        try await startedState.vm.withAgent { agent in
-            // First, we need to stop any unix socket relays as this will
-            // keep the rootfs from being able to umount (EBUSY).
-            let sockets = config.sockets
-            if !sockets.isEmpty {
-                guard let relayAgent = agent as? SocketRelayAgent else {
-                    throw ContainerizationError(
-                        .unsupported,
-                        message: "VirtualMachineAgent does not support relaySocket surface"
-                    )
-                }
-                for socket in sockets {
-                    try await relayAgent.stopSocketRelay(configuration: socket)
-                }
+        do {
+            try await startedState.relayManager.stopAll()
+
+            // It's possible the state of the vm is not in a great spot
+            // if the guest panicked or had any sort of bug/fault.
+            // First check if the vm is even still running, as trying to
+            // use a vsock handle like below here will cause NIO to
+            // fatalError because we'll get an EBADF.
+            if startedState.vm.state == .stopped {
+                try self.state.withLock { try $0.setStopped() }
+                return
             }
 
-            // Now lets ensure every process is donezo.
-            try await agent.kill(pid: -1, signal: SIGKILL)
+            try await startedState.vm.withAgent { agent in
+                // First, we need to stop any unix socket relays as this will
+                // keep the rootfs from being able to umount (EBUSY).
+                let sockets = config.sockets
+                if !sockets.isEmpty {
+                    guard let relayAgent = agent as? SocketRelayAgent else {
+                        throw ContainerizationError(
+                            .unsupported,
+                            message: "VirtualMachineAgent does not support relaySocket surface"
+                        )
+                    }
+                    for socket in sockets {
+                        try await relayAgent.stopSocketRelay(configuration: socket)
+                    }
+                }
 
-            // Wait on init proc exit. Give it 5 seconds of leeway.
-            _ = try await agent.waitProcess(
-                id: self.id,
-                containerID: self.id,
-                timeoutInSeconds: 5
-            )
+                // Now lets ensure every process is donezo.
+                try await agent.kill(pid: -1, signal: SIGKILL)
 
-            // Today, we leave EBUSY looping and other fun logic up to the
-            // guest agent.
-            try await agent.umount(
-                path: Self.guestRootfsPath(self.id),
-                flags: 0
-            )
+                // Wait on init proc exit. Give it 5 seconds of leeway.
+                _ = try await agent.waitProcess(
+                    id: self.id,
+                    containerID: self.id,
+                    timeoutInSeconds: 5
+                )
+
+                // Today, we leave EBUSY looping and other fun logic up to the
+                // guest agent.
+                try await agent.umount(
+                    path: Self.guestRootfsPath(self.id),
+                    flags: 0
+                )
+            }
+
+            // Lets free up the init procs resources, as this includes the open agent conn.
+            try? await startedState.process.delete()
+
+            try await startedState.vm.stop()
+            try self.state.withLock { try $0.setStopped() }
+        } catch {
+            self.state.withLock { $0.setErrored(error: error) }
+            throw error
         }
-
-        // Lets free up the init procs resources, as this includes the open agent conn.
-        try? await startedState.process.delete()
-
-        try await startedState.vm.stop()
-        try self.state.withLock { try $0.stopped() }
     }
 
     /// Pause the container.
@@ -680,7 +719,7 @@ extension LinuxContainer {
             try await state.vm.pause()
             try self.state.withLock { try $0.setPaused() }
         } catch {
-            self.state.withLock { $0.errored(error: error) }
+            self.state.withLock { $0.setErrored(error: error) }
         }
     }
 
@@ -691,7 +730,7 @@ extension LinuxContainer {
             try await state.vm.resume()
             try self.state.withLock { try $0.setResumed() }
         } catch {
-            self.state.withLock { $0.errored(error: error) }
+            self.state.withLock { $0.setErrored(error: error) }
         }
     }
 

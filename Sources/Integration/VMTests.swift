@@ -206,6 +206,49 @@ extension IntegrationSuite {
         }
     }
 
+    func testContainerStopIdempotency() async throws {
+        let id = "test-container-stop-idempotency"
+
+        // Get the kernel from bootstrap
+        let bs = try await bootstrap()
+
+        // Create ContainerManager with kernel and initfs reference
+        var manager = try ContainerManager(vmm: bs.vmm)
+        defer {
+            try? manager.delete(id)
+        }
+
+        let buffer = BufferWriter()
+        let container = try await manager.create(
+            id,
+            image: bs.image,
+            rootfs: bs.rootfs
+        ) { config in
+            config.process.arguments = ["/bin/echo", "please stop me"]
+            config.process.stdout = buffer
+        }
+
+        // Start the container
+        try await container.create()
+        try await container.start()
+
+        // Wait for completion
+        let status = try await container.wait()
+        guard status == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        try await container.stop()
+        // Second go around should return with no problems.
+        try await container.stop()
+
+        let output = String(data: buffer.data, encoding: .utf8)
+        guard output == "ContainerManager test\n" else {
+            throw IntegrationError.assert(
+                msg: "process should have returned 'ContainerManager test' != '\(output ?? "nil")'")
+        }
+    }
+
     func testContainerReuse() async throws {
         let id = "test-container-reuse"
 
