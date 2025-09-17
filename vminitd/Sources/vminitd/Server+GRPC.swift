@@ -1081,6 +1081,72 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             $0.result = r
         }
     }
+
+    func notifyFileSystemEvent(
+        request: Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest,
+        context: GRPCAsyncServerCallContext
+    ) async throws -> Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse {
+        log.debug(
+            "notifyFileSystemEvent",
+            metadata: [
+                "path": "\(request.path)",
+                "eventType": "\(request.eventType)",
+            ])
+
+        do {
+            try await generateSyntheticInotifyEvent(
+                path: request.path,
+                eventType: request.eventType
+            )
+
+            return .with {
+                $0.success = true
+            }
+        } catch {
+            log.error(
+                "notifyFileSystemEvent",
+                metadata: [
+                    "error": "\(error)"
+                ])
+
+            return .with {
+                $0.success = false
+                $0.error = error.localizedDescription
+            }
+        }
+    }
+
+    private func generateSyntheticInotifyEvent(
+        path: String,
+        eventType: Com_Apple_Containerization_Sandbox_V3_FileSystemEventType
+    ) async throws {
+        switch eventType {
+        case .modify:
+            // Touch file to update timestamp -> generates IN_ATTRIB event
+            let now = Date()
+            try FileManager.default.setAttributes(
+                [.modificationDate: now],
+                ofItemAtPath: path
+            )
+
+        case .create:
+            // Use chmod with same permissions to generate IN_ATTRIB event
+            let attributes = try FileManager.default.attributesOfItem(atPath: path)
+            let permissions = attributes[.posixPermissions] as? NSNumber ?? NSNumber(value: 0o644)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: permissions],
+                ofItemAtPath: path
+            )
+
+        case .delete:
+            // We can't generate delete events for files that don't exist
+            // This would need to be handled by the application layer
+            log.warning("Delete events cannot be synthesized for existing files")
+
+        default:
+            log.warning("Unsupported filesystem event type: \(eventType)")
+        }
+    }
 }
 
 extension Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest {

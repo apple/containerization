@@ -66,6 +66,8 @@ service SandboxContext {
   rpc Sync(SyncRequest) returns (SyncResponse);
   // Send a signal to a process via the PID.
   rpc Kill(KillRequest) returns (KillResponse);
+  // Notify guest of filesystem events from host.
+  rpc NotifyFileSystemEvent(NotifyFileSystemEventRequest) returns (NotifyFileSystemEventResponse);
 }
 
 message Stdio {
@@ -351,4 +353,23 @@ message NetworkStats {
   uint64 transmittedBytes = 5;
   uint64 receivedErrors = 6;
   uint64 transmittedErrors = 7;
+}
+
+enum FileSystemEventType {
+  CREATE = 0;
+  DELETE = 1;
+  LINK = 2;
+  UNLINK = 3;
+  MODIFY = 4;
+  UNDEFINED = 99;
+}
+
+message NotifyFileSystemEventRequest {
+  string path = 1;
+  FileSystemEventType event_type = 2;
+}
+
+message NotifyFileSystemEventResponse {
+  bool success = 1;
+  optional string error = 2;
 }

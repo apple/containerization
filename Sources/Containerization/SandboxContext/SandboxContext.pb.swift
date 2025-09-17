@@ -37,6 +37,56 @@ fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAP
   typealias Version = _2
 }
 
+public enum Com_Apple_Containerization_Sandbox_V3_FileSystemEventType: SwiftProtobuf.Enum, Swift.CaseIterable {
+  public typealias RawValue = Int
+  case create // = 0
+  case delete // = 1
+  case link // = 2
+  case unlink // = 3
+  case modify // = 4
+  case undefined // = 99
+  case UNRECOGNIZED(Int)
+
+  public init() {
+    self = .create
+  }
+
+  public init?(rawValue: Int) {
+    switch rawValue {
+    case 0: self = .create
+    case 1: self = .delete
+    case 2: self = .link
+    case 3: self = .unlink
+    case 4: self = .modify
+    case 99: self = .undefined
+    default: self = .UNRECOGNIZED(rawValue)
+    }
+  }
+
+  public var rawValue: Int {
+    switch self {
+    case .create: return 0
+    case .delete: return 1
+    case .link: return 2
+    case .unlink: return 3
+    case .modify: return 4
+    case .undefined: return 99
+    case .UNRECOGNIZED(let i): return i
+    }
+  }
+
+  // The compiler won't synthesize support with the UNRECOGNIZED case.
+  public static let allCases: [Com_Apple_Containerization_Sandbox_V3_FileSystemEventType] = [
+    .create,
+    .delete,
+    .link,
+    .unlink,
+    .modify,
+    .undefined,
+  ]
+
+}
+
 public struct Com_Apple_Containerization_Sandbox_V3_Stdio: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1206,9 +1256,57 @@ public struct Com_Apple_Containerization_Sandbox_V3_NetworkStats: Sendable {
   public init() {}
 }
 
+public struct Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var path: String = String()
+
+  public var eventType: Com_Apple_Containerization_Sandbox_V3_FileSystemEventType = .create
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public struct Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var success: Bool = false
+
+  public var error: String {
+    get {return _error ?? String()}
+    set {_error = newValue}
+  }
+  /// Returns true if `error` has been explicitly set.
+  public var hasError: Bool {return self._error != nil}
+  /// Clears the value of `error`. Subsequent reads from it will return its default value.
+  public mutating func clearError() {self._error = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _error: String? = nil
+}
+
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
 fileprivate let _protobuf_package = "com.apple.containerization.sandbox.v3"
+
+extension Com_Apple_Containerization_Sandbox_V3_FileSystemEventType: SwiftProtobuf._ProtoNameProviding {
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    0: .same(proto: "CREATE"),
+    1: .same(proto: "DELETE"),
+    2: .same(proto: "LINK"),
+    3: .same(proto: "UNLINK"),
+    4: .same(proto: "MODIFY"),
+    99: .same(proto: "UNDEFINED"),
+  ]
+}
 
 extension Com_Apple_Containerization_Sandbox_V3_Stdio: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Stdio"
@@ -3608,6 +3706,86 @@ extension Com_Apple_Containerization_Sandbox_V3_NetworkStats: SwiftProtobuf.Mess
     if lhs.transmittedBytes != rhs.transmittedBytes {return false}
     if lhs.receivedErrors != rhs.receivedErrors {return false}
     if lhs.transmittedErrors != rhs.transmittedErrors {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".NotifyFileSystemEventRequest"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "path"),
+    2: .standard(proto: "event_type"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.path) }()
+      case 2: try { try decoder.decodeSingularEnumField(value: &self.eventType) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.path.isEmpty {
+      try visitor.visitSingularStringField(value: self.path, fieldNumber: 1)
+    }
+    if self.eventType != .create {
+      try visitor.visitSingularEnumField(value: self.eventType, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest, rhs: Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest) -> Bool {
+    if lhs.path != rhs.path {return false}
+    if lhs.eventType != rhs.eventType {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".NotifyFileSystemEventResponse"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "success"),
+    2: .same(proto: "error"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBoolField(value: &self.success) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self._error) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if self.success != false {
+      try visitor.visitSingularBoolField(value: self.success, fieldNumber: 1)
+    }
+    try { if let v = self._error {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 2)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse, rhs: Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse) -> Bool {
+    if lhs.success != rhs.success {return false}
+    if lhs._error != rhs._error {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
