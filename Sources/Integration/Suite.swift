@@ -284,6 +284,7 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("container /dev/console", testContainerDevConsole),
             Test("container statistics", testContainerStatistics),
             Test("container cgroup limits", testCgroupLimits),
+            Test("fsnotify events", testFSNotifyEvents),
         ]
 
         let passed: Atomic<Int> = Atomic(0)
