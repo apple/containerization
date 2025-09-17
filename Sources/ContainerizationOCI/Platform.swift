@@ -51,7 +51,7 @@ public struct Platform: Sendable, Equatable {
     /// The CPU architecture, for example, `amd64` or `ppc64`.
     public var architecture: String {
         switch _rawArch {
-        case "arm64", "arm", "aarch64", "armhf", "armel":
+        case "arm64", "aarch64":
             return "arm64"
         case "x86_64", "x86-64", "amd64":
             return "amd64"
