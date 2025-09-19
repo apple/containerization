@@ -28,6 +28,32 @@ import Virtualization
 struct VZVirtualMachineInstance: VirtualMachineInstance, Sendable {
     typealias Agent = Vminitd
 
+    /// Cleanup registry for temporary directories
+    private static let tempDirectoryCleanup = Mutex<Set<String>>(Set<String>())
+
+    /// Register a temporary directory for cleanup
+    public static func registerTempDirectory(_ path: String) {
+        _ = tempDirectoryCleanup.withLock { $0.insert(path) }
+    }
+
+    /// Clean up all registered temporary directories
+    public static func cleanupTempDirectories() {
+        let directoriesToClean = tempDirectoryCleanup.withLock {
+            let dirs = Array($0)
+            $0.removeAll()
+            return dirs
+        }
+
+        for directory in directoriesToClean {
+            do {
+                try FileManager.default.removeItem(atPath: directory)
+            } catch {
+                // Log but don't fail - cleanup is best effort
+                print("Warning: Failed to cleanup temporary directory \(directory): \(error)")
+            }
+        }
+    }
+
     /// Attached mounts on the sandbox.
     public let mounts: [AttachedFilesystem]
 
@@ -57,6 +83,8 @@ struct VZVirtualMachineInstance: VirtualMachineInstance, Sendable {
         public var initialFilesystem: Mount?
         /// File path to store the sandbox boot logs.
         public var bootlog: URL?
+        /// Cached consolidated mounts (computed once and reused).
+        private var consolidatedMountsCache: [Mount]?
 
         init() {
             self.cpus = 4
@@ -65,6 +93,18 @@ struct VZVirtualMachineInstance: VirtualMachineInstance, Sendable {
             self.nestedVirtualization = false
             self.mounts = []
             self.interfaces = []
+            self.consolidatedMountsCache = nil
+        }
+
+        /// Returns consolidated mounts, computing and caching them on first access.
+        mutating func consolidatedMounts() throws -> [Mount] {
+            if let cached = consolidatedMountsCache {
+                return cached
+            }
+
+            let consolidated = try consolidateMounts(self.mounts)
+            consolidatedMountsCache = consolidated
+            return consolidated
         }
     }
 
@@ -87,16 +127,17 @@ struct VZVirtualMachineInstance: VirtualMachineInstance, Sendable {
     }
 
     init(group: MultiThreadedEventLoopGroup, config: Configuration, logger: Logger?) throws {
+        var mutableConfig = config
         self.config = config
         self.group = group
         self.lock = .init()
         self.queue = DispatchQueue(label: "com.apple.containerization.sandbox.\(UUID().uuidString)")
-        self.mounts = try config.mountAttachments()
+        self.mounts = try mutableConfig.mountAttachments()
         self.logger = logger
         self.timeSyncer = .init(logger: logger)
 
         self.vm = VZVirtualMachine(
-            configuration: try config.toVZ(),
+            configuration: try mutableConfig.toVZ(),
             queue: self.queue
         )
     }
@@ -258,7 +299,7 @@ extension VZVirtualMachineInstance.Configuration {
         return [c]
     }
 
-    func toVZ() throws -> VZVirtualMachineConfiguration {
+    mutating func toVZ() throws -> VZVirtualMachineConfiguration {
         var config = VZVirtualMachineConfiguration()
 
         config.cpuCount = self.cpus
@@ -317,7 +358,10 @@ extension VZVirtualMachineInstance.Configuration {
         config.bootLoader = loader
 
         try initialFilesystem.configure(config: &config)
-        for mount in self.mounts {
+
+        // Use consolidated mounts for VirtioFS share configuration
+        let consolidatedMounts = try self.consolidatedMounts()
+        for mount in consolidatedMounts {
             try mount.configure(config: &config)
         }
 
@@ -337,7 +381,7 @@ extension VZVirtualMachineInstance.Configuration {
         return config
     }
 
-    func mountAttachments() throws -> [AttachedFilesystem] {
+    mutating func mountAttachments() throws -> [AttachedFilesystem] {
         let allocator = Character.blockDeviceTagAllocator()
         if let initialFilesystem {
             // When the initial filesystem is a blk, allocate the first letter "vd(a)"
@@ -347,11 +391,138 @@ extension VZVirtualMachineInstance.Configuration {
             }
         }
 
+        // Use cached consolidated mounts (same as toVZ() to ensure hash consistency)
+        let consolidatedMounts = try self.consolidatedMounts()
+
         var attachments: [AttachedFilesystem] = []
-        for mount in self.mounts {
-            attachments.append(try .init(mount: mount, allocator: allocator))
+        for mount in consolidatedMounts {
+            let attachment = try AttachedFilesystem(mount: mount, allocator: allocator)
+            attachments.append(attachment)
         }
+
         return attachments
+    }
+
+    private func consolidateMounts(_ mounts: [Mount]) throws -> [Mount] {
+        var consolidatedMounts: [Mount] = []
+        var fileMountsByParent: [String: [Mount]] = [:]
+
+        // Group file mounts by parent directory
+        for mount in mounts {
+            if mount.isFile && mount.type == "virtiofs" {
+                let parentDir = URL(fileURLWithPath: mount.destination).deletingLastPathComponent().path
+                fileMountsByParent[parentDir, default: []].append(mount)
+            } else {
+                // Non-file mounts go directly to consolidated list
+                consolidatedMounts.append(mount)
+            }
+        }
+
+        // Create consolidated mounts for each parent directory
+        for (parentDir, fileMounts) in fileMountsByParent {
+            // Both single and multiple file mounts need consolidation to ensure consistent VirtioFS tags
+            let consolidatedMount = try createConsolidatedMount(fileMounts: fileMounts, parentDir: parentDir)
+            consolidatedMounts.append(consolidatedMount)
+        }
+
+        return consolidatedMounts
+    }
+
+    private func createConsolidatedMount(fileMounts: [Mount], parentDir: String) throws -> Mount {
+        // Create a consolidated directory containing all the files
+        let consolidatedHash = try hashMountSources(sources: fileMounts.map { $0.source })
+        let consolidatedTempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("containerization-consolidated-\(consolidatedHash)")
+
+        // Atomically create directory to prevent TOCTOU race condition
+        try createConsolidatedDirectoryAtomically(at: consolidatedTempDir, fileMounts: fileMounts)
+
+        // Create a consolidated mount targeting the parent directory
+        let consolidatedMount = Mount.share(source: consolidatedTempDir.path, destination: parentDir)
+        return consolidatedMount
+    }
+
+    /// Atomically create consolidated directory and populate with hardlinks
+    private func createConsolidatedDirectoryAtomically(at url: URL, fileMounts: [Mount]) throws {
+        do {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            // Register for cleanup if this is a containerization temp directory
+            if url.path.contains("containerization-consolidated-") {
+                VZVirtualMachineInstance.registerTempDirectory(url.path)
+            }
+
+            // Create hardlinks for all files with their destination filenames
+            for mount in fileMounts {
+                // Validate each source file before creating hardlink
+                try validateSourceFileForMount(mount)
+
+                let destinationFilename = URL(fileURLWithPath: mount.destination).lastPathComponent
+                let consolidatedFile = url.appendingPathComponent(destinationFilename)
+                let sourceFile = URL(fileURLWithPath: mount.source)
+                try FileManager.default.linkItem(at: sourceFile, to: consolidatedFile)
+            }
+        } catch CocoaError.fileWriteFileExists {
+            // Directory already exists, verify it's actually a directory and has expected contents
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+                isDirectory.boolValue
+            else {
+                throw ContainerizationError(.invalidArgument, message: "Path exists but is not a directory: \(url.path)")
+            }
+
+            // Verify all expected hardlinks exist
+            for mount in fileMounts {
+                let destinationFilename = URL(fileURLWithPath: mount.destination).lastPathComponent
+                let consolidatedFile = url.appendingPathComponent(destinationFilename)
+                if !FileManager.default.fileExists(atPath: consolidatedFile.path) {
+                    // Missing hardlink, create it
+                    try validateSourceFileForMount(mount)
+                    let sourceFile = URL(fileURLWithPath: mount.source)
+                    try FileManager.default.linkItem(at: sourceFile, to: consolidatedFile)
+                }
+            }
+        } catch {
+            throw ContainerizationError(.internalError, message: "Failed to create consolidated directory \(url.path): \(error.localizedDescription)")
+        }
+    }
+
+    /// Validate source file for mount (extracted to avoid duplication)
+    private func validateSourceFileForMount(_ mount: Mount) throws {
+        let source = mount.source
+
+        // Check if file exists
+        guard FileManager.default.fileExists(atPath: source) else {
+            throw ContainerizationError(.notFound, message: "Source file does not exist: \(source)")
+        }
+
+        // Get file attributes to check if it's a regular file
+        let attributes = try FileManager.default.attributesOfItem(atPath: source)
+        let fileType = attributes[.type] as? FileAttributeType
+
+        // Reject symlinks to prevent following links to unintended targets
+        guard fileType != .typeSymbolicLink else {
+            throw ContainerizationError(.invalidArgument, message: "Cannot mount symlink: \(source)")
+        }
+
+        // Ensure it's a regular file
+        guard fileType == .typeRegular else {
+            throw ContainerizationError(.invalidArgument, message: "Source must be a regular file: \(source)")
+        }
+
+        // Check if file is readable
+        guard FileManager.default.isReadableFile(atPath: source) else {
+            throw ContainerizationError(.invalidArgument, message: "Source file is not readable: \(source)")
+        }
+    }
+
+    private func hashMountSources(sources: [String]) throws -> String {
+        // Create a deterministic hash of all source paths for consolidated mount
+        // Sanitize paths by escaping the separator character to prevent hash collisions
+        let sanitizedSources = sources.sorted().map { source in
+            source.replacingOccurrences(of: "|", with: "\\|")
+        }
+        let combined = sanitizedSources.joined(separator: "|")
+        return try hashMountSource(source: combined)
     }
 }
 
