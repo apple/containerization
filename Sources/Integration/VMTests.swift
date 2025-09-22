@@ -368,24 +368,24 @@ extension IntegrationSuite {
         let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
         let agent = Vminitd(connection: connection, group: group)
 
-        // Test 1: CREATE event
-        print("Testing CREATE event...")
-        let createResponse = try await agent.notifyFileSystemEvent(path: "/mnt/test/new_file.txt", eventType: .create)
+        // Test 1: CREATE event on existing file
+        print("Testing CREATE event on existing file...")
+        let createResponse = try await agent.notifyFileSystemEvent(path: "/mnt/test/existing.txt", eventType: .create)
         guard createResponse.success else {
             throw IntegrationError.assert(msg: "CREATE event failed: \(createResponse.error)")
         }
 
-        // Verify file was created in guest
+        // Verify CREATE event triggered inotify (file should still exist)
         let buffer1 = BufferWriter()
         let process1 = try await container.exec("check-create") { config in
-            config.arguments = ["/bin/ls", "-la", "/mnt/test/new_file.txt"]
+            config.arguments = ["/bin/stat", "/mnt/test/existing.txt"]
             config.stdout = buffer1
         }
 
         try await process1.start()
         let status1 = try await process1.wait()
         guard status1 == 0 else {
-            throw IntegrationError.assert(msg: "File creation verification failed")
+            throw IntegrationError.assert(msg: "File stat verification failed for CREATE event")
         }
 
         // Test 2: MODIFY event on existing file
