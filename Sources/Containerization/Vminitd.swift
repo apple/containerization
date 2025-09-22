@@ -436,7 +436,19 @@ extension Vminitd {
             $0.path = path
             $0.eventType = eventType
         }
-        return try await client.notifyFileSystemEvent(request)
+
+        let requests = AsyncStream<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest> { continuation in
+            continuation.yield(request)
+            continuation.finish()
+        }
+
+        let responses = client.notifyFileSystemEvent(requests)
+
+        for try await response in responses {
+            return response
+        }
+
+        throw ContainerizationError(.internalError, message: "No response received from notifyFileSystemEvent")
     }
 }
 

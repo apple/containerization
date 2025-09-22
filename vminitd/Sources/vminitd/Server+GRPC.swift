@@ -1083,35 +1083,41 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
     }
 
     func notifyFileSystemEvent(
-        request: Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest,
+        requestStream: GRPCAsyncRequestStream<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest>,
+        responseStream: GRPCAsyncResponseStreamWriter<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse>,
         context: GRPCAsyncServerCallContext
-    ) async throws -> Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse {
-        log.debug(
-            "notifyFileSystemEvent",
-            metadata: [
-                "path": "\(request.path)",
-                "eventType": "\(request.eventType)",
-            ])
-
-        do {
-            try await generateSyntheticInotifyEvent(
-                path: request.path,
-                eventType: request.eventType
-            )
-
-            return .with {
-                $0.success = true
-            }
-        } catch {
-            log.error(
+    ) async throws {
+        for try await request in requestStream {
+            log.debug(
                 "notifyFileSystemEvent",
                 metadata: [
-                    "error": "\(error)"
+                    "path": "\(request.path)",
+                    "eventType": "\(request.eventType)",
                 ])
 
-            return .with {
-                $0.success = false
-                $0.error = error.localizedDescription
+            do {
+                try await generateSyntheticInotifyEvent(
+                    path: request.path,
+                    eventType: request.eventType
+                )
+
+                let response = Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse.with {
+                    $0.success = true
+                }
+                try await responseStream.send(response)
+
+            } catch {
+                log.error(
+                    "notifyFileSystemEvent",
+                    metadata: [
+                        "error": "\(error)"
+                    ])
+
+                let response = Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse.with {
+                    $0.success = false
+                    $0.error = error.localizedDescription
+                }
+                try await responseStream.send(response)
             }
         }
     }
@@ -1120,32 +1126,14 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         path: String,
         eventType: Com_Apple_Containerization_Sandbox_V3_FileSystemEventType
     ) async throws {
-        switch eventType {
-        case .modify:
-            // Touch file to update timestamp -> generates IN_ATTRIB event
-            let now = Date()
-            try FileManager.default.setAttributes(
-                [.modificationDate: now],
-                ofItemAtPath: path
-            )
-
-        case .create:
-            // Use chmod with same permissions to generate IN_ATTRIB event
-            let attributes = try FileManager.default.attributesOfItem(atPath: path)
-            let permissions = attributes[.posixPermissions] as? NSNumber ?? NSNumber(value: 0o644)
-            try FileManager.default.setAttributes(
-                [.posixPermissions: permissions],
-                ofItemAtPath: path
-            )
-
-        case .delete:
-            // We can't generate delete events for files that don't exist
-            // This would need to be handled by the application layer
-            log.warning("Delete events cannot be synthesized for existing files")
-
-        default:
-            log.warning("Unsupported filesystem event type: \(eventType)")
+        let attributes = try FileManager.default.attributesOfItem(atPath: path)
+        guard let permissions = attributes[.posixPermissions] as? NSNumber else {
+            throw GRPCStatus(code: .internalError, message: "Failed to get file permissions for path: \(path)")
         }
+        try FileManager.default.setAttributes(
+            [.posixPermissions: permissions],
+            ofItemAtPath: path
+        )
     }
 }
 
