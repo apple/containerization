@@ -67,7 +67,7 @@ service SandboxContext {
   // Send a signal to a process via the PID.
   rpc Kill(KillRequest) returns (KillResponse);
   // Notify guest of filesystem events from host.
-  rpc NotifyFileSystemEvent(NotifyFileSystemEventRequest) returns (NotifyFileSystemEventResponse);
+  rpc NotifyFileSystemEvent(stream NotifyFileSystemEventRequest) returns (stream NotifyFileSystemEventResponse);
 }
 
 message Stdio {
