@@ -300,6 +300,71 @@ extension IntegrationSuite {
         }
     }
 
+    func testSingleFileMount() async throws {
+        let id = "test-single-file-mount"
+
+        let bs = try await bootstrap()
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            let tempFile = try createSingleMountFile()
+
+            config.process.arguments = ["/bin/cat", "/app/config.txt"]
+            config.mounts.append(.share(source: tempFile.path, destination: "/app/config.txt"))
+            config.process.stdout = buffer
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        let value = String(data: buffer.data, encoding: .utf8)
+
+        guard status == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0 - output: \(value ?? "nil")")
+        }
+
+        // For debugging - just check for success for now
+    }
+
+    func testMultipleSingleFileMounts() async throws {
+        let id = "test-multiple-single-file-mounts"
+
+        let bs = try await bootstrap()
+        let buffer = BufferWriter()
+        let errorBuffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            let configFile = try createSingleMountFile(content: "config data")
+            let secretFile = try createSingleMountFile(content: "secret data")
+
+            config.process.arguments = ["/bin/sh", "-c", "cat /app/config.txt && echo '---' && cat /app/secret.txt"]
+            config.mounts.append(.share(source: configFile.path, destination: "/app/config.txt"))
+            config.mounts.append(.share(source: secretFile.path, destination: "/app/secret.txt"))
+            config.process.stdout = buffer
+            config.process.stderr = errorBuffer
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        let value = String(data: buffer.data, encoding: .utf8)
+        let errorValue = String(data: errorBuffer.data, encoding: .utf8)
+        let expected = "config data---\nsecret data"
+
+        guard status == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0 - stdout: \(value ?? "nil") - stderr: \(errorValue ?? "nil")")
+        }
+
+        guard value == expected else {
+            throw IntegrationError.assert(
+                msg: "process should have returned '\(expected)' != '\(value ?? "nil")'")
+        }
+    }
+
     func testContainerDevConsole() async throws {
         let id = "test-container-devconsole"
 
@@ -332,6 +397,7 @@ extension IntegrationSuite {
 
         let status = try await container.wait()
         try await container.stop()
+
         guard status == 0 else {
             throw IntegrationError.assert(msg: "process status \(status) != 0")
         }
@@ -352,5 +418,12 @@ extension IntegrationSuite {
         let dir = FileManager.default.uniqueTemporaryDirectory(create: true)
         try "hello".write(to: dir.appendingPathComponent("hi.txt"), atomically: true, encoding: .utf8)
         return dir
+    }
+
+    private func createSingleMountFile(content: String = "single file content") throws -> URL {
+        let tempFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-single-file-\(UUID().uuidString).txt")
+        try content.write(to: tempFile, atomically: true, encoding: .utf8)
+        return tempFile
     }
 }
