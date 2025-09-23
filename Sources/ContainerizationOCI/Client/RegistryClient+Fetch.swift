@@ -22,7 +22,7 @@ import Foundation
 import NIOFoundationCompat
 
 #if os(macOS)
-import NIOFileSystem
+import _NIOFileSystem
 #endif
 
 extension RegistryClient {
@@ -170,7 +170,7 @@ extension RegistryClient {
     public func fetchBlob(name: String, descriptor: Descriptor, into file: URL, progress: ProgressHandler?) async throws -> (Int64, SHA256Digest) {
         var hasher = SHA256()
         var received: Int64 = 0
-        let fs = NIOFileSystem.FileSystem.shared
+        let fs = _NIOFileSystem.FileSystem.shared
         let handle = try await fs.openFile(forWritingAt: FilePath(file.absolutePath()), options: .newFile(replaceExisting: true))
         var writer = handle.bufferedWriter()
         do {
