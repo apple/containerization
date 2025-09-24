@@ -57,7 +57,7 @@ public protocol VirtualMachineAgent: Sendable {
     func startProcess(id: String, containerID: String?) async throws -> Int32
     func signalProcess(id: String, containerID: String?, signal: Int32) async throws
     func resizeProcess(id: String, containerID: String?, columns: UInt32, rows: UInt32) async throws
-    func waitProcess(id: String, containerID: String?, timeoutInSeconds: Int64?) async throws -> Int32
+    func waitProcess(id: String, containerID: String?, timeoutInSeconds: Int64?) async throws -> ExitStatus
     func deleteProcess(id: String, containerID: String?) async throws
     func closeProcessStdin(id: String, containerID: String?) async throws
 

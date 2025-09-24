@@ -40,7 +40,7 @@ extension IntegrationSuite {
         let status = try await container.wait()
         try await container.stop()
 
-        guard status == 0 else {
+        guard status.exitCode == 0 else {
             throw IntegrationError.assert(msg: "process status \(status) != 0")
         }
 
@@ -96,7 +96,7 @@ extension IntegrationSuite {
 
         let status = try await t.value
 
-        guard status == 0 else {
+        guard status.exitCode == 0 else {
             throw IntegrationError.assert(msg: "process status \(status) != 0")
         }
 
@@ -160,7 +160,7 @@ extension IntegrationSuite {
         let status = try await container.wait()
         try await container.stop()
 
-        guard status == 0 else {
+        guard status.exitCode == 0 else {
             throw IntegrationError.assert(msg: "process status \(status) != 0")
         }
     }
@@ -195,7 +195,7 @@ extension IntegrationSuite {
         let status = try await container.wait()
         try await container.stop()
 
-        guard status == 0 else {
+        guard status.exitCode == 0 else {
             throw IntegrationError.assert(msg: "process status \(status) != 0")
         }
 
@@ -234,7 +234,7 @@ extension IntegrationSuite {
 
         // Wait for completion
         let status = try await container.wait()
-        guard status == 0 else {
+        guard status.exitCode == 0 else {
             throw IntegrationError.assert(msg: "process status \(status) != 0")
         }
 
@@ -277,7 +277,7 @@ extension IntegrationSuite {
 
         // Wait for completion
         var status = try await container.wait()
-        guard status == 0 else {
+        guard status.exitCode == 0 else {
             throw IntegrationError.assert(msg: "process status \(status) != 0")
         }
         try await container.stop()
@@ -288,7 +288,7 @@ extension IntegrationSuite {
 
         // Wait for completion.. again.
         status = try await container.wait()
-        guard status == 0 else {
+        guard status.exitCode == 0 else {
             throw IntegrationError.assert(msg: "process status \(status) != 0")
         }
 
@@ -332,7 +332,7 @@ extension IntegrationSuite {
 
         let status = try await container.wait()
         try await container.stop()
-        guard status == 0 else {
+        guard status.exitCode == 0 else {
             throw IntegrationError.assert(msg: "process status \(status) != 0")
         }
 

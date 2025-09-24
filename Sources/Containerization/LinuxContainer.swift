@@ -742,7 +742,7 @@ extension LinuxContainer {
 
     /// Wait for the container to exit. Returns the exit code.
     @discardableResult
-    public func wait(timeoutInSeconds: Int64? = nil) async throws -> Int32 {
+    public func wait(timeoutInSeconds: Int64? = nil) async throws -> ExitStatus {
         let state = try self.state.withLock { try $0.startedState("wait") }
         return try await state.process.wait(timeoutInSeconds: timeoutInSeconds)
     }

@@ -183,7 +183,11 @@ extension Vminitd: VirtualMachineAgent {
         _ = try await client.resizeProcess(request)
     }
 
-    public func waitProcess(id: String, containerID: String?, timeoutInSeconds: Int64? = nil) async throws -> Int32 {
+    public func waitProcess(
+        id: String,
+        containerID: String?,
+        timeoutInSeconds: Int64? = nil
+    ) async throws -> ExitStatus {
         let request = Com_Apple_Containerization_Sandbox_V3_WaitProcessRequest.with {
             $0.id = id
             if let containerID {
@@ -198,7 +202,7 @@ extension Vminitd: VirtualMachineAgent {
         }
         do {
             let resp = try await client.waitProcess(request, callOptions: callOpts)
-            return resp.exitCode
+            return ExitStatus(exitCode: resp.exitCode, exitedAt: resp.exitedAt.date)
         } catch {
             if let err = error as? GRPCError.RPCTimedOut {
                 throw ContainerizationError(

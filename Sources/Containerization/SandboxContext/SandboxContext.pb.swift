@@ -476,9 +476,20 @@ public struct Com_Apple_Containerization_Sandbox_V3_WaitProcessResponse: Sendabl
 
   public var exitCode: Int32 = 0
 
+  public var exitedAt: SwiftProtobuf.Google_Protobuf_Timestamp {
+    get {return _exitedAt ?? SwiftProtobuf.Google_Protobuf_Timestamp()}
+    set {_exitedAt = newValue}
+  }
+  /// Returns true if `exitedAt` has been explicitly set.
+  public var hasExitedAt: Bool {return self._exitedAt != nil}
+  /// Clears the value of `exitedAt`. Subsequent reads from it will return its default value.
+  public mutating func clearExitedAt() {self._exitedAt = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
+
+  fileprivate var _exitedAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
 }
 
 public struct Com_Apple_Containerization_Sandbox_V3_ResizeProcessRequest: Sendable {
@@ -1765,6 +1776,7 @@ extension Com_Apple_Containerization_Sandbox_V3_WaitProcessResponse: SwiftProtob
   public static let protoMessageName: String = _protobuf_package + ".WaitProcessResponse"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
     1: .same(proto: "exitCode"),
+    2: .standard(proto: "exited_at"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -1774,20 +1786,29 @@ extension Com_Apple_Containerization_Sandbox_V3_WaitProcessResponse: SwiftProtob
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularInt32Field(value: &self.exitCode) }()
+      case 2: try { try decoder.decodeSingularMessageField(value: &self._exitedAt) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
     if self.exitCode != 0 {
       try visitor.visitSingularInt32Field(value: self.exitCode, fieldNumber: 1)
     }
+    try { if let v = self._exitedAt {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_WaitProcessResponse, rhs: Com_Apple_Containerization_Sandbox_V3_WaitProcessResponse) -> Bool {
     if lhs.exitCode != rhs.exitCode {return false}
+    if lhs._exitedAt != rhs._exitedAt {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

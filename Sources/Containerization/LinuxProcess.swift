@@ -343,15 +343,15 @@ extension LinuxProcess {
 
     /// Wait on the process to exit with an optional timeout. Returns the exit code of the process.
     @discardableResult
-    public func wait(timeoutInSeconds: Int64? = nil) async throws -> Int32 {
+    public func wait(timeoutInSeconds: Int64? = nil) async throws -> ExitStatus {
         do {
-            let code = try await self.agent.waitProcess(
+            let exitStatus = try await self.agent.waitProcess(
                 id: self.id,
                 containerID: self.owningContainer,
                 timeoutInSeconds: timeoutInSeconds
             )
             await self.waitIoComplete()
-            return code
+            return exitStatus
         } catch {
             if error is ContainerizationError {
                 throw error

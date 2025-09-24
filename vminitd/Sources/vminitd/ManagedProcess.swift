@@ -36,14 +36,19 @@ final class ManagedProcess: Sendable {
     private let bundle: ContainerizationOCI.Bundle
     private let cgroupManager: Cgroup2Manager?
 
+    struct ExitStatus {
+        var exitStatus: Int32
+        var exitedAt: Date
+    }
+
     private struct State {
         init(io: IO) {
             self.io = io
         }
 
         let io: IO
-        var waiters: [CheckedContinuation<Int32, Never>] = []
-        var exitStatus: Int32? = nil
+        var waiters: [CheckedContinuation<ExitStatus, Never>] = []
+        var exitStatus: ExitStatus? = nil
         var pid: Int32 = 0
     }
 
@@ -256,7 +261,8 @@ extension ManagedProcess {
                     "status": "\(status)"
                 ])
 
-            $0.exitStatus = status
+            let exitStatus = ExitStatus(exitStatus: status, exitedAt: Date.now)
+            $0.exitStatus = exitStatus
 
             do {
                 try $0.io.close()
@@ -265,7 +271,7 @@ extension ManagedProcess {
             }
 
             for waiter in $0.waiters {
-                waiter.resume(returning: status)
+                waiter.resume(returning: exitStatus)
             }
 
             self.log.debug("\($0.waiters.count) managed process waiters signaled")
@@ -274,7 +280,7 @@ extension ManagedProcess {
     }
 
     /// Wait on the process to exit
-    func wait() async -> Int32 {
+    func wait() async -> ExitStatus {
         await withCheckedContinuation { cont in
             self.state.withLock {
                 if let status = $0.exitStatus {

@@ -24,6 +24,7 @@ import GRPC
 import Logging
 import NIOCore
 import NIOPosix
+import SwiftProtobuf
 import _NIOFileSystem
 
 private let _setenv = Foundation.setenv
@@ -665,11 +666,11 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
 
         do {
             let ctr = try await self.state.get(container: request.containerID)
-
-            let exitCode = try await ctr.wait(execID: request.id)
+            let exitStatus = try await ctr.wait(execID: request.id)
 
             return .with {
-                $0.exitCode = exitCode
+                $0.exitCode = exitStatus.exitStatus
+                $0.exitedAt = Google_Protobuf_Timestamp(date: exitStatus.exitedAt)
             }
         } catch {
             log.error(

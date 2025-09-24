@@ -124,7 +124,7 @@ extension ManagedContainer {
         return try await ProcessSupervisor.default.start(process: proc)
     }
 
-    func wait(execID: String) async throws -> Int32 {
+    func wait(execID: String) async throws -> ManagedProcess.ExitStatus {
         let proc = try self.getExecOrInit(execID: execID)
         return await proc.wait()
     }

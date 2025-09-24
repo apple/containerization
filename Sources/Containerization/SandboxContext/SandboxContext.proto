@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package com.apple.containerization.sandbox.v3;
 
+import "google/protobuf/timestamp.proto";
+
 // Context for interacting with a container's runtime environment.
 service SandboxContext {
   // Mount a filesystem.
@@ -155,6 +157,7 @@ message WaitProcessRequest {
 
 message WaitProcessResponse {
   int32 exitCode = 1;
+  google.protobuf.Timestamp exited_at = 2;
 }
 
 message ResizeProcessRequest {
