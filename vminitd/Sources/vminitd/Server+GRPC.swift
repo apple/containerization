@@ -1085,7 +1085,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
     func notifyFileSystemEvent(
         requestStream: GRPCAsyncRequestStream<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest>,
         responseStream: GRPCAsyncResponseStreamWriter<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse>,
-        context: GRPCAsyncServerCallContext
+        context: GRPC.GRPCAsyncServerCallContext
     ) async throws {
         for try await request in requestStream {
             log.debug(
@@ -1126,6 +1126,10 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         path: String,
         eventType: Com_Apple_Containerization_Sandbox_V3_FileSystemEventType
     ) async throws {
+        if eventType == .delete && !FileManager.default.fileExists(atPath: path) {
+            return
+        }
+
         let attributes = try FileManager.default.attributesOfItem(atPath: path)
         guard let permissions = attributes[.posixPermissions] as? NSNumber else {
             throw GRPCStatus(code: .internalError, message: "Failed to get file permissions for path: \(path)")
