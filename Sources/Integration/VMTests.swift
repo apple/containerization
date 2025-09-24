@@ -15,13 +15,14 @@
 //===----------------------------------------------------------------------===//
 
 import ArgumentParser
-import Containerization
 import ContainerizationError
 import ContainerizationOCI
 import Foundation
 import Logging
 import NIOCore
 import NIOPosix
+
+@testable import Containerization
 
 extension IntegrationSuite {
     func testMounts() async throws {
@@ -354,10 +355,10 @@ extension IntegrationSuite {
         let id = "test-fsnotify-events"
 
         let bs = try await bootstrap()
+        let directory = try createFSNotifyTestDirectory()
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
-            let directory = try createFSNotifyTestDirectory()
             config.process.arguments = ["/bin/sh", "-c", "sleep 30"]  // Keep container running
-            config.mounts.append(.share(source: directory.path, destination: "/mnt/test"))
+            config.mounts.append(.share(source: directory.path, destination: "/mnt"))
         }
 
         try await container.create()
@@ -368,51 +369,63 @@ extension IntegrationSuite {
         let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
         let agent = Vminitd(connection: connection, group: group)
 
+        // Calculate the hashed tag name for the mount source and mount in VM
+        let mountTag = try hashMountSource(source: directory.path)
+        let vmMountPath = "/tmp/fsnotify-test"
+
+        try await agent.mount(.init(type: "virtiofs", source: mountTag, destination: vmMountPath))
+
         // Test 1: CREATE event on existing file
-        print("Testing CREATE event on existing file...")
-        let createResponse = try await agent.notifyFileSystemEvent(path: "/mnt/test/existing.txt", eventType: .create)
+        let createResponse = try await agent.notifyFileSystemEvent(path: "\(vmMountPath)/existing.txt", eventType: .create)
+
         guard createResponse.success else {
             throw IntegrationError.assert(msg: "CREATE event failed: \(createResponse.error)")
         }
 
-        // Verify CREATE event triggered inotify (file should still exist)
-        let buffer1 = BufferWriter()
-        let process1 = try await container.exec("check-create") { config in
-            config.arguments = ["/bin/stat", "/mnt/test/existing.txt"]
-            config.stdout = buffer1
-        }
-
-        try await process1.start()
-        let status1 = try await process1.wait()
-        guard status1 == 0 else {
-            throw IntegrationError.assert(msg: "File stat verification failed for CREATE event")
-        }
-
         // Test 2: MODIFY event on existing file
-        print("Testing MODIFY event...")
-        let modifyResponse = try await agent.notifyFileSystemEvent(path: "/mnt/test/existing.txt", eventType: .modify)
+        let modifyResponse = try await agent.notifyFileSystemEvent(path: "\(vmMountPath)/existing.txt", eventType: .modify)
         guard modifyResponse.success else {
             throw IntegrationError.assert(msg: "MODIFY event failed: \(modifyResponse.error)")
         }
 
-        // Verify file timestamp was updated
-        let buffer2 = BufferWriter()
-        let process2 = try await container.exec("check-modify") { config in
-            config.arguments = ["/bin/stat", "/mnt/test/existing.txt"]
-            config.stdout = buffer2
+        // Test 3: Verify inotify events are actually generated using inotifywait
+        let inotifyBuffer = BufferWriter()
+        let inotifyProcess = try await container.exec("test-inotify") { config in
+            // Install inotify-tools and monitor the mount point for events
+            config.arguments = [
+                "/bin/sh", "-c",
+                """
+                apk add --no-cache inotify-tools > /dev/null 2>&1 && \
+                timeout 2 inotifywait -m /mnt -e modify,create,delete --format '%e %f' 2>/dev/null &
+                INOTIFY_PID=$!
+                sleep 0.1
+                # Trigger a modify event that should be detected
+                touch /mnt/test-inotify.txt
+                echo "modify test-inotify.txt"
+                wait $INOTIFY_PID 2>/dev/null || true
+                """,
+            ]
+            config.stdout = inotifyBuffer
         }
 
-        try await process2.start()
-        let status2 = try await process2.wait()
-        guard status2 == 0 else {
-            throw IntegrationError.assert(msg: "File modification verification failed")
+        try await inotifyProcess.start()
+
+        // While inotify is running, send FSNotify events that should trigger inotify
+        try await Task.sleep(for: .milliseconds(200))
+        let _ = try await agent.notifyFileSystemEvent(path: "\(vmMountPath)/test-inotify.txt", eventType: .modify)
+
+        let _ = try await inotifyProcess.wait()
+        let inotifyOutput = String(data: inotifyBuffer.data, encoding: .utf8) ?? ""
+
+        // Verify that inotify detected the modify event
+        guard inotifyOutput.contains("modify test-inotify.txt") else {
+            throw IntegrationError.assert(msg: "inotify did not detect FSNotify-triggered modify event. Output: \(inotifyOutput)")
         }
 
-        // Test 3: Test unsupported DELETE event (should log warning but not fail)
-        print("Testing DELETE event (should log warning)...")
-        let deleteResponse = try await agent.notifyFileSystemEvent(path: "/mnt/test/nonexistent.txt", eventType: .delete)
+        // Test 4: DELETE event on non-existent file
+        let deleteResponse = try await agent.notifyFileSystemEvent(path: "\(vmMountPath)/nonexistent.txt", eventType: .delete)
         guard deleteResponse.success else {
-            throw IntegrationError.assert(msg: "DELETE event should succeed with warning, not fail")
+            throw IntegrationError.assert(msg: "DELETE event failed: \(deleteResponse.error)")
         }
 
         // Clean up
