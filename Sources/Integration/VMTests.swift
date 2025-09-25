@@ -412,21 +412,23 @@ extension IntegrationSuite {
         let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
         let agent = Vminitd(connection: connection, group: group)
 
-        // Calculate the hashed tag name for the mount source and mount in VM
-        let mountTag = try hashMountSource(source: directory.path)
-        let vmMountPath = "/tmp/fsnotify-test"
-
-        try await agent.mount(.init(type: "virtiofs", source: mountTag, destination: vmMountPath))
-
         // Test 1: CREATE event on existing file
-        let createResponse = try await agent.notifyFileSystemEvent(path: "\(vmMountPath)/existing.txt", eventType: .create)
+        let createResponse = try await agent.notifyFileSystemEvent(
+            path: "/mnt/existing.txt",
+            eventType: .create,
+            containerID: id
+        )
 
         guard createResponse.success else {
             throw IntegrationError.assert(msg: "CREATE event failed: \(createResponse.error)")
         }
 
         // Test 2: MODIFY event on existing file
-        let modifyResponse = try await agent.notifyFileSystemEvent(path: "\(vmMountPath)/existing.txt", eventType: .modify)
+        let modifyResponse = try await agent.notifyFileSystemEvent(
+            path: "/mnt/existing.txt",
+            eventType: .modify,
+            containerID: id
+        )
         guard modifyResponse.success else {
             throw IntegrationError.assert(msg: "MODIFY event failed: \(modifyResponse.error)")
         }
@@ -439,13 +441,7 @@ extension IntegrationSuite {
                 "/bin/sh", "-c",
                 """
                 apk add --no-cache inotify-tools > /dev/null 2>&1 && \
-                timeout 2 inotifywait -m /mnt -e modify,create,delete --format '%e %f' 2>/dev/null &
-                INOTIFY_PID=$!
-                sleep 0.1
-                # Trigger a modify event that should be detected
-                touch /mnt/test-inotify.txt
-                echo "modify test-inotify.txt"
-                wait $INOTIFY_PID 2>/dev/null || true
+                timeout 5 inotifywait -m /mnt -e modify,create,delete --format '%e %f' 2>/dev/null || true
                 """,
             ]
             config.stdout = inotifyBuffer
@@ -453,20 +449,30 @@ extension IntegrationSuite {
 
         try await inotifyProcess.start()
 
-        // While inotify is running, send FSNotify events that should trigger inotify
-        try await Task.sleep(for: .milliseconds(200))
-        let _ = try await agent.notifyFileSystemEvent(path: "\(vmMountPath)/test-inotify.txt", eventType: .modify)
+        // Wait for inotify to start monitoring, then send FSNotify events
+        try await Task.sleep(for: .milliseconds(500))
+
+        // Send ONLY agent-driven events
+        let _ = try await agent.notifyFileSystemEvent(
+            path: "/mnt/existing.txt",
+            eventType: .modify,
+            containerID: id
+        )
 
         let _ = try await inotifyProcess.wait()
         let inotifyOutput = String(data: inotifyBuffer.data, encoding: .utf8) ?? ""
 
         // Verify that inotify detected the modify event
-        guard inotifyOutput.contains("modify test-inotify.txt") else {
-            throw IntegrationError.assert(msg: "inotify did not detect FSNotify-triggered modify event. Output: \(inotifyOutput)")
+        guard inotifyOutput.contains("MODIFY existing.txt") else {
+            throw IntegrationError.assert(msg: "inotify did not detect FSNotify agent modify event. Output: '\(inotifyOutput)'")
         }
 
         // Test 4: DELETE event on non-existent file
-        let deleteResponse = try await agent.notifyFileSystemEvent(path: "\(vmMountPath)/nonexistent.txt", eventType: .delete)
+        let deleteResponse = try await agent.notifyFileSystemEvent(
+            path: "/mnt/nonexistent.txt",
+            eventType: .delete,
+            containerID: id
+        )
         guard deleteResponse.success else {
             throw IntegrationError.assert(msg: "DELETE event failed: \(deleteResponse.error)")
         }
