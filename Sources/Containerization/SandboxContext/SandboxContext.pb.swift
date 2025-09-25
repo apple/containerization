@@ -1265,6 +1265,8 @@ public struct Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest
 
   public var eventType: Com_Apple_Containerization_Sandbox_V3_FileSystemEventType = .create
 
+  public var containerID: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -3716,6 +3718,7 @@ extension Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest: Sw
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
     1: .same(proto: "path"),
     2: .standard(proto: "event_type"),
+    3: .standard(proto: "container_id"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -3726,6 +3729,7 @@ extension Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest: Sw
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.path) }()
       case 2: try { try decoder.decodeSingularEnumField(value: &self.eventType) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.containerID) }()
       default: break
       }
     }
@@ -3738,12 +3742,16 @@ extension Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest: Sw
     if self.eventType != .create {
       try visitor.visitSingularEnumField(value: self.eventType, fieldNumber: 2)
     }
+    if !self.containerID.isEmpty {
+      try visitor.visitSingularStringField(value: self.containerID, fieldNumber: 3)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest, rhs: Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest) -> Bool {
     if lhs.path != rhs.path {return false}
     if lhs.eventType != rhs.eventType {return false}
+    if lhs.containerID != rhs.containerID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
