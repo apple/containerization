@@ -13,19 +13,29 @@
 # limitations under the License.
 
 KSOURCE ?= https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.14.9.tar.xz
-KIMAGE ?= ghcr.io/apple/test-images/kernel-build:latest
+KIMAGE ?= kernel-build:0.1
+CURDIR := $(shell pwd)
 
-all:
+.DEFAULT_GOAL := all
+
+.PHONY: all
+all: kernel-build-image
+all: kernel-build
+
+.PHONY: kernel-build-image
+kernel-build-image:
+	container build image/ -f image/Dockerfile -t ${KIMAGE}
+
+.PHONY: kernel-build
+kernel-build:
 ifeq (,$(wildcard source.tar.xz))
 	curl -SsL -o source.tar.xz ${KSOURCE}
 endif
-	../bin/cctl run \
+	container run \
 		--cpus 8 \
-		--memory 16384 \
-		--fs-size 32768 \
-		--kernel ../bin/vmlinux \
-		--init ../bin/init.block \
-		--image ${KIMAGE} \
-		--mount .:/kernel \
+		--rm \
+		--memory 16g \
+		-v ${CURDIR}:/kernel \
 		--cwd /kernel \
-		-- /bin/bash -c "./build.sh"
+		${KIMAGE} \
+		/bin/bash -c "./build.sh"

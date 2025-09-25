@@ -141,6 +141,10 @@ Containerization depends on specific versions of `grpc-swift` and `swift-protobu
 make protos
 ```
 
+## Building a kernel
+
+If you'd like to build your own kernel please see the instructions in the [kernel directory](./kernel/README.md).
+
 ## Documentation
 
 Generate the API documentation for local viewing with:
