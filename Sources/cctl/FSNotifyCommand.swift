@@ -98,7 +98,11 @@ extension Application {
                 let vminitd = Vminitd(client: client)
 
                 // Send the notification using the public API
-                let response = try await vminitd.notifyFileSystemEvent(path: path, eventType: eventType)
+                let response = try await vminitd.notifyFileSystemEvent(
+                    path: path,
+                    eventType: eventType,
+                    containerID: containerID
+                )
 
                 if !response.success {
                     let errorMsg = response.hasError ? response.error : "Unknown error"
