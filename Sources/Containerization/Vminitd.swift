@@ -429,12 +429,15 @@ extension Vminitd {
     }
 
     /// Send a filesystem event notification to the guest.
-    public func notifyFileSystemEvent(path: String, eventType: Com_Apple_Containerization_Sandbox_V3_FileSystemEventType) async throws
-        -> Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse
-    {
+    public func notifyFileSystemEvent(
+        path: String,
+        eventType: Com_Apple_Containerization_Sandbox_V3_FileSystemEventType,
+        containerID: String
+    ) async throws -> Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse {
         let request = Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest.with {
             $0.path = path
             $0.eventType = eventType
+            $0.containerID = containerID
         }
 
         let requests = AsyncStream<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest> { continuation in

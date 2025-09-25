@@ -367,6 +367,7 @@ enum FileSystemEventType {
 message NotifyFileSystemEventRequest {
   string path = 1;
   FileSystemEventType event_type = 2;
+  string container_id = 3;
 }
 
 message NotifyFileSystemEventResponse {
