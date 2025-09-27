@@ -162,8 +162,7 @@ struct IntegrationSuite: AsyncParsableCommand {
 
     static let eventLoop = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
 
-    func bootstrap(_ testID: String) async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image, bootlog: URL) {
-        let reference = "ghcr.io/linuxcontainers/alpine:3.20"
+    func bootstrap(_ testID: String, reference: String = "ghcr.io/linuxcontainers/alpine:3.20") async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image, bootlog: URL) {
         let store = Self.imageStore
 
         let initImage = try await store.getInitImage(reference: Self.initImage)

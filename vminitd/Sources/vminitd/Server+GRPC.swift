@@ -1091,16 +1091,27 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             log.debug(
                 "notifyFileSystemEvent",
                 metadata: [
+                    "containerID": "\(request.containerID)",
                     "path": "\(request.path)",
                     "eventType": "\(request.eventType)",
                 ])
 
-            do {
-                try await generateSyntheticInotifyEvent(
-                    path: request.path,
-                    eventType: request.eventType
-                )
+            guard let container = await self.state.containers[request.containerID] else {
+                log.warning(
+                    "fs event for non-existent container",
+                    metadata: [
+                        "containerID": "\(request.containerID)"
+                    ])
+                let response = Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse.with {
+                    $0.success = false
+                    $0.error = "fs event for non-existent container: \(request.containerID)"
+                }
+                try await responseStream.send(response)
+                return
+            }
 
+            do {
+                try await container.executeFileSystemEvent(path: request.path, eventType: request.eventType)
                 let response = Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse.with {
                     $0.success = true
                 }
@@ -1120,24 +1131,6 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 try await responseStream.send(response)
             }
         }
-    }
-
-    private func generateSyntheticInotifyEvent(
-        path: String,
-        eventType: Com_Apple_Containerization_Sandbox_V3_FileSystemEventType
-    ) async throws {
-        if eventType == .delete && !FileManager.default.fileExists(atPath: path) {
-            return
-        }
-
-        let attributes = try FileManager.default.attributesOfItem(atPath: path)
-        guard let permissions = attributes[.posixPermissions] as? NSNumber else {
-            throw GRPCStatus(code: .internalError, message: "Failed to get file permissions for path: \(path)")
-        }
-        try FileManager.default.setAttributes(
-            [.posixPermissions: permissions],
-            ofItemAtPath: path
-        )
     }
 }
 
