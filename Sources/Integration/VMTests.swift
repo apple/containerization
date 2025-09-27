@@ -397,10 +397,18 @@ extension IntegrationSuite {
     func testFSNotifyEvents() async throws {
         let id = "test-fsnotify-events"
 
-        let bs = try await bootstrap()
+        let bs = try await bootstrap(reference: "docker.io/library/node:18-alpine")
         let directory = try createFSNotifyTestDirectory()
+        let inotifyBuffer: IntegrationSuite.BufferWriter = BufferWriter()
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
-            config.process.arguments = ["/bin/sh", "-c", "sleep 30"]  // Keep container running
+            config.process.arguments = [
+                "node",
+                "-e",
+                "fs=require('fs');fs.watch(process.argv[1],(t,f)=>console.log(t,f))",
+                "/mnt",
+            ]
+            config.process.stdout = inotifyBuffer
+            config.process.stderr = inotifyBuffer
             config.mounts.append(.share(source: directory.path, destination: "/mnt"))
         }
 
@@ -411,8 +419,10 @@ extension IntegrationSuite {
         let connection = try await container.dialVsock(port: 1024)  // Default vminitd port
         let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
         let agent = Vminitd(connection: connection, group: group)
+        try await Task.sleep(for: .seconds(1))
 
         // Test 1: CREATE event on existing file
+        print("Sending CREATE event...")
         let createResponse = try await agent.notifyFileSystemEvent(
             path: "/mnt/existing.txt",
             eventType: .create,
@@ -422,8 +432,10 @@ extension IntegrationSuite {
         guard createResponse.success else {
             throw IntegrationError.assert(msg: "CREATE event failed: \(createResponse.error)")
         }
+        print("CREATE event succeeded")
 
         // Test 2: MODIFY event on existing file
+        print("Sending MODIFY event...")
         let modifyResponse = try await agent.notifyFileSystemEvent(
             path: "/mnt/existing.txt",
             eventType: .modify,
@@ -432,42 +444,23 @@ extension IntegrationSuite {
         guard modifyResponse.success else {
             throw IntegrationError.assert(msg: "MODIFY event failed: \(modifyResponse.error)")
         }
+        print("MODIFY event succeeded")
 
-        // Test 3: Verify inotify events are actually generated using inotifywait
-        let inotifyBuffer = BufferWriter()
-        let inotifyProcess = try await container.exec("test-inotify") { config in
-            // Install inotify-tools and monitor the mount point for events
-            config.arguments = [
-                "/bin/sh", "-c",
-                """
-                apk add --no-cache inotify-tools > /dev/null 2>&1 && \
-                timeout 5 inotifywait -m /mnt -e modify,create,delete --format '%e %f' 2>/dev/null || true
-                """,
-            ]
-            config.stdout = inotifyBuffer
-        }
+        // Wait for events to be processed
+        print("Waiting for inotify events to be detected...")
+        try await Task.sleep(for: .seconds(1))
 
-        try await inotifyProcess.start()
-
-        // Wait for inotify to start monitoring, then send FSNotify events
-        try await Task.sleep(for: .milliseconds(500))
-
-        // Send ONLY agent-driven events
-        let _ = try await agent.notifyFileSystemEvent(
-            path: "/mnt/existing.txt",
-            eventType: .modify,
-            containerID: id
-        )
-
-        let _ = try await inotifyProcess.wait()
         let inotifyOutput = String(data: inotifyBuffer.data, encoding: .utf8) ?? ""
+        print("=== Final Container Output ===")
+        print(inotifyOutput)
+        print("=== End Container Output ===")
 
         // Verify that inotify detected the modify event
-        guard inotifyOutput.contains("MODIFY existing.txt") else {
-            throw IntegrationError.assert(msg: "inotify did not detect FSNotify agent modify event. Output: '\(inotifyOutput)'")
+        guard inotifyOutput.contains("change") && inotifyOutput.contains("existing.txt") else {
+            throw IntegrationError.assert(msg: "inotify did not detect FSNotify agent events. Output: '\(inotifyOutput)'")
         }
 
-        // Test 4: DELETE event on non-existent file
+        // Test 3: DELETE event on non-existent file
         let deleteResponse = try await agent.notifyFileSystemEvent(
             path: "/mnt/nonexistent.txt",
             eventType: .delete,
