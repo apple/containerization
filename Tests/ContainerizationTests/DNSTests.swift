@@ -29,7 +29,7 @@ struct DNSTests {
             options: ["ndots:2", "timeout:1"]
         )
 
-        let expected = "nameserver 8.8.8.8\nnameserver 1.1.1.1\ndomain example.com\nsearch internal.com test.com\nopts ndots:2 timeout:1\n"
+        let expected = "nameserver 8.8.8.8\nnameserver 1.1.1.1\ndomain example.com\nsearch internal.com test.com\noptions ndots:2 timeout:1\n"
         #expect(dns.resolvConf == expected)
     }
 

@@ -60,7 +60,7 @@ extension DNS {
         }
 
         if !options.isEmpty {
-            text += "opts \(options.joined(separator: " "))\n"
+            text += "options \(options.joined(separator: " "))\n"
         }
 
         return text
