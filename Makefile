@@ -62,8 +62,8 @@ init: containerization vminitd
 	@rm -f bin/init.rootfs.tar.gz bin/init.block
 	@./bin/cctl rootfs create \
 		--vminitd vminitd/bin/vminitd \
-		--labels org.opencontainers.image.source=https://github.com/apple/containerization \
 		--vmexec vminitd/bin/vmexec \
+		--label org.opencontainers.image.source=https://github.com/apple/containerization \
 		--image vminit:latest \
 		bin/init.rootfs.tar.gz
 
