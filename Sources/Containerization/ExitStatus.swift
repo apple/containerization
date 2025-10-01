@@ -23,4 +23,14 @@ public struct ExitStatus: Sendable {
     public var exitCode: Int32
     /// The timestamp when the process exited.
     public var exitedAt: Date
+
+    public init(exitCode: Int32) {
+        self.exitCode = exitCode
+        self.exitedAt = .now
+    }
+
+    public init(exitCode: Int32, exitedAt: Date) {
+        self.exitCode = exitCode
+        self.exitedAt = exitedAt
+    }
 }
