@@ -101,7 +101,7 @@ coverage: test
 		--ignore-filename-regex=".pb.swift" \
 		--ignore-filename-regex=".proto" \
 		--ignore-filename-regex=".grpc.swift" \
-		$(BUILD_BIN_DIR)/ContainerizationPackageTests.xctest/Contents/MacOS/ContainerizationPackageTests > $(COV_REPORT_FILE)
+		$(BUILD_BIN_DIR)/containerizationPackageTests.xctest/Contents/MacOS/containerizationPackageTests > $(COV_REPORT_FILE)
 	@echo Code coverage report generated: $(COV_REPORT_FILE)
 
 .PHONY: integration
