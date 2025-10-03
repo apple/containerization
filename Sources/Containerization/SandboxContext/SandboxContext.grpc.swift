@@ -154,6 +154,11 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtoc
     callOptions: CallOptions?
   ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest, Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse>
 
+  func interfaceStatistics(
+    _ request: Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest,
+    callOptions: CallOptions?
+  ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest, Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsResponse>
+
   func sync(
     _ request: Com_Apple_Containerization_Sandbox_V3_SyncRequest,
     callOptions: CallOptions?
@@ -603,6 +608,24 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtocol {
     )
   }
 
+  /// Get statistics about an interface.
+  ///
+  /// - Parameters:
+  ///   - request: Request to send to InterfaceStatistics.
+  ///   - callOptions: Call options.
+  /// - Returns: A `UnaryCall` with futures for the metadata, status and response.
+  public func interfaceStatistics(
+    _ request: Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest,
+    callOptions: CallOptions? = nil
+  ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest, Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsResponse> {
+    return self.makeUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.interfaceStatistics.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeInterfaceStatisticsInterceptors() ?? []
+    )
+  }
+
   /// Perform the sync syscall.
   ///
   /// - Parameters:
@@ -822,6 +845,11 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientP
     _ request: Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest,
     callOptions: CallOptions?
   ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest, Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse>
+
+  func makeInterfaceStatisticsCall(
+    _ request: Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest,
+    callOptions: CallOptions?
+  ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest, Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsResponse>
 
   func makeSyncCall(
     _ request: Com_Apple_Containerization_Sandbox_V3_SyncRequest,
@@ -1129,6 +1157,18 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientProtoco
       request: request,
       callOptions: callOptions ?? self.defaultCallOptions,
       interceptors: self.interceptors?.makeConfigureHostsInterceptors() ?? []
+    )
+  }
+
+  public func makeInterfaceStatisticsCall(
+    _ request: Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest,
+    callOptions: CallOptions? = nil
+  ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest, Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsResponse> {
+    return self.makeAsyncUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.interfaceStatistics.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeInterfaceStatisticsInterceptors() ?? []
     )
   }
 
@@ -1447,6 +1487,18 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientProtoco
     )
   }
 
+  public func interfaceStatistics(
+    _ request: Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest,
+    callOptions: CallOptions? = nil
+  ) async throws -> Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsResponse {
+    return try await self.performAsyncUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.interfaceStatistics.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeInterfaceStatisticsInterceptors() ?? []
+    )
+  }
+
   public func sync(
     _ request: Com_Apple_Containerization_Sandbox_V3_SyncRequest,
     callOptions: CallOptions? = nil
@@ -1563,6 +1615,9 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextClientInterc
   /// - Returns: Interceptors to use when invoking 'configureHosts'.
   func makeConfigureHostsInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest, Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse>]
 
+  /// - Returns: Interceptors to use when invoking 'interfaceStatistics'.
+  func makeInterfaceStatisticsInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest, Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsResponse>]
+
   /// - Returns: Interceptors to use when invoking 'sync'.
   func makeSyncInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_SyncRequest, Com_Apple_Containerization_Sandbox_V3_SyncResponse>]
 
@@ -1599,6 +1654,7 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.ipRouteAddDefault,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.configureDns,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.configureHosts,
+      Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.interfaceStatistics,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.sync,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.kill,
     ]
@@ -1749,6 +1805,12 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
       type: GRPCCallType.unary
     )
 
+    public static let interfaceStatistics = GRPCMethodDescriptor(
+      name: "InterfaceStatistics",
+      path: "/com.apple.containerization.sandbox.v3.SandboxContext/InterfaceStatistics",
+      type: GRPCCallType.unary
+    )
+
     public static let sync = GRPCMethodDescriptor(
       name: "Sync",
       path: "/com.apple.containerization.sandbox.v3.SandboxContext/Sync",
@@ -1841,6 +1903,9 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider: Ca
 
   /// Configure /etc/hosts.
   func configureHosts(request: Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse>
+
+  /// Get statistics about an interface.
+  func interfaceStatistics(request: Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsResponse>
 
   /// Perform the sync syscall.
   func sync(request: Com_Apple_Containerization_Sandbox_V3_SyncRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_SyncResponse>
@@ -2077,6 +2142,15 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider {
         userFunction: self.configureHosts(request:context:)
       )
 
+    case "InterfaceStatistics":
+      return UnaryServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest>(),
+        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsResponse>(),
+        interceptors: self.interceptors?.makeInterfaceStatisticsInterceptors() ?? [],
+        userFunction: self.interfaceStatistics(request:context:)
+      )
+
     case "Sync":
       return UnaryServerHandler(
         context: context,
@@ -2253,6 +2327,12 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvide
     request: Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest,
     context: GRPCAsyncServerCallContext
   ) async throws -> Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse
+
+  /// Get statistics about an interface.
+  func interfaceStatistics(
+    request: Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest,
+    context: GRPCAsyncServerCallContext
+  ) async throws -> Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsResponse
 
   /// Perform the sync syscall.
   func sync(
@@ -2502,6 +2582,15 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvider {
         wrapping: { try await self.configureHosts(request: $0, context: $1) }
       )
 
+    case "InterfaceStatistics":
+      return GRPCAsyncServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest>(),
+        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsResponse>(),
+        interceptors: self.interceptors?.makeInterfaceStatisticsInterceptors() ?? [],
+        wrapping: { try await self.interfaceStatistics(request: $0, context: $1) }
+      )
+
     case "Sync":
       return GRPCAsyncServerHandler(
         context: context,
@@ -2624,6 +2713,10 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextServerInterc
   ///   Defaults to calling `self.makeInterceptors()`.
   func makeConfigureHostsInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest, Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse>]
 
+  /// - Returns: Interceptors to use when handling 'interfaceStatistics'.
+  ///   Defaults to calling `self.makeInterceptors()`.
+  func makeInterfaceStatisticsInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest, Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsResponse>]
+
   /// - Returns: Interceptors to use when handling 'sync'.
   ///   Defaults to calling `self.makeInterceptors()`.
   func makeSyncInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_SyncRequest, Com_Apple_Containerization_Sandbox_V3_SyncResponse>]
@@ -2662,6 +2755,7 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.ipRouteAddDefault,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.configureDns,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.configureHosts,
+      Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.interfaceStatistics,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.sync,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.kill,
     ]
@@ -2809,6 +2903,12 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
     public static let configureHosts = GRPCMethodDescriptor(
       name: "ConfigureHosts",
       path: "/com.apple.containerization.sandbox.v3.SandboxContext/ConfigureHosts",
+      type: GRPCCallType.unary
+    )
+
+    public static let interfaceStatistics = GRPCMethodDescriptor(
+      name: "InterfaceStatistics",
+      path: "/com.apple.containerization.sandbox.v3.SandboxContext/InterfaceStatistics",
       type: GRPCCallType.unary
     )
 

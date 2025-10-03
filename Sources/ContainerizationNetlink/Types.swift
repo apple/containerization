@@ -78,6 +78,7 @@ struct InterfaceFlags {
 struct LinkAttributeType {
     static let IFLA_EXT_IFNAME: UInt16 = 3
     static let IFLA_MTU: UInt16 = 4
+    static let IFLA_STATS64: UInt16 = 23
     static let IFLA_EXT_MASK: UInt16 = 29
 }
 
@@ -568,6 +569,267 @@ public struct RTAttributeData {
 public struct LinkResponse {
     public let interfaceIndex: Int32
     public let attrDatas: [RTAttributeData]
+
+    /// Extract network interface statistics from the response attributes
+    public func getStatistics() throws -> LinkStatistics64? {
+        for attrData in attrDatas {
+            if attrData.attribute.type == LinkAttributeType.IFLA_STATS64 {
+                var stats = LinkStatistics64()
+                var buffer = attrData.data
+                _ = try stats.bindBuffer(&buffer, offset: 0)
+                return stats
+            }
+        }
+        return nil
+    }
+}
+
+/// Network interface statistics (64-bit version)
+public struct LinkStatistics64: Bindable {
+    static let size = 23 * 8
+
+    public var rxPackets: UInt64
+    public var txPackets: UInt64
+    public var rxBytes: UInt64
+    public var txBytes: UInt64
+    public var rxErrors: UInt64
+    public var txErrors: UInt64
+    public var rxDropped: UInt64
+    public var txDropped: UInt64
+    public var multicast: UInt64
+    public var collisions: UInt64
+    public var rxLengthErrors: UInt64
+    public var rxOverErrors: UInt64
+    public var rxCrcErrors: UInt64
+    public var rxFrameErrors: UInt64
+    public var rxFifoErrors: UInt64
+    public var rxMissedErrors: UInt64
+    public var txAbortedErrors: UInt64
+    public var txCarrierErrors: UInt64
+    public var txFifoErrors: UInt64
+    public var txHeartbeatErrors: UInt64
+    public var txWindowErrors: UInt64
+    public var rxCompressed: UInt64
+    public var txCompressed: UInt64
+
+    public init() {
+        self.rxPackets = 0
+        self.txPackets = 0
+        self.rxBytes = 0
+        self.txBytes = 0
+        self.rxErrors = 0
+        self.txErrors = 0
+        self.rxDropped = 0
+        self.txDropped = 0
+        self.multicast = 0
+        self.collisions = 0
+        self.rxLengthErrors = 0
+        self.rxOverErrors = 0
+        self.rxCrcErrors = 0
+        self.rxFrameErrors = 0
+        self.rxFifoErrors = 0
+        self.rxMissedErrors = 0
+        self.txAbortedErrors = 0
+        self.txCarrierErrors = 0
+        self.txFifoErrors = 0
+        self.txHeartbeatErrors = 0
+        self.txWindowErrors = 0
+        self.rxCompressed = 0
+        self.txCompressed = 0
+    }
+
+    func appendBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
+        guard let offset = buffer.copyIn(as: UInt64.self, value: rxPackets, offset: offset) else {
+            throw NetlinkDataError.sendMarshalFailure
+        }
+        guard let offset = buffer.copyIn(as: UInt64.self, value: txPackets, offset: offset) else {
+            throw NetlinkDataError.sendMarshalFailure
+        }
+        guard let offset = buffer.copyIn(as: UInt64.self, value: rxBytes, offset: offset) else {
+            throw NetlinkDataError.sendMarshalFailure
+        }
+        guard let offset = buffer.copyIn(as: UInt64.self, value: txBytes, offset: offset) else {
+            throw NetlinkDataError.sendMarshalFailure
+        }
+        guard let offset = buffer.copyIn(as: UInt64.self, value: rxErrors, offset: offset) else {
+            throw NetlinkDataError.sendMarshalFailure
+        }
+        guard let offset = buffer.copyIn(as: UInt64.self, value: txErrors, offset: offset) else {
+            throw NetlinkDataError.sendMarshalFailure
+        }
+        guard let offset = buffer.copyIn(as: UInt64.self, value: rxDropped, offset: offset) else {
+            throw NetlinkDataError.sendMarshalFailure
+        }
+        guard let offset = buffer.copyIn(as: UInt64.self, value: txDropped, offset: offset) else {
+            throw NetlinkDataError.sendMarshalFailure
+        }
+        guard let offset = buffer.copyIn(as: UInt64.self, value: multicast, offset: offset) else {
+            throw NetlinkDataError.sendMarshalFailure
+        }
+        guard let offset = buffer.copyIn(as: UInt64.self, value: collisions, offset: offset) else {
+            throw NetlinkDataError.sendMarshalFailure
+        }
+        guard let offset = buffer.copyIn(as: UInt64.self, value: rxLengthErrors, offset: offset) else {
+            throw NetlinkDataError.sendMarshalFailure
+        }
+        guard let offset = buffer.copyIn(as: UInt64.self, value: rxOverErrors, offset: offset) else {
+            throw NetlinkDataError.sendMarshalFailure
+        }
+        guard let offset = buffer.copyIn(as: UInt64.self, value: rxCrcErrors, offset: offset) else {
+            throw NetlinkDataError.sendMarshalFailure
+        }
+        guard let offset = buffer.copyIn(as: UInt64.self, value: rxFrameErrors, offset: offset) else {
+            throw NetlinkDataError.sendMarshalFailure
+        }
+        guard let offset = buffer.copyIn(as: UInt64.self, value: rxFifoErrors, offset: offset) else {
+            throw NetlinkDataError.sendMarshalFailure
+        }
+        guard let offset = buffer.copyIn(as: UInt64.self, value: rxMissedErrors, offset: offset) else {
+            throw NetlinkDataError.sendMarshalFailure
+        }
+        guard let offset = buffer.copyIn(as: UInt64.self, value: txAbortedErrors, offset: offset) else {
+            throw NetlinkDataError.sendMarshalFailure
+        }
+        guard let offset = buffer.copyIn(as: UInt64.self, value: txCarrierErrors, offset: offset) else {
+            throw NetlinkDataError.sendMarshalFailure
+        }
+        guard let offset = buffer.copyIn(as: UInt64.self, value: txFifoErrors, offset: offset) else {
+            throw NetlinkDataError.sendMarshalFailure
+        }
+        guard let offset = buffer.copyIn(as: UInt64.self, value: txHeartbeatErrors, offset: offset) else {
+            throw NetlinkDataError.sendMarshalFailure
+        }
+        guard let offset = buffer.copyIn(as: UInt64.self, value: txWindowErrors, offset: offset) else {
+            throw NetlinkDataError.sendMarshalFailure
+        }
+        guard let offset = buffer.copyIn(as: UInt64.self, value: rxCompressed, offset: offset) else {
+            throw NetlinkDataError.sendMarshalFailure
+        }
+        guard let offset = buffer.copyIn(as: UInt64.self, value: txCompressed, offset: offset) else {
+            throw NetlinkDataError.sendMarshalFailure
+        }
+
+        return offset
+    }
+
+    mutating func bindBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
+        guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
+            throw NetlinkDataError.recvUnmarshalFailure
+        }
+        rxPackets = value
+
+        guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
+            throw NetlinkDataError.recvUnmarshalFailure
+        }
+        txPackets = value
+
+        guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
+            throw NetlinkDataError.recvUnmarshalFailure
+        }
+        rxBytes = value
+
+        guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
+            throw NetlinkDataError.recvUnmarshalFailure
+        }
+        txBytes = value
+
+        guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
+            throw NetlinkDataError.recvUnmarshalFailure
+        }
+        rxErrors = value
+
+        guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
+            throw NetlinkDataError.recvUnmarshalFailure
+        }
+        txErrors = value
+
+        guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
+            throw NetlinkDataError.recvUnmarshalFailure
+        }
+        rxDropped = value
+
+        guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
+            throw NetlinkDataError.recvUnmarshalFailure
+        }
+        txDropped = value
+
+        guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
+            throw NetlinkDataError.recvUnmarshalFailure
+        }
+        multicast = value
+
+        guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
+            throw NetlinkDataError.recvUnmarshalFailure
+        }
+        collisions = value
+
+        guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
+            throw NetlinkDataError.recvUnmarshalFailure
+        }
+        rxLengthErrors = value
+
+        guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
+            throw NetlinkDataError.recvUnmarshalFailure
+        }
+        rxOverErrors = value
+
+        guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
+            throw NetlinkDataError.recvUnmarshalFailure
+        }
+        rxCrcErrors = value
+
+        guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
+            throw NetlinkDataError.recvUnmarshalFailure
+        }
+        rxFrameErrors = value
+
+        guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
+            throw NetlinkDataError.recvUnmarshalFailure
+        }
+        rxFifoErrors = value
+
+        guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
+            throw NetlinkDataError.recvUnmarshalFailure
+        }
+        rxMissedErrors = value
+
+        guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
+            throw NetlinkDataError.recvUnmarshalFailure
+        }
+        txAbortedErrors = value
+
+        guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
+            throw NetlinkDataError.recvUnmarshalFailure
+        }
+        txCarrierErrors = value
+
+        guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
+            throw NetlinkDataError.recvUnmarshalFailure
+        }
+        txFifoErrors = value
+
+        guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
+            throw NetlinkDataError.recvUnmarshalFailure
+        }
+        txHeartbeatErrors = value
+
+        guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
+            throw NetlinkDataError.recvUnmarshalFailure
+        }
+        txWindowErrors = value
+
+        guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
+            throw NetlinkDataError.recvUnmarshalFailure
+        }
+        rxCompressed = value
+
+        guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
+            throw NetlinkDataError.recvUnmarshalFailure
+        }
+        txCompressed = value
+
+        return offset
+    }
 }
 
 /// Errors thrown when parsing netlink data.

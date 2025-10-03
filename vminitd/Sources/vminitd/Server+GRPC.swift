@@ -907,6 +907,47 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         return .init()
     }
 
+    func interfaceStatistics(
+        request: Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest,
+        context: GRPC.GRPCAsyncServerCallContext
+    ) async throws -> Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsResponse {
+        log.debug(
+            "interfaceStatistics",
+            metadata: [
+                "name": "\(request.interface)"
+            ])
+
+        do {
+            let socket = try DefaultNetlinkSocket()
+            let session = NetlinkSession(socket: socket, log: log)
+            let responses = try session.linkGet(interface: request.interface, includeStats: true)
+            guard responses.count == 1 else {
+                throw ContainerizationError(
+                    .internalError,
+                    message: "linkGet returned invalid number of interfaces: \(responses.count)"
+                )
+            }
+            let stats = try responses[0].getStatistics()
+            return .with {
+                if let stats {
+                    $0.receivedPackets = stats.rxPackets
+                    $0.transmittedPackets = stats.txPackets
+                    $0.receivedBytes = stats.rxBytes
+                    $0.transmittedBytes = stats.txBytes
+                    $0.receivedErrors = stats.rxErrors
+                    $0.transmittedErrors = stats.txErrors
+                }
+            }
+        } catch {
+            log.error(
+                "interfaceStatistics",
+                metadata: [
+                    "error": "\(error)"
+                ])
+            throw GRPCStatus(code: .internalError, message: "interfaceStatistics: \(error)")
+        }
+    }
+
     private func swiftErrno(_ msg: Logger.Message) -> POSIXError {
         let error = POSIXError(.init(rawValue: errno)!)
         log.error(

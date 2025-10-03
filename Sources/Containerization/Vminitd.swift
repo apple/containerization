@@ -89,6 +89,23 @@ extension Vminitd: VirtualMachineAgent {
             })
     }
 
+    /// Get statistics about an interface.
+    public func interfaceStatistics(name: String) async throws -> InterfaceStatistics {
+        let stats = try await client.interfaceStatistics(
+            .with {
+                $0.interface = name
+            })
+        return InterfaceStatistics(
+            name: name,
+            receivedPackets: stats.hasReceivedPackets ? stats.receivedPackets : nil,
+            transmittedPackets: stats.hasTransmittedPackets ? stats.transmittedPackets : nil,
+            receivedBytes: stats.hasReceivedBytes ? stats.receivedBytes : nil,
+            transmittedBytes: stats.hasTransmittedBytes ? stats.transmittedBytes : nil,
+            receivedErrors: stats.hasReceivedErrors ? stats.receivedErrors : nil,
+            transmittedErrors: stats.hasTransmittedErrors ? stats.transmittedErrors : nil
+        )
+    }
+
     /// Mount a filesystem in the sandbox's environment.
     public func mount(_ mount: ContainerizationOCI.Mount) async throws {
         _ = try await client.mount(

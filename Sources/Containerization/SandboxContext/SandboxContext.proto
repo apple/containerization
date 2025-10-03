@@ -58,6 +58,9 @@ service SandboxContext {
   rpc ConfigureDns(ConfigureDnsRequest) returns (ConfigureDnsResponse);
   // Configure /etc/hosts.
   rpc ConfigureHosts(ConfigureHostsRequest) returns (ConfigureHostsResponse);
+  // Get statistics about an interface.
+  rpc InterfaceStatistics(InterfaceStatisticsRequest) returns (InterfaceStatisticsResponse);
+
   // Perform the sync syscall.
   rpc Sync(SyncRequest) returns (SyncResponse);
   // Send a signal to a process via the PID.
@@ -272,6 +275,19 @@ message ConfigureHostsRequest {
 }
 
 message ConfigureHostsResponse {}
+
+message InterfaceStatisticsRequest {
+  string interface = 1;
+}
+
+message InterfaceStatisticsResponse {
+  optional uint64 receivedPackets = 1;
+  optional uint64 transmittedPackets = 2;
+  optional uint64 receivedBytes = 3;
+  optional uint64 transmittedBytes = 4;
+  optional uint64 receivedErrors = 5;
+  optional uint64 transmittedErrors = 6;
+}
 
 message SyncRequest {}
 message SyncResponse {}

@@ -121,7 +121,7 @@ public struct NetlinkSession {
     /// Performs a link get command on an interface.
     /// Returns information about the interface.
     /// - Parameter interface: The name of the interface to query.
-    public func linkGet(interface: String? = nil) throws -> [LinkResponse] {
+    public func linkGet(interface: String? = nil, includeStats: Bool = false) throws -> [LinkResponse] {
         // ip link ip show
         let maskAttr = RTAttribute(
             len: UInt16(RTAttribute.size + MemoryLayout<UInt32>.size), type: LinkAttributeType.IFLA_EXT_MASK)
@@ -150,11 +150,16 @@ public struct NetlinkSession {
             change: InterfaceFlags.DEFAULT_CHANGE)
         requestOffset = try requestInfo.appendBuffer(&requestBuffer, offset: requestOffset)
 
+        var filters = LinkAttributeMaskFilter.RTEXT_FILTER_VF
+        if !includeStats {
+            filters |= LinkAttributeMaskFilter.RTEXT_FILTER_SKIP_STATS
+        }
+
         requestOffset = try maskAttr.appendBuffer(&requestBuffer, offset: requestOffset)
         guard
             var requestOffset = requestBuffer.copyIn(
                 as: UInt32.self,
-                value: LinkAttributeMaskFilter.RTEXT_FILTER_VF | LinkAttributeMaskFilter.RTEXT_FILTER_SKIP_STATS,
+                value: filters,
                 offset: requestOffset)
         else {
             throw NetlinkDataError.sendMarshalFailure
@@ -167,7 +172,6 @@ public struct NetlinkSession {
                 else {
                     throw NetlinkDataError.sendMarshalFailure
                 }
-
                 requestOffset = updatedRequestOffset
             }
         }
