@@ -15,11 +15,14 @@
 //===----------------------------------------------------------------------===//
 
 import ArgumentParser
-import Containerization
 import ContainerizationError
 import ContainerizationOCI
 import Foundation
 import Logging
+import NIOCore
+import NIOPosix
+
+@testable import Containerization
 
 extension IntegrationSuite {
     func testMounts() async throws {
@@ -346,6 +349,105 @@ extension IntegrationSuite {
             throw IntegrationError.assert(
                 msg: "process should have \(devConsole) in `mount` output")
         }
+    }
+
+    func testFSNotifyEvents() async throws {
+        let id = "test-fsnotify-events"
+
+        let bs = try await bootstrap(reference: "docker.io/library/node:18-alpine")
+        let directory = try createFSNotifyTestDirectory()
+        let inotifyBuffer: IntegrationSuite.BufferWriter = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = [
+                "node",
+                "-e",
+                "fs=require('fs');fs.watch(process.argv[1],(t,f)=>console.log(t,f))",
+                "/mnt",
+            ]
+            config.process.stdout = inotifyBuffer
+            config.process.stderr = inotifyBuffer
+            config.mounts.append(.share(source: directory.path, destination: "/mnt"))
+        }
+
+        try await container.create()
+        try await container.start()
+
+        // Get the vminitd agent to send notifications
+        let connection = try await container.dialVsock(port: 1024)  // Default vminitd port
+        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        let agent = Vminitd(connection: connection, group: group)
+        try await Task.sleep(for: .seconds(1))
+
+        // Test 1: CREATE event on existing file
+        print("Sending CREATE event...")
+        let createResponse = try await agent.notifyFileSystemEvent(
+            path: "/mnt/existing.txt",
+            eventType: .create,
+            containerID: id
+        )
+
+        guard createResponse.success else {
+            throw IntegrationError.assert(msg: "CREATE event failed: \(createResponse.error)")
+        }
+        print("CREATE event succeeded")
+
+        // Test 2: MODIFY event on existing file
+        print("Sending MODIFY event...")
+        let modifyResponse = try await agent.notifyFileSystemEvent(
+            path: "/mnt/existing.txt",
+            eventType: .modify,
+            containerID: id
+        )
+        guard modifyResponse.success else {
+            throw IntegrationError.assert(msg: "MODIFY event failed: \(modifyResponse.error)")
+        }
+        print("MODIFY event succeeded")
+
+        // Wait for events to be processed
+        print("Waiting for inotify events to be detected...")
+        try await Task.sleep(for: .seconds(1))
+
+        let inotifyOutput = String(data: inotifyBuffer.data, encoding: .utf8) ?? ""
+        print("=== Final Container Output ===")
+        print(inotifyOutput)
+        print("=== End Container Output ===")
+
+        // Verify that inotify detected the modify event
+        guard inotifyOutput.contains("change") && inotifyOutput.contains("existing.txt") else {
+            throw IntegrationError.assert(msg: "inotify did not detect FSNotify agent events. Output: '\(inotifyOutput)'")
+        }
+
+        // Test 3: DELETE event on non-existent file
+        let deleteResponse = try await agent.notifyFileSystemEvent(
+            path: "/mnt/nonexistent.txt",
+            eventType: .delete,
+            containerID: id
+        )
+        guard deleteResponse.success else {
+            throw IntegrationError.assert(msg: "DELETE event failed: \(deleteResponse.error)")
+        }
+
+        // Clean up
+        try await agent.close()
+        try await group.shutdownGracefully()
+        try await container.stop()
+
+        print("All FSNotify events tested successfully")
+    }
+
+    private func createFSNotifyTestDirectory() throws -> URL {
+        let dir = FileManager.default.uniqueTemporaryDirectory(create: true)
+
+        // Create some test files and directories
+        try "initial content".write(to: dir.appendingPathComponent("existing.txt"), atomically: true, encoding: .utf8)
+        try "hello world".write(to: dir.appendingPathComponent("hello.txt"), atomically: true, encoding: .utf8)
+
+        // Create a subdirectory
+        let subdir = dir.appendingPathComponent("subdir")
+        try FileManager.default.createDirectory(at: subdir, withIntermediateDirectories: true)
+        try "nested file".write(to: subdir.appendingPathComponent("nested.txt"), atomically: true, encoding: .utf8)
+
+        return dir
     }
 
     private func createMountDirectory() throws -> URL {
