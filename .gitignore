@@ -11,6 +11,7 @@ DerivedData/
 workdir/
 installer/
 .venv/
+Package.resolved
 test_results/
 *.pid
 *.log
