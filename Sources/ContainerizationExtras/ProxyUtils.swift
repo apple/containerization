@@ -14,23 +14,34 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import ContainerizationError
 import Foundation
 
 /// A small utility to resolve proxy settings (HTTP(S)_PROXY / NO_PROXY).
 public enum ProxyUtils {
     /// Resolves the proxy URL for a given host based on environment variables.
+    /// Malformed http_proxy or https_proxy URLs are ignored.
+    /// Uses Go-style handling rules:
+    ///   - Uppercase environment variables take priority over lowercase counterparts.
+    ///   - Leading dot on no_proxy component implies prefix matching.
     ///
     /// - Parameters:
-    ///   - host: The target hostname (without scheme).
-    ///   - env: Optional environment dictionary; defaults to process environment.
-    /// - Returns: The proxy URL to use, or `nil` for direct connection.
-    public static func proxy(for host: String, env: [String: String]? = nil) -> URL? {
-        let env = env ?? ProcessInfo.processInfo.environment
+    ///   - scheme: The request scheme.
+    ///   - host: The request hostname.
+    ///   - env: Environment variables to check, dafaulting to the process environment.
+    ///
+    /// - Returns: The proxy URL to use, or `nil` for transparent connection.
+    public static func proxyFromEnvironment(
+        scheme: String?,
+        host: String,
+        env: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL? {
+        guard let scheme else {
+            return nil
+        }
 
-        // Case-insensitive lookup for both upper/lower keys
         let httpProxy = env["HTTP_PROXY"] ?? env["http_proxy"]
         let httpsProxy = env["HTTPS_PROXY"] ?? env["https_proxy"]
-
         let noProxy = env["NO_PROXY"] ?? env["no_proxy"]
 
         // If NO_PROXY matches → skip proxy
@@ -38,12 +49,13 @@ public enum ProxyUtils {
             return nil
         }
 
-        // Prefer HTTPS proxy if set, otherwise fall back to HTTP proxy
-        let proxyStr = httpsProxy ?? httpProxy
-        guard let proxyStr, let url = URL(string: proxyStr) else {
+        // Select proxy based on scheme, defaulting to http.
+        let proxy = scheme == "https" ? httpsProxy : httpProxy
+        guard let proxy, let proxyUrl = URL(string: proxy) else {
             return nil
         }
-        return url
+
+        return proxyUrl
     }
 
     /// Check if a host should bypass proxy according to NO_PROXY.

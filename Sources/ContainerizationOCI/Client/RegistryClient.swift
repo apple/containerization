@@ -16,6 +16,7 @@
 
 import AsyncHTTPClient
 import ContainerizationError
+import ContainerizationExtras
 import ContainerizationOS
 import Foundation
 import Logging
@@ -54,6 +55,7 @@ public final class RegistryClient: ContentClient {
     )
 
     let client: HTTPClient
+    let proxyURL: URL?
     let base: URLComponents
     let clientID: String
     let authentication: Authentication?
@@ -109,17 +111,13 @@ public final class RegistryClient: ContentClient {
         self.retryOptions = retryOptions
         self.bufferSize = bufferSize
         var httpConfiguration = HTTPClient.Configuration()
-        let proxyConfig: HTTPClient.Configuration.Proxy? = {
-            let proxyEnv = ProcessInfo.processInfo.environment["HTTP_PROXY"]
-            guard let proxyEnv else {
-                return nil
-            }
-            guard let url = URL(string: proxyEnv), let host = url.host(), let port = url.port else {
-                return nil
-            }
-            return .server(host: host, port: port)
-        }()
-        httpConfiguration.proxy = proxyConfig
+
+        // proxy configuration assumes all client requests will go to `base` URL
+        self.proxyURL = ProxyUtils.proxyFromEnvironment(scheme: scheme, host: host)
+        if let proxyURL = self.proxyURL, let proxyHost = proxyURL.host {
+            httpConfiguration.proxy = HTTPClient.Configuration.Proxy.server(host: proxyHost, port: proxyURL.port ?? 8080)
+        }
+
         if let logger {
             self.client = HTTPClient(eventLoopGroupProvider: .singleton, configuration: httpConfiguration, backgroundActivityLogger: logger)
         } else {
@@ -224,7 +222,13 @@ public final class RegistryClient: ContentClient {
                 #if os(macOS)
                 if let err = error as? NWError {
                     if err.errorCode == kDNSServiceErr_NoSuchRecord {
-                        throw ContainerizationError(.internalError, message: "No Such DNS Record \(host())")
+                        let message: String
+                        if let proxyURL = self.proxyURL, let proxyHost = proxyURL.host {
+                            message = "Failed to resolve either repository hostname \(host()) or proxy hostname \(proxyHost)"
+                        } else {
+                            message = "Failed to resolve either repository hostname \(host())"
+                        }
+                        throw ContainerizationError(.internalError, message: message)
                     }
                 }
                 #endif

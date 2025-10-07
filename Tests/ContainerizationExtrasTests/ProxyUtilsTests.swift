@@ -24,15 +24,29 @@ struct ProxyUtilsTests {
     @Test("HTTP proxy resolution")
     func testHttpProxy() {
         let env = ["http_proxy": "http://proxy.local:8080"]
-        let proxy = ProxyUtils.proxy(for: "example.com", env: env)
+        let proxy = ProxyUtils.proxyFromEnvironment(scheme: "http", host: "example.com", env: env)
         #expect(proxy?.absoluteString == "http://proxy.local:8080")
+    }
+
+    @Test("HTTP proxy miss")
+    func testHttpProxyMiss() {
+        let env = ["http_proxy": "http://proxy.local:8080"]
+        let proxy = ProxyUtils.proxyFromEnvironment(scheme: "https", host: "secure.com", env: env)
+        #expect(proxy?.absoluteString == nil)
     }
 
     @Test("HTTPS proxy resolution")
     func testHttpsProxy() {
         let env = ["https_proxy": "https://secureproxy.local:8443"]
-        let proxy = ProxyUtils.proxy(for: "secure.com", env: env)
+        let proxy = ProxyUtils.proxyFromEnvironment(scheme: "https", host: "secure.com", env: env)
         #expect(proxy?.absoluteString == "https://secureproxy.local:8443")
+    }
+
+    @Test("HTTPS proxy miss")
+    func testHttpsProxyMiss() {
+        let env = ["https_proxy": "https://secureproxy.local:8443"]
+        let proxy = ProxyUtils.proxyFromEnvironment(scheme: "http", host: "example.com", env: env)
+        #expect(proxy?.absoluteString == nil)
     }
 
     @Test("NO_PROXY exact match")
@@ -41,14 +55,14 @@ struct ProxyUtilsTests {
             "http_proxy": "http://proxy.local:8080",
             "NO_PROXY": "example.com",
         ]
-        let proxy = ProxyUtils.proxy(for: "example.com", env: env)
+        let proxy = ProxyUtils.proxyFromEnvironment(scheme: "http", host: "example.com", env: env)
         #expect(proxy == nil)
     }
 
     @Test("Uppercase HTTP_PROXY is respected")
     func testUppercaseHttpProxy() {
         let env = ["HTTP_PROXY": "http://upper.local:8081"]
-        let proxy = ProxyUtils.proxy(for: "upper.com", env: env)
+        let proxy = ProxyUtils.proxyFromEnvironment(scheme: "http", host: "upper.com", env: env)
         #expect(proxy?.absoluteString == "http://upper.local:8081")
     }
 
@@ -58,18 +72,8 @@ struct ProxyUtilsTests {
             "http_proxy": "http://proxy.local:8080",
             "no_proxy": "lower.com",
         ]
-        let proxy = ProxyUtils.proxy(for: "lower.com", env: env)
+        let proxy = ProxyUtils.proxyFromEnvironment(scheme: "http", host: "lower.com", env: env)
         #expect(proxy == nil)
-    }
-
-    @Test("HTTPS proxy has higher priority than HTTP proxy")
-    func testHttpsPreferredOverHttp() {
-        let env = [
-            "http_proxy": "http://proxy.local:8080",
-            "https_proxy": "https://secureproxy.local:8443",
-        ]
-        let proxy = ProxyUtils.proxy(for: "secure.com", env: env)
-        #expect(proxy?.absoluteString == "https://secureproxy.local:8443")
     }
 
     @Test("Uppercase HTTP_PROXY overrides lowercase http_proxy")
@@ -78,7 +82,7 @@ struct ProxyUtilsTests {
             "http_proxy": "http://lower.local:8080",
             "HTTP_PROXY": "http://upper.local:8081",
         ]
-        let proxy = ProxyUtils.proxy(for: "example.com", env: env)
+        let proxy = ProxyUtils.proxyFromEnvironment(scheme: "http", host: "example.com", env: env)
         #expect(proxy?.absoluteString == "http://upper.local:8081")
     }
 
@@ -88,7 +92,7 @@ struct ProxyUtilsTests {
             "https_proxy": "https://lower.local:8443",
             "HTTPS_PROXY": "https://upper.local:8444",
         ]
-        let proxy = ProxyUtils.proxy(for: "secure.com", env: env)
+        let proxy = ProxyUtils.proxyFromEnvironment(scheme: "https", host: "secure.com", env: env)
         #expect(proxy?.absoluteString == "https://upper.local:8444")
     }
 
@@ -99,8 +103,8 @@ struct ProxyUtilsTests {
             "no_proxy": "foo.com",
             "NO_PROXY": "bar.com",
         ]
-        let proxyFoo = ProxyUtils.proxy(for: "foo.com", env: env)
-        let proxyBar = ProxyUtils.proxy(for: "bar.com", env: env)
+        let proxyFoo = ProxyUtils.proxyFromEnvironment(scheme: "http", host: "foo.com", env: env)
+        let proxyBar = ProxyUtils.proxyFromEnvironment(scheme: "https", host: "bar.com", env: env)
 
         #expect(proxyFoo != nil)
         #expect(proxyBar == nil)
