@@ -223,6 +223,9 @@ struct Cgroup2Manager: Sendable {
 
     private func parseSingleValue(_ content: String?) -> UInt64? {
         guard let content = content, !content.isEmpty else { return nil }
+        if content == "max" {
+            return UInt64.max
+        }
         return UInt64(content)
     }
 

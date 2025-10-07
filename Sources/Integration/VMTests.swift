@@ -206,6 +206,49 @@ extension IntegrationSuite {
         }
     }
 
+    func testContainerStatistics() async throws {
+        let id = "test-container-statistics"
+
+        let bs = try await bootstrap()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "infinity"]
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let stats = try await container.statistics()
+
+            guard stats.id == id else {
+                throw IntegrationError.assert(msg: "stats container ID '\(stats.id)' != '\(id)'")
+            }
+
+            guard stats.process.current > 0 else {
+                throw IntegrationError.assert(msg: "process count should be > 0, got \(stats.process.current)")
+            }
+
+            guard stats.memory.usageBytes > 0 else {
+                throw IntegrationError.assert(msg: "memory usage should be > 0, got \(stats.memory.usageBytes)")
+            }
+
+            guard stats.cpu.usageUsec > 0 else {
+                throw IntegrationError.assert(msg: "CPU usage should be > 0, got \(stats.cpu.usageUsec)")
+            }
+
+            print("Container statistics:")
+            print("  Processes: \(stats.process.current)")
+            print("  Memory: \(stats.memory.usageBytes) bytes")
+            print("  CPU: \(stats.cpu.usageUsec) usec")
+            print("  Networks: \(stats.networks.count) interfaces")
+
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
     func testContainerStopIdempotency() async throws {
         let id = "test-container-stop-idempotency"
 

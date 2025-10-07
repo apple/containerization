@@ -89,21 +89,65 @@ extension Vminitd: VirtualMachineAgent {
             })
     }
 
-    /// Get statistics about an interface.
-    public func interfaceStatistics(name: String) async throws -> InterfaceStatistics {
-        let stats = try await client.interfaceStatistics(
+    /// Get statistics for containers. If `containerIDs` is empty returns stats for all containers
+    /// in the guest.
+    public func containerStatistics(containerIDs: [String]) async throws -> [ContainerStatistics] {
+        let response = try await client.containerStatistics(
             .with {
-                $0.interface = name
+                $0.containerIds = containerIDs
             })
-        return InterfaceStatistics(
-            name: name,
-            receivedPackets: stats.hasReceivedPackets ? stats.receivedPackets : nil,
-            transmittedPackets: stats.hasTransmittedPackets ? stats.transmittedPackets : nil,
-            receivedBytes: stats.hasReceivedBytes ? stats.receivedBytes : nil,
-            transmittedBytes: stats.hasTransmittedBytes ? stats.transmittedBytes : nil,
-            receivedErrors: stats.hasReceivedErrors ? stats.receivedErrors : nil,
-            transmittedErrors: stats.hasTransmittedErrors ? stats.transmittedErrors : nil
-        )
+
+        return response.containers.map { protoStats in
+            ContainerStatistics(
+                id: protoStats.containerID,
+                process: .init(
+                    current: protoStats.process.current,
+                    limit: protoStats.process.limit
+                ),
+                memory: .init(
+                    usageBytes: protoStats.memory.usageBytes,
+                    limitBytes: protoStats.memory.limitBytes,
+                    swapUsageBytes: protoStats.memory.swapUsageBytes,
+                    swapLimitBytes: protoStats.memory.swapLimitBytes,
+                    cacheBytes: protoStats.memory.cacheBytes,
+                    kernelStackBytes: protoStats.memory.kernelStackBytes,
+                    slabBytes: protoStats.memory.slabBytes,
+                    pageFaults: protoStats.memory.pageFaults,
+                    majorPageFaults: protoStats.memory.majorPageFaults
+                ),
+                cpu: .init(
+                    usageUsec: protoStats.cpu.usageUsec,
+                    userUsec: protoStats.cpu.userUsec,
+                    systemUsec: protoStats.cpu.systemUsec,
+                    throttlingPeriods: protoStats.cpu.throttlingPeriods,
+                    throttledPeriods: protoStats.cpu.throttledPeriods,
+                    throttledTimeUsec: protoStats.cpu.throttledTimeUsec
+                ),
+                blockIO: .init(
+                    devices: protoStats.blockIo.devices.map { device in
+                        .init(
+                            major: device.major,
+                            minor: device.minor,
+                            readBytes: device.readBytes,
+                            writeBytes: device.writeBytes,
+                            readOperations: device.readOperations,
+                            writeOperations: device.writeOperations
+                        )
+                    }
+                ),
+                networks: protoStats.networks.map { network in
+                    ContainerStatistics.NetworkStatistics(
+                        interface: network.interface,
+                        receivedPackets: network.receivedPackets,
+                        transmittedPackets: network.transmittedPackets,
+                        receivedBytes: network.receivedBytes,
+                        transmittedBytes: network.transmittedBytes,
+                        receivedErrors: network.receivedErrors,
+                        transmittedErrors: network.transmittedErrors
+                    )
+                }
+            )
+        }
     }
 
     /// Mount a filesystem in the sandbox's environment.

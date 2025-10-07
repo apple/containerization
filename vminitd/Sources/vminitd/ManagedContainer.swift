@@ -159,6 +159,10 @@ extension ManagedContainer {
         try self.cgroupManager.delete(force: true)
     }
 
+    func stats() throws -> Cgroup2Stats {
+        try self.cgroupManager.stats()
+    }
+
     func getExecOrInit(execID: String) throws -> ManagedProcess {
         if execID == self.id {
             return self.initProcess

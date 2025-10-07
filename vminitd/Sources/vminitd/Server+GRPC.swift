@@ -907,44 +907,68 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         return .init()
     }
 
-    func interfaceStatistics(
-        request: Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest,
+    func containerStatistics(
+        request: Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest,
         context: GRPC.GRPCAsyncServerCallContext
-    ) async throws -> Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsResponse {
+    ) async throws -> Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsResponse {
         log.debug(
-            "interfaceStatistics",
+            "containerStatistics",
             metadata: [
-                "name": "\(request.interface)"
+                "container_ids": "\(request.containerIds)"
             ])
 
         do {
-            let socket = try DefaultNetlinkSocket()
-            let session = NetlinkSession(socket: socket, log: log)
-            let responses = try session.linkGet(interface: request.interface, includeStats: true)
-            guard responses.count == 1 else {
-                throw ContainerizationError(
-                    .internalError,
-                    message: "linkGet returned invalid number of interfaces: \(responses.count)"
-                )
+            // Get all network interfaces (skip loopback)
+            let interfaces = try getNetworkInterfaces()
+
+            // Get containers to query
+            let containerIDs: [String]
+            if request.containerIds.isEmpty {
+                containerIDs = await Array(state.containers.keys)
+            } else {
+                containerIDs = request.containerIds
             }
-            let stats = try responses[0].getStatistics()
-            return .with {
-                if let stats {
-                    $0.receivedPackets = stats.rxPackets
-                    $0.transmittedPackets = stats.txPackets
-                    $0.receivedBytes = stats.rxBytes
-                    $0.transmittedBytes = stats.txBytes
-                    $0.receivedErrors = stats.rxErrors
-                    $0.transmittedErrors = stats.txErrors
+
+            var containerStats: [Com_Apple_Containerization_Sandbox_V3_ContainerStats] = []
+
+            for containerID in containerIDs {
+                let container = try await state.get(container: containerID)
+                let cgStats = try await container.stats()
+
+                // Get network stats for all interfaces
+                let socket = try DefaultNetlinkSocket()
+                let session = NetlinkSession(socket: socket, log: log)
+                var networkStats: [Com_Apple_Containerization_Sandbox_V3_NetworkStats] = []
+
+                for interface in interfaces {
+                    let responses = try session.linkGet(interface: interface, includeStats: true)
+                    if responses.count == 1, let stats = try responses[0].getStatistics() {
+                        networkStats.append(
+                            .with {
+                                $0.interface = interface
+                                $0.receivedPackets = stats.rxPackets
+                                $0.transmittedPackets = stats.txPackets
+                                $0.receivedBytes = stats.rxBytes
+                                $0.transmittedBytes = stats.txBytes
+                                $0.receivedErrors = stats.rxErrors
+                                $0.transmittedErrors = stats.txErrors
+                            })
+                    }
                 }
+
+                containerStats.append(mapStatsToProto(containerID: containerID, cgStats: cgStats, networkStats: networkStats))
+            }
+
+            return .with {
+                $0.containers = containerStats
             }
         } catch {
             log.error(
-                "interfaceStatistics",
+                "containerStatistics",
                 metadata: [
                     "error": "\(error)"
                 ])
-            throw GRPCStatus(code: .internalError, message: "interfaceStatistics: \(error)")
+            throw GRPCStatus(code: .internalError, message: "containerStatistics: \(error)")
         }
     }
 
@@ -956,6 +980,75 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 "error": "\(error)"
             ])
         return error
+    }
+
+    // NOTE: This is just crummy. It works because today the assumption is
+    // every NIC in the root net namespace is for the container(s), but if we
+    // ever supported individual containers having their own NICs/IPs then this
+    // logic needs to change. We only create ethernet devices today too, so that's
+    // what this filters for as well.
+    private func getNetworkInterfaces() throws -> [String] {
+        let netPath = URL(filePath: "/sys/class/net")
+        let interfaces = try FileManager.default.contentsOfDirectory(
+            at: netPath,
+            includingPropertiesForKeys: nil
+        )
+        return
+            interfaces
+            .map { $0.lastPathComponent }
+            .filter { $0.hasPrefix("eth") }
+    }
+
+    private func mapStatsToProto(
+        containerID: String,
+        cgStats: Cgroup2Stats,
+        networkStats: [Com_Apple_Containerization_Sandbox_V3_NetworkStats]
+    ) -> Com_Apple_Containerization_Sandbox_V3_ContainerStats {
+        .with {
+            $0.containerID = containerID
+
+            $0.process = .with {
+                $0.current = cgStats.pids?.current ?? 0
+                $0.limit = cgStats.pids?.max ?? 0
+            }
+
+            $0.memory = .with {
+                $0.usageBytes = cgStats.memory?.usage ?? 0
+                $0.limitBytes = cgStats.memory?.usageLimit ?? 0
+                $0.swapUsageBytes = cgStats.memory?.swapUsage ?? 0
+                $0.swapLimitBytes = cgStats.memory?.swapLimit ?? 0
+                $0.cacheBytes = cgStats.memory?.file ?? 0
+                $0.kernelStackBytes = cgStats.memory?.kernelStack ?? 0
+                $0.slabBytes = cgStats.memory?.slab ?? 0
+                $0.pageFaults = cgStats.memory?.pgfault ?? 0
+                $0.majorPageFaults = cgStats.memory?.pgmajfault ?? 0
+            }
+
+            $0.cpu = .with {
+                $0.usageUsec = cgStats.cpu?.usageUsec ?? 0
+                $0.userUsec = cgStats.cpu?.userUsec ?? 0
+                $0.systemUsec = cgStats.cpu?.systemUsec ?? 0
+                $0.throttlingPeriods = cgStats.cpu?.nrPeriods ?? 0
+                $0.throttledPeriods = cgStats.cpu?.nrThrottled ?? 0
+                $0.throttledTimeUsec = cgStats.cpu?.throttledUsec ?? 0
+            }
+
+            $0.blockIo = .with {
+                $0.devices =
+                    cgStats.io?.entries.map { entry in
+                        .with {
+                            $0.major = entry.major
+                            $0.minor = entry.minor
+                            $0.readBytes = entry.rbytes
+                            $0.writeBytes = entry.wbytes
+                            $0.readOperations = entry.rios
+                            $0.writeOperations = entry.wios
+                        }
+                    } ?? []
+            }
+
+            $0.networks = networkStats
+        }
     }
 
     func sync(

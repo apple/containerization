@@ -821,6 +821,24 @@ extension LinuxContainer {
         return try await state.process.closeStdin()
     }
 
+    /// Get statistics for the container.
+    public func statistics() async throws -> ContainerStatistics {
+        let state = try self.state.withLock { try $0.startedState("statistics") }
+
+        let stats = try await state.vm.withAgent { agent in
+            let allStats = try await agent.containerStatistics(containerIDs: [self.id])
+            guard let containerStats = allStats.first else {
+                throw ContainerizationError(
+                    .notFound,
+                    message: "statistics for container \(self.id) not found"
+                )
+            }
+            return containerStats
+        }
+
+        return stats
+    }
+
     /// Relay a unix socket from in the container to the host, or from the host
     /// to inside the container.
     public func relayUnixSocket(socket: UnixSocketConfiguration) async throws {
@@ -865,11 +883,12 @@ extension LinuxContainer {
 extension VirtualMachineInstance {
     /// Scoped access to an agent instance to ensure the resources are always freed (mostly close(2)'ing
     /// the vsock fd)
-    fileprivate func withAgent(fn: @Sendable (VirtualMachineAgent) async throws -> Void) async throws {
+    fileprivate func withAgent<T>(fn: @Sendable (VirtualMachineAgent) async throws -> T) async throws -> T {
         let agent = try await self.dialAgent()
         do {
-            try await fn(agent)
+            let result = try await fn(agent)
             try await agent.close()
+            return result
         } catch {
             try? await agent.close()
             throw error

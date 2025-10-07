@@ -68,7 +68,9 @@ public protocol VirtualMachineAgent: Sendable {
     func routeAddDefault(name: String, gateway: String) async throws
     func configureDNS(config: DNS, location: String) async throws
     func configureHosts(config: Hosts, location: String) async throws
-    func interfaceStatistics(name: String) async throws -> InterfaceStatistics
+
+    // Container statistics
+    func containerStatistics(containerIDs: [String]) async throws -> [ContainerStatistics]
 }
 
 extension VirtualMachineAgent {
@@ -84,7 +86,7 @@ extension VirtualMachineAgent {
         throw ContainerizationError(.unsupported, message: "writeFile")
     }
 
-    public func interfaceStatistics(name: String) async throws -> InterfaceStatistics {
-        throw ContainerizationError(.unsupported, message: "interfaceStatistics")
+    public func containerStatistics(containerIDs: [String]) async throws -> [ContainerStatistics] {
+        throw ContainerizationError(.unsupported, message: "containerStatistics")
     }
 }

@@ -41,6 +41,9 @@ service SandboxContext {
   // Close IO for a given process.
   rpc CloseProcessStdin(CloseProcessStdinRequest) returns (CloseProcessStdinResponse);
 
+  // Get statistics for containers.
+  rpc ContainerStatistics(ContainerStatisticsRequest) returns (ContainerStatisticsResponse);
+
   // Proxy a vsock port to a unix domain socket in the guest, or vice versa.
   rpc ProxyVsock(ProxyVsockRequest) returns (ProxyVsockResponse);
   // Stop a vsock proxy to a unix domain socket.
@@ -58,8 +61,6 @@ service SandboxContext {
   rpc ConfigureDns(ConfigureDnsRequest) returns (ConfigureDnsResponse);
   // Configure /etc/hosts.
   rpc ConfigureHosts(ConfigureHostsRequest) returns (ConfigureHostsResponse);
-  // Get statistics about an interface.
-  rpc InterfaceStatistics(InterfaceStatisticsRequest) returns (InterfaceStatisticsResponse);
 
   // Perform the sync syscall.
   rpc Sync(SyncRequest) returns (SyncResponse);
@@ -276,19 +277,6 @@ message ConfigureHostsRequest {
 
 message ConfigureHostsResponse {}
 
-message InterfaceStatisticsRequest {
-  string interface = 1;
-}
-
-message InterfaceStatisticsResponse {
-  optional uint64 receivedPackets = 1;
-  optional uint64 transmittedPackets = 2;
-  optional uint64 receivedBytes = 3;
-  optional uint64 transmittedBytes = 4;
-  optional uint64 receivedErrors = 5;
-  optional uint64 transmittedErrors = 6;
-}
-
 message SyncRequest {}
 message SyncResponse {}
 
@@ -298,3 +286,69 @@ message KillRequest {
 }
 
 message KillResponse { int32 result = 1; }
+
+message ContainerStatisticsRequest {
+  repeated string container_ids = 1;  // Empty = all containers
+}
+
+message ContainerStatisticsResponse {
+  repeated ContainerStats containers = 1;
+}
+
+message ContainerStats {
+  string container_id = 1;
+  ProcessStats process = 2;
+  MemoryStats memory = 3;
+  CPUStats cpu = 4;
+  BlockIOStats block_io = 5;
+  repeated NetworkStats networks = 6;
+}
+
+message ProcessStats {
+  uint64 current = 1;
+  uint64 limit = 2;  // 0 or max value = unlimited
+}
+
+message MemoryStats {
+  uint64 usage_bytes = 1;
+  uint64 limit_bytes = 2;
+  uint64 swap_usage_bytes = 3;
+  uint64 swap_limit_bytes = 4;
+  uint64 cache_bytes = 5;
+  uint64 kernel_stack_bytes = 6;
+  uint64 slab_bytes = 7;
+  uint64 page_faults = 8;
+  uint64 major_page_faults = 9;
+}
+
+message CPUStats {
+  uint64 usage_usec = 1;
+  uint64 user_usec = 2;
+  uint64 system_usec = 3;
+  uint64 throttling_periods = 4;
+  uint64 throttled_periods = 5;
+  uint64 throttled_time_usec = 6;
+}
+
+message BlockIOStats {
+  repeated BlockIOEntry devices = 1;
+}
+
+message BlockIOEntry {
+  uint64 major = 1;
+  uint64 minor = 2;
+  uint64 read_bytes = 3;
+  uint64 write_bytes = 4;
+  uint64 read_operations = 5;
+  uint64 write_operations = 6;
+}
+
+message NetworkStats {
+  string interface = 1;
+  uint64 receivedPackets = 2;
+  uint64 transmittedPackets = 3;
+  uint64 receivedBytes = 4;
+  uint64 transmittedBytes = 5;
+  uint64 receivedErrors = 6;
+  uint64 transmittedErrors = 7;
+}
