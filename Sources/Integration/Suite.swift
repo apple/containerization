@@ -95,19 +95,6 @@ struct IntegrationSuite: AsyncParsableCommand {
             .appendingPathComponent(name)
     }
 
-    // Generate a simple hash from the image reference to ensure unique rootfs filenames
-    private static func hashImageReference(_ reference: String) -> String {
-        let hash =
-            reference.data(using: .utf8)?.withUnsafeBytes { bytes in
-                var hash: Int = 0
-                for byte in bytes {
-                    hash = hash &* 31 &+ Int(byte)
-                }
-                return hash & 0x7FFF_FFFF
-            } ?? 0
-        return String(format: "%08x", hash)
-    }
-
     func bootstrap(reference: String = "ghcr.io/linuxcontainers/alpine:3.20") async throws -> (
         rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image
     ) {
@@ -137,8 +124,8 @@ struct IntegrationSuite: AsyncParsableCommand {
         let platform = Platform(arch: "arm64", os: "linux", variant: "v8")
 
         let fs: Containerization.Mount = try await {
-            let imageHash = Self.hashImageReference(reference)
-            let fsPath = Self.testDir.appending(component: "rootfs-\(imageHash).ext4")
+            let truncatedHash = String(image.digest.suffix(12))
+            let fsPath = Self.testDir.appending(component: "rootfs-\(truncatedHash).ext4")
             do {
                 let unpacker = EXT4Unpacker(blockSizeInBytes: 2.gib())
                 return try await unpacker.unpack(image, for: platform, at: fsPath)
