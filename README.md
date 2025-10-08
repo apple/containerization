@@ -42,7 +42,7 @@ Applications built using the package will run on macOS 15 or later, but the foll
 
 ## Example Usage
 
-The cctl executable provides a good example of how to use the Library APIs. For example:
+The cctl executable provides a good example of the library surfaces. It serves as a playground to try out the API and includes commands that exercise core functionality, such as:
 
 1. [Manipulating OCI images](./Sources/cctl/ImageCommand.swift)
 2. [Logging in to container registries](./Sources/cctl/LoginCommand.swift)
