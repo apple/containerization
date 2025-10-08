@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -36,8 +36,7 @@ struct ContainerMount {
     }
 
     func configureConsole() throws {
-        let ptmx = self.rootfs.standardizingPath.appendingPathComponent("/dev/ptmx")
-
+        let ptmx = self.rootfs.standardizingPath.appendingPathComponent("dev/ptmx")
         guard remove(ptmx) == 0 else {
             throw App.Errno(stage: "remove(ptmx)")
         }

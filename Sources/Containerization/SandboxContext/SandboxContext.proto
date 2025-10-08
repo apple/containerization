@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package com.apple.containerization.sandbox.v3;
 
+import "google/protobuf/timestamp.proto";
+
 // Context for interacting with a container's runtime environment.
 service SandboxContext {
   // Mount a filesystem.
@@ -20,6 +22,8 @@ service SandboxContext {
   rpc SetTime(SetTimeRequest) returns (SetTimeResponse);
   // Set up an emulator in the guest for a specific binary format.
   rpc SetupEmulator(SetupEmulatorRequest) returns (SetupEmulatorResponse);
+  // Write data to an existing or new file.
+  rpc WriteFile(WriteFileRequest) returns (WriteFileResponse);
 
   // Create a new process inside the container.
   rpc CreateProcess(CreateProcessRequest) returns (CreateProcessResponse);
@@ -54,6 +58,9 @@ service SandboxContext {
   rpc ConfigureDns(ConfigureDnsRequest) returns (ConfigureDnsResponse);
   // Configure /etc/hosts.
   rpc ConfigureHosts(ConfigureHostsRequest) returns (ConfigureHostsResponse);
+  // Get statistics about an interface.
+  rpc InterfaceStatistics(InterfaceStatisticsRequest) returns (InterfaceStatisticsResponse);
+
   // Perform the sync syscall.
   rpc Sync(SyncRequest) returns (SyncResponse);
   // Send a signal to a process via the PID.
@@ -153,6 +160,7 @@ message WaitProcessRequest {
 
 message WaitProcessResponse {
   int32 exitCode = 1;
+  google.protobuf.Timestamp exited_at = 2;
 }
 
 message ResizeProcessRequest {
@@ -200,6 +208,20 @@ message MkdirRequest {
 }
 
 message MkdirResponse {}
+
+message WriteFileRequest {
+  message WriteFileFlags {
+    bool create_parent_dirs = 1;
+    bool append = 2;
+    bool create_if_missing = 3;
+  }
+  string path = 1;
+  bytes data = 2;
+  uint32 mode = 3;
+  WriteFileFlags flags = 4;
+}
+
+message WriteFileResponse {}
 
 message IpLinkSetRequest {
   string interface = 1;
@@ -253,6 +275,19 @@ message ConfigureHostsRequest {
 }
 
 message ConfigureHostsResponse {}
+
+message InterfaceStatisticsRequest {
+  string interface = 1;
+}
+
+message InterfaceStatisticsResponse {
+  optional uint64 receivedPackets = 1;
+  optional uint64 transmittedPackets = 2;
+  optional uint64 receivedBytes = 3;
+  optional uint64 transmittedBytes = 4;
+  optional uint64 receivedErrors = 5;
+  optional uint64 transmittedErrors = 6;
+}
 
 message SyncRequest {}
 message SyncResponse {}

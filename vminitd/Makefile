@@ -1,4 +1,4 @@
-# Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+# Copyright © 2025 Apple Inc. and the Containerization project authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,10 +13,12 @@
 # limitations under the License.
 
 BUILD_CONFIGURATION := debug
-SWIFT_CONFIGURATION := --swift-sdk aarch64-swift-linux-musl
+WARNINGS_AS_ERRORS ?= true
+SWIFT_WARNING_CONFIG = $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors)
+SWIFT_CONFIGURATION := --swift-sdk aarch64-swift-linux-musl $(SWIFT_WARNING_CONFIG)
 
-SWIFT_VERSION = 6.2-snapshot-2025-06-25
-SWIFT_SDK_URL = https://download.swift.org/swift-6.2-branch/static-sdk/swift-6.2-DEVELOPMENT-SNAPSHOT-2025-06-25-a/swift-6.2-DEVELOPMENT-SNAPSHOT-2025-06-25-a_static-linux-0.0.1.artifactbundle.tar.gz
+SWIFT_VERSION = 6.2
+SWIFT_SDK_URL = https://download.swift.org/swift-6.2-release/static-sdk/swift-6.2-RELEASE/swift-6.2-RELEASE_static-linux-0.0.1.artifactbundle.tar.gz
 SWIFT_SDK_PATH = /tmp/$(notdir $(SWIFT_SDK_URL))
 
 SWIFTLY_URL := https://download.swift.org/swiftly/darwin/swiftly.pkg
@@ -36,6 +38,7 @@ all:
 	@mkdir -p ./bin/
 	@rm -f ./bin/vminitd
 	@rm -f ./bin/vmexec
+	@swift --version
 	@swift build -c $(BUILD_CONFIGURATION) $(SWIFT_CONFIGURATION)
 	@install "$(VMINITD_BIN_PATH)/vminitd" ./bin/
 	@install "$(VMINITD_BIN_PATH)/vmexec" ./bin/

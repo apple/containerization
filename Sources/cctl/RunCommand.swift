@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -43,6 +43,9 @@ extension Application {
         @Option(name: .customLong("fs-size"), help: "The size to create the block filesystem as")
         var fsSizeInMB: UInt64 = 2048
 
+        @Flag(name: .customLong("rosetta"), help: "Enable rosetta x64 emulation")
+        var rosetta = false
+
         @Option(name: .customLong("mount"), help: "Directory to share into the container (Example: /foo:/bar)")
         var mounts: [String] = []
 
@@ -65,14 +68,15 @@ extension Application {
         @Option(name: .long, help: "Current working directory")
         var cwd: String = "/"
 
-        @Argument var arguments: [String] = ["/bin/sh"]
+        @Argument(parsing: .captureForPassthrough)
+        var arguments: [String] = ["/bin/sh"]
 
         func run() async throws {
             let kernel = Kernel(
                 path: URL(fileURLWithPath: kernel),
                 platform: .linuxArm
             )
-            let manager = try await ContainerManager(
+            var manager = try await ContainerManager(
                 kernel: kernel,
                 initfsReference: "vminit:latest",
             )
@@ -92,6 +96,7 @@ extension Application {
                 config.process.setTerminalIO(terminal: current)
                 config.process.arguments = arguments
                 config.process.workingDirectory = cwd
+                config.rosetta = rosetta
 
                 for mount in self.mounts {
                     let paths = mount.split(separator: ":")

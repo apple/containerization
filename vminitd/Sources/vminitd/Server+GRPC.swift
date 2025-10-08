@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@ import GRPC
 import Logging
 import NIOCore
 import NIOPosix
+import SwiftProtobuf
 import _NIOFileSystem
 
 private let _setenv = Foundation.setenv
@@ -245,6 +246,65 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         return .init()
     }
 
+    func writeFile(request: Com_Apple_Containerization_Sandbox_V3_WriteFileRequest, context: GRPC.GRPCAsyncServerCallContext)
+        async throws -> Com_Apple_Containerization_Sandbox_V3_WriteFileResponse
+    {
+        log.debug(
+            "writeFile",
+            metadata: [
+                "path": "\(request.path)",
+                "mode": "\(request.mode)",
+                "dataSize": "\(request.data.count)",
+            ])
+
+        do {
+            if request.flags.createParentDirs {
+                let fileURL = URL(fileURLWithPath: request.path)
+                let parentDir = fileURL.deletingLastPathComponent()
+                try FileManager.default.createDirectory(
+                    at: parentDir,
+                    withIntermediateDirectories: true
+                )
+            }
+
+            var flags = O_WRONLY
+            if request.flags.createIfMissing {
+                flags |= O_CREAT
+            }
+            if request.flags.append {
+                flags |= O_APPEND
+            }
+
+            let mode = request.mode > 0 ? mode_t(request.mode) : mode_t(0644)
+            let fd = open(request.path, flags, mode)
+            guard fd != -1 else {
+                let error = swiftErrno("open")
+                throw GRPCStatus(
+                    code: .internalError,
+                    message: "writeFile: failed to open file: \(error)"
+                )
+            }
+
+            let fh = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+            try fh.write(contentsOf: request.data)
+        } catch {
+            log.error(
+                "writeFile",
+                metadata: [
+                    "error": "\(error)"
+                ])
+            if error is GRPCStatus {
+                throw error
+            }
+            throw GRPCStatus(
+                code: .internalError,
+                message: "writeFile: \(error)"
+            )
+        }
+
+        return .init()
+    }
+
     func mount(request: Com_Apple_Containerization_Sandbox_V3_MountRequest, context: GRPC.GRPCAsyncServerCallContext)
         async throws -> Com_Apple_Containerization_Sandbox_V3_MountResponse
     {
@@ -371,7 +431,10 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             ])
 
         if !request.hasContainerID {
-            fatalError("processes in the root of the vm not implemented")
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "processes in the root of the vm not implemented"
+            )
         }
 
         do {
@@ -380,7 +443,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 from: request.configuration
             )
 
-            try ociAlterations(ociSpec: &ociSpec)
+            try ociAlterations(id: request.id, ociSpec: &ociSpec)
 
             guard let process = ociSpec.process else {
                 throw ContainerizationError(
@@ -461,7 +524,10 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             ])
 
         if !request.hasContainerID {
-            fatalError("processes in the root of the vm not implemented")
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "processes in the root of the vm not implemented"
+            )
         }
 
         let ctr = try await self.state.get(container: request.containerID)
@@ -481,7 +547,10 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             ])
 
         if !request.hasContainerID {
-            fatalError("processes in the root of the vm not implemented")
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "processes in the root of the vm not implemented"
+            )
         }
 
         let ctr = try await self.state.get(container: request.containerID)
@@ -509,7 +578,10 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             ])
 
         if !request.hasContainerID {
-            fatalError("processes in the root of the vm not implemented")
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "processes in the root of the vm not implemented"
+            )
         }
 
         do {
@@ -545,7 +617,10 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             ])
 
         if !request.hasContainerID {
-            fatalError("processes in the root of the vm not implemented")
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "processes in the root of the vm not implemented"
+            )
         }
 
         do {
@@ -583,16 +658,19 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             ])
 
         if !request.hasContainerID {
-            fatalError("processes in the root of the vm not implemented")
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "processes in the root of the vm not implemented"
+            )
         }
 
         do {
             let ctr = try await self.state.get(container: request.containerID)
-
-            let exitCode = try await ctr.wait(execID: request.id)
+            let exitStatus = try await ctr.wait(execID: request.id)
 
             return .with {
-                $0.exitCode = exitCode
+                $0.exitCode = exitStatus.exitStatus
+                $0.exitedAt = Google_Protobuf_Timestamp(date: exitStatus.exitedAt)
             }
         } catch {
             log.error(
@@ -620,7 +698,10 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             ])
 
         if !request.hasContainerID {
-            fatalError("processes in the root of the vm not implemented")
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "processes in the root of the vm not implemented"
+            )
         }
 
         do {
@@ -826,6 +907,47 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         return .init()
     }
 
+    func interfaceStatistics(
+        request: Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest,
+        context: GRPC.GRPCAsyncServerCallContext
+    ) async throws -> Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsResponse {
+        log.debug(
+            "interfaceStatistics",
+            metadata: [
+                "name": "\(request.interface)"
+            ])
+
+        do {
+            let socket = try DefaultNetlinkSocket()
+            let session = NetlinkSession(socket: socket, log: log)
+            let responses = try session.linkGet(interface: request.interface, includeStats: true)
+            guard responses.count == 1 else {
+                throw ContainerizationError(
+                    .internalError,
+                    message: "linkGet returned invalid number of interfaces: \(responses.count)"
+                )
+            }
+            let stats = try responses[0].getStatistics()
+            return .with {
+                if let stats {
+                    $0.receivedPackets = stats.rxPackets
+                    $0.transmittedPackets = stats.txPackets
+                    $0.receivedBytes = stats.rxBytes
+                    $0.transmittedBytes = stats.txBytes
+                    $0.receivedErrors = stats.rxErrors
+                    $0.transmittedErrors = stats.txErrors
+                }
+            }
+        } catch {
+            log.error(
+                "interfaceStatistics",
+                metadata: [
+                    "error": "\(error)"
+                ])
+            throw GRPCStatus(code: .internalError, message: "interfaceStatistics: \(error)")
+        }
+    }
+
     private func swiftErrno(_ msg: Logger.Message) -> POSIXError {
         let error = POSIXError(.init(rawValue: errno)!)
         log.error(
@@ -881,7 +1003,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest {
 }
 
 extension Initd {
-    func ociAlterations(ociSpec: inout ContainerizationOCI.Spec) throws {
+    func ociAlterations(id: String, ociSpec: inout ContainerizationOCI.Spec) throws {
         guard var process = ociSpec.process else {
             throw ContainerizationError(
                 .invalidArgument,
@@ -895,17 +1017,33 @@ extension Initd {
             )
         }
 
+        if ociSpec.linux!.cgroupsPath.isEmpty {
+            ociSpec.linux!.cgroupsPath = "/container/\(id)"
+        }
+
         if process.cwd.isEmpty {
             process.cwd = "/"
         }
 
-        // Username is truthfully a Windows field, but we use this as away to pass through
-        // the exact string representation of a username a client may have given us.
+        // NOTE: The OCI runtime specs Username field is truthfully Windows exclusive, but we use this as a way
+        // to pass through the exact string representation of a username (or username:group, uid:group etc.) a client
+        // may have given us.
         let username = process.user.username.isEmpty ? "\(process.user.uid):\(process.user.gid)" : process.user.username
-        let parsedUser = try User.parseUser(root: root.path, userString: username)
+        let parsedUser = try User.getExecUser(
+            userString: username,
+            passwdPath: URL(filePath: root.path).appending(path: "etc/passwd"),
+            groupPath: URL(filePath: root.path).appending(path: "etc/group")
+        )
         process.user.uid = parsedUser.uid
         process.user.gid = parsedUser.gid
-        process.user.additionalGids = parsedUser.sgids
+        process.user.additionalGids.append(contentsOf: parsedUser.sgids)
+        process.user.additionalGids.append(process.user.gid)
+
+        var seenSuppGids = Set<UInt32>()
+        process.user.additionalGids = process.user.additionalGids.filter {
+            seenSuppGids.insert($0).inserted
+        }
+
         if !process.env.contains(where: { $0.hasPrefix("HOME=") }) {
             process.env.append("HOME=\(parsedUser.home)")
         }

@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -29,8 +29,17 @@ final class ManagedProcess: Sendable {
     private let log: Logger
     private let process: Command
     private let state: Mutex<State>
-    private let syncfd: Pipe
     private let owningPid: Int32?
+    private let ackPipe: Pipe
+    private let syncPipe: Pipe
+    private let terminal: Bool
+    private let bundle: ContainerizationOCI.Bundle
+    private let cgroupManager: Cgroup2Manager?
+
+    struct ExitStatus {
+        var exitStatus: Int32
+        var exitedAt: Date
+    }
 
     private struct State {
         init(io: IO) {
@@ -38,8 +47,8 @@ final class ManagedProcess: Sendable {
         }
 
         let io: IO
-        var waiters: [CheckedContinuation<Int32, Never>] = []
-        var exitStatus: Int32? = nil
+        var waiters: [CheckedContinuation<ExitStatus, Never>] = []
+        var exitStatus: ExitStatus? = nil
         var pid: Int32 = 0
     }
 
@@ -51,10 +60,12 @@ final class ManagedProcess: Sendable {
 
     // swiftlint: disable type_name
     protocol IO {
+        func attach(pid: Int32, fd: Int32) throws
         func start(process: inout Command) throws
-        func closeAfterExec() throws
         func resize(size: Terminal.Size) throws
+        func close() throws
         func closeStdin() throws
+        func closeAfterExec() throws
     }
     // swiftlint: enable type_name
 
@@ -62,10 +73,14 @@ final class ManagedProcess: Sendable {
         log[metadataKey: "id"] = "\(id)"
     }
 
+    private static let ackPid = "AckPid"
+    private static let ackConsole = "AckConsole"
+
     init(
         id: String,
         stdio: HostStdio,
         bundle: ContainerizationOCI.Bundle,
+        cgroupManager: Cgroup2Manager? = nil,
         owningPid: Int32? = nil,
         log: Logger
     ) throws {
@@ -75,9 +90,13 @@ final class ManagedProcess: Sendable {
         self.log = log
         self.owningPid = owningPid
 
-        let syncfd = Pipe()
-        try syncfd.setCloexec()
-        self.syncfd = syncfd
+        let syncPipe = Pipe()
+        try syncPipe.setCloexec()
+        self.syncPipe = syncPipe
+
+        let ackPipe = Pipe()
+        try ackPipe.setCloexec()
+        self.ackPipe = ackPipe
 
         let args: [String]
         if let owningPid {
@@ -95,7 +114,10 @@ final class ManagedProcess: Sendable {
         var process = Command(
             "/sbin/vmexec",
             arguments: args,
-            extraFiles: [syncfd.fileHandleForWriting]
+            extraFiles: [
+                syncPipe.fileHandleForWriting,
+                ackPipe.fileHandleForReading,
+            ]
         )
 
         var io: IO
@@ -120,7 +142,10 @@ final class ManagedProcess: Sendable {
         // Setup IO early. We expect the host to be listening already.
         try io.start(process: &process)
 
+        self.cgroupManager = cgroupManager
         self.process = process
+        self.terminal = stdio.terminal
+        self.bundle = bundle
         self.state = Mutex(State(io: io))
     }
 }
@@ -136,30 +161,95 @@ extension ManagedProcess {
 
             // Start the underlying process.
             try process.start()
+            defer {
+                try? self.ackPipe.fileHandleForWriting.close()
+                try? self.syncPipe.fileHandleForReading.close()
+                try? self.ackPipe.fileHandleForReading.close()
+                try? self.syncPipe.fileHandleForWriting.close()
+            }
 
             // Close our side of any pipes.
-            try syncfd.fileHandleForWriting.close()
             try $0.io.closeAfterExec()
+            try self.ackPipe.fileHandleForReading.close()
+            try self.syncPipe.fileHandleForWriting.close()
 
-            guard let piddata = try syncfd.fileHandleForReading.readToEnd() else {
+            let size = MemoryLayout<Int32>.size
+            guard let piddata = try syncPipe.fileHandleForReading.read(upToCount: size) else {
                 throw ContainerizationError(.internalError, message: "no pid data from sync pipe")
             }
 
-            let i = piddata.withUnsafeBytes { ptr in
+            guard piddata.count == size else {
+                throw ContainerizationError(.internalError, message: "invalid payload")
+            }
+
+            let pid = piddata.withUnsafeBytes { ptr in
                 ptr.load(as: Int32.self)
             }
 
-            log.info("got back pid data \(i)")
-            $0.pid = i
+            log.info(
+                "got back pid data",
+                metadata: [
+                    "id": "\(pid)"
+                ])
+            $0.pid = pid
+
+            // Add to our cgroup. For execs (owningPid is non-nil) we'll
+            // see where the init process is actually located now (systemd
+            // loves to move all its processes to a child /init.scope cg).
+            if let cgroupManager {
+                try cgroupManager.addProcess(pid: pid)
+            } else {
+                if let owningPid {
+                    let cgManager = try Cgroup2Manager.loadFromPid(pid: owningPid)
+                    try cgManager.addProcess(pid: pid)
+                }
+            }
+
+            log.info(
+                "sending pid acknowledgement",
+                metadata: [
+                    "pid": "\(pid)"
+                ])
+            try self.ackPipe.fileHandleForWriting.write(contentsOf: Self.ackPid.data(using: .utf8)!)
+
+            if self.terminal {
+                log.info(
+                    "wait for pty fd",
+                    metadata: [
+                        "id": "\(id)"
+                    ])
+
+                // Wait for a new write that will contain the pty fd if we asked for one.
+                guard let ptyFd = try self.syncPipe.fileHandleForReading.read(upToCount: size) else {
+                    throw ContainerizationError(
+                        .internalError,
+                        message: "no pty data from sync pipe"
+                    )
+                }
+                let fd = ptyFd.withUnsafeBytes { ptr in
+                    ptr.load(as: Int32.self)
+                }
+                log.info(
+                    "received pty fd from container, attaching",
+                    metadata: [
+                        "id": "\(id)"
+                    ])
+
+                try $0.io.attach(pid: pid, fd: fd)
+                try self.ackPipe.fileHandleForWriting.write(contentsOf: Self.ackConsole.data(using: .utf8)!)
+            }
+
+            // Wait for the syncPipe to close (after exec).
+            _ = try self.syncPipe.fileHandleForReading.readToEnd()
 
             log.info(
                 "started managed process",
                 metadata: [
-                    "pid": "\(i)",
+                    "pid": "\(pid)",
                     "id": "\(id)",
                 ])
 
-            return i
+            return pid
         }
     }
 
@@ -171,10 +261,17 @@ extension ManagedProcess {
                     "status": "\(status)"
                 ])
 
-            $0.exitStatus = status
+            let exitStatus = ExitStatus(exitStatus: status, exitedAt: Date.now)
+            $0.exitStatus = exitStatus
+
+            do {
+                try $0.io.close()
+            } catch {
+                self.log.error("failed to close io for process: \(error)")
+            }
 
             for waiter in $0.waiters {
-                waiter.resume(returning: status)
+                waiter.resume(returning: exitStatus)
             }
 
             self.log.debug("\($0.waiters.count) managed process waiters signaled")
@@ -183,7 +280,7 @@ extension ManagedProcess {
     }
 
     /// Wait on the process to exit
-    func wait() async -> Int32 {
+    func wait() async -> ExitStatus {
         await withCheckedContinuation { cont in
             self.state.withLock {
                 if let status = $0.exitStatus {

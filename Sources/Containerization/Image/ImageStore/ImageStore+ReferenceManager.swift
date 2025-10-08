@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ import Foundation
 extension ImageStore {
     /// A ReferenceManager handles the mappings between an image's
     /// reference and the underlying descriptor inside of a content store.
-    internal actor ReferenceManager: Sendable {
+    internal actor ReferenceManager {
         private let path: URL
 
         private typealias State = [String: Descriptor]

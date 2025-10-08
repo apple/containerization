@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -68,6 +68,7 @@ struct VZVirtualMachineInstance: VirtualMachineInstance, Sendable {
         }
     }
 
+    // `vm` isn't used concurrently.
     private nonisolated(unsafe) let vm: VZVirtualMachine
     private let queue: DispatchQueue
     private let group: MultiThreadedEventLoopGroup
@@ -169,6 +170,20 @@ extension VZVirtualMachineInstance {
 
             try await self.vm.stop(queue: self.queue)
             try await self.group.shutdownGracefully()
+        }
+    }
+
+    func pause() async throws {
+        try await lock.withLock { _ in
+            await self.timeSyncer.pause()
+            try await self.vm.pause(queue: self.queue)
+        }
+    }
+
+    func resume() async throws {
+        try await lock.withLock { _ in
+            try await self.vm.resume(queue: self.queue)
+            await self.timeSyncer.resume()
         }
     }
 

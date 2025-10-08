@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -73,6 +73,11 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtoc
     _ request: Com_Apple_Containerization_Sandbox_V3_SetupEmulatorRequest,
     callOptions: CallOptions?
   ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_SetupEmulatorRequest, Com_Apple_Containerization_Sandbox_V3_SetupEmulatorResponse>
+
+  func writeFile(
+    _ request: Com_Apple_Containerization_Sandbox_V3_WriteFileRequest,
+    callOptions: CallOptions?
+  ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_WriteFileRequest, Com_Apple_Containerization_Sandbox_V3_WriteFileResponse>
 
   func createProcess(
     _ request: Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest,
@@ -148,6 +153,11 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtoc
     _ request: Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest,
     callOptions: CallOptions?
   ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest, Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse>
+
+  func interfaceStatistics(
+    _ request: Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest,
+    callOptions: CallOptions?
+  ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest, Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsResponse>
 
   func sync(
     _ request: Com_Apple_Containerization_Sandbox_V3_SyncRequest,
@@ -306,6 +316,24 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtocol {
       request: request,
       callOptions: callOptions ?? self.defaultCallOptions,
       interceptors: self.interceptors?.makeSetupEmulatorInterceptors() ?? []
+    )
+  }
+
+  /// Write data to an existing or new file.
+  ///
+  /// - Parameters:
+  ///   - request: Request to send to WriteFile.
+  ///   - callOptions: Call options.
+  /// - Returns: A `UnaryCall` with futures for the metadata, status and response.
+  public func writeFile(
+    _ request: Com_Apple_Containerization_Sandbox_V3_WriteFileRequest,
+    callOptions: CallOptions? = nil
+  ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_WriteFileRequest, Com_Apple_Containerization_Sandbox_V3_WriteFileResponse> {
+    return self.makeUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.writeFile.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeWriteFileInterceptors() ?? []
     )
   }
 
@@ -580,6 +608,24 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtocol {
     )
   }
 
+  /// Get statistics about an interface.
+  ///
+  /// - Parameters:
+  ///   - request: Request to send to InterfaceStatistics.
+  ///   - callOptions: Call options.
+  /// - Returns: A `UnaryCall` with futures for the metadata, status and response.
+  public func interfaceStatistics(
+    _ request: Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest,
+    callOptions: CallOptions? = nil
+  ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest, Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsResponse> {
+    return self.makeUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.interfaceStatistics.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeInterfaceStatisticsInterceptors() ?? []
+    )
+  }
+
   /// Perform the sync syscall.
   ///
   /// - Parameters:
@@ -720,6 +766,11 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientP
     callOptions: CallOptions?
   ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_SetupEmulatorRequest, Com_Apple_Containerization_Sandbox_V3_SetupEmulatorResponse>
 
+  func makeWriteFileCall(
+    _ request: Com_Apple_Containerization_Sandbox_V3_WriteFileRequest,
+    callOptions: CallOptions?
+  ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_WriteFileRequest, Com_Apple_Containerization_Sandbox_V3_WriteFileResponse>
+
   func makeCreateProcessCall(
     _ request: Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest,
     callOptions: CallOptions?
@@ -794,6 +845,11 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientP
     _ request: Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest,
     callOptions: CallOptions?
   ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest, Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse>
+
+  func makeInterfaceStatisticsCall(
+    _ request: Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest,
+    callOptions: CallOptions?
+  ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest, Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsResponse>
 
   func makeSyncCall(
     _ request: Com_Apple_Containerization_Sandbox_V3_SyncRequest,
@@ -909,6 +965,18 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientProtoco
       request: request,
       callOptions: callOptions ?? self.defaultCallOptions,
       interceptors: self.interceptors?.makeSetupEmulatorInterceptors() ?? []
+    )
+  }
+
+  public func makeWriteFileCall(
+    _ request: Com_Apple_Containerization_Sandbox_V3_WriteFileRequest,
+    callOptions: CallOptions? = nil
+  ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_WriteFileRequest, Com_Apple_Containerization_Sandbox_V3_WriteFileResponse> {
+    return self.makeAsyncUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.writeFile.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeWriteFileInterceptors() ?? []
     )
   }
 
@@ -1092,6 +1160,18 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientProtoco
     )
   }
 
+  public func makeInterfaceStatisticsCall(
+    _ request: Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest,
+    callOptions: CallOptions? = nil
+  ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest, Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsResponse> {
+    return self.makeAsyncUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.interfaceStatistics.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeInterfaceStatisticsInterceptors() ?? []
+    )
+  }
+
   public func makeSyncCall(
     _ request: Com_Apple_Containerization_Sandbox_V3_SyncRequest,
     callOptions: CallOptions? = nil
@@ -1212,6 +1292,18 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientProtoco
       request: request,
       callOptions: callOptions ?? self.defaultCallOptions,
       interceptors: self.interceptors?.makeSetupEmulatorInterceptors() ?? []
+    )
+  }
+
+  public func writeFile(
+    _ request: Com_Apple_Containerization_Sandbox_V3_WriteFileRequest,
+    callOptions: CallOptions? = nil
+  ) async throws -> Com_Apple_Containerization_Sandbox_V3_WriteFileResponse {
+    return try await self.performAsyncUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.writeFile.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeWriteFileInterceptors() ?? []
     )
   }
 
@@ -1395,6 +1487,18 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientProtoco
     )
   }
 
+  public func interfaceStatistics(
+    _ request: Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest,
+    callOptions: CallOptions? = nil
+  ) async throws -> Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsResponse {
+    return try await self.performAsyncUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.interfaceStatistics.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeInterfaceStatisticsInterceptors() ?? []
+    )
+  }
+
   public func sync(
     _ request: Com_Apple_Containerization_Sandbox_V3_SyncRequest,
     callOptions: CallOptions? = nil
@@ -1463,6 +1567,9 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextClientInterc
   /// - Returns: Interceptors to use when invoking 'setupEmulator'.
   func makeSetupEmulatorInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_SetupEmulatorRequest, Com_Apple_Containerization_Sandbox_V3_SetupEmulatorResponse>]
 
+  /// - Returns: Interceptors to use when invoking 'writeFile'.
+  func makeWriteFileInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_WriteFileRequest, Com_Apple_Containerization_Sandbox_V3_WriteFileResponse>]
+
   /// - Returns: Interceptors to use when invoking 'createProcess'.
   func makeCreateProcessInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest, Com_Apple_Containerization_Sandbox_V3_CreateProcessResponse>]
 
@@ -1508,6 +1615,9 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextClientInterc
   /// - Returns: Interceptors to use when invoking 'configureHosts'.
   func makeConfigureHostsInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest, Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse>]
 
+  /// - Returns: Interceptors to use when invoking 'interfaceStatistics'.
+  func makeInterfaceStatisticsInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest, Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsResponse>]
+
   /// - Returns: Interceptors to use when invoking 'sync'.
   func makeSyncInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_SyncRequest, Com_Apple_Containerization_Sandbox_V3_SyncResponse>]
 
@@ -1528,6 +1638,7 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.sysctl,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.setTime,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.setupEmulator,
+      Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.writeFile,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.createProcess,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.deleteProcess,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.startProcess,
@@ -1543,6 +1654,7 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.ipRouteAddDefault,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.configureDns,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.configureHosts,
+      Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.interfaceStatistics,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.sync,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.kill,
     ]
@@ -1594,6 +1706,12 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
     public static let setupEmulator = GRPCMethodDescriptor(
       name: "SetupEmulator",
       path: "/com.apple.containerization.sandbox.v3.SandboxContext/SetupEmulator",
+      type: GRPCCallType.unary
+    )
+
+    public static let writeFile = GRPCMethodDescriptor(
+      name: "WriteFile",
+      path: "/com.apple.containerization.sandbox.v3.SandboxContext/WriteFile",
       type: GRPCCallType.unary
     )
 
@@ -1687,6 +1805,12 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
       type: GRPCCallType.unary
     )
 
+    public static let interfaceStatistics = GRPCMethodDescriptor(
+      name: "InterfaceStatistics",
+      path: "/com.apple.containerization.sandbox.v3.SandboxContext/InterfaceStatistics",
+      type: GRPCCallType.unary
+    )
+
     public static let sync = GRPCMethodDescriptor(
       name: "Sync",
       path: "/com.apple.containerization.sandbox.v3.SandboxContext/Sync",
@@ -1730,6 +1854,9 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider: Ca
 
   /// Set up an emulator in the guest for a specific binary format.
   func setupEmulator(request: Com_Apple_Containerization_Sandbox_V3_SetupEmulatorRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_SetupEmulatorResponse>
+
+  /// Write data to an existing or new file.
+  func writeFile(request: Com_Apple_Containerization_Sandbox_V3_WriteFileRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_WriteFileResponse>
 
   /// Create a new process inside the container.
   func createProcess(request: Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_CreateProcessResponse>
@@ -1776,6 +1903,9 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider: Ca
 
   /// Configure /etc/hosts.
   func configureHosts(request: Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse>
+
+  /// Get statistics about an interface.
+  func interfaceStatistics(request: Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsResponse>
 
   /// Perform the sync syscall.
   func sync(request: Com_Apple_Containerization_Sandbox_V3_SyncRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_SyncResponse>
@@ -1866,6 +1996,15 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider {
         responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_SetupEmulatorResponse>(),
         interceptors: self.interceptors?.makeSetupEmulatorInterceptors() ?? [],
         userFunction: self.setupEmulator(request:context:)
+      )
+
+    case "WriteFile":
+      return UnaryServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_WriteFileRequest>(),
+        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_WriteFileResponse>(),
+        interceptors: self.interceptors?.makeWriteFileInterceptors() ?? [],
+        userFunction: self.writeFile(request:context:)
       )
 
     case "CreateProcess":
@@ -2003,6 +2142,15 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider {
         userFunction: self.configureHosts(request:context:)
       )
 
+    case "InterfaceStatistics":
+      return UnaryServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest>(),
+        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsResponse>(),
+        interceptors: self.interceptors?.makeInterfaceStatisticsInterceptors() ?? [],
+        userFunction: self.interfaceStatistics(request:context:)
+      )
+
     case "Sync":
       return UnaryServerHandler(
         context: context,
@@ -2082,6 +2230,12 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvide
     request: Com_Apple_Containerization_Sandbox_V3_SetupEmulatorRequest,
     context: GRPCAsyncServerCallContext
   ) async throws -> Com_Apple_Containerization_Sandbox_V3_SetupEmulatorResponse
+
+  /// Write data to an existing or new file.
+  func writeFile(
+    request: Com_Apple_Containerization_Sandbox_V3_WriteFileRequest,
+    context: GRPCAsyncServerCallContext
+  ) async throws -> Com_Apple_Containerization_Sandbox_V3_WriteFileResponse
 
   /// Create a new process inside the container.
   func createProcess(
@@ -2173,6 +2327,12 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvide
     request: Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest,
     context: GRPCAsyncServerCallContext
   ) async throws -> Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse
+
+  /// Get statistics about an interface.
+  func interfaceStatistics(
+    request: Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest,
+    context: GRPCAsyncServerCallContext
+  ) async throws -> Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsResponse
 
   /// Perform the sync syscall.
   func sync(
@@ -2276,6 +2436,15 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvider {
         responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_SetupEmulatorResponse>(),
         interceptors: self.interceptors?.makeSetupEmulatorInterceptors() ?? [],
         wrapping: { try await self.setupEmulator(request: $0, context: $1) }
+      )
+
+    case "WriteFile":
+      return GRPCAsyncServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_WriteFileRequest>(),
+        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_WriteFileResponse>(),
+        interceptors: self.interceptors?.makeWriteFileInterceptors() ?? [],
+        wrapping: { try await self.writeFile(request: $0, context: $1) }
       )
 
     case "CreateProcess":
@@ -2413,6 +2582,15 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvider {
         wrapping: { try await self.configureHosts(request: $0, context: $1) }
       )
 
+    case "InterfaceStatistics":
+      return GRPCAsyncServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest>(),
+        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsResponse>(),
+        interceptors: self.interceptors?.makeInterfaceStatisticsInterceptors() ?? [],
+        wrapping: { try await self.interfaceStatistics(request: $0, context: $1) }
+      )
+
     case "Sync":
       return GRPCAsyncServerHandler(
         context: context,
@@ -2470,6 +2648,10 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextServerInterc
   /// - Returns: Interceptors to use when handling 'setupEmulator'.
   ///   Defaults to calling `self.makeInterceptors()`.
   func makeSetupEmulatorInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_SetupEmulatorRequest, Com_Apple_Containerization_Sandbox_V3_SetupEmulatorResponse>]
+
+  /// - Returns: Interceptors to use when handling 'writeFile'.
+  ///   Defaults to calling `self.makeInterceptors()`.
+  func makeWriteFileInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_WriteFileRequest, Com_Apple_Containerization_Sandbox_V3_WriteFileResponse>]
 
   /// - Returns: Interceptors to use when handling 'createProcess'.
   ///   Defaults to calling `self.makeInterceptors()`.
@@ -2531,6 +2713,10 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextServerInterc
   ///   Defaults to calling `self.makeInterceptors()`.
   func makeConfigureHostsInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest, Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse>]
 
+  /// - Returns: Interceptors to use when handling 'interfaceStatistics'.
+  ///   Defaults to calling `self.makeInterceptors()`.
+  func makeInterfaceStatisticsInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest, Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsResponse>]
+
   /// - Returns: Interceptors to use when handling 'sync'.
   ///   Defaults to calling `self.makeInterceptors()`.
   func makeSyncInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_SyncRequest, Com_Apple_Containerization_Sandbox_V3_SyncResponse>]
@@ -2553,6 +2739,7 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.sysctl,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.setTime,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.setupEmulator,
+      Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.writeFile,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.createProcess,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.deleteProcess,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.startProcess,
@@ -2568,6 +2755,7 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.ipRouteAddDefault,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.configureDns,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.configureHosts,
+      Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.interfaceStatistics,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.sync,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.kill,
     ]
@@ -2619,6 +2807,12 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
     public static let setupEmulator = GRPCMethodDescriptor(
       name: "SetupEmulator",
       path: "/com.apple.containerization.sandbox.v3.SandboxContext/SetupEmulator",
+      type: GRPCCallType.unary
+    )
+
+    public static let writeFile = GRPCMethodDescriptor(
+      name: "WriteFile",
+      path: "/com.apple.containerization.sandbox.v3.SandboxContext/WriteFile",
       type: GRPCCallType.unary
     )
 
@@ -2709,6 +2903,12 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
     public static let configureHosts = GRPCMethodDescriptor(
       name: "ConfigureHosts",
       path: "/com.apple.containerization.sandbox.v3.SandboxContext/ConfigureHosts",
+      type: GRPCCallType.unary
+    )
+
+    public static let interfaceStatistics = GRPCMethodDescriptor(
+      name: "InterfaceStatistics",
+      path: "/com.apple.containerization.sandbox.v3.SandboxContext/InterfaceStatistics",
       type: GRPCCallType.unary
     )
 

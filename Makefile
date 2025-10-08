@@ -1,4 +1,4 @@
-# Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+# Copyright © 2025 Apple Inc. and the Containerization project authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,14 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Version and build configuration variables
+# Build configuration variables
 # The default version ID 0.0.0 indicates a local development build or PRB
 BUILD_CONFIGURATION ?= debug
+WARNINGS_AS_ERRORS ?= true
+SWIFT_CONFIGURATION = $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors)
 
 # Commonly used locations
 SWIFT := "/usr/bin/swift"
 ROOT_DIR := $(shell git rev-parse --show-toplevel)
 BUILD_BIN_DIR = $(shell $(SWIFT) build -c $(BUILD_CONFIGURATION) --show-bin-path)
+COV_DATA_DIR = $(shell $(SWIFT) test --show-coverage-path | xargs dirname)
+COV_REPORT_FILE = $(ROOT_DIR)/code-coverage-report
 
 # Variables for libarchive integration
 LIBARCHIVE_UPSTREAM_REPO := https://github.com/libarchive/libarchive
@@ -42,10 +46,11 @@ release: all
 .PHONY: containerization
 containerization:
 	@echo Building containerization binaries...
-	@mkdir -p bin
-	@$(SWIFT) build -c $(BUILD_CONFIGURATION)
+	@$(SWIFT) --version
+	@$(SWIFT) build -c $(BUILD_CONFIGURATION) $(SWIFT_CONFIGURATION)
 
 	@echo Copying containerization binaries...
+	@mkdir -p bin
 	@install "$(BUILD_BIN_DIR)/cctl" ./bin/
 	@install "$(BUILD_BIN_DIR)/containerization-integration" ./bin/
 
@@ -57,7 +62,12 @@ containerization:
 init: containerization vminitd
 	@echo Creating init.ext4...
 	@rm -f bin/init.rootfs.tar.gz bin/init.block
-	@./bin/cctl rootfs create --vminitd vminitd/bin/vminitd --labels org.opencontainers.image.source=https://github.com/apple/containerization --vmexec vminitd/bin/vmexec bin/init.rootfs.tar.gz vminit:latest
+	@./bin/cctl rootfs create \
+		--vminitd vminitd/bin/vminitd \
+		--vmexec vminitd/bin/vmexec \
+		--label org.opencontainers.image.source=https://github.com/apple/containerization \
+		--image vminit:latest \
+		bin/init.rootfs.tar.gz
 
 .PHONY: cross-prep
 cross-prep:
@@ -66,7 +76,7 @@ cross-prep:
 .PHONY: vminitd
 vminitd:
 	@mkdir -p ./bin
-	@"$(MAKE)" -C vminitd BUILD_CONFIGURATION=$(BUILD_CONFIGURATION)
+	@"$(MAKE)" -C vminitd BUILD_CONFIGURATION=$(BUILD_CONFIGURATION) WARNINGS_AS_ERRORS=$(WARNINGS_AS_ERRORS)
 
 .PHONY: update-libarchive-source
 update-libarchive-source:
@@ -80,7 +90,19 @@ update-libarchive-source:
 .PHONY: test
 test:
 	@echo Testing all test targets...
-	@$(SWIFT) test --enable-code-coverage
+	@$(SWIFT) test --enable-code-coverage $(SWIFT_CONFIGURATION)
+
+.PHONY: coverage
+coverage: test
+	@echo Generating code coverage report...
+	@xcrun llvm-cov show --compilation-dir=`pwd` \
+		-instr-profile=$(COV_DATA_DIR)/default.profdata \
+		--ignore-filename-regex=".build/" \
+		--ignore-filename-regex=".pb.swift" \
+		--ignore-filename-regex=".proto" \
+		--ignore-filename-regex=".grpc.swift" \
+		$(BUILD_BIN_DIR)/containerizationPackageTests.xctest/Contents/MacOS/containerizationPackageTests > $(COV_REPORT_FILE)
+	@echo Code coverage report generated: $(COV_REPORT_FILE)
 
 .PHONY: integration
 integration:
@@ -147,9 +169,10 @@ cleancontent:
 
 .PHONY: clean
 clean:
-	@echo Cleaning the build files...
+	@echo Cleaning build files...
 	@rm -rf bin/
 	@rm -rf _site/
 	@rm -rf _serve/
+	@rm -f $(COV_REPORT_FILE)
 	@$(SWIFT) package clean
 	@"$(MAKE)" -C vminitd clean

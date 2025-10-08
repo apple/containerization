@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -46,14 +46,8 @@ struct ExecCommand: ParsableCommand {
         try execInNamespaces(process: process, log: log)
     }
 
-    static func enterNS(path: String, nsType: Int32) throws {
-        let fd = open(path, O_RDONLY)
-        if fd <= 0 {
-            throw App.Errno(stage: "open(ns)")
-        }
-        defer { close(fd) }
-
-        guard setns(fd, nsType) == 0 else {
+    static func enterNS(pidFd: Int32, nsType: Int32) throws {
+        guard setns(pidFd, nsType) == 0 else {
             throw App.Errno(stage: "setns(fd)")
         }
     }
@@ -62,35 +56,69 @@ struct ExecCommand: ParsableCommand {
         process: ContainerizationOCI.Process,
         log: Logger
     ) throws {
-        // CLOEXEC the pipe fd that signals process readiness.
-        let syncfd = FileHandle(fileDescriptor: 3)
-        if fcntl(3, F_SETFD, FD_CLOEXEC) == -1 {
-            throw App.Errno(stage: "cloexec(syncfd)")
+        let syncPipe = FileHandle(fileDescriptor: 3)
+        let ackPipe = FileHandle(fileDescriptor: 4)
+
+        let pidFd = CZ_pidfd_open(Int32(parentPid), 0)
+        guard pidFd > 0 else {
+            throw App.Errno(stage: "pidfd_open(\(parentPid))")
         }
+        try Self.enterNS(
+            pidFd: pidFd,
+            nsType: CLONE_NEWCGROUP | CLONE_NEWPID | CLONE_NEWUTS | CLONE_NEWNS
+        )
 
-        try Self.enterNS(path: "/proc/\(self.parentPid)/ns/cgroup", nsType: CLONE_NEWCGROUP)
-        try Self.enterNS(path: "/proc/\(self.parentPid)/ns/pid", nsType: CLONE_NEWPID)
-        try Self.enterNS(path: "/proc/\(self.parentPid)/ns/uts", nsType: CLONE_NEWUTS)
-        try Self.enterNS(path: "/proc/\(self.parentPid)/ns/mnt", nsType: CLONE_NEWNS)
-
-        let childPipe = Pipe()
-        try childPipe.setCloexec()
         let processID = fork()
 
         guard processID != -1 else {
-            try? childPipe.fileHandleForReading.close()
-            try? childPipe.fileHandleForWriting.close()
-            try? syncfd.close()
+            try? syncPipe.close()
+            try? ackPipe.close()
 
             throw App.Errno(stage: "fork")
         }
 
         if processID == 0 {  // child
-            try childPipe.fileHandleForReading.close()
-            try syncfd.close()
+            // Wait for the grandparent to tell us that they acked our pid.
+            guard let data = try ackPipe.read(upToCount: App.ackPid.count) else {
+                throw App.Failure(message: "read ack pipe")
+            }
+            guard let pidAckStr = String(data: data, encoding: .utf8) else {
+                throw App.Failure(message: "convert ack pipe data to string")
+            }
+
+            guard pidAckStr == App.ackPid else {
+                throw App.Failure(message: "received invalid acknowledgement string: \(pidAckStr)")
+            }
 
             guard setsid() != -1 else {
                 throw App.Errno(stage: "setsid()")
+            }
+
+            if process.terminal {
+                let pty = try Console()
+                try pty.configureStdIO()
+                var masterFD = pty.master
+
+                let data = Data(bytes: &masterFD, count: MemoryLayout.size(ofValue: masterFD))
+                try syncPipe.write(contentsOf: data)
+
+                // Wait for the grandparent to tell us that they acked our console.
+                guard let data = try ackPipe.read(upToCount: App.ackConsole.count) else {
+                    throw App.Failure(message: "read ack pipe")
+                }
+
+                guard let consoleAckStr = String(data: data, encoding: .utf8) else {
+                    throw App.Failure(message: "convert ack pipe data to string")
+                }
+
+                guard consoleAckStr == App.ackConsole else {
+                    throw App.Failure(message: "received invalid acknowledgement string: \(consoleAckStr)")
+                }
+
+                guard ioctl(0, UInt(TIOCSCTTY), 0) != -1 else {
+                    throw App.Errno(stage: "setctty(0)")
+                }
+                try pty.close()
             }
 
             // Apply O_CLOEXEC to all file descriptors except stdio.
@@ -106,26 +134,13 @@ struct ExecCommand: ParsableCommand {
             // Set uid, gid, and supplementary groups
             try App.setPermissions(user: process.user)
 
-            if process.terminal {
-                guard ioctl(0, UInt(TIOCSCTTY), 0) != -1 else {
-                    throw App.Errno(stage: "setctty()")
-                }
-            }
-
             try App.exec(process: process)
         } else {  // parent process
-            try childPipe.fileHandleForWriting.close()
-
-            // wait until the pipe is closed then carry on.
-            _ = try childPipe.fileHandleForReading.readToEnd()
-            try childPipe.fileHandleForReading.close()
-
-            // send our child's pid to our parent before we exit.
+            // Send our child's pid to our parent before we exit.
             var childPid = processID
             let data = Data(bytes: &childPid, count: MemoryLayout.size(ofValue: childPid))
 
-            try syncfd.write(contentsOf: data)
-            try syncfd.close()
+            try syncPipe.write(contentsOf: data)
         }
     }
 }

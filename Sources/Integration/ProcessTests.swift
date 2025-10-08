@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -37,7 +37,7 @@ extension IntegrationSuite {
         let status = try await container.wait()
         try await container.stop()
 
-        guard status == 0 else {
+        guard status.exitCode == 0 else {
             throw IntegrationError.assert(msg: "process status \(status) != 0")
         }
     }
@@ -56,12 +56,13 @@ extension IntegrationSuite {
         let status = try await container.wait()
         try await container.stop()
 
-        guard status == 1 else {
+        guard status.exitCode == 1 else {
             throw IntegrationError.assert(msg: "process status \(status) != 1")
         }
     }
 
     final class BufferWriter: Writer {
+        // `data` isn't used concurrently.
         nonisolated(unsafe) var data = Data()
 
         func write(_ data: Data) throws {
@@ -104,7 +105,7 @@ extension IntegrationSuite {
             let status = try await container.wait()
             try await container.stop()
 
-            guard status == 0 else {
+            guard status.exitCode == 0 else {
                 throw IntegrationError.assert(msg: "process status \(status) != 1")
             }
 
@@ -139,7 +140,7 @@ extension IntegrationSuite {
                     group.addTask {
                         try await exec.start()
                         let status = try await exec.wait()
-                        if status != 0 {
+                        if status.exitCode != 0 {
                             throw IntegrationError.assert(msg: "process status \(status) != 0")
                         }
                         try await exec.delete()
@@ -184,7 +185,7 @@ extension IntegrationSuite {
 
             try await exec.start()
             let status = try await exec.wait()
-            if status != 0 {
+            if status.exitCode != 0 {
                 throw IntegrationError.assert(msg: "process status \(status) != 0")
             }
 
@@ -202,7 +203,7 @@ extension IntegrationSuite {
                         try await exec.start()
 
                         let status = try await exec.wait()
-                        if status != 0 {
+                        if status.exitCode != 0 {
                             throw IntegrationError.assert(msg: "process \(idx) status \(status) != 0")
                         }
 
@@ -233,8 +234,8 @@ extension IntegrationSuite {
         let id = "test-process-user"
 
         let bs = try await bootstrap()
-        let buffer = BufferWriter()
-        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+        var buffer = BufferWriter()
+        var container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["/usr/bin/id"]
             config.process.user = .init(uid: 1, gid: 1, additionalGids: [1])
             config.process.stdout = buffer
@@ -243,18 +244,82 @@ extension IntegrationSuite {
         try await container.create()
         try await container.start()
 
-        let status = try await container.wait()
+        var status = try await container.wait()
         try await container.stop()
 
-        guard status == 0 else {
+        guard status.exitCode == 0 else {
             throw IntegrationError.assert(msg: "process status \(status) != 0")
         }
-        let expected = "uid=1(bin) gid=1(bin) groups=1(bin)"
 
+        var expected = "uid=1(bin) gid=1(bin) groups=1(bin)"
         guard String(data: buffer.data, encoding: .utf8) == "\(expected)\n" else {
             throw IntegrationError.assert(
                 msg: "process should have returned on stdout '\(expected)' != '\(String(data: buffer.data, encoding: .utf8)!)'")
         }
+
+        buffer = BufferWriter()
+        container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/usr/bin/id"]
+            // Try some uid that doesn't exist. This is supported.
+            config.process.user = .init(uid: 40000, gid: 40000)
+            config.process.stdout = buffer
+        }
+
+        try await container.create()
+        try await container.start()
+
+        status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        expected = "uid=40000 gid=40000 groups=40000"
+        guard String(data: buffer.data, encoding: .utf8) == "\(expected)\n" else {
+            throw IntegrationError.assert(
+                msg: "process should have returned on stdout '\(expected)' != '\(String(data: buffer.data, encoding: .utf8)!)'")
+        }
+
+        buffer = BufferWriter()
+        container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/usr/bin/id"]
+            // Try some uid that doesn't exist. This is supported.
+            config.process.user = .init(username: "40000:40000")
+            config.process.stdout = buffer
+        }
+
+        try await container.create()
+        try await container.start()
+
+        status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        expected = "uid=40000 gid=40000 groups=40000"
+        guard String(data: buffer.data, encoding: .utf8) == "\(expected)\n" else {
+            throw IntegrationError.assert(
+                msg: "process should have returned on stdout '\(expected)' != '\(String(data: buffer.data, encoding: .utf8)!)'")
+        }
+
+        buffer = BufferWriter()
+        container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/usr/bin/id"]
+            // Now for our final trick, try and run a username that doesn't exist.
+            config.process.user = .init(username: "thisdoesntexist")
+            config.process.stdout = buffer
+        }
+
+        try await container.create()
+        do {
+            try await container.start()
+        } catch {
+            return
+        }
+        throw IntegrationError.assert(msg: "container start should have failed")
     }
 
     // Ensure if we ask for a terminal we set TERM.
@@ -275,7 +340,7 @@ extension IntegrationSuite {
         let status = try await container.wait()
         try await container.stop()
 
-        guard status == 0 else {
+        guard status.exitCode == 0 else {
             throw IntegrationError.assert(msg: "process status \(status) != 0")
         }
 
@@ -309,7 +374,7 @@ extension IntegrationSuite {
         let status = try await container.wait()
         try await container.stop()
 
-        guard status == 0 else {
+        guard status.exitCode == 0 else {
             throw IntegrationError.assert(msg: "process status \(status) != 0")
         }
 
@@ -344,7 +409,7 @@ extension IntegrationSuite {
         let status = try await container.wait()
         try await container.stop()
 
-        guard status == 0 else {
+        guard status.exitCode == 0 else {
             throw IntegrationError.assert(msg: "process status \(status) != 0")
         }
 
@@ -374,7 +439,7 @@ extension IntegrationSuite {
         let status = try await container.wait()
         try await container.stop()
 
-        guard status == 0 else {
+        guard status.exitCode == 0 else {
             throw IntegrationError.assert(msg: "process status \(status) != 0")
         }
         let expected = "foo-bar"
@@ -403,7 +468,7 @@ extension IntegrationSuite {
         let status = try await container.wait()
         try await container.stop()
 
-        guard status == 0 else {
+        guard status.exitCode == 0 else {
             throw IntegrationError.assert(msg: "process status \(status) != 0")
         }
 
@@ -431,7 +496,7 @@ extension IntegrationSuite {
         let status = try await container.wait()
         try await container.stop()
 
-        guard status == 0 else {
+        guard status.exitCode == 0 else {
             throw IntegrationError.assert(msg: "process status \(status) != 0")
         }
         let expected = "Hello from test"

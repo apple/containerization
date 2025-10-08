@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -38,5 +38,21 @@ final class KernelTests {
         let expected = "console=hvc0 tsc=reliable debug panic=0"
         let cmdline = kernel.commandLine.kernelArgs.joined(separator: " ")
         #expect(cmdline == expected)
+    }
+
+    @Test func kernelCommandLineInitWithDebugTrue() {
+        let commandLine = Kernel.CommandLine(debug: true, panic: 5, initArgs: ["--verbose"])
+
+        #expect(commandLine.kernelArgs == ["console=hvc0", "tsc=reliable", "debug", "panic=5"])
+        #expect(commandLine.initArgs == ["--verbose"])
+    }
+
+    @Test func kernelCommandLineMutatingMethods() {
+        var commandLine = Kernel.CommandLine(kernelArgs: ["console=hvc0"], initArgs: [])
+
+        commandLine.addDebug()
+        commandLine.addPanic(level: 10)
+
+        #expect(commandLine.kernelArgs == ["console=hvc0", "debug", "panic=10"])
     }
 }

@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,12 +17,14 @@
 import Foundation
 import Logging
 
-actor TimeSyncer: Sendable {
+actor TimeSyncer {
     private var task: Task<Void, Never>?
     private var context: Vminitd?
+    private var paused: Bool
     private let logger: Logger?
 
     init(logger: Logger?) {
+        self.paused = false
         self.logger = logger
     }
 
@@ -36,6 +38,10 @@ actor TimeSyncer: Sendable {
                         try await Task.sleep(for: interval)
                     } catch {
                         return
+                    }
+
+                    guard !paused else {
+                        continue
                     }
 
                     var timeval = timeval()
@@ -52,6 +58,14 @@ actor TimeSyncer: Sendable {
                 }
             }
         }
+    }
+
+    func pause() async {
+        self.paused = true
+    }
+
+    func resume() async {
+        self.paused = false
     }
 
     func close() async throws {

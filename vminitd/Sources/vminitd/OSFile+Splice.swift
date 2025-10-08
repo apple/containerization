@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,9 +18,9 @@ import Foundation
 
 extension OSFile {
     struct SpliceFile: Sendable {
-        var file: OSFile
-        var offset: Int
-        let pipe = Pipe()
+        fileprivate var file: OSFile
+        fileprivate var offset: Int
+        fileprivate let pipe = Pipe()
 
         var fileDescriptor: Int32 {
             file.fileDescriptor

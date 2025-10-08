@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -29,7 +29,7 @@ import vmnet
 public struct ContainerManager: Sendable {
     public let imageStore: ImageStore
     private let vmm: VirtualMachineManager
-    private let network: Network?
+    private var network: Network?
 
     private var containerRoot: URL {
         self.imageStore.path.appendingPathComponent("containers")
@@ -37,14 +37,15 @@ public struct ContainerManager: Sendable {
 
     /// A network that can allocate and release interfaces for use with containers.
     public protocol Network: Sendable {
-        func create(_ id: String) throws -> Interface?
-        func release(_ id: String) throws
+        mutating func create(_ id: String) throws -> Interface?
+        mutating func release(_ id: String) throws
     }
 
     /// A network backed by vmnet on macOS.
     @available(macOS 26.0, *)
     public struct VmnetNetwork: Network {
-        private let allocator: Allocator
+        private var allocator: Allocator
+        // `reference` isn't used concurrently.
         nonisolated(unsafe) private let reference: vmnet_network_ref
 
         /// The IPv4 subnet of this network.
@@ -70,18 +71,20 @@ public struct ContainerManager: Sendable {
                 )
             }
 
-            func allocate(_ id: String) throws -> String {
+            mutating func allocate(_ id: String) throws -> String {
                 if allocations[id] != nil {
                     throw ContainerizationError(.exists, message: "allocation with id \(id) already exists")
                 }
                 let index = try addressAllocator.allocate()
+                allocations[id] = index
                 let ip = IPv4Address(fromValue: index)
                 return try CIDRAddress(ip, prefixLength: cidr.prefixLength).description
             }
 
-            func release(_ id: String) throws {
+            mutating func release(_ id: String) throws {
                 if let index = self.allocations[id] {
                     try addressAllocator.release(index)
+                    allocations.removeValue(forKey: id)
                 }
             }
         }
@@ -92,6 +95,7 @@ public struct ContainerManager: Sendable {
             public let gateway: String?
             public let macAddress: String?
 
+            // `reference` isn't used concurrently.
             nonisolated(unsafe) private let reference: vmnet_network_ref
 
             public init(
@@ -147,7 +151,7 @@ public struct ContainerManager: Sendable {
 
         /// Returns a new interface for use with a container.
         /// - Parameter id: The container ID.
-        public func create(_ id: String) throws -> Containerization.Interface? {
+        public mutating func create(_ id: String) throws -> Containerization.Interface? {
             let address = try allocator.allocate(id)
             return Self.Interface(
                 reference: self.reference,
@@ -158,7 +162,7 @@ public struct ContainerManager: Sendable {
 
         /// Performs cleanup of an interface.
         /// - Parameter id: The container ID.
-        public func release(_ id: String) throws {
+        public mutating func release(_ id: String) throws {
             try allocator.release(id)
         }
 
@@ -332,7 +336,7 @@ public struct ContainerManager: Sendable {
     ///   - id: The container ID.
     ///   - reference: The image reference.
     ///   - rootfsSizeInBytes: The size of the root filesystem in bytes. Defaults to 8 GiB.
-    public func create(
+    public mutating func create(
         _ id: String,
         reference: String,
         rootfsSizeInBytes: UInt64 = 8.gib(),
@@ -352,7 +356,7 @@ public struct ContainerManager: Sendable {
     ///   - id: The container ID.
     ///   - image: The image.
     ///   - rootfsSizeInBytes: The size of the root filesystem in bytes. Defaults to 8 GiB.
-    public func create(
+    public mutating func create(
         _ id: String,
         image: Image,
         rootfsSizeInBytes: UInt64 = 8.gib(),
@@ -378,7 +382,7 @@ public struct ContainerManager: Sendable {
     ///   - id: The container ID.
     ///   - image: The image.
     ///   - rootfs: The root filesystem mount pointing to an existing block file.
-    public func create(
+    public mutating func create(
         _ id: String,
         image: Image,
         rootfs: Mount,
@@ -405,7 +409,7 @@ public struct ContainerManager: Sendable {
     /// - Parameters:
     ///   - id: The container ID.
     ///   - image: The image.
-    public func get(
+    public mutating func get(
         _ id: String,
         image: Image,
     ) async throws -> LinuxContainer {
@@ -439,7 +443,7 @@ public struct ContainerManager: Sendable {
 
     /// Performs the cleanup of a container.
     /// - Parameter id: The container ID.
-    public func delete(_ id: String) throws {
+    public mutating func delete(_ id: String) throws {
         try self.network?.release(id)
         let path = containerRoot.appendingPathComponent(id)
         try FileManager.default.removeItem(at: path)
@@ -474,11 +478,6 @@ extension CIDRAddress {
     public var gateway: IPv4Address {
         IPv4Address(fromValue: self.lower.value + 1)
     }
-}
-
-@available(macOS 26.0, *)
-private struct SendableReference: Sendable {
-    nonisolated(unsafe) private let reference: vmnet_network_ref
 }
 
 #endif

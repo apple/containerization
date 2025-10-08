@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -83,6 +83,34 @@ extension VZVirtualMachine {
             queue.sync {
                 self.stop { error in
                     if let error {
+                        cont.resume(throwing: error)
+                        return
+                    }
+                    cont.resume()
+                }
+            }
+        }
+    }
+
+    func pause(queue: DispatchQueue) async throws {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            queue.sync {
+                self.pause { result in
+                    if case .failure(let error) = result {
+                        cont.resume(throwing: error)
+                        return
+                    }
+                    cont.resume()
+                }
+            }
+        }
+    }
+
+    func resume(queue: DispatchQueue) async throws {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            queue.sync {
+                self.resume { result in
+                    if case .failure(let error) = result {
                         cont.resume(throwing: error)
                         return
                     }

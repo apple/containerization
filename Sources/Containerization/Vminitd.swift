@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -56,8 +56,6 @@ extension Vminitd: VirtualMachineAgent {
         try await setenv(key: "PATH", value: Self.defaultPath)
 
         let mounts: [ContainerizationOCI.Mount] = [
-            // NOTE: /proc is always done implicitly by the guest agent.
-            .init(type: "tmpfs", source: "tmpfs", destination: "/run"),
             .init(type: "sysfs", source: "sysfs", destination: "/sys"),
             .init(type: "tmpfs", source: "tmpfs", destination: "/tmp"),
             .init(type: "devpts", source: "devpts", destination: "/dev/pts", options: ["gid=5", "mode=620", "ptmxmode=666"]),
@@ -66,6 +64,46 @@ extension Vminitd: VirtualMachineAgent {
         for mount in mounts {
             try await self.mount(mount)
         }
+
+        // Setup root cg subtree_control.
+        let data = "+memory +pids +io +cpu +cpuset +hugetlb".data(using: .utf8)!
+        try await writeFile(
+            path: "/sys/fs/cgroup/cgroup.subtree_control",
+            data: data,
+            flags: .init(),
+            mode: 0
+        )
+    }
+
+    public func writeFile(path: String, data: Data, flags: WriteFileFlags, mode: UInt32) async throws {
+        _ = try await client.writeFile(
+            .with {
+                $0.path = path
+                $0.mode = mode
+                $0.data = data
+                $0.flags = .with {
+                    $0.append = flags.append
+                    $0.createIfMissing = flags.create
+                    $0.createParentDirs = flags.createParentDirectories
+                }
+            })
+    }
+
+    /// Get statistics about an interface.
+    public func interfaceStatistics(name: String) async throws -> InterfaceStatistics {
+        let stats = try await client.interfaceStatistics(
+            .with {
+                $0.interface = name
+            })
+        return InterfaceStatistics(
+            name: name,
+            receivedPackets: stats.hasReceivedPackets ? stats.receivedPackets : nil,
+            transmittedPackets: stats.hasTransmittedPackets ? stats.transmittedPackets : nil,
+            receivedBytes: stats.hasReceivedBytes ? stats.receivedBytes : nil,
+            transmittedBytes: stats.hasTransmittedBytes ? stats.transmittedBytes : nil,
+            receivedErrors: stats.hasReceivedErrors ? stats.receivedErrors : nil,
+            transmittedErrors: stats.hasTransmittedErrors ? stats.transmittedErrors : nil
+        )
     }
 
     /// Mount a filesystem in the sandbox's environment.
@@ -162,7 +200,11 @@ extension Vminitd: VirtualMachineAgent {
         _ = try await client.resizeProcess(request)
     }
 
-    public func waitProcess(id: String, containerID: String?, timeoutInSeconds: Int64? = nil) async throws -> Int32 {
+    public func waitProcess(
+        id: String,
+        containerID: String?,
+        timeoutInSeconds: Int64? = nil
+    ) async throws -> ExitStatus {
         let request = Com_Apple_Containerization_Sandbox_V3_WaitProcessRequest.with {
             $0.id = id
             if let containerID {
@@ -177,7 +219,7 @@ extension Vminitd: VirtualMachineAgent {
         }
         do {
             let resp = try await client.waitProcess(request, callOptions: callOpts)
-            return resp.exitCode
+            return ExitStatus(exitCode: resp.exitCode, exitedAt: resp.exitedAt.date)
         } catch {
             if let err = error as? GRPCError.RPCTimedOut {
                 throw ContainerizationError(

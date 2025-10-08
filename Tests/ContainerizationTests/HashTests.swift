@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,23 +14,25 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-import ContainerizationOS
 import Foundation
+import Testing
 
-extension Vminitd {
-    /// Enable Rosetta's x86_64 emulation.
-    public func enableRosetta() async throws {
-        let path = "/run/rosetta"
-        try await self.mount(
-            .init(
-                type: "virtiofs",
-                source: "rosetta",
-                destination: path
-            )
-        )
-        try await self.setupEmulator(
-            binaryPath: "\(path)/rosetta",
-            configuration: Binfmt.Entry.amd64()
-        )
+@testable import Containerization
+
+struct HashTests {
+
+    @Test func hashMountSourceWithValidString() throws {
+        let result = try hashMountSource(source: "/valid/path")
+
+        // Should produce a non-empty hash
+        #expect(!result.isEmpty)
+
+        // Same input should produce same hash (deterministic)
+        let result2 = try hashMountSource(source: "/valid/path")
+        #expect(result == result2)
+
+        // Different inputs should produce different hashes
+        let result3 = try hashMountSource(source: "/different/path")
+        #expect(result != result3)
     }
 }

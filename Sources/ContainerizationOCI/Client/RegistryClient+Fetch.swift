@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ import Foundation
 import NIOFoundationCompat
 
 #if os(macOS)
-import NIOFileSystem
+import _NIOFileSystem
 #endif
 
 extension RegistryClient {
@@ -170,7 +170,7 @@ extension RegistryClient {
     public func fetchBlob(name: String, descriptor: Descriptor, into file: URL, progress: ProgressHandler?) async throws -> (Int64, SHA256Digest) {
         var hasher = SHA256()
         var received: Int64 = 0
-        let fs = NIOFileSystem.FileSystem.shared
+        let fs = _NIOFileSystem.FileSystem.shared
         let handle = try await fs.openFile(forWritingAt: FilePath(file.absolutePath()), options: .newFile(replaceExisting: true))
         var writer = handle.bufferedWriter()
         do {
@@ -195,7 +195,12 @@ extension RegistryClient {
             try await writer.flush()
             try await handle.close()
         } catch {
-            try? await handle.close()
+            do {
+                try await handle.close()
+            } catch {
+                // Use `detachUnsafeFileDescriptor()` as suggested by the error message to prevent a leak detection crash when `close()` fails.
+                _ = try handle.detachUnsafeFileDescriptor()
+            }
             throw error
         }
         let computedDigest = hasher.finalize()

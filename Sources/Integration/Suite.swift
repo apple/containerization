@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -209,8 +209,13 @@ struct IntegrationSuite: AsyncParsableCommand {
             "container hostname": testHostname,
             "container hosts": testHostsFile,
             "container mount": testMounts,
+            "container pause and resume": testPauseResume,
+            "container pause, resume and wait": testPauseResumeWait,
+            "container pause, resume and verify io": testPauseResumeIO,
             "nested virt": testNestedVirtualizationEnabled,
             "container manager": testContainerManagerCreate,
+            "container reuse": testContainerReuse,
+            "container /dev/console": testContainerDevConsole,
         ]
 
         var passed = 0

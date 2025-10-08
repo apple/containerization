@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -189,7 +189,7 @@ extension EXT4 {
             }
         }
 
-        private func getExtents(inode: InodeNumber) throws -> [(start: UInt32, end: UInt32)]? {
+        func getExtents(inode: InodeNumber) throws -> [(start: UInt32, end: UInt32)]? {
             let inode = try self.getInode(number: inode)
             let inodeBlock = Data(tupleToArray(inode.block))
             var offset = 0
