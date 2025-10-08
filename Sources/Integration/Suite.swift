@@ -217,6 +217,7 @@ struct IntegrationSuite: AsyncParsableCommand {
             "container reuse": testContainerReuse,
             "container /dev/console": testContainerDevConsole,
             "container statistics": testContainerStatistics,
+            "container cgroup limits": testCgroupLimits,
         ]
 
         var passed = 0

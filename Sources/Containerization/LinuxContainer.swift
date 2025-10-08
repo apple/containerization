@@ -467,6 +467,19 @@ public final class LinuxContainer: Container, Sendable {
         // Linux toggles.
         spec.linux?.sysctl = config.sysctl
 
+        // Resource limits.
+        // CPU: quota/period model where period is 100ms (100,000µs) and quota is cpus * period
+        // Memory: limit in bytes
+        spec.linux?.resources = LinuxResources(
+            memory: LinuxMemory(
+                limit: Int64(config.memoryInBytes)
+            ),
+            cpu: LinuxCPU(
+                quota: Int64(config.cpus * 100_000),
+                period: 100_000
+            )
+        )
+
         return spec
     }
 

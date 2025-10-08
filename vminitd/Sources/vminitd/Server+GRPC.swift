@@ -14,6 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import Cgroup
 import Containerization
 import ContainerizationError
 import ContainerizationNetlink

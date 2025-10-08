@@ -14,6 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import Cgroup
 import ContainerizationError
 import ContainerizationOCI
 import ContainerizationOS
@@ -59,10 +60,7 @@ actor ManagedContainer {
         try cgManager.create()
 
         do {
-            try cgManager.toggleSubtreeControllers(
-                controllers: [.cpu, .cpuset, .hugetlb, .io, .memory, .pids],
-                enable: true
-            )
+            try cgManager.toggleAllAvailableControllers(enable: true)
 
             let initProcess = try ManagedProcess(
                 id: id,

@@ -14,6 +14,10 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+// NOTE: Ideally this should live in ContainerizationOS/Linux, or just ContainerizationCgroups
+// or something similar, but it's not there yet. It does what we need, but it'd need a lot more
+// features and testing before it's ready to be public.
+
 #if os(Linux)
 
 #if canImport(Musl)
@@ -22,11 +26,12 @@ import Musl
 import Glibc
 #endif
 
+import ContainerizationOCI
 import ContainerizationOS
 import Foundation
 import Logging
 
-enum Cgroup2Controller: String {
+package enum Cgroup2Controller: String {
     case pids
     case memory
     case cpuset
@@ -37,8 +42,8 @@ enum Cgroup2Controller: String {
 
 // Extremely simple cgroup manager. Our needs are simple for now, and this is
 // reflected in the type.
-struct Cgroup2Manager: Sendable {
-    static let defaultMountPoint = URL(filePath: "/sys/fs/cgroup")
+package struct Cgroup2Manager: Sendable {
+    package static let defaultMountPoint = URL(filePath: "/sys/fs/cgroup")
 
     private static let killFile = "cgroup.kill"
     private static let procsFile = "cgroup.procs"
@@ -50,7 +55,7 @@ struct Cgroup2Manager: Sendable {
     private let path: URL
     private let logger: Logger?
 
-    init(
+    package init(
         mountPoint: URL = Self.defaultMountPoint,
         group: URL,
         logger: Logger? = nil
@@ -60,7 +65,7 @@ struct Cgroup2Manager: Sendable {
         self.logger = logger
     }
 
-    static func load(
+    package static func load(
         mountPoint: URL = Self.defaultMountPoint,
         group: URL,
         logger: Logger? = nil
@@ -81,7 +86,7 @@ struct Cgroup2Manager: Sendable {
         )
     }
 
-    static func loadFromPid(pid: Int32, logger: Logger? = nil) throws -> Cgroup2Manager {
+    package static func loadFromPid(pid: Int32, logger: Logger? = nil) throws -> Cgroup2Manager {
         let procCgPath = URL(filePath: "/proc/\(pid)/cgroup")
         let fh = try FileHandle(forReadingFrom: procCgPath)
         guard let data = try fh.readToEnd() else {
@@ -101,7 +106,7 @@ struct Cgroup2Manager: Sendable {
         return Cgroup2Manager(group: URL(filePath: String(path)), logger: logger)
     }
 
-    func create(perms: Int16 = 0o755) throws {
+    package func create(perms: Int16 = 0o755) throws {
         self.logger?.info(
             "creating cgroup manager",
             metadata: [
@@ -133,7 +138,7 @@ struct Cgroup2Manager: Sendable {
         }
     }
 
-    func toggleSubtreeControllers(controllers: [Cgroup2Controller], enable: Bool) throws {
+    package func toggleSubtreeControllers(controllers: [Cgroup2Controller], enable: Bool) throws {
         let value = controllers.map { (enable ? "+" : "-") + $0.rawValue }.joined(separator: " ")
         let mountComponents = self.mountPoint.pathComponents
         let pathComponents = self.path.pathComponents
@@ -160,7 +165,24 @@ struct Cgroup2Manager: Sendable {
         }
     }
 
-    func addProcess(pid: Int32) throws {
+    package func toggleAllAvailableControllers(enable: Bool) throws {
+        // Read available controllers from cgroup.controllers
+        let controllersFile = self.mountPoint.appending(path: "cgroup.controllers")
+        let controllersContent = try String(contentsOf: controllersFile, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Parse controller names and convert to our enum
+        let availableControllers =
+            controllersContent
+            .split(separator: " ")
+            .compactMap { Cgroup2Controller(rawValue: String($0)) }
+
+        if !availableControllers.isEmpty {
+            try toggleSubtreeControllers(controllers: availableControllers, enable: enable)
+        }
+    }
+
+    package func addProcess(pid: Int32) throws {
         self.logger?.debug(
             "adding new proc to cgroup",
             metadata: [
@@ -176,7 +198,43 @@ struct Cgroup2Manager: Sendable {
         )
     }
 
-    func kill() throws {
+    package func applyResources(resources: ContainerizationOCI.LinuxResources) throws {
+        self.logger?.debug(
+            "applying cgroup resources",
+            metadata: [
+                "path": "\(self.path.path)"
+            ])
+
+        if let memory = resources.memory, let limit = memory.limit {
+            try Self.writeValue(
+                path: self.path,
+                value: String(limit),
+                fileName: "memory.max"
+            )
+        }
+
+        if let cpu = resources.cpu {
+            if let quota = cpu.quota, let period = cpu.period {
+                // cpu.max format is "quota period"
+                let value = "\(quota) \(period)"
+                try Self.writeValue(
+                    path: self.path,
+                    value: value,
+                    fileName: "cpu.max"
+                )
+            }
+        }
+
+        if let pids = resources.pids {
+            try Self.writeValue(
+                path: self.path,
+                value: String(pids.limit),
+                fileName: "pids.max"
+            )
+        }
+    }
+
+    package func kill() throws {
         try Self.writeValue(
             path: self.path,
             value: "1",
@@ -184,7 +242,7 @@ struct Cgroup2Manager: Sendable {
         )
     }
 
-    func delete(force: Bool = false) throws {
+    package func delete(force: Bool = false) throws {
         self.logger?.info(
             "deleting cgroup manager",
             metadata: [
@@ -198,7 +256,7 @@ struct Cgroup2Manager: Sendable {
         try FileManager.default.removeItem(at: self.path)
     }
 
-    func stats() throws -> Cgroup2Stats {
+    package func stats() throws -> Cgroup2Stats {
         let pidsStats = try self.readPidsStats()
         let memoryStats = try self.readMemoryStats()
         let cpuStats = try self.readCPUStats()
@@ -380,13 +438,13 @@ struct Cgroup2Manager: Sendable {
     }
 }
 
-struct Cgroup2Stats: Sendable {
-    var pids: PidsStats?
-    var memory: MemoryStats?
-    var cpu: CPUStats?
-    var io: IOStats?
+package struct Cgroup2Stats: Sendable {
+    package var pids: PidsStats?
+    package var memory: MemoryStats?
+    package var cpu: CPUStats?
+    package var io: IOStats?
 
-    init(
+    package init(
         pids: PidsStats? = nil,
         memory: MemoryStats? = nil,
         cpu: CPUStats? = nil,
@@ -399,45 +457,45 @@ struct Cgroup2Stats: Sendable {
     }
 }
 
-struct PidsStats: Sendable {
-    var current: UInt64
-    var max: UInt64?
+package struct PidsStats: Sendable {
+    package var current: UInt64
+    package var max: UInt64?
 
-    init(current: UInt64, max: UInt64? = nil) {
+    package init(current: UInt64, max: UInt64? = nil) {
         self.current = current
         self.max = max
     }
 }
 
-struct MemoryStats: Sendable {
-    var usage: UInt64
-    var usageLimit: UInt64?
-    var swapUsage: UInt64?
-    var swapLimit: UInt64?
+package struct MemoryStats: Sendable {
+    package var usage: UInt64
+    package var usageLimit: UInt64?
+    package var swapUsage: UInt64?
+    package var swapLimit: UInt64?
 
-    var anon: UInt64
-    var file: UInt64
-    var kernelStack: UInt64
-    var slab: UInt64
-    var sock: UInt64
-    var shmem: UInt64
-    var fileMapped: UInt64
-    var fileDirty: UInt64
-    var fileWriteback: UInt64
+    package var anon: UInt64
+    package var file: UInt64
+    package var kernelStack: UInt64
+    package var slab: UInt64
+    package var sock: UInt64
+    package var shmem: UInt64
+    package var fileMapped: UInt64
+    package var fileDirty: UInt64
+    package var fileWriteback: UInt64
 
-    var pgfault: UInt64
-    var pgmajfault: UInt64
+    package var pgfault: UInt64
+    package var pgmajfault: UInt64
 
-    var workingsetRefault: UInt64
-    var workingsetActivate: UInt64
-    var workingsetNodereclaim: UInt64
+    package var workingsetRefault: UInt64
+    package var workingsetActivate: UInt64
+    package var workingsetNodereclaim: UInt64
 
-    var inactiveAnon: UInt64
-    var activeAnon: UInt64
-    var inactiveFile: UInt64
-    var activeFile: UInt64
+    package var inactiveAnon: UInt64
+    package var activeAnon: UInt64
+    package var inactiveFile: UInt64
+    package var activeFile: UInt64
 
-    init(
+    package init(
         usage: UInt64,
         usageLimit: UInt64? = nil,
         swapUsage: UInt64? = nil,
@@ -486,15 +544,15 @@ struct MemoryStats: Sendable {
     }
 }
 
-struct CPUStats: Sendable {
-    var usageUsec: UInt64
-    var userUsec: UInt64
-    var systemUsec: UInt64
-    var nrPeriods: UInt64
-    var nrThrottled: UInt64
-    var throttledUsec: UInt64
+package struct CPUStats: Sendable {
+    package var usageUsec: UInt64
+    package var userUsec: UInt64
+    package var systemUsec: UInt64
+    package var nrPeriods: UInt64
+    package var nrThrottled: UInt64
+    package var throttledUsec: UInt64
 
-    init(
+    package init(
         usageUsec: UInt64 = 0,
         userUsec: UInt64 = 0,
         systemUsec: UInt64 = 0,
@@ -511,25 +569,25 @@ struct CPUStats: Sendable {
     }
 }
 
-struct IOStats: Sendable {
-    var entries: [IOEntry]
+package struct IOStats: Sendable {
+    package var entries: [IOEntry]
 
-    init(entries: [IOEntry] = []) {
+    package init(entries: [IOEntry] = []) {
         self.entries = entries
     }
 }
 
-struct IOEntry: Sendable {
-    var major: UInt64
-    var minor: UInt64
-    var rbytes: UInt64
-    var wbytes: UInt64
-    var rios: UInt64
-    var wios: UInt64
-    var dbytes: UInt64
-    var dios: UInt64
+package struct IOEntry: Sendable {
+    package var major: UInt64
+    package var minor: UInt64
+    package var rbytes: UInt64
+    package var wbytes: UInt64
+    package var rios: UInt64
+    package var wios: UInt64
+    package var dbytes: UInt64
+    package var dios: UInt64
 
-    init(
+    package init(
         major: UInt64,
         minor: UInt64,
         rbytes: UInt64 = 0,
@@ -551,13 +609,13 @@ struct IOEntry: Sendable {
 }
 
 extension Cgroup2Manager {
-    enum Error: Swift.Error, CustomStringConvertible {
+    package enum Error: Swift.Error, CustomStringConvertible {
         case notCgroup
         case cgroup1
         case errno(errno: Int32, message: String)
         case notExist(path: String)
 
-        var description: String {
+        package var description: String {
             switch self {
             case .errno(let errno, let message):
                 return "failed with errno \(errno): \(message)"

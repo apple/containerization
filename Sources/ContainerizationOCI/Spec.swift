@@ -470,15 +470,15 @@ public struct LinuxCPU: Codable, Sendable {
     public var idle: Int64?
 
     public init(
-        shares: UInt64?,
-        quota: Int64?,
-        burst: UInt64?,
-        period: UInt64?,
-        realtimeRuntime: Int64?,
-        realtimePeriod: Int64?,
-        cpus: String,
-        mems: String,
-        idle: Int64?
+        shares: UInt64? = nil,
+        quota: Int64? = nil,
+        burst: UInt64? = nil,
+        period: UInt64? = nil,
+        realtimeRuntime: Int64? = nil,
+        realtimePeriod: Int64? = nil,
+        cpus: String = "",
+        mems: String = "",
+        idle: Int64? = nil
     ) {
         self.shares = shares
         self.quota = quota

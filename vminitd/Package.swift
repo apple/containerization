@@ -36,6 +36,14 @@ let package = Package(
         .target(
             name: "LCShim"
         ),
+        .target(
+            name: "Cgroup",
+            dependencies: [
+                .product(name: "Logging", package: "swift-log"),
+                .product(name: "ContainerizationOCI", package: "containerization"),
+                .product(name: "ContainerizationOS", package: "containerization"),
+            ]
+        ),
         .executableTarget(
             name: "vminitd",
             dependencies: [
@@ -46,6 +54,7 @@ let package = Package(
                 .product(name: "ContainerizationIO", package: "containerization"),
                 .product(name: "ContainerizationOS", package: "containerization"),
                 "LCShim",
+                "Cgroup",
             ]
         ),
         .executableTarget(
@@ -56,6 +65,7 @@ let package = Package(
                 .product(name: "Containerization", package: "containerization"),
                 .product(name: "ContainerizationOS", package: "containerization"),
                 "LCShim",
+                "Cgroup",
             ]
         ),
     ]
