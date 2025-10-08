@@ -44,7 +44,6 @@ public enum Com_Apple_Containerization_Sandbox_V3_FileSystemEventType: SwiftProt
   case link // = 2
   case unlink // = 3
   case modify // = 4
-  case undefined // = 99
   case UNRECOGNIZED(Int)
 
   public init() {
@@ -58,7 +57,6 @@ public enum Com_Apple_Containerization_Sandbox_V3_FileSystemEventType: SwiftProt
     case 2: self = .link
     case 3: self = .unlink
     case 4: self = .modify
-    case 99: self = .undefined
     default: self = .UNRECOGNIZED(rawValue)
     }
   }
@@ -70,7 +68,6 @@ public enum Com_Apple_Containerization_Sandbox_V3_FileSystemEventType: SwiftProt
     case .link: return 2
     case .unlink: return 3
     case .modify: return 4
-    case .undefined: return 99
     case .UNRECOGNIZED(let i): return i
     }
   }
@@ -82,7 +79,6 @@ public enum Com_Apple_Containerization_Sandbox_V3_FileSystemEventType: SwiftProt
     .link,
     .unlink,
     .modify,
-    .undefined,
   ]
 
 }
@@ -1306,7 +1302,6 @@ extension Com_Apple_Containerization_Sandbox_V3_FileSystemEventType: SwiftProtob
     2: .same(proto: "LINK"),
     3: .same(proto: "UNLINK"),
     4: .same(proto: "MODIFY"),
-    99: .same(proto: "UNDEFINED"),
   ]
 }
 
