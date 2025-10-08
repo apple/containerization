@@ -492,7 +492,8 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                     id: request.id,
                     stdio: stdioPorts,
                     spec: ociSpec,
-                    log: self.log
+                    log: self.log,
+                    group: self.group
                 )
                 try await self.state.add(container: ctr)
             }

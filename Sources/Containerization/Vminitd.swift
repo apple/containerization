@@ -333,6 +333,8 @@ extension Vminitd: VirtualMachineAgent {
 
 /// Vminitd specific rpcs.
 extension Vminitd {
+    public typealias FileSystemEventRequest = Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest
+    public typealias FileSystemEventResponse = Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse
     /// Sets up an emulator in the guest.
     public func setupEmulator(binaryPath: String, configuration: Binfmt.Entry) async throws {
         let request = Com_Apple_Containerization_Sandbox_V3_SetupEmulatorRequest.with {
@@ -428,30 +430,44 @@ extension Vminitd {
         try await self.sync()
     }
 
-    /// Send a filesystem event notification to the guest.
+    /// Send filesystem event notifications to the guest
+    public func notifyFileSystemEvents(
+        _ events: [FileSystemEventRequest]
+    ) async throws -> [FileSystemEventResponse] {
+        let requests = AsyncStream<FileSystemEventRequest> { continuation in
+            for event in events {
+                continuation.yield(event)
+            }
+            continuation.finish()
+        }
+
+        let responses = client.notifyFileSystemEvent(requests)
+        var results: [FileSystemEventResponse] = []
+
+        for try await response in responses {
+            results.append(response)
+        }
+
+        guard results.count == events.count else {
+            throw ContainerizationError(.internalError, message: "Expected \(events.count) responses, got \(results.count)")
+        }
+
+        return results
+    }
+
     public func notifyFileSystemEvent(
         path: String,
         eventType: Com_Apple_Containerization_Sandbox_V3_FileSystemEventType,
         containerID: String
-    ) async throws -> Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse {
-        let request = Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest.with {
+    ) async throws -> FileSystemEventResponse {
+        let request = FileSystemEventRequest.with {
             $0.path = path
             $0.eventType = eventType
             $0.containerID = containerID
         }
 
-        let requests = AsyncStream<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest> { continuation in
-            continuation.yield(request)
-            continuation.finish()
-        }
-
-        let responses = client.notifyFileSystemEvent(requests)
-
-        for try await response in responses {
-            return response
-        }
-
-        throw ContainerizationError(.internalError, message: "No response received from notifyFileSystemEvent")
+        let responses = try await notifyFileSystemEvents([request])
+        return responses[0]
     }
 }
 
