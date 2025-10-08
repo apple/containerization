@@ -115,7 +115,8 @@ public final class RegistryClient: ContentClient {
         // proxy configuration assumes all client requests will go to `base` URL
         self.proxyURL = ProxyUtils.proxyFromEnvironment(scheme: scheme, host: host)
         if let proxyURL = self.proxyURL, let proxyHost = proxyURL.host {
-            httpConfiguration.proxy = HTTPClient.Configuration.Proxy.server(host: proxyHost, port: proxyURL.port ?? 8080)
+            let proxyPort = proxyURL.port ?? (proxyURL.scheme == "https" ? 443 : 80)
+            httpConfiguration.proxy = HTTPClient.Configuration.Proxy.server(host: proxyHost, port: proxyPort)
         }
 
         if let logger {
