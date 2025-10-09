@@ -159,7 +159,7 @@ extension SocketRelay {
         let hostSocket = try Socket(type: socketType)
         try hostSocket.listen()
 
-        log?.info(
+        log?.debug(
             "listening on host UDS",
             metadata: [
                 "path": "\(hostConn.path)",
@@ -191,7 +191,7 @@ extension SocketRelay {
         let log = self.log
 
         let connectionStream = try self.vm.listen(self.port)
-        log?.info(
+        log?.debug(
             "listening on guest vsock",
             metadata: [
                 "path": "\(hostPath)",
@@ -224,7 +224,7 @@ extension SocketRelay {
     ) async throws {
         do {
             let guestConn = try await vm.dial(port)
-            log?.info(
+            log?.debug(
                 "initiating connection from host to guest",
                 metadata: [
                     "vport": "\(port)",
@@ -253,7 +253,7 @@ extension SocketRelay {
             type: socketType,
             closeOnDeinit: false
         )
-        log?.info(
+        log?.debug(
             "initiating connection from host to guest",
             metadata: [
                 "vport": "\(port)",
@@ -297,7 +297,7 @@ extension SocketRelay {
             )
         }
 
-        // `buf1` is thread-safe because it is only when servicing a serial dispatch queue
+        // `buf1` is thread-safe because it is only used when servicing a serial dispatch queue
         nonisolated(unsafe) let buf1 = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: Int(getpagesize()))
         connSource.setEventHandler {
             Self.fdCopyHandler(
@@ -322,7 +322,7 @@ extension SocketRelay {
         }
 
         connSource.setCancelHandler {
-            self.log?.info(
+            self.log?.debug(
                 "host cancel received",
                 metadata: [
                     "hostFd": "\(hostConn.fileDescriptor)",
@@ -341,7 +341,7 @@ extension SocketRelay {
         }
 
         vsockConnectionSource.setCancelHandler {
-            self.log?.info(
+            self.log?.debug(
                 "guest cancel received",
                 metadata: [
                     "hostFd": "\(hostConn.fileDescriptor)",
@@ -371,14 +371,14 @@ extension SocketRelay {
         log: Logger? = nil
     ) {
         if source.data == 0 {
-            log?.info(
+            log?.debug(
                 "source EOF",
                 metadata: [
                     "sourceFd": "\(sourceFd)",
                     "dstFd": "\(destinationFd)",
                 ])
             if !source.isCancelled {
-                log?.info(
+                log?.debug(
                     "canceling DispatchSourceRead",
                     metadata: [
                         "sourceFd": "\(sourceFd)",
@@ -390,13 +390,6 @@ extension SocketRelay {
         }
 
         do {
-            log?.info(
-                "source copy",
-                metadata: [
-                    "sourceFd": "\(sourceFd)",
-                    "dstFd": "\(destinationFd)",
-                    "size": "\(source.data)",
-                ])
             try self.fileDescriptorCopy(
                 buffer: buffer,
                 size: source.data,
