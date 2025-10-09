@@ -95,8 +95,9 @@ struct IntegrationSuite: AsyncParsableCommand {
             .appendingPathComponent(name)
     }
 
-    func bootstrap() async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image) {
-        let reference = "ghcr.io/linuxcontainers/alpine:3.20"
+    func bootstrap(reference: String = "ghcr.io/linuxcontainers/alpine:3.20") async throws -> (
+        rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image
+    ) {
         let store = Self.imageStore
 
         let initImage = try await store.getInitImage(reference: Self.initImage)
@@ -123,7 +124,8 @@ struct IntegrationSuite: AsyncParsableCommand {
         let platform = Platform(arch: "arm64", os: "linux", variant: "v8")
 
         let fs: Containerization.Mount = try await {
-            let fsPath = Self.testDir.appending(component: "rootfs.ext4")
+            let truncatedHash = String(image.digest.suffix(12))
+            let fsPath = Self.testDir.appending(component: "rootfs-\(truncatedHash).ext4")
             do {
                 let unpacker = EXT4Unpacker(blockSizeInBytes: 2.gib())
                 return try await unpacker.unpack(image, for: platform, at: fsPath)
@@ -217,6 +219,7 @@ struct IntegrationSuite: AsyncParsableCommand {
             "container reuse": testContainerReuse,
             "container /dev/console": testContainerDevConsole,
             "container statistics": testContainerStatistics,
+            "fsnotify events": testFSNotifyEvents,
         ]
 
         var passed = 0

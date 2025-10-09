@@ -14,11 +14,20 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import Containerization
 import ContainerizationError
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
 import Logging
+import NIOCore
+import Synchronization
+
+#if canImport(Musl)
+import Musl
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 actor ManagedContainer {
     let id: String
@@ -27,7 +36,9 @@ actor ManagedContainer {
     private let cgroupManager: Cgroup2Manager
     private let log: Logger
     private let bundle: ContainerizationOCI.Bundle
+    private let group: EventLoopGroup
     private var execs: [String: ManagedProcess] = [:]
+    private var filesystemEventWorker: FilesystemEventWorker?
 
     var pid: Int32 {
         self.initProcess.pid
@@ -37,7 +48,8 @@ actor ManagedContainer {
         id: String,
         stdio: HostStdio,
         spec: ContainerizationOCI.Spec,
-        log: Logger
+        log: Logger,
+        group: EventLoopGroup
     ) throws {
         var cgroupsPath: String
         if let cgPath = spec.linux?.cgroupsPath {
@@ -79,6 +91,9 @@ actor ManagedContainer {
             self.id = id
             self.bundle = bundle
             self.log = log
+            self.group = group
+
+            self.filesystemEventWorker = nil
         } catch {
             try? cgManager.delete()
             throw error
@@ -94,6 +109,25 @@ extension ManagedContainer {
                 message: "exec \(id) does not exist in container \(self.id)"
             )
         }
+    }
+
+    private func startFilesystemEventWorker() throws {
+        let pid = self.initProcess.pid
+        guard pid > 0 else {
+            throw ContainerizationError(.invalidState, message: "Container process not started")
+        }
+
+        let eventLoop = group.next()
+        let worker = FilesystemEventWorker(containerID: self.id, containerPID: pid, eventLoop: eventLoop)
+        try worker.start()
+        self.filesystemEventWorker = worker
+    }
+
+    func executeFileSystemEvent(path: String, eventType: Com_Apple_Containerization_Sandbox_V3_FileSystemEventType) async throws {
+        guard let worker = self.filesystemEventWorker else {
+            throw ContainerizationError(.invalidState, message: "Filesystem event worker not started for container \(self.id)")
+        }
+        try await worker.enqueueEvent(path: path, eventType: eventType)
     }
 
     func createExec(
@@ -121,7 +155,13 @@ extension ManagedContainer {
 
     func start(execID: String) async throws -> Int32 {
         let proc = try self.getExecOrInit(execID: execID)
-        return try await ProcessSupervisor.default.start(process: proc)
+        let pid = try await ProcessSupervisor.default.start(process: proc)
+
+        if execID == self.id {
+            try self.startFilesystemEventWorker()
+        }
+
+        return pid
     }
 
     func wait(execID: String) async throws -> ManagedProcess.ExitStatus {
@@ -155,6 +195,9 @@ extension ManagedContainer {
     }
 
     func delete() throws {
+        self.filesystemEventWorker?.stop()
+        self.filesystemEventWorker = nil
+
         try self.bundle.delete()
         try self.cgroupManager.delete(force: true)
     }
