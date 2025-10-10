@@ -27,7 +27,7 @@ extension IntegrationSuite {
     func testProcessTrue() async throws {
         let id = "test-process-true"
 
-        let bs = try await bootstrap()
+        let bs = try await bootstrap(id)
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["/bin/true"]
         }
@@ -46,7 +46,7 @@ extension IntegrationSuite {
     func testProcessFalse() async throws {
         let id = "test-process-false"
 
-        let bs = try await bootstrap()
+        let bs = try await bootstrap(id)
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["/bin/false"]
         }
@@ -91,7 +91,7 @@ extension IntegrationSuite {
 
     func testProcessEchoHi() async throws {
         let id = "test-process-echo-hi"
-        let bs = try await bootstrap()
+        let bs = try await bootstrap(id)
 
         let buffer = BufferWriter()
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
@@ -123,7 +123,7 @@ extension IntegrationSuite {
     func testMultipleConcurrentProcesses() async throws {
         let id = "test-concurrent-processes"
 
-        let bs = try await bootstrap()
+        let bs = try await bootstrap(id)
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["/bin/sleep", "1000"]
         }
@@ -165,7 +165,7 @@ extension IntegrationSuite {
 
     func testMultipleConcurrentProcessesOutputStress() async throws {
         let id = "test-concurrent-processes-output-stress"
-        let bs = try await bootstrap()
+        let bs = try await bootstrap(id)
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["/bin/sleep", "1000"]
         }
@@ -234,7 +234,7 @@ extension IntegrationSuite {
     func testProcessUser() async throws {
         let id = "test-process-user"
 
-        let bs = try await bootstrap()
+        let bs = try await bootstrap(id)
         var buffer = BufferWriter()
         var container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["/usr/bin/id"]
@@ -327,7 +327,7 @@ extension IntegrationSuite {
     func testProcessTtyEnvvar() async throws {
         let id = "test-process-tty-envvar"
 
-        let bs = try await bootstrap()
+        let bs = try await bootstrap(id)
         let buffer = BufferWriter()
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["env"]
@@ -361,7 +361,7 @@ extension IntegrationSuite {
     func testProcessHomeEnvvar() async throws {
         let id = "test-process-home-envvar"
 
-        let bs = try await bootstrap()
+        let bs = try await bootstrap(id)
         let buffer = BufferWriter()
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["env"]
@@ -394,7 +394,7 @@ extension IntegrationSuite {
     func testProcessCustomHomeEnvvar() async throws {
         let id = "test-process-custom-home-envvar"
 
-        let bs = try await bootstrap()
+        let bs = try await bootstrap(id)
         let customHomeEnvvar = "HOME=/tmp/custom/home"
         let buffer = BufferWriter()
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
@@ -426,7 +426,7 @@ extension IntegrationSuite {
     func testHostname() async throws {
         let id = "test-container-hostname"
 
-        let bs = try await bootstrap()
+        let bs = try await bootstrap(id)
         let buffer = BufferWriter()
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["/bin/hostname"]
@@ -454,7 +454,7 @@ extension IntegrationSuite {
     func testHostsFile() async throws {
         let id = "test-container-hosts-file"
 
-        let bs = try await bootstrap()
+        let bs = try await bootstrap(id)
         let entry = Hosts.Entry.localHostIPV4(comment: "Testaroo")
         let buffer = BufferWriter()
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
@@ -483,7 +483,7 @@ extension IntegrationSuite {
     func testProcessStdin() async throws {
         let id = "test-container-stdin"
 
-        let bs = try await bootstrap()
+        let bs = try await bootstrap(id)
         let buffer = BufferWriter()
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["cat"]
@@ -511,7 +511,7 @@ extension IntegrationSuite {
     func testMounts() async throws {
         let id = "test-cat-mount"
 
-        let bs = try await bootstrap()
+        let bs = try await bootstrap(id)
         let buffer = BufferWriter()
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             let directory = try createMountDirectory()
@@ -541,7 +541,7 @@ extension IntegrationSuite {
     func testPauseResume() async throws {
         let id = "test-pause-resume"
 
-        let bs = try await bootstrap()
+        let bs = try await bootstrap(id)
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["sleep", "infinity"]
         }
@@ -562,7 +562,7 @@ extension IntegrationSuite {
     func testPauseResumeWait() async throws {
         let id = "test-pause-resume-wait"
 
-        let bs = try await bootstrap()
+        let bs = try await bootstrap(id)
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["sleep", "2"]
         }
@@ -592,7 +592,7 @@ extension IntegrationSuite {
     func testPauseResumeIO() async throws {
         let id = "test-pause-resume-io"
 
-        let bs = try await bootstrap()
+        let bs = try await bootstrap(id)
         let buffer = BufferWriter()
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["ping", "-c", "5", "localhost"]
@@ -626,7 +626,7 @@ extension IntegrationSuite {
     func testNestedVirtualizationEnabled() async throws {
         let id = "test-nested-virt"
 
-        let bs = try await bootstrap()
+        let bs = try await bootstrap(id)
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["/bin/true"]
             config.virtualization = true
@@ -655,7 +655,7 @@ extension IntegrationSuite {
         let id = "test-container-manager"
 
         // Get the kernel from bootstrap
-        let bs = try await bootstrap()
+        let bs = try await bootstrap(id)
 
         // Create ContainerManager with kernel and initfs reference
         var manager = try ContainerManager(vmm: bs.vmm)
@@ -696,7 +696,7 @@ extension IntegrationSuite {
         let id = "test-container-stop-idempotency"
 
         // Get the kernel from bootstrap
-        let bs = try await bootstrap()
+        let bs = try await bootstrap(id)
 
         // Create ContainerManager with kernel and initfs reference
         var manager = try ContainerManager(vmm: bs.vmm)
@@ -739,7 +739,7 @@ extension IntegrationSuite {
         let id = "test-container-reuse"
 
         // Get the kernel from bootstrap
-        let bs = try await bootstrap()
+        let bs = try await bootstrap(id)
 
         // Create ContainerManager with kernel and initfs reference
         var manager = try ContainerManager(vmm: bs.vmm)
@@ -789,7 +789,7 @@ extension IntegrationSuite {
     func testContainerDevConsole() async throws {
         let id = "test-container-devconsole"
 
-        let bs = try await bootstrap()
+        let bs = try await bootstrap(id)
 
         var manager = try ContainerManager(vmm: bs.vmm)
         defer {
@@ -837,7 +837,7 @@ extension IntegrationSuite {
     func testContainerStatistics() async throws {
         let id = "test-container-statistics"
 
-        let bs = try await bootstrap()
+        let bs = try await bootstrap(id)
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["sleep", "infinity"]
         }
@@ -880,7 +880,7 @@ extension IntegrationSuite {
     func testCgroupLimits() async throws {
         let id = "test-cgroup-limits"
 
-        let bs = try await bootstrap()
+        let bs = try await bootstrap(id)
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["sleep", "infinity"]
             config.cpus = 2
