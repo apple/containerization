@@ -30,13 +30,15 @@ extension ImageStore {
         let contentStore: ContentStore
         let progress: ProgressHandler?
         let name: String
+        let maxConcurrentDownloads: Int
 
-        public init(name: String, contentStore: ContentStore, client: ContentClient, ingestDir: URL, progress: ProgressHandler? = nil) {
+        public init(name: String, contentStore: ContentStore, client: ContentClient, ingestDir: URL, progress: ProgressHandler? = nil, maxConcurrentDownloads: Int = 3) {
             self.client = client
             self.ingestDir = ingestDir
             self.contentStore = contentStore
             self.progress = progress
             self.name = name
+            self.maxConcurrentDownloads = maxConcurrentDownloads
         }
 
         /// Pull the required image layers for the provided descriptor and platform(s) into the given directory using the provided client. Returns a descriptor to the Index manifest.
@@ -120,13 +122,15 @@ extension ImageStore {
         private func fetchAll(_ descriptors: [Descriptor]) async throws {
             try await withThrowingTaskGroup(of: Void.self) { group in
                 var iterator = descriptors.makeIterator()
-                for _ in 0..<8 {
+                // Start initial batch of concurrent downloads based on maxConcurrentDownloads
+                for _ in 0..<self.maxConcurrentDownloads {
                     if let desc = iterator.next() {
                         group.addTask {
                             try await self.fetch(desc)
                         }
                     }
                 }
+                // As tasks complete, add new ones to maintain concurrency
                 for try await _ in group {
                     if let desc = iterator.next() {
                         group.addTask {

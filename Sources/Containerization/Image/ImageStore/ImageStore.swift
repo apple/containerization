@@ -192,7 +192,7 @@ extension ImageStore {
     /// - Returns: A `Containerization.Image` object to the newly pulled image.
     public func pull(
         reference: String, platform: Platform? = nil, insecure: Bool = false,
-        auth: Authentication? = nil, progress: ProgressHandler? = nil
+        auth: Authentication? = nil, progress: ProgressHandler? = nil, maxConcurrentDownloads: Int = 3
     ) async throws -> Image {
 
         let matcher = createPlatformMatcher(for: platform)
@@ -206,7 +206,8 @@ extension ImageStore {
 
         let rootDescriptor = try await client.resolve(name: name, tag: tag)
         let (id, tempDir) = try await self.contentStore.newIngestSession()
-        let operation = ImportOperation(name: name, contentStore: self.contentStore, client: client, ingestDir: tempDir, progress: progress)
+        let operation = ImportOperation(
+            name: name, contentStore: self.contentStore, client: client, ingestDir: tempDir, progress: progress, maxConcurrentDownloads: maxConcurrentDownloads)
         do {
             let index = try await operation.import(root: rootDescriptor, matcher: matcher)
             return try await self.lock.withLock { lock in
