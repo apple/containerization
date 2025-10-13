@@ -152,7 +152,7 @@ final class ManagedProcess: Sendable {
 }
 
 extension ManagedProcess {
-    func start() throws -> Int32 {
+    func start(onPidReady: (@Sendable (Int32) throws -> Void)? = nil) throws -> Int32 {
         try self.state.withLock {
             log.info(
                 "starting managed process",
@@ -200,6 +200,8 @@ extension ManagedProcess {
                 let cgManager = try Cgroup2Manager.loadFromPid(pid: owningPid)
                 try cgManager.addProcess(pid: pid)
             }
+
+            try onPidReady?(pid)
 
             log.info(
                 "sending pid acknowledgement",
