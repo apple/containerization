@@ -47,6 +47,7 @@ let package = Package(
         .executableTarget(
             name: "vminitd",
             dependencies: [
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "_NIOFileSystem", package: "swift-nio"),
                 .product(name: "Containerization", package: "containerization"),
