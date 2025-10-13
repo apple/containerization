@@ -22,6 +22,7 @@
 import ArgumentParser
 import ContainerizationError
 import ContainerizationOCI
+import ContainerizationOS
 import Foundation
 import LCShim
 import Logging
@@ -71,8 +72,14 @@ extension App {
         }
     }
 
-    static func exec(process: ContainerizationOCI.Process) throws {
-        let executable = strdup(process.args[0])
+    static func exec(process: ContainerizationOCI.Process, currentEnv: [String]? = nil) throws {
+        // lookup executable
+        let path = Path.findPath(currentEnv) ?? Path.getCurrentPath()
+        guard let resolvedExecutable = Path.lookPath(process.args[0], path: path) else {
+            throw App.Failure(message: "Failed to find target executable \(process.args[0])")
+        }
+
+        let executable = strdup(resolvedExecutable.path())
         var argv = process.args.map { strdup($0) }
         argv += [nil]
 
