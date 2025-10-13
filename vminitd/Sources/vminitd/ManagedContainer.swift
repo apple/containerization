@@ -90,7 +90,6 @@ actor ManagedContainer {
             self.bundle = bundle
             self.log = log
             self.group = group
-
             self.filesystemEventWorker = nil
         } catch {
             try? cgManager.delete()
@@ -109,15 +108,7 @@ extension ManagedContainer {
         }
     }
 
-    private func startFilesystemEventWorker() throws {
-        let pid = self.initProcess.pid
-        guard pid > 0 else {
-            throw ContainerizationError(.invalidState, message: "Container process not started")
-        }
-
-        let eventLoop = group.next()
-        let worker = FilesystemEventWorker(containerID: self.id, containerPID: pid, eventLoop: eventLoop)
-        try worker.start()
+    private func installWorker(_ worker: FilesystemEventWorker) {
         self.filesystemEventWorker = worker
     }
 
@@ -153,12 +144,27 @@ extension ManagedContainer {
 
     func start(execID: String) async throws -> Int32 {
         let proc = try self.getExecOrInit(execID: execID)
-        let pid = try await ProcessSupervisor.default.start(process: proc)
+        let onPidReady: (@Sendable (Int32) throws -> Void)?
 
         if execID == self.id {
-            try self.startFilesystemEventWorker()
+            // Capture needed values for callback
+            let containerID = self.id
+            let eventLoop = self.group.next()
+
+            onPidReady = { [weak self] pid in
+                let worker = FilesystemEventWorker(containerID: containerID, containerPID: pid, eventLoop: eventLoop)
+                try worker.start()
+
+                // Hop back to actor to install worker
+                Task { [weak self] in
+                    await self?.installWorker(worker)
+                }
+            }
+        } else {
+            onPidReady = nil
         }
 
+        let pid = try await ProcessSupervisor.default.start(process: proc, onPidReady: onPidReady)
         return pid
     }
 

@@ -16,6 +16,7 @@
 
 import Containerization
 import ContainerizationError
+import ContainerizationOS
 import Foundation
 import NIOCore
 import NIOPosix
@@ -60,67 +61,102 @@ final class FilesystemEventWorker: @unchecked Sendable {
         let parentSocket = sockets[0]
         let childSocket = sockets[1]
 
-        let pid = fork()
-        guard pid >= 0 else {
+        var errorPipe: [Int32] = [0, 0]
+        guard pipe(&errorPipe) == 0 else {
             close(parentSocket)
             close(childSocket)
-            throw ContainerizationError(.internalError, message: "Failed to fork: errno \(errno)")
+            throw ContainerizationError(.internalError, message: "Failed to create error pipe: errno \(errno)")
+        }
+        let errorReadFD = errorPipe[0]
+        let errorWriteFD = errorPipe[1]
+
+        // Use Command to exec vminitd fs-notify subcommand (fork+execve)
+        // Socket is FD 3 (extraFiles[0]), error pipe is FD 4 (extraFiles[1])
+        var command = Command("/sbin/vminitd", arguments: ["fs-notify", String(containerPID)])
+        command.extraFiles = [
+            FileHandle(fileDescriptor: childSocket, closeOnDealloc: false),
+            FileHandle(fileDescriptor: errorWriteFD, closeOnDealloc: false),
+        ]
+        command.stdin = .standardInput
+        command.stdout = .standardOutput
+        command.stderr = .standardError
+
+        do {
+            try command.start()
+        } catch {
+            close(parentSocket)
+            close(childSocket)
+            close(errorReadFD)
+            close(errorWriteFD)
+            throw ContainerizationError(.internalError, message: "Failed to start fs-notify process: \(error)")
         }
 
-        if pid == 0 {
+        let pid = command.pid
+        close(childSocket)
+        close(errorWriteFD)  // Close write end in parent
+        self.childPID = pid
+        self.parentSocket = parentSocket
+
+        var handshake: UInt8 = 0
+        let readResult = read(parentSocket, &handshake, 1)
+
+        if readResult != 1 {
             close(parentSocket)
-            runChildProcess(socket: childSocket)
-            exit(0)
-        } else {
-            close(childSocket)
-            self.childPID = pid
-            self.parentSocket = parentSocket
+            self.parentSocket = nil
+            close(errorReadFD)
+            var status: Int32 = 0
+            waitpid(pid, &status, 0)
+            self.childPID = nil
+            throw ContainerizationError(.internalError, message: "Child process failed to start")
+        }
 
-            var handshake: UInt8 = 0
-            let readResult = read(parentSocket, &handshake, 1)
+        if handshake == Self.handshakeFailure {
+            close(parentSocket)
+            self.parentSocket = nil
 
-            if readResult != 1 {
-                close(parentSocket)
-                self.parentSocket = nil
-                var status: Int32 = 0
-                waitpid(pid, &status, 0)
-                self.childPID = nil
-                throw ContainerizationError(.internalError, message: "Child process failed to start")
-            }
+            // Read error message from child
+            var errorBuffer = [UInt8](repeating: 0, count: 1024)
+            let bytesRead = read(errorReadFD, &errorBuffer, errorBuffer.count)
+            close(errorReadFD)
 
-            if handshake == Self.handshakeFailure {
-                close(parentSocket)
-                self.parentSocket = nil
-                var status: Int32 = 0
-                waitpid(pid, &status, 0)
-                self.childPID = nil
-                throw ContainerizationError(.internalError, message: "Child process failed to enter container namespace")
-            }
+            var status: Int32 = 0
+            waitpid(pid, &status, 0)
+            self.childPID = nil
 
-            if handshake != Self.handshakeReady {
-                close(parentSocket)
-                self.parentSocket = nil
-                var status: Int32 = 0
-                waitpid(pid, &status, 0)
-                self.childPID = nil
-                throw ContainerizationError(.internalError, message: "Child process sent unexpected handshake: \(handshake)")
-            }
+            let errorMsg =
+                bytesRead > 0
+                ? (String(bytes: errorBuffer.prefix(bytesRead), encoding: .utf8) ?? "unknown error")
+                : "no error message"
+            throw ContainerizationError(.internalError, message: "Child process failed: \(errorMsg)")
+        }
 
-            do {
-                let bootstrap = NIOPipeBootstrap(group: eventLoop)
-                    .channelInitializer { channel in
-                        let handler = ResponseHandler(worker: self)
-                        return channel.pipeline.addHandler(handler)
-                    }
-                self.channel = try bootstrap.takingOwnershipOfDescriptor(inputOutput: parentSocket).wait()
-            } catch {
-                close(parentSocket)
-                self.parentSocket = nil
-                var status: Int32 = 0
-                waitpid(pid, &status, 0)
-                self.childPID = nil
-                throw ContainerizationError(.internalError, message: "Failed to setup NIO channel: \(error)")
-            }
+        if handshake != Self.handshakeReady {
+            close(parentSocket)
+            self.parentSocket = nil
+            close(errorReadFD)
+            var status: Int32 = 0
+            waitpid(pid, &status, 0)
+            self.childPID = nil
+            throw ContainerizationError(.internalError, message: "Child process sent unexpected handshake: \(handshake)")
+        }
+
+        // Success - close error pipe
+        close(errorReadFD)
+
+        do {
+            let bootstrap = NIOPipeBootstrap(group: eventLoop)
+                .channelInitializer { channel in
+                    let handler = ResponseHandler(worker: self)
+                    return channel.pipeline.addHandler(handler)
+                }
+            self.channel = try bootstrap.takingOwnershipOfDescriptor(inputOutput: parentSocket).wait()
+        } catch {
+            close(parentSocket)
+            self.parentSocket = nil
+            var status: Int32 = 0
+            waitpid(pid, &status, 0)
+            self.childPID = nil
+            throw ContainerizationError(.internalError, message: "Failed to setup NIO channel: \(error)")
         }
     }
 
@@ -178,44 +214,6 @@ final class FilesystemEventWorker: @unchecked Sendable {
         }
     }
 
-    private func runChildProcess(socket: Int32) {
-        do {
-            try enterContainerNamespace()
-        } catch {
-            var failureHandshake = Self.handshakeFailure
-            _ = write(socket, &failureHandshake, 1)
-            close(socket)
-            exit(1)
-        }
-
-        var readyHandshake = Self.handshakeReady
-        guard write(socket, &readyHandshake, 1) == 1 else {
-            close(socket)
-            exit(1)
-        }
-
-        while true {
-            do {
-                guard let (eventID, path, eventType) = try readEventFromParent(socket: socket) else {
-                    break
-                }
-
-                var success: UInt8 = 1
-                do {
-                    try generateSyntheticInotifyEvent(path: path, eventType: eventType)
-                } catch {
-                    success = 0
-                }
-
-                try sendResponseToParent(socket: socket, eventID: eventID, success: success)
-            } catch {
-                break
-            }
-        }
-
-        close(socket)
-    }
-
     private func sendEventToChild(socket: Int32, eventID: UInt32, path: String, eventType: Com_Apple_Containerization_Sandbox_V3_FileSystemEventType) throws {
         let pathData = path.data(using: .utf8) ?? Data()
         let pathLen = UInt32(pathData.count)
@@ -233,104 +231,6 @@ final class FilesystemEventWorker: @unchecked Sendable {
                 throw ContainerizationError(.internalError, message: "Failed to write event to child: written \(written), expected \(buffer.count)")
             }
         }
-    }
-
-    private func readEventFromParent(socket: Int32) throws -> (UInt32, String, Com_Apple_Containerization_Sandbox_V3_FileSystemEventType)? {
-        var eventTypeValue: UInt32 = 0
-        guard read(socket, &eventTypeValue, 4) == 4 else { return nil }
-        eventTypeValue = UInt32(bigEndian: eventTypeValue)
-
-        var pathLen: UInt32 = 0
-        guard read(socket, &pathLen, 4) == 4 else { return nil }
-        pathLen = UInt32(bigEndian: pathLen)
-
-        let pathData = UnsafeMutablePointer<UInt8>.allocate(capacity: Int(pathLen))
-        defer { pathData.deallocate() }
-        guard read(socket, pathData, Int(pathLen)) == pathLen else { return nil }
-        let pathBytes = Data(bytes: pathData, count: Int(pathLen))
-        guard let path = String(data: pathBytes, encoding: .utf8) else { return nil }
-
-        var eventID: UInt32 = 0
-        guard read(socket, &eventID, 4) == 4 else { return nil }
-        eventID = UInt32(bigEndian: eventID)
-
-        guard let eventType = Com_Apple_Containerization_Sandbox_V3_FileSystemEventType(rawValue: Int(eventTypeValue)) else {
-            return nil
-        }
-
-        return (eventID, path, eventType)
-    }
-
-    private func sendResponseToParent(socket: Int32, eventID: UInt32, success: UInt8) throws {
-        var buffer = Data()
-        buffer.append(contentsOf: withUnsafeBytes(of: eventID.bigEndian) { Data($0) })
-        buffer.append(success)
-
-        try buffer.withUnsafeBytes { bytes in
-            let written = write(socket, bytes.bindMemory(to: UInt8.self).baseAddress, buffer.count)
-            guard written == buffer.count else {
-                throw ContainerizationError(.internalError, message: "Failed to write response to parent")
-            }
-        }
-    }
-
-    private func enterContainerNamespace() throws {
-        let nsPath = "/proc/\(containerPID)/ns/mnt"
-        let vmNsPath = "/proc/self/ns/mnt"
-
-        guard FileManager.default.fileExists(atPath: nsPath) else {
-            throw ContainerizationError(.internalError, message: "Namespace file does not exist: \(nsPath)")
-        }
-
-        let containerNsStatPtr = UnsafeMutablePointer<stat>.allocate(capacity: 1)
-        let vmNsStatPtr = UnsafeMutablePointer<stat>.allocate(capacity: 1)
-        defer {
-            containerNsStatPtr.deallocate()
-            vmNsStatPtr.deallocate()
-        }
-
-        let containerStatResult = stat(nsPath, containerNsStatPtr)
-        let vmStatResult = stat(vmNsPath, vmNsStatPtr)
-
-        if containerStatResult == 0 && vmStatResult == 0 {
-            let containerInode = containerNsStatPtr.pointee.st_ino
-            let vmInode = vmNsStatPtr.pointee.st_ino
-
-            if containerInode == vmInode {
-                return
-            }
-        }
-
-        let fd = open(nsPath, O_RDONLY)
-        guard fd >= 0 else {
-            throw ContainerizationError(.internalError, message: "Failed to open namespace file: \(nsPath), errno \(errno)")
-        }
-        defer {
-            _ = close(fd)
-        }
-
-        let setnsResult = setns(fd, CLONE_NEWNS)
-        guard setnsResult == 0 else {
-            throw ContainerizationError(.internalError, message: "Failed to setns to mount namespace: errno \(errno)")
-        }
-    }
-
-    private func generateSyntheticInotifyEvent(
-        path: String,
-        eventType: Com_Apple_Containerization_Sandbox_V3_FileSystemEventType
-    ) throws {
-        if eventType == .delete && !FileManager.default.fileExists(atPath: path) {
-            return
-        }
-
-        let attributes = try FileManager.default.attributesOfItem(atPath: path)
-        guard let permissions = attributes[.posixPermissions] as? NSNumber else {
-            throw ContainerizationError(.internalError, message: "Failed to get file permissions for path: \(path)")
-        }
-        try FileManager.default.setAttributes(
-            [.posixPermissions: permissions],
-            ofItemAtPath: path
-        )
     }
 
     private final class ResponseHandler: ChannelInboundHandler, @unchecked Sendable {
