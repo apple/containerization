@@ -28,19 +28,29 @@ import Musl
 import Glibc
 #endif
 
-final class FilesystemEventWorker: @unchecked Sendable {
+final class FilesystemEventWorker: Sendable {
     private static let handshakeReady: UInt8 = 0xAA
     private static let handshakeFailure: UInt8 = 0xFF
 
     private let containerID: String
     private let containerPID: Int32
-    private var childPID: Int32?
-    private var parentSocket: Int32?
-    private var channel: Channel?
     private let eventLoop: EventLoop
-    private var eventIDCounter: UInt32 = 0
-    private let pendingEvents: Mutex<[UInt32: CheckedContinuation<Void, Error>]> = Mutex([:])
     private let shouldStop: Atomic<Bool> = Atomic(false)
+
+    // Cross-thread state (accessed from any thread)
+    private struct State {
+        var childPID: Int32?
+        var parentSocket: Int32?
+    }
+    private let state: Mutex<State> = Mutex(State(childPID: nil, parentSocket: nil))
+
+    // Event-loop confined state (only accessed on channel.eventLoop)
+    private final class ELState: @unchecked Sendable {
+        var channel: Channel?
+        var eventIDCounter: UInt32 = 0
+        var pendingEvents: [UInt32: CheckedContinuation<Void, Error>] = [:]
+    }
+    private let elState = ELState()
 
     init(containerID: String, containerPID: Int32, eventLoop: EventLoop) {
         self.containerID = containerID
@@ -49,7 +59,7 @@ final class FilesystemEventWorker: @unchecked Sendable {
     }
 
     func start() throws {
-        guard childPID == nil else {
+        guard state.withLock({ $0.childPID }) == nil else {
             throw ContainerizationError(.invalidState, message: "FilesystemEventWorker already started")
         }
 
@@ -94,25 +104,27 @@ final class FilesystemEventWorker: @unchecked Sendable {
         let pid = command.pid
         close(childSocket)
         close(errorWriteFD)  // Close write end in parent
-        self.childPID = pid
-        self.parentSocket = parentSocket
+        state.withLock {
+            $0.childPID = pid
+            $0.parentSocket = parentSocket
+        }
 
         var handshake: UInt8 = 0
         let readResult = read(parentSocket, &handshake, 1)
 
         if readResult != 1 {
             close(parentSocket)
-            self.parentSocket = nil
+            state.withLock { $0.parentSocket = nil }
             close(errorReadFD)
             var status: Int32 = 0
             waitpid(pid, &status, 0)
-            self.childPID = nil
+            state.withLock { $0.childPID = nil }
             throw ContainerizationError(.internalError, message: "Child process failed to start")
         }
 
         if handshake == Self.handshakeFailure {
             close(parentSocket)
-            self.parentSocket = nil
+            state.withLock { $0.parentSocket = nil }
 
             // Read error message from child
             var errorBuffer = [UInt8](repeating: 0, count: 1024)
@@ -121,7 +133,7 @@ final class FilesystemEventWorker: @unchecked Sendable {
 
             var status: Int32 = 0
             waitpid(pid, &status, 0)
-            self.childPID = nil
+            state.withLock { $0.childPID = nil }
 
             let errorMsg =
                 bytesRead > 0
@@ -132,11 +144,11 @@ final class FilesystemEventWorker: @unchecked Sendable {
 
         if handshake != Self.handshakeReady {
             close(parentSocket)
-            self.parentSocket = nil
+            state.withLock { $0.parentSocket = nil }
             close(errorReadFD)
             var status: Int32 = 0
             waitpid(pid, &status, 0)
-            self.childPID = nil
+            state.withLock { $0.childPID = nil }
             throw ContainerizationError(.internalError, message: "Child process sent unexpected handshake: \(handshake)")
         }
 
@@ -149,37 +161,40 @@ final class FilesystemEventWorker: @unchecked Sendable {
                     let handler = ResponseHandler(worker: self)
                     return channel.pipeline.addHandler(handler)
                 }
-            self.channel = try bootstrap.takingOwnershipOfDescriptor(inputOutput: parentSocket).wait()
+            self.elState.channel = try bootstrap.takingOwnershipOfDescriptor(inputOutput: parentSocket).wait()
         } catch {
             close(parentSocket)
-            self.parentSocket = nil
+            state.withLock { $0.parentSocket = nil }
             var status: Int32 = 0
             waitpid(pid, &status, 0)
-            self.childPID = nil
+            state.withLock { $0.childPID = nil }
             throw ContainerizationError(.internalError, message: "Failed to setup NIO channel: \(error)")
         }
     }
 
     func enqueueEvent(path: String, eventType: Com_Apple_Containerization_Sandbox_V3_FileSystemEventType) async throws {
-        guard let socket = parentSocket, !shouldStop.load(ordering: .relaxed) else {
-            throw ContainerizationError(.invalidState, message: "FilesystemEventWorker not running")
+        let socket = try state.withLock { state throws -> Int32 in
+            guard let socket = state.parentSocket, !shouldStop.load(ordering: .relaxed) else {
+                throw ContainerizationError(.invalidState, message: "FilesystemEventWorker not running")
+            }
+            return socket
         }
 
-        let eventID = eventIDCounter
-        eventIDCounter += 1
-
+        // Use continuation to bridge between async and event loop
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            pendingEvents.withLock { events in
-                events[eventID] = continuation
-            }
+            // Hop to event loop to access event ID counter and store continuation
+            eventLoop.execute { [elState] in
+                let eventID = elState.eventIDCounter
+                elState.eventIDCounter += 1
+                elState.pendingEvents[eventID] = continuation
 
-            do {
-                try sendEventToChild(socket: socket, eventID: eventID, path: path, eventType: eventType)
-            } catch {
-                _ = pendingEvents.withLock { events in
-                    events.removeValue(forKey: eventID)
+                do {
+                    try self.sendEventToChild(socket: socket, eventID: eventID, path: path, eventType: eventType)
+                } catch {
+                    // Remove continuation and resume with error on send failure
+                    _ = elState.pendingEvents.removeValue(forKey: eventID)
+                    continuation.resume(throwing: error)
                 }
-                continuation.resume(throwing: error)
             }
         }
     }
@@ -187,30 +202,32 @@ final class FilesystemEventWorker: @unchecked Sendable {
     func stop() {
         shouldStop.store(true, ordering: .relaxed)
 
-        if let channel = self.channel {
-            try? channel.close().wait()
-            self.channel = nil
-        }
+        // Close channel and clean up pending events on event loop
+        eventLoop.execute { [elState] in
+            elState.channel?.close(promise: nil)
+            elState.channel = nil
 
-        self.parentSocket = nil
-
-        if let pid = childPID {
-            #if canImport(Musl)
-            Musl.kill(pid, SIGTERM)
-            #elseif canImport(Glibc)
-            Glibc.kill(pid, SIGTERM)
-            #endif
-
-            var status: Int32 = 0
-            waitpid(pid, &status, 0)
-            childPID = nil
-        }
-
-        pendingEvents.withLock { events in
-            for (_, continuation) in events {
+            for (_, continuation) in elState.pendingEvents {
                 continuation.resume(throwing: ContainerizationError(.cancelled, message: "FilesystemEventWorker stopped"))
             }
-            events.removeAll()
+            elState.pendingEvents.removeAll()
+        }
+
+        // Kill child process
+        state.withLock { state in
+            state.parentSocket = nil
+
+            if let pid = state.childPID {
+                #if canImport(Musl)
+                Musl.kill(pid, SIGTERM)
+                #elseif canImport(Glibc)
+                Glibc.kill(pid, SIGTERM)
+                #endif
+
+                var status: Int32 = 0
+                waitpid(pid, &status, 0)
+                state.childPID = nil
+            }
         }
     }
 
@@ -254,25 +271,23 @@ final class FilesystemEventWorker: @unchecked Sendable {
                     break
                 }
 
-                worker.pendingEvents.withLock { events in
-                    if let continuation = events.removeValue(forKey: eventID) {
-                        if success == 1 {
-                            continuation.resume()
-                        } else {
-                            continuation.resume(throwing: ContainerizationError(.internalError, message: "Child process failed to process filesystem event"))
-                        }
+                // ResponseHandler runs on event loop, so can access elState.pendingEvents directly
+                if let continuation = worker.elState.pendingEvents.removeValue(forKey: eventID) {
+                    if success == 1 {
+                        continuation.resume()
+                    } else {
+                        continuation.resume(throwing: ContainerizationError(.internalError, message: "Child process failed to process filesystem event"))
                     }
                 }
             }
         }
 
         func errorCaught(context: ChannelHandlerContext, error: Error) {
-            worker.pendingEvents.withLock { events in
-                for (_, continuation) in events {
-                    continuation.resume(throwing: error)
-                }
-                events.removeAll()
+            // ResponseHandler runs on event loop, so can access elState.pendingEvents directly
+            for (_, continuation) in worker.elState.pendingEvents {
+                continuation.resume(throwing: error)
             }
+            worker.elState.pendingEvents.removeAll()
         }
     }
 }

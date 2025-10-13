@@ -48,7 +48,8 @@ struct Application: AsyncParsableCommand {
     static let standardErrorLock = NSLock()
 
     static func runInForeground(_ log: Logger) throws {
-        log.info("running vminitd under pid1")
+        precondition(getpid() != 1, "runInForeground must not be called as PID 1")
+        log.info("running vminitd under pid1 wrapper")
 
         var command = Command("/sbin/vminitd")
         command.attrs = .init(setsid: true)
@@ -111,17 +112,21 @@ extension Application {
             #if DEBUG
             let environment = ProcessInfo.processInfo.environment
             let foreground = environment[Application.foregroundEnvVar]
-            log.info("checking for shim var \(Application.foregroundEnvVar)=\(String(describing: foreground))")
+            let isPid1 = (getpid() == 1)
+            log.info("checking for shim var \(Application.foregroundEnvVar)=\(String(describing: foreground)); pid=\(getpid())")
 
-            if foreground == nil {
+            // only use the FOREGROUND shim when we're not PID 1
+            // if we are PID 1 (fresh VM boot), skip the shim to avoid exiting init
+            if foreground == nil && !isPid1 {
                 try Application.runInForeground(log)
-                Application.exit(0)
+                Application.exit(0)  // parent is not PID 1; safe to exit after child completes
             }
 
-            // since we are not running as pid1 in this mode we must set ourselves
-            // as a subpreaper so that all child processes are reaped by us and not
-            // passed onto our parent.
-            CZ_set_sub_reaper()
+            // we only need to be a subreaper when we're not PID 1
+            // (when PID 1, the kernel already reaps children)
+            if !isPid1 {
+                CZ_set_sub_reaper()
+            }
             #endif
 
             signal(SIGPIPE, SIG_IGN)
