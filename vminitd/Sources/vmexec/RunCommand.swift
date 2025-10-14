@@ -138,7 +138,7 @@ struct RunCommand: ParsableCommand {
         try App.setPermissions(user: process.user)
 
         // Finally execve the container process.
-        try App.exec(process: process)
+        try App.exec(process: process, currentEnv: process.env)
     }
 
     private func execInNamespace(spec: ContainerizationOCI.Spec, log: Logger) throws {
