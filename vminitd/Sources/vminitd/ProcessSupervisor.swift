@@ -19,10 +19,13 @@ import Foundation
 import Logging
 
 actor ProcessSupervisor {
+    let poller: Epoll
+
     private let queue: DispatchQueue
     // `DispatchSourceSignal` is thread-safe.
     private nonisolated(unsafe) let source: DispatchSourceSignal
     private var processes = [ManagedProcess]()
+    private let reaperCommandRunner = ReaperCommandRunner()
 
     var log: Logger?
 
@@ -31,8 +34,6 @@ actor ProcessSupervisor {
     }
 
     static let `default` = ProcessSupervisor()
-
-    let poller: Epoll
 
     private init() {
         let queue = DispatchQueue(label: "process-supervisor")
@@ -63,6 +64,13 @@ actor ProcessSupervisor {
         self.log?.debug("starting to wait4 processes")
         let exited = Reaper.reap()
         self.log?.debug("finished wait4 of \(exited.count) processes")
+
+        // Notify runc waiters
+        // NOTE: Runc/OCI runtimes are not hooked up at the moment so this is
+        // a nop, but ManagedProcess will be transitioned to this model.
+        for (pid, status) in exited {
+            reaperCommandRunner.notifyExit(pid: pid, status: status)
+        }
 
         self.log?.debug("checking for exit of managed process", metadata: ["exits": "\(exited)", "processes": "\(processes.count)"])
         let exitedProcesses = self.processes.filter { proc in
@@ -104,6 +112,13 @@ actor ProcessSupervisor {
             self.log?.error("process start failed \(error)", metadata: ["process-id": "\(process.id)"])
             throw error
         }
+    }
+
+    /// Get a Runc instance configured with the reaper command runner
+    func getRuncWithReaper(_ base: Runc = Runc()) -> Runc {
+        var runc = base
+        runc.commandRunner = reaperCommandRunner
+        return runc
     }
 
     deinit {
