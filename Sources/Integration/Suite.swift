@@ -151,7 +151,7 @@ struct IntegrationSuite: AsyncParsableCommand {
     var kernel: String = "./bin/vmlinux"
 
     @Option(name: .shortAndLong, help: "Maximum number of concurrent tests")
-    var maxConcurrency: Int = 8
+    var maxConcurrency: Int = 4
 
     static func binPath(name: String) -> URL {
         URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
@@ -302,10 +302,10 @@ struct IntegrationSuite: AsyncParsableCommand {
                             let lasted = CFAbsoluteTimeGetCurrent() - started
 
                             log.info("✅ test \(job.name) complete in \(lasted)s.")
-                            passed.add(1, ordering: .acquiring)
+                            passed.add(1, ordering: .relaxed)
                         } catch let err as SkipTest {
                             log.info("⏭️ skipped test: \(err)")
-                            skipped.add(1, ordering: .acquiringAndReleasing)
+                            skipped.add(1, ordering: .relaxed)
                         } catch {
                             log.error("❌ test \(job.name) failed: \(error)")
                         }
