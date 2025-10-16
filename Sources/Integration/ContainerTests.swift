@@ -72,6 +72,10 @@ extension IntegrationSuite {
             }
             self.data.append(data)
         }
+
+        func close() throws {
+            return
+        }
     }
 
     final class StdinBuffer: ReaderStream {

@@ -19,4 +19,5 @@ import Foundation
 /// A type that writes the provided Data.
 public protocol Writer: Sendable {
     func write(_ data: Data) throws
+    func close() throws
 }
