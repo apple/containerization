@@ -103,7 +103,7 @@ extension ImageStore {
     /// - Note: It is assumed that the underlying manifests and blob layers for the image already exists in the `ContentStore` that the `ImageStore` was initialized with. This method is invoked when the `pull(...)` , `load(...)` and `tag(...)` methods are used.
     /// - Returns: A `Containerization.Image`
     @discardableResult
-    internal func create(description: Image.Description) async throws -> Image {
+    public func create(description: Image.Description) async throws -> Image {
         try await self.lock.withLock { ctx in
             try await self._create(description: description, lock: ctx)
         }

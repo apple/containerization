@@ -19,7 +19,7 @@
 import Crypto
 import ContainerizationError
 
-func hashMountSource(source: String) throws -> String {
+public func hashMountSource(source: String) throws -> String {
     guard let data = source.data(using: .utf8) else {
         throw ContainerizationError(.invalidArgument, message: "\(source) could not be converted to Data")
     }
