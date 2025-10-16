@@ -45,4 +45,11 @@ public struct AttachedFilesystem: Sendable {
         self.destination = mount.destination
     }
     #endif
+
+    public init(type: String, source: String, destination: String, options: [String]) {
+        self.type = type
+        self.source = source
+        self.destination = destination
+        self.options = options
+    }
 }
