@@ -16,5 +16,5 @@
 
 /// A protocol to implement for virtual machine isolated containers.
 public protocol VirtualMachineManager: Sendable {
-    func create(container: Container) throws -> any VirtualMachineInstance
+    func create(container: Container) async throws -> any VirtualMachineInstance
 }
