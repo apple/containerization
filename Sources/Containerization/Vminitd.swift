@@ -335,6 +335,7 @@ extension Vminitd: VirtualMachineAgent {
 extension Vminitd {
     public typealias FileSystemEventRequest = Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest
     public typealias FileSystemEventResponse = Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse
+    public typealias FileSystemEventType = Com_Apple_Containerization_Sandbox_V3_FileSystemEventType
     /// Sets up an emulator in the guest.
     public func setupEmulator(binaryPath: String, configuration: Binfmt.Entry) async throws {
         let request = Com_Apple_Containerization_Sandbox_V3_SetupEmulatorRequest.with {
@@ -457,7 +458,7 @@ extension Vminitd {
 
     public func notifyFileSystemEvent(
         path: String,
-        eventType: Com_Apple_Containerization_Sandbox_V3_FileSystemEventType,
+        eventType: FileSystemEventType,
         containerID: String
     ) async throws -> FileSystemEventResponse {
         let request = FileSystemEventRequest.with {

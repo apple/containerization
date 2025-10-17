@@ -1026,16 +1026,26 @@ extension IntegrationSuite {
         let agent = Vminitd(connection: connection, group: group)
         try await Task.sleep(for: .seconds(1))
 
+        // Send CREATE event
         let createResponse = try await agent.notifyFileSystemEvent(
             path: "/mnt/hi.txt",
             eventType: .create,
             containerID: id
         )
-
         guard createResponse.success else {
             throw IntegrationError.assert(msg: "CREATE event failed: \(createResponse.error)")
         }
 
+        try await Task.sleep(for: .seconds(1))
+
+        let output1 = String(data: inotifyBuffer.data, encoding: .utf8) ?? ""
+        let lines1 = output1.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: .newlines).filter { !$0.isEmpty }
+
+        guard lines1 == ["change hi.txt"] else {
+            throw IntegrationError.assert(msg: "CREATE should output 'change hi.txt'. Got: \(lines1)")
+        }
+
+        // Send MODIFY event
         let modifyResponse = try await agent.notifyFileSystemEvent(
             path: "/mnt/hi.txt",
             eventType: .modify,
@@ -1047,6 +1057,14 @@ extension IntegrationSuite {
 
         try await Task.sleep(for: .seconds(1))
 
+        let output2 = String(data: inotifyBuffer.data, encoding: .utf8) ?? ""
+        let lines2 = output2.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: .newlines).filter { !$0.isEmpty }
+
+        guard lines2 == ["change hi.txt", "change hi.txt"] else {
+            throw IntegrationError.assert(msg: "After MODIFY, expected exactly 2 'change hi.txt'. Got: \(lines2)")
+        }
+
+        // Send DELETE event on non-existent file (should succeed but not crash)
         let deleteResponse = try await agent.notifyFileSystemEvent(
             path: "/mnt/nonexistent.txt",
             eventType: .delete,
@@ -1054,25 +1072,6 @@ extension IntegrationSuite {
         )
         guard deleteResponse.success else {
             throw IntegrationError.assert(msg: "DELETE event failed: \(deleteResponse.error)")
-        }
-
-        try await Task.sleep(for: .seconds(1))
-
-        let inotifyOutput = String(data: inotifyBuffer.data, encoding: .utf8) ?? ""
-
-        let expectedLines = ["change hi.txt", "change hi.txt"]
-        let actualLines = inotifyOutput.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: .newlines).filter { !$0.isEmpty }
-
-        guard actualLines.count >= expectedLines.count else {
-            throw IntegrationError.assert(msg: "Expected at least \(expectedLines.count) events, got \(actualLines.count). Output: '\(inotifyOutput)'")
-        }
-
-        let hasExpectedEvents = expectedLines.allSatisfy { expectedLine in
-            actualLines.contains(expectedLine)
-        }
-
-        guard hasExpectedEvents else {
-            throw IntegrationError.assert(msg: "Expected events not found. Expected: \(expectedLines), Actual: \(actualLines)")
         }
 
         try await agent.close()

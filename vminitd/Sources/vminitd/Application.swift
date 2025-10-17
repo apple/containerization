@@ -205,19 +205,23 @@ extension Application {
 
             while true {
                 do {
-                    guard let (eventID, path, eventType) = try readEventFromParent(socket: socketFD) else {
+                    guard let (path, eventType) = try readEventFromParent(socket: socketFD) else {
                         break
                     }
 
-                    var success: UInt8 = 1
                     do {
                         try generateSyntheticInotifyEvent(path: path, eventType: eventType)
                     } catch {
-                        success = 0
+                        // Log detailed error to stderr (captured by parent)
+                        let errorMsg = "Failed to generate inotify event: path=\(path), type=\(eventType), error=\(error)"
+                        fputs(errorMsg + "\n", stderr)
+                        fflush(stderr)
                     }
 
-                    try sendResponseToParent(socket: socketFD, eventID: eventID, success: success)
                 } catch {
+                    // Log and exit
+                    fputs("Protocol error reading from parent: \(error)\n", stderr)
+                    fflush(stderr)
                     break
                 }
             }
@@ -262,7 +266,7 @@ extension Application {
             }
         }
 
-        private func readEventFromParent(socket: Int32) throws -> (UInt32, String, Com_Apple_Containerization_Sandbox_V3_FileSystemEventType)? {
+        private func readEventFromParent(socket: Int32) throws -> (String, FileSystemEventType)? {
             var eventTypeValue: UInt32 = 0
             guard read(socket, &eventTypeValue, 4) == 4 else { return nil }
             eventTypeValue = UInt32(bigEndian: eventTypeValue)
@@ -277,33 +281,16 @@ extension Application {
             let pathBytes = Data(bytes: pathData, count: Int(pathLen))
             guard let path = String(data: pathBytes, encoding: .utf8) else { return nil }
 
-            var eventID: UInt32 = 0
-            guard read(socket, &eventID, 4) == 4 else { return nil }
-            eventID = UInt32(bigEndian: eventID)
-
-            guard let eventType = Com_Apple_Containerization_Sandbox_V3_FileSystemEventType(rawValue: Int(eventTypeValue)) else {
+            guard let eventType = FileSystemEventType(rawValue: Int(eventTypeValue)) else {
                 return nil
             }
 
-            return (eventID, path, eventType)
-        }
-
-        private func sendResponseToParent(socket: Int32, eventID: UInt32, success: UInt8) throws {
-            var buffer = Data()
-            buffer.append(contentsOf: withUnsafeBytes(of: eventID.bigEndian) { Data($0) })
-            buffer.append(success)
-
-            try buffer.withUnsafeBytes { bytes in
-                let written = write(socket, bytes.bindMemory(to: UInt8.self).baseAddress, buffer.count)
-                guard written == buffer.count else {
-                    throw ContainerizationError(.internalError, message: "Failed to write response to parent")
-                }
-            }
+            return (path, eventType)
         }
 
         private func generateSyntheticInotifyEvent(
             path: String,
-            eventType: Com_Apple_Containerization_Sandbox_V3_FileSystemEventType
+            eventType: FileSystemEventType
         ) throws {
             if eventType == .delete && !FileManager.default.fileExists(atPath: path) {
                 return

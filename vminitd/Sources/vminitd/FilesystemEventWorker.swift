@@ -18,6 +18,7 @@ import Containerization
 import ContainerizationError
 import ContainerizationOS
 import Foundation
+import Logging
 import NIOCore
 import NIOPosix
 import Synchronization
@@ -28,6 +29,8 @@ import Musl
 import Glibc
 #endif
 
+typealias FileSystemEventType = Com_Apple_Containerization_Sandbox_V3_FileSystemEventType
+
 final class FilesystemEventWorker: Sendable {
     private static let handshakeReady: UInt8 = 0xAA
     private static let handshakeFailure: UInt8 = 0xFF
@@ -35,27 +38,21 @@ final class FilesystemEventWorker: Sendable {
     private let containerID: String
     private let containerPID: Int32
     private let eventLoop: EventLoop
-    private let shouldStop: Atomic<Bool> = Atomic(false)
+    private let log: Logger
 
-    // Cross-thread state (accessed from any thread)
+    // Cross-thread state (synchronized via Mutex)
     private struct State {
         var childPID: Int32?
-        var parentSocket: Int32?
-    }
-    private let state: Mutex<State> = Mutex(State(childPID: nil, parentSocket: nil))
-
-    // Event-loop confined state (only accessed on channel.eventLoop)
-    private final class ELState: @unchecked Sendable {
+        var isStopped: Bool = false
         var channel: Channel?
-        var eventIDCounter: UInt32 = 0
-        var pendingEvents: [UInt32: CheckedContinuation<Void, Error>] = [:]
     }
-    private let elState = ELState()
+    private let state: Mutex<State> = Mutex(State(childPID: nil, isStopped: false))
 
-    init(containerID: String, containerPID: Int32, eventLoop: EventLoop) {
+    init(containerID: String, containerPID: Int32, eventLoop: EventLoop, log: Logger) {
         self.containerID = containerID
         self.containerPID = containerPID
         self.eventLoop = eventLoop
+        self.log = log
     }
 
     func start() throws {
@@ -106,7 +103,6 @@ final class FilesystemEventWorker: Sendable {
         close(errorWriteFD)  // Close write end in parent
         state.withLock {
             $0.childPID = pid
-            $0.parentSocket = parentSocket
         }
 
         var handshake: UInt8 = 0
@@ -114,7 +110,6 @@ final class FilesystemEventWorker: Sendable {
 
         if readResult != 1 {
             close(parentSocket)
-            state.withLock { $0.parentSocket = nil }
             close(errorReadFD)
             var status: Int32 = 0
             waitpid(pid, &status, 0)
@@ -124,7 +119,6 @@ final class FilesystemEventWorker: Sendable {
 
         if handshake == Self.handshakeFailure {
             close(parentSocket)
-            state.withLock { $0.parentSocket = nil }
 
             // Read error message from child
             var errorBuffer = [UInt8](repeating: 0, count: 1024)
@@ -144,7 +138,6 @@ final class FilesystemEventWorker: Sendable {
 
         if handshake != Self.handshakeReady {
             close(parentSocket)
-            state.withLock { $0.parentSocket = nil }
             close(errorReadFD)
             var status: Int32 = 0
             waitpid(pid, &status, 0)
@@ -156,15 +149,15 @@ final class FilesystemEventWorker: Sendable {
         close(errorReadFD)
 
         do {
-            let bootstrap = NIOPipeBootstrap(group: eventLoop)
-                .channelInitializer { channel in
-                    let handler = ResponseHandler(worker: self)
-                    return channel.pipeline.addHandler(handler)
-                }
-            self.elState.channel = try bootstrap.takingOwnershipOfDescriptor(inputOutput: parentSocket).wait()
+            let eventChannel = try NIOPipeBootstrap(group: eventLoop)
+                .takingOwnershipOfDescriptor(inputOutput: parentSocket)
+                .wait()
+
+            state.withLock { state in
+                state.channel = eventChannel
+            }
         } catch {
             close(parentSocket)
-            state.withLock { $0.parentSocket = nil }
             var status: Int32 = 0
             waitpid(pid, &status, 0)
             state.withLock { $0.childPID = nil }
@@ -172,51 +165,46 @@ final class FilesystemEventWorker: Sendable {
         }
     }
 
-    func enqueueEvent(path: String, eventType: Com_Apple_Containerization_Sandbox_V3_FileSystemEventType) async throws {
-        let socket = try state.withLock { state throws -> Int32 in
-            guard let socket = state.parentSocket, !shouldStop.load(ordering: .relaxed) else {
-                throw ContainerizationError(.invalidState, message: "FilesystemEventWorker not running")
-            }
-            return socket
+    func enqueueEvent(path: String, eventType: FileSystemEventType) throws {
+        guard !state.withLock({ $0.isStopped }) else {
+            throw ContainerizationError(.invalidState, message: "FilesystemEventWorker not running")
         }
 
-        // Use continuation to bridge between async and event loop
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            // Hop to event loop to access event ID counter and store continuation
-            eventLoop.execute { [elState] in
-                let eventID = elState.eventIDCounter
-                elState.eventIDCounter += 1
-                elState.pendingEvents[eventID] = continuation
+        eventLoop.execute {
+            let channel = self.state.withLock { $0.channel }
+            guard let channel = channel else { return }
 
-                do {
-                    try self.sendEventToChild(socket: socket, eventID: eventID, path: path, eventType: eventType)
-                } catch {
-                    // Remove continuation and resume with error on send failure
-                    _ = elState.pendingEvents.removeValue(forKey: eventID)
-                    continuation.resume(throwing: error)
-                }
+            // Build ByteBuffer with binary protocol:
+            // [event_type:4 bytes][path_len:4 bytes][path:N bytes]
+            let pathUTF8Count = path.utf8.count
+            var buffer = channel.allocator.buffer(capacity: 8 + pathUTF8Count)
+            buffer.writeInteger(UInt32(eventType.rawValue), endianness: .big)
+            buffer.writeInteger(UInt32(pathUTF8Count), endianness: .big)
+            buffer.writeString(path)
+
+            channel.writeAndFlush(buffer).whenFailure { error in
+                self.log.warning(
+                    "Failed to send event to fs-notify child",
+                    metadata: [
+                        "container": "\(self.containerID)",
+                        "path": "\(path)",
+                        "error": "\(error)",
+                    ])
             }
         }
     }
 
     func stop() {
-        shouldStop.store(true, ordering: .relaxed)
-
-        // Close channel and clean up pending events on event loop
-        eventLoop.execute { [elState] in
-            elState.channel?.close(promise: nil)
-            elState.channel = nil
-
-            for (_, continuation) in elState.pendingEvents {
-                continuation.resume(throwing: ContainerizationError(.cancelled, message: "FilesystemEventWorker stopped"))
+        eventLoop.execute {
+            self.state.withLock { state in
+                state.channel?.close(promise: nil)
+                state.channel = nil
+                state.isStopped = true
             }
-            elState.pendingEvents.removeAll()
         }
 
         // Kill child process
         state.withLock { state in
-            state.parentSocket = nil
-
             if let pid = state.childPID {
                 #if canImport(Musl)
                 Musl.kill(pid, SIGTERM)
@@ -228,66 +216,6 @@ final class FilesystemEventWorker: Sendable {
                 waitpid(pid, &status, 0)
                 state.childPID = nil
             }
-        }
-    }
-
-    private func sendEventToChild(socket: Int32, eventID: UInt32, path: String, eventType: Com_Apple_Containerization_Sandbox_V3_FileSystemEventType) throws {
-        let pathData = path.data(using: .utf8) ?? Data()
-        let pathLen = UInt32(pathData.count)
-        let eventTypeValue = UInt32(eventType.rawValue)
-
-        var buffer = Data()
-        buffer.append(contentsOf: withUnsafeBytes(of: eventTypeValue.bigEndian) { Data($0) })
-        buffer.append(contentsOf: withUnsafeBytes(of: pathLen.bigEndian) { Data($0) })
-        buffer.append(pathData)
-        buffer.append(contentsOf: withUnsafeBytes(of: eventID.bigEndian) { Data($0) })
-
-        try buffer.withUnsafeBytes { bytes in
-            let written = write(socket, bytes.bindMemory(to: UInt8.self).baseAddress, buffer.count)
-            guard written == buffer.count else {
-                throw ContainerizationError(.internalError, message: "Failed to write event to child: written \(written), expected \(buffer.count)")
-            }
-        }
-    }
-
-    private final class ResponseHandler: ChannelInboundHandler, @unchecked Sendable {
-        typealias InboundIn = ByteBuffer
-
-        private var buffer = ByteBuffer()
-        private unowned let worker: FilesystemEventWorker
-
-        init(worker: FilesystemEventWorker) {
-            self.worker = worker
-        }
-
-        func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-            var inBuffer = unwrapInboundIn(data)
-            buffer.writeBuffer(&inBuffer)
-
-            while buffer.readableBytes >= 5 {
-                guard let eventID = buffer.readInteger(endianness: .big, as: UInt32.self),
-                    let success = buffer.readInteger(as: UInt8.self)
-                else {
-                    break
-                }
-
-                // ResponseHandler runs on event loop, so can access elState.pendingEvents directly
-                if let continuation = worker.elState.pendingEvents.removeValue(forKey: eventID) {
-                    if success == 1 {
-                        continuation.resume()
-                    } else {
-                        continuation.resume(throwing: ContainerizationError(.internalError, message: "Child process failed to process filesystem event"))
-                    }
-                }
-            }
-        }
-
-        func errorCaught(context: ChannelHandlerContext, error: Error) {
-            // ResponseHandler runs on event loop, so can access elState.pendingEvents directly
-            for (_, continuation) in worker.elState.pendingEvents {
-                continuation.resume(throwing: error)
-            }
-            worker.elState.pendingEvents.removeAll()
         }
     }
 }
