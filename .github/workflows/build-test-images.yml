@@ -1,5 +1,8 @@
 name: Build and publish containerization test images
 
+permissions:
+  contents: read
+
 on: 
   workflow_dispatch: 
     inputs: 

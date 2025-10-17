@@ -1,5 +1,8 @@
 name: Build containerization template
 
+permissions:
+  contents: read
+
 on: 
   workflow_call:
     inputs:
