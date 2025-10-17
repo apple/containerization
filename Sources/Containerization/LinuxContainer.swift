@@ -364,7 +364,7 @@ extension LinuxContainer {
         try await self.state.withLock { state in
             try state.validateForCreate()
 
-            let vm = try self.vmm.create(container: self)
+            let vm = try await self.vmm.create(container: self)
             try await vm.start()
             do {
                 let relayManager = UnixSocketRelayManager(vm: vm)
