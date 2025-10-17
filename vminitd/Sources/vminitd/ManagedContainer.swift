@@ -22,7 +22,6 @@ import ContainerizationOS
 import Foundation
 import Logging
 import NIOCore
-import Synchronization
 
 #if canImport(Musl)
 import Musl
@@ -112,11 +111,11 @@ extension ManagedContainer {
         self.filesystemEventWorker = worker
     }
 
-    func executeFileSystemEvent(path: String, eventType: Com_Apple_Containerization_Sandbox_V3_FileSystemEventType) async throws {
+    func executeFileSystemEvent(path: String, eventType: FileSystemEventType) throws {
         guard let worker = self.filesystemEventWorker else {
             throw ContainerizationError(.invalidState, message: "Filesystem event worker not started for container \(self.id)")
         }
-        try await worker.enqueueEvent(path: path, eventType: eventType)
+        try worker.enqueueEvent(path: path, eventType: eventType)
     }
 
     func createExec(
@@ -150,9 +149,10 @@ extension ManagedContainer {
             // Capture needed values for callback
             let containerID = self.id
             let eventLoop = self.group.next()
+            let log = self.log
 
             onPidReady = { [weak self] pid in
-                let worker = FilesystemEventWorker(containerID: containerID, containerPID: pid, eventLoop: eventLoop)
+                let worker = FilesystemEventWorker(containerID: containerID, containerPID: pid, eventLoop: eventLoop, log: log)
                 try worker.start()
 
                 // Hop back to actor to install worker
