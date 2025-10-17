@@ -159,8 +159,9 @@ struct IntegrationSuite: AsyncParsableCommand {
             .appendingPathComponent(name)
     }
 
-    func bootstrap(_ testID: String) async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image) {
-        let reference = "ghcr.io/linuxcontainers/alpine:3.20"
+    func bootstrap(_ testID: String, reference: String = "ghcr.io/linuxcontainers/alpine:3.20") async throws -> (
+        rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image
+    ) {
         let store = Self.imageStore
 
         let initImage = try await store.getInitImage(reference: Self.initImage)
@@ -284,6 +285,7 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("container /dev/console", testContainerDevConsole),
             Test("container statistics", testContainerStatistics),
             Test("container cgroup limits", testCgroupLimits),
+            Test("fsnotify events", testFSNotifyEvents),
         ]
 
         let passed: Atomic<Int> = Atomic(0)
