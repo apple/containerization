@@ -213,6 +213,13 @@ extension VsockProxy {
                             "eofFromServer": "\(eofFromServer)",
                         ]
                     )
+
+                    // both will be set when any of these conditions apply:
+                    //   - the client has completely hung up or errored
+                    //   - the server has completely hung up or errored
+                    //   - both the client and server have half closed via:
+                    //     - read hangup on epoll
+                    //     - EOF on splice
                     if eofFromClient && eofFromServer {
                         do {
                             try ProcessSupervisor.default.poller.delete(clientFile.fileDescriptor)
@@ -243,6 +250,9 @@ extension VsockProxy {
                                 ]
                             )
                             if action == .eof {
+                                // half close, shut down client to server transfer
+                                // we should see no more EPOLLIN events on the client fd
+                                // and no more EPOLLOUT events on the server fd
                                 eofFromClient = true
                                 shutdown(serverFile.fileDescriptor, SHUT_WR)
                                 return cleanup()
@@ -274,6 +284,9 @@ extension VsockProxy {
                                 ]
                             )
                             if action == .eof {
+                                // half close, shut down server to client transfer
+                                // we should see no more EPOLLIN events on the server fd
+                                // and no more EPOLLOUT events on the client fd
                                 eofFromServer = true
                                 shutdown(clientFile.fileDescriptor, SHUT_WR)
                                 return cleanup()
@@ -287,6 +300,19 @@ extension VsockProxy {
                             eofFromServer = true
                             return cleanup()
                         }
+                    }
+
+                    if mask.isHangup {
+                        eofFromClient = true
+                        eofFromServer = true
+                        return cleanup()
+                    } else if mask.isRhangup && !eofFromClient {
+                        // half close, shut down client to server transfer
+                        // we should see no more EPOLLIN events on the client fd
+                        // and no more EPOLLOUT events on the server fd
+                        eofFromClient = true
+                        shutdown(serverFile.fileDescriptor, SHUT_WR)
+                        return cleanup()
                     }
                 }
 
@@ -307,6 +333,9 @@ extension VsockProxy {
                                 ]
                             )
                             if action == .eof {
+                                // half close, shut down server to client transfer
+                                // we should see no more EPOLLIN events on the server fd
+                                // and no more EPOLLOUT events on the client fd
                                 eofFromServer = true
                                 shutdown(clientFile.fileDescriptor, SHUT_WR)
                                 return cleanup()
@@ -338,6 +367,9 @@ extension VsockProxy {
                                 ]
                             )
                             if action == .eof {
+                                // half close, shut down client to server transfer
+                                // we should see no more EPOLLIN events on the client fd
+                                // and no more EPOLLOUT events on the server fd
                                 eofFromClient = true
                                 shutdown(serverFile.fileDescriptor, SHUT_WR)
                                 return cleanup()
@@ -351,6 +383,19 @@ extension VsockProxy {
                             eofFromServer = true
                             return cleanup()
                         }
+                    }
+
+                    if mask.isHangup {
+                        eofFromClient = true
+                        eofFromServer = true
+                        return cleanup()
+                    } else if mask.isRhangup && !eofFromServer {
+                        // half close, shut down server to client transfer
+                        // we should see no more EPOLLIN events on the server fd
+                        // and no more EPOLLOUT events on the client fd
+                        eofFromServer = true
+                        shutdown(clientFile.fileDescriptor, SHUT_WR)
+                        return cleanup()
                     }
                 }
             } catch {

@@ -169,7 +169,11 @@ public final class Epoll: Sendable {
 
 extension Epoll.Mask {
     public var isHangup: Bool {
-        (self & (EPOLLHUP | EPOLLERR | EPOLLRDHUP)) != 0
+        (self & (EPOLLHUP | EPOLLERR)) != 0
+    }
+
+    public var isRhangup: Bool {
+        (self & EPOLLRDHUP) != 0
     }
 
     public var readyToRead: Bool {
