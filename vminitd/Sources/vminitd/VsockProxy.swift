@@ -237,7 +237,7 @@ extension VsockProxy {
                     if mask.readyToRead {
                         do {
                             let (readBytes, writeBytes, action) = try OSFile.splice(from: &clientFile, to: &serverFile)
-                            self.log?.info(
+                            self.log?.debug(
                                 "transferred data",
                                 metadata: [
                                     "vport": "\(self.port)",
@@ -271,7 +271,7 @@ extension VsockProxy {
                     if mask.readyToWrite {
                         do {
                             let (readBytes, writeBytes, action) = try OSFile.splice(from: &serverFile, to: &clientFile)
-                            self.log?.info(
+                            self.log?.debug(
                                 "transferred data",
                                 metadata: [
                                     "vport": "\(self.port)",
@@ -320,7 +320,7 @@ extension VsockProxy {
                     if mask.readyToRead {
                         do {
                             let (readBytes, writeBytes, action) = try OSFile.splice(from: &serverFile, to: &clientFile)
-                            self.log?.info(
+                            self.log?.debug(
                                 "transferred data",
                                 metadata: [
                                     "vport": "\(self.port)",
@@ -354,7 +354,7 @@ extension VsockProxy {
                     if mask.readyToWrite {
                         do {
                             let (readBytes, writeBytes, action) = try OSFile.splice(from: &clientFile, to: &serverFile)
-                            self.log?.info(
+                            self.log?.debug(
                                 "transferred data",
                                 metadata: [
                                     "vport": "\(self.port)",

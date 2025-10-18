@@ -391,7 +391,7 @@ extension SocketRelay {
         }
 
         do {
-            log?.info(
+            log?.debug(
                 "source copy",
                 metadata: [
                     "sourceFd": "\(sourceFd)",
