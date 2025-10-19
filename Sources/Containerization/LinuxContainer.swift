@@ -27,9 +27,6 @@ import struct ContainerizationOS.Terminal
 /// `LinuxContainer` is an easy to use type for launching and managing the
 /// full lifecycle of a Linux container ran inside of a virtual machine.
 public final class LinuxContainer: Container, Sendable {
-    /// The default PATH value for a process.
-    public static let defaultPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-
     /// The identifier of the container.
     public let id: String
 
@@ -41,66 +38,8 @@ public final class LinuxContainer: Container, Sendable {
 
     /// The configuration for the LinuxContainer.
     public struct Configuration: Sendable {
-        /// Configuration of a container process.
-        public struct Process: Sendable {
-            /// The arguments for the container process.
-            public var arguments: [String] = []
-            /// The environment variables for the container process.
-            public var environmentVariables: [String] = ["PATH=\(LinuxContainer.defaultPath)"]
-            /// The working directory for the container process.
-            public var workingDirectory: String = "/"
-            /// The user the container process will run as.
-            public var user: ContainerizationOCI.User = .init()
-            /// The rlimits for the container process.
-            public var rlimits: [POSIXRlimit] = []
-            /// Whether to allocate a pseudo terminal for the process. If you'd like interactive
-            /// behavior and are planning to use a terminal for stdin/out/err on the client side,
-            /// this should likely be set to true.
-            public var terminal: Bool = false
-            /// The stdin for the process.
-            public var stdin: ReaderStream?
-            /// The stdout for the process.
-            public var stdout: Writer?
-            /// The stderr for the process.
-            public var stderr: Writer?
-
-            public init() {}
-
-            public init(from config: ImageConfig) {
-                self.workingDirectory = config.workingDir ?? "/"
-                self.environmentVariables = config.env ?? []
-                self.arguments = (config.entrypoint ?? []) + (config.cmd ?? [])
-                self.user = {
-                    if let rawString = config.user {
-                        return User(username: rawString)
-                    }
-                    return User()
-                }()
-            }
-
-            func toOCI() -> ContainerizationOCI.Process {
-                ContainerizationOCI.Process(
-                    args: self.arguments,
-                    cwd: self.workingDirectory,
-                    env: self.environmentVariables,
-                    user: self.user,
-                    rlimits: self.rlimits,
-                    terminal: self.terminal
-                )
-            }
-
-            /// Sets up IO to be handled by the passed in Terminal, and edits the
-            /// process configuration to set the necessary state for using a pty.
-            mutating public func setTerminalIO(terminal: Terminal) {
-                self.environmentVariables.append("TERM=xterm")
-                self.terminal = true
-                self.stdin = terminal
-                self.stdout = terminal
-            }
-        }
-
         /// Configuration for the init process of the container.
-        public var process = Process.init()
+        public var process = LinuxProcessConfiguration.init()
         /// The amount of cpus for the container.
         public var cpus: Int = 4
         /// The memory in bytes to give to the container.
@@ -615,12 +554,12 @@ extension LinuxContainer {
 
     /// Execute a new process in the container. The process is not started after this call, and must be manually started
     /// via the `start` method.
-    public func exec(_ id: String, configuration: @Sendable @escaping (inout Configuration.Process) throws -> Void) async throws -> LinuxProcess {
+    public func exec(_ id: String, configuration: @Sendable @escaping (inout LinuxProcessConfiguration) throws -> Void) async throws -> LinuxProcess {
         try await self.state.withLock {
             let state = try $0.startedState("exec")
 
             var spec = self.generateRuntimeSpec()
-            var config = Configuration.Process()
+            var config = LinuxProcessConfiguration()
             try configuration(&config)
             spec.process = config.toOCI()
 
@@ -646,7 +585,7 @@ extension LinuxContainer {
 
     /// Execute a new process in the container. The process is not started after this call, and must be manually started
     /// via the `start` method.
-    public func exec(_ id: String, configuration: Configuration.Process) async throws -> LinuxProcess {
+    public func exec(_ id: String, configuration: LinuxProcessConfiguration) async throws -> LinuxProcess {
         try await self.state.withLock {
             let state = try $0.startedState("exec")
 

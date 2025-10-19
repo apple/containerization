@@ -29,8 +29,6 @@ public struct Vminitd: Sendable {
     // Default vsock port that the agent and client use.
     public static let port: UInt32 = 1024
 
-    private static let defaultPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-
     let client: Client
 
     public init(client: Client) {
@@ -53,7 +51,7 @@ extension Vminitd: VirtualMachineAgent {
     public func standardSetup() async throws {
         try await up(name: "lo")
 
-        try await setenv(key: "PATH", value: Self.defaultPath)
+        try await setenv(key: "PATH", value: LinuxProcessConfiguration.defaultPath)
 
         let mounts: [ContainerizationOCI.Mount] = [
             .init(type: "sysfs", source: "sysfs", destination: "/sys"),
