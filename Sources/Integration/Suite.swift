@@ -268,6 +268,7 @@ struct IntegrationSuite: AsyncParsableCommand {
         log.info("starting integration suite\n")
 
         let tests: [Test] = [
+            // Containers
             Test("process true", testProcessTrue),
             Test("process false", testProcessFalse),
             Test("process echo hi", testProcessEchoHi),
@@ -290,6 +291,22 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("container /dev/console", testContainerDevConsole),
             Test("container statistics", testContainerStatistics),
             Test("container cgroup limits", testCgroupLimits),
+
+            // Pods
+            Test("pod single container", testPodSingleContainer),
+            Test("pod multiple containers", testPodMultipleContainers),
+            Test("pod container output", testPodContainerOutput),
+            Test("pod concurrent containers", testPodConcurrentContainers),
+            Test("pod exec in container", testPodExecInContainer),
+            Test("pod container hostname", testPodContainerHostname),
+            Test("pod pause resume", testPodPauseResume),
+            Test("pod stop container idempotency", testPodStopContainerIdempotency),
+            Test("pod list containers", testPodListContainers),
+            Test("pod container statistics", testPodContainerStatistics),
+            Test("pod container resource limits", testPodContainerResourceLimits),
+            Test("pod container filesystem isolation", testPodContainerFilesystemIsolation),
+            Test("pod container PID namespace isolation", testPodContainerPIDNamespaceIsolation),
+            Test("pod container independent resource limits", testPodContainerIndependentResourceLimits),
         ]
 
         let passed: Atomic<Int> = Atomic(0)
