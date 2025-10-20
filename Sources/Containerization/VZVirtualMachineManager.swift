@@ -23,47 +23,53 @@ import Logging
 /// A virtualization.framework backed `VirtualMachineManager` implementation.
 public struct VZVirtualMachineManager: VirtualMachineManager {
     private let kernel: Kernel
-    private let bootlog: String?
     private let initialFilesystem: Mount
+    private let bootlog: String?
+    private let rosetta: Bool
+    private let nestedVirtualization: Bool
     private let logger: Logger?
 
     public init(
         kernel: Kernel,
         initialFilesystem: Mount,
         bootlog: String? = nil,
+        rosetta: Bool = false,
+        nestedVirtualization: Bool = false,
         logger: Logger? = nil
     ) {
         self.kernel = kernel
-        self.bootlog = bootlog
         self.initialFilesystem = initialFilesystem
+        self.bootlog = bootlog
+        self.rosetta = rosetta
+        self.nestedVirtualization = nestedVirtualization
         self.logger = logger
     }
 
-    public func create(container: Container) throws -> any VirtualMachineInstance {
-        guard let c = container as? LinuxContainer else {
-            throw ContainerizationError(
-                .invalidArgument,
-                message: "provided container is not a LinuxContainer"
-            )
-        }
+    public func create(config: some VMCreationConfig) throws -> any VirtualMachineInstance {
+        let vmConfig = config.configuration
+
+        // Use nested virtualization if requested in config or set as default in manager
+        let useNestedVirtualization = vmConfig.nestedVirtualization || self.nestedVirtualization
 
         return try VZVirtualMachineInstance(
             logger: self.logger,
-            with: { config in
-                config.cpus = container.cpus
-                config.memoryInBytes = container.memoryInBytes
+            with: { instanceConfig in
+                instanceConfig.cpus = vmConfig.cpus
+                instanceConfig.memoryInBytes = vmConfig.memoryInBytes
 
-                config.kernel = self.kernel
-                config.initialFilesystem = self.initialFilesystem
+                instanceConfig.kernel = self.kernel
+                instanceConfig.initialFilesystem = self.initialFilesystem
 
-                config.interfaces = container.interfaces
-                if let bootlog {
-                    config.bootlog = URL(filePath: bootlog)
+                instanceConfig.interfaces = vmConfig.interfaces
+                if let bootlog = vmConfig.bootlog {
+                    instanceConfig.bootlog = bootlog
+                } else if let bootlog = self.bootlog {
+                    instanceConfig.bootlog = URL(filePath: bootlog)
                 }
-                config.rosetta = c.config.rosetta
-                config.nestedVirtualization = c.config.virtualization
+                instanceConfig.rosetta = self.rosetta
+                instanceConfig.nestedVirtualization = useNestedVirtualization
 
-                config.mounts = [c.rootfs] + c.config.mounts
+                instanceConfig.mountsByID = vmConfig.mountsByID
             })
     }
 }
