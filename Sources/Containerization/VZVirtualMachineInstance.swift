@@ -168,8 +168,8 @@ extension VZVirtualMachineInstance {
 
             try await self.timeSyncer.close()
 
-            try await self.vm.stop(queue: self.queue)
             try await self.group.shutdownGracefully()
+            try await self.vm.stop(queue: self.queue)
         }
     }
 
