@@ -52,16 +52,14 @@ public final class LinuxContainer: Container, Sendable {
         public var interfaces: [any Interface] = []
         /// The Unix domain socket relays to setup for the container.
         public var sockets: [UnixSocketConfiguration] = []
-        /// Whether rosetta x86-64 emulation should be setup for the container.
-        public var rosetta: Bool = false
-        /// Whether nested virtualization should be turned on for the container.
-        public var virtualization: Bool = false
         /// The mounts for the container.
         public var mounts: [Mount] = LinuxContainer.defaultMounts()
         /// The DNS configuration for the container.
         public var dns: DNS?
         /// The hosts to add to /etc/hosts for the container.
         public var hosts: Hosts?
+        /// Enable nested virtualization support.
+        public var virtualization: Bool = false
 
         public init() {}
     }
@@ -303,7 +301,16 @@ extension LinuxContainer {
         try await self.state.withLock { state in
             try state.validateForCreate()
 
-            let vm = try await self.vmm.create(container: self)
+            let vmConfig = VMConfiguration(
+                cpus: self.cpus,
+                memoryInBytes: self.memoryInBytes,
+                interfaces: self.interfaces,
+                mountsByID: [self.id: [self.rootfs] + self.config.mounts],
+                nestedVirtualization: self.config.virtualization
+            )
+            let creationConfig = StandardVMConfig(configuration: vmConfig)
+            let vm = try await self.vmm.create(config: creationConfig)
+
             try await vm.start()
             do {
                 let relayManager = UnixSocketRelayManager(vm: vm)
@@ -311,7 +318,10 @@ extension LinuxContainer {
                     try await agent.standardSetup()
 
                     // Mount the rootfs.
-                    var rootfs = vm.mounts[0].to
+                    guard let attachments = vm.mounts[self.id], let rootfsAttachment = attachments.first else {
+                        throw ContainerizationError(.notFound, message: "rootfs mount not found")
+                    }
+                    var rootfs = rootfsAttachment.to
                     rootfs.destination = Self.guestRootfsPath(self.id)
                     try await agent.mount(rootfs)
 
@@ -364,7 +374,8 @@ extension LinuxContainer {
             do {
                 var spec = self.generateRuntimeSpec()
                 // We don't need the rootfs, nor do OCI runtimes want it included.
-                spec.mounts = createdState.vm.mounts.dropFirst().map { $0.to }
+                let containerMounts = createdState.vm.mounts[self.id] ?? []
+                spec.mounts = containerMounts.dropFirst().map { $0.to }
 
                 let stdio = Self.setupIO(
                     portAllocator: self.hostVsockPorts,

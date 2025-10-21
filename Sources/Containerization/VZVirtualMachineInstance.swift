@@ -28,8 +28,8 @@ import Virtualization
 struct VZVirtualMachineInstance: VirtualMachineInstance, Sendable {
     typealias Agent = Vminitd
 
-    /// Attached mounts on the sandbox.
-    public let mounts: [AttachedFilesystem]
+    /// Attached mounts on the sandbox, organized by metadata ID.
+    public let mounts: [String: [AttachedFilesystem]]
 
     /// Returns the runtime state of the vm.
     public var state: VirtualMachineInstanceState {
@@ -47,8 +47,8 @@ struct VZVirtualMachineInstance: VirtualMachineInstance, Sendable {
         public var rosetta: Bool
         /// Toggle nested virtualization support.
         public var nestedVirtualization: Bool
-        /// Mount attachments.
-        public var mounts: [Mount]
+        /// Mount attachments organized by metadata ID.
+        public var mountsByID: [String: [Mount]]
         /// Network interface attachments.
         public var interfaces: [any Interface]
         /// Kernel image.
@@ -63,7 +63,7 @@ struct VZVirtualMachineInstance: VirtualMachineInstance, Sendable {
             self.memoryInBytes = 1024.mib()
             self.rosetta = false
             self.nestedVirtualization = false
-            self.mounts = []
+            self.mountsByID = [:]
             self.interfaces = []
         }
     }
@@ -317,8 +317,10 @@ extension VZVirtualMachineInstance.Configuration {
         config.bootLoader = loader
 
         try initialFilesystem.configure(config: &config)
-        for mount in self.mounts {
-            try mount.configure(config: &config)
+        for (_, mounts) in self.mountsByID {
+            for mount in mounts {
+                try mount.configure(config: &config)
+            }
         }
 
         let platform = VZGenericPlatformConfiguration()
@@ -337,7 +339,7 @@ extension VZVirtualMachineInstance.Configuration {
         return config
     }
 
-    func mountAttachments() throws -> [AttachedFilesystem] {
+    func mountAttachments() throws -> [String: [AttachedFilesystem]] {
         let allocator = Character.blockDeviceTagAllocator()
         if let initialFilesystem {
             // When the initial filesystem is a blk, allocate the first letter "vd(a)"
@@ -347,11 +349,15 @@ extension VZVirtualMachineInstance.Configuration {
             }
         }
 
-        var attachments: [AttachedFilesystem] = []
-        for mount in self.mounts {
-            attachments.append(try .init(mount: mount, allocator: allocator))
+        var attachmentsByID: [String: [AttachedFilesystem]] = [:]
+        for (id, mounts) in self.mountsByID {
+            var attachments: [AttachedFilesystem] = []
+            for mount in mounts {
+                attachments.append(try .init(mount: mount, allocator: allocator))
+            }
+            attachmentsByID[id] = attachments
         }
-        return attachments
+        return attachmentsByID
     }
 }
 

@@ -197,12 +197,15 @@ public struct ContainerManager: Sendable {
     }
 
     /// Create a new manager with the provided kernel, initfs mount, image store
-    /// and optional network implementation.
+    /// and optional network implementation. This will use a Virtualization.framework
+    /// backed VMM implicitly.
     public init(
         kernel: Kernel,
         initfs: Mount,
         imageStore: ImageStore,
-        network: Network? = nil
+        network: Network? = nil,
+        rosetta: Bool = false,
+        nestedVirtualization: Bool = false
     ) throws {
         self.imageStore = imageStore
         self.network = network
@@ -210,17 +213,22 @@ public struct ContainerManager: Sendable {
         self.vmm = VZVirtualMachineManager(
             kernel: kernel,
             initialFilesystem: initfs,
-            bootlog: self.imageStore.path.appendingPathComponent("bootlog.log").absolutePath()
+            bootlog: imageStore.path.appendingPathComponent("bootlog.log").absolutePath(),
+            rosetta: rosetta,
+            nestedVirtualization: nestedVirtualization
         )
     }
 
     /// Create a new manager with the provided kernel, initfs mount, root state
-    /// directory and optional network implementation.
+    /// directory and optional network implementation. This will use a Virtualization.framework
+    /// backed VMM implicitly.
     public init(
         kernel: Kernel,
         initfs: Mount,
         root: URL? = nil,
-        network: Network? = nil
+        network: Network? = nil,
+        rosetta: Bool = false,
+        nestedVirtualization: Bool = false
     ) throws {
         if let root {
             self.imageStore = try ImageStore(path: root)
@@ -232,17 +240,22 @@ public struct ContainerManager: Sendable {
         self.vmm = VZVirtualMachineManager(
             kernel: kernel,
             initialFilesystem: initfs,
-            bootlog: self.imageStore.path.appendingPathComponent("bootlog.log").absolutePath()
+            bootlog: imageStore.path.appendingPathComponent("bootlog.log").absolutePath(),
+            rosetta: rosetta,
+            nestedVirtualization: nestedVirtualization
         )
     }
 
     /// Create a new manager with the provided kernel, initfs reference, image store
-    /// and optional network implementation.
+    /// and optional network implementation. This will use a Virtualization.framework
+    /// backed VMM implicitly.
     public init(
         kernel: Kernel,
         initfsReference: String,
         imageStore: ImageStore,
-        network: Network? = nil
+        network: Network? = nil,
+        rosetta: Bool = false,
+        nestedVirtualization: Bool = false
     ) async throws {
         self.imageStore = imageStore
         self.network = network
@@ -269,16 +282,21 @@ public struct ContainerManager: Sendable {
         self.vmm = VZVirtualMachineManager(
             kernel: kernel,
             initialFilesystem: initfs,
-            bootlog: self.imageStore.path.appendingPathComponent("bootlog.log").absolutePath()
+            bootlog: self.imageStore.path.appendingPathComponent("bootlog.log").absolutePath(),
+            rosetta: rosetta,
+            nestedVirtualization: nestedVirtualization
         )
     }
 
     /// Create a new manager with the provided kernel and image reference for the initfs.
+    /// This will use a Virtualization.framework backed VMM implicitly.
     public init(
         kernel: Kernel,
         initfsReference: String,
         root: URL? = nil,
-        network: Network? = nil
+        network: Network? = nil,
+        rosetta: Bool = false,
+        nestedVirtualization: Bool = false
     ) async throws {
         if let root {
             self.imageStore = try ImageStore(path: root)
@@ -309,7 +327,9 @@ public struct ContainerManager: Sendable {
         self.vmm = VZVirtualMachineManager(
             kernel: kernel,
             initialFilesystem: initfs,
-            bootlog: self.imageStore.path.appendingPathComponent("bootlog.log").absolutePath()
+            bootlog: self.imageStore.path.appendingPathComponent("bootlog.log").absolutePath(),
+            rosetta: rosetta,
+            nestedVirtualization: nestedVirtualization
         )
     }
 

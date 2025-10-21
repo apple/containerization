@@ -79,6 +79,7 @@ extension Application {
             var manager = try await ContainerManager(
                 kernel: kernel,
                 initfsReference: "vminit:latest",
+                rosetta: rosetta
             )
             let sigwinchStream = AsyncSignalHandler.create(notify: [SIGWINCH])
 
@@ -96,7 +97,6 @@ extension Application {
                 config.process.setTerminalIO(terminal: current)
                 config.process.arguments = arguments
                 config.process.workingDirectory = cwd
-                config.rosetta = rosetta
 
                 for mount in self.mounts {
                     let paths = mount.split(separator: ":")
