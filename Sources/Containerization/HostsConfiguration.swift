@@ -16,9 +16,9 @@
 
 /// Static table lookups for a container. The values will be used to
 /// construct /etc/hosts for a given container.
-public struct Hosts: Sendable {
+public struct Hosts: Sendable, Codable {
     /// Represents one entry in an /etc/hosts file.
-    public struct Entry: Sendable {
+    public struct Entry: Sendable, Codable {
         /// The IPV4 or IPV6 address in String form.
         public var ipAddress: String
         /// The hostname(s) for the entry.
