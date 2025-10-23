@@ -265,8 +265,12 @@ extension VZVirtualMachineInstance.Configuration {
         config.memorySize = self.memoryInBytes
         config.entropyDevices = [VZVirtioEntropyDeviceConfiguration()]
         config.socketDevices = [VZVirtioSocketDeviceConfiguration()]
+
         if let bootlog = self.bootlog {
             config.serialPorts = try serialPort(path: bootlog)
+        } else {
+            // We always supply a serial console. If no explicit path was provided just send em to the void.
+            config.serialPorts = try serialPort(path: URL(filePath: "/dev/null"))
         }
 
         config.networkDevices = try self.interfaces.map {
