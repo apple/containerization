@@ -300,7 +300,6 @@ extension LinuxContainer {
     /// and set up the runtime environment. The container's init process
     /// is NOT running afterwards.
     public func create() async throws {
-        try? "create() called for \(self.id)\n".write(toFile: "/tmp/create-called-\(self.id).log", atomically: true, encoding: .utf8)
         try await self.state.withLock { state in
             try state.validateForCreate()
 
@@ -351,10 +350,6 @@ extension LinuxContainer {
                     }
 
                     // Register this container in the ContainerRegistry for DNS discovery
-                    try? FileManager.default.createDirectory(atPath: "/tmp/container-debug", withIntermediateDirectories: true)
-                    var debugLog = "Container \(self.id) registering - networks: \(self.config.networks), interfaces: \(self.interfaces.count)\n"
-
-                    // FIRST: Register on all networks
                     for (index, interface) in self.interfaces.enumerated() {
                         if index < self.config.networks.count {
                             let networkName = self.config.networks[index]
@@ -365,51 +360,35 @@ extension LinuxContainer {
                                     ipAddress: String(ipAddress),
                                     network: networkName
                                 )
-                                debugLog += "Registered \(self.id) -> \(ipAddress) on network \(networkName)\n"
                             }
                         }
                     }
 
-                    // NOW rebuild hosts with OTHER containers (after we registered)
                     var hostsEntries = [Hosts.Entry.localHostIPV4()]
 
                     // Add ourselves
                     if let firstInterface = self.interfaces.first {
                         let ip = firstInterface.address.split(separator: "/").first.map(String.init) ?? firstInterface.address
                         hostsEntries.append(Hosts.Entry(ipAddress: ip, hostnames: [self.id]))
-                        debugLog += "Added self: \(self.id) -> \(ip)\n"
                     }
 
                     // Query registry for other containers on our networks
                     for networkName in self.config.networks {
-                        // DUMP THE ENTIRE REGISTRY
                         let allContainers = await ContainerRegistry.shared.getAllContainers()
-                        debugLog += "FULL REGISTRY DUMP: \(allContainers.map { "\($0.name):\($0.ipAddress):\($0.network)" }.joined(separator: ", "))\n"
                         
                         let otherContainers = await ContainerRegistry.shared.getContainersOnNetwork(networkName)
-                        debugLog += "Found \(otherContainers.count) other containers on network '\(networkName)'\n"
-                        debugLog += "Other containers: \(otherContainers.map { "\($0.name):\($0.ipAddress)" }.joined(separator: ", "))\n"
-                        debugLog += "My name is: '\(self.id)'\n"
                         
                         for containerInfo in otherContainers {
-                            debugLog += "Checking container: '\(containerInfo.name)' vs '\(self.id)'\n"
                             if containerInfo.name != self.id {
-                                debugLog += "Adding \(containerInfo.name) -> \(containerInfo.ipAddress)\n"
                                 hostsEntries.append(
                                     Hosts.Entry(ipAddress: containerInfo.ipAddress, hostnames: [containerInfo.name])
                                 )
-                            } else {
-                                debugLog += "Skipping self: \(containerInfo.name)\n"
                             }
                         }
                     }
 
                     // Build the complete hosts configuration
                     let completeHosts = Hosts(entries: hostsEntries)
-                    debugLog += "Total hosts entries: \(completeHosts.entries.count)\n"
-
-                    // Write debug log
-                    try? debugLog.write(toFile: "/tmp/container-debug/\(self.id).log", atomically: true, encoding: .utf8)
 
                     // Setup /etc/resolv.conf and /etc/hosts
                     if let dns = self.config.dns {
@@ -430,8 +409,6 @@ extension LinuxContainer {
 
     /// Start the container's initial process.
     public func start() async throws {
-        try? "LinuxContainer.start() called for \(self.id)\n".write(toFile: "/tmp/linuxcontainer-start-\(self.id).log", atomically: true, encoding: .utf8)
-        print("DEBUG: LinuxContainer.start() called for \(self.id)")
         try await self.state.withLock { state in
             let createdState = try state.createdState("start")
 
@@ -461,25 +438,15 @@ extension LinuxContainer {
                 try await process.start()
 
                 // Register container in registry for DNS discovery
-                print("DEBUG LinuxContainer: About to register \(self.id)")
-                print("DEBUG LinuxContainer: interfaces.first = \(self.interfaces.first?.address ?? "nil")")
-                print("DEBUG LinuxContainer: config.networks = \(self.config.networks)")
-
                 if let firstInterface = self.interfaces.first {
-                    let ipAddress = firstInterface.address.split(separator: "/").first.map(String.init) ?? firstInterface.address
-                    print("DEBUG LinuxContainer: Extracted IP = \(ipAddress)")
-                    
+                    let ipAddress = firstInterface.address.split(separator: "/").first.map(String.init) ?? firstInterface.address                    
                     for networkName in self.config.networks {
-                        print("DEBUG LinuxContainer: Registering on network: \(networkName)")
                         await ContainerRegistry.shared.register(
                             name: self.id,
                             ipAddress: ipAddress,
                             network: networkName
                         )
-                        print("DEBUG LinuxContainer: Registered \(self.id) on \(networkName)")
                     }
-                } else {
-                    print("DEBUG LinuxContainer: NO INTERFACES - cannot register!")
                 }
 
                 state = .started(.init(createdState, process: process))

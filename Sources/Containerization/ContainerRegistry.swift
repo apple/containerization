@@ -62,7 +62,6 @@ public actor ContainerRegistry {
         containers[network]?[name] = ContainerInfo(name: name, ipAddress: ipAddress, network: network)
         
         save(containers)
-        print("DEBUG ContainerRegistry.register: name=\(name), ip=\(ipAddress), network=\(network)")
     }
     
     /// Unregister a container
