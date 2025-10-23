@@ -40,6 +40,7 @@ public actor ContainerRegistry {
 
     /// Register a new container
     public func register(name: String, ipAddress: String, network: String) {
+        print("DEBUG ContainerRegistry.register: name=\(name), ip=\(ipAddress), network=\(network)")
         if containers[network] == nil {
             containers[network] = [:]
         }

@@ -58,8 +58,8 @@ public final class LinuxContainer: Container, Sendable {
         public var dns: DNS?
         /// The hosts to add to /etc/hosts for the container.
         public var hosts: Hosts?
-        /// The network attachments for the container.
-        public var networks: [String] = [] 
+        /// The network names this container is attached to
+        public var networks: [String] = []
         /// Enable nested virtualization support.
         public var virtualization: Bool = false
 
@@ -394,6 +394,8 @@ extension LinuxContainer {
 
     /// Start the container's initial process.
     public func start() async throws {
+        try? "LinuxContainer.start() called for \(self.id)\n".write(toFile: "/tmp/linuxcontainer-start-\(self.id).log", atomically: true, encoding: .utf8)
+        print("DEBUG: LinuxContainer.start() called for \(self.id)")
         try await self.state.withLock { state in
             let createdState = try state.createdState("start")
 
@@ -421,6 +423,28 @@ extension LinuxContainer {
                     logger: self.logger
                 )
                 try await process.start()
+
+                // Register container in registry for DNS discovery
+                print("DEBUG LinuxContainer: About to register \(self.id)")
+                print("DEBUG LinuxContainer: interfaces.first = \(self.interfaces.first?.address ?? "nil")")
+                print("DEBUG LinuxContainer: config.networks = \(self.config.networks)")
+
+                if let firstInterface = self.interfaces.first {
+                    let ipAddress = firstInterface.address.split(separator: "/").first.map(String.init) ?? firstInterface.address
+                    print("DEBUG LinuxContainer: Extracted IP = \(ipAddress)")
+                    
+                    for networkName in self.config.networks {
+                        print("DEBUG LinuxContainer: Registering on network: \(networkName)")
+                        await ContainerRegistry.shared.register(
+                            name: self.id,
+                            ipAddress: ipAddress,
+                            network: networkName
+                        )
+                        print("DEBUG LinuxContainer: Registered \(self.id) on \(networkName)")
+                    }
+                } else {
+                    print("DEBUG LinuxContainer: NO INTERFACES - cannot register!")
+                }
 
                 state = .started(.init(createdState, process: process))
             } catch {
@@ -492,6 +516,8 @@ extension LinuxContainer {
                 // use a vsock handle like below here will cause NIO to
                 // fatalError because we'll get an EBADF.
                 if startedState.vm.state == .stopped {
+                    // Unregister from ContainerRegistry for DNS discovery
+                    await ContainerRegistry.shared.unregister(name: self.id)
                     state = .stopped
                     return
                 }
