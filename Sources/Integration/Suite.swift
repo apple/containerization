@@ -144,8 +144,8 @@ struct IntegrationSuite: AsyncParsableCommand {
 
     private static let unpackCoordinator = UnpackCoordinator()
 
-    @Option(name: .shortAndLong, help: "Path to a log file")
-    var bootlog: String
+    @Option(name: .shortAndLong, help: "Path to a directory for boot logs")
+    var bootlogDir: String = "./bin/integration-bootlogs"
 
     @Option(name: .shortAndLong, help: "Path to a kernel binary")
     var kernel: String = "./bin/vmlinux"
@@ -159,7 +159,7 @@ struct IntegrationSuite: AsyncParsableCommand {
             .appendingPathComponent(name)
     }
 
-    func bootstrap(_ testID: String) async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image) {
+    func bootstrap(_ testID: String) async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image, bootlog: URL) {
         let reference = "ghcr.io/linuxcontainers/alpine:3.20"
         let store = Self.imageStore
 
@@ -210,14 +210,20 @@ struct IntegrationSuite: AsyncParsableCommand {
         try? FileManager.default.removeItem(atPath: clPath)
 
         let cl = try fs.clone(to: clPath)
+
+        // Create bootlog directory and per-container bootlog path
+        let bootlogDirURL = URL(filePath: bootlogDir)
+        try? FileManager.default.createDirectory(at: bootlogDirURL, withIntermediateDirectories: true)
+        let bootlogURL = bootlogDirURL.appendingPathComponent("\(testID).log")
+
         return (
             cl,
             VZVirtualMachineManager(
                 kernel: testKernel,
                 initialFilesystem: initfs,
-                bootlog: bootlog
             ),
-            image
+            image,
+            bootlogURL
         )
     }
 
