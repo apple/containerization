@@ -999,6 +999,25 @@ extension IntegrationSuite {
         }
     }
 
+    func testNoSerialConsole() async throws {
+        let id = "test-no-serial-console"
+
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/true"]
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+    }
+
     private func createMountDirectory() throws -> URL {
         let dir = FileManager.default.uniqueTemporaryDirectory(create: true)
         try "hello".write(to: dir.appendingPathComponent("hi.txt"), atomically: true, encoding: .utf8)
