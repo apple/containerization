@@ -159,7 +159,9 @@ struct IntegrationSuite: AsyncParsableCommand {
             .appendingPathComponent(name)
     }
 
-    func bootstrap(_ testID: String, reference: String = "ghcr.io/linuxcontainers/alpine:3.20") async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image, bootlog: URL) {
+    func bootstrap(_ testID: String, reference: String = "ghcr.io/linuxcontainers/alpine:3.20") async throws -> (
+        rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image, bootlog: URL
+    ) {
         let store = Self.imageStore
 
         let initImage = try await store.getInitImage(reference: Self.initImage)
