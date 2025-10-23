@@ -60,6 +60,8 @@ public final class LinuxContainer: Container, Sendable {
         public var hosts: Hosts?
         /// Enable nested virtualization support.
         public var virtualization: Bool = false
+        /// Optional file path to store serial boot logs.
+        public var bootlog: URL?
 
         public init() {}
     }
@@ -306,6 +308,7 @@ extension LinuxContainer {
                 memoryInBytes: self.memoryInBytes,
                 interfaces: self.interfaces,
                 mountsByID: [self.id: [self.rootfs] + self.config.mounts],
+                bootlog: self.config.bootlog,
                 nestedVirtualization: self.config.virtualization
             )
             let creationConfig = StandardVMConfig(configuration: vmConfig)
