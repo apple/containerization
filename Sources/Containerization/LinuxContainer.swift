@@ -58,6 +58,8 @@ public final class LinuxContainer: Container, Sendable {
         public var dns: DNS?
         /// The hosts to add to /etc/hosts for the container.
         public var hosts: Hosts?
+        /// The network attachments for the container.
+        public var networks: [String] = [] 
         /// Enable nested virtualization support.
         public var virtualization: Bool = false
 
@@ -298,6 +300,7 @@ extension LinuxContainer {
     /// and set up the runtime environment. The container's init process
     /// is NOT running afterwards.
     public func create() async throws {
+        try? "create() called for \(self.id)\n".write(toFile: "/tmp/create-called-\(self.id).log", atomically: true, encoding: .utf8)
         try await self.state.withLock { state in
             try state.validateForCreate()
 
@@ -344,6 +347,30 @@ extension LinuxContainer {
                         try await agent.up(name: name, mtu: 1280)
                         if let gateway = i.gateway {
                             try await agent.routeAddDefault(name: name, gateway: gateway)
+                        }
+                    }
+
+                    // Register this container in the ContainerRegistry for DNS discovery
+                    try? FileManager.default.createDirectory(atPath: "/tmp/container-debug", withIntermediateDirectories: true)
+                    let debugInfo = "Container \(self.id) registering - networks: \(self.config.networks), interfaces: \(self.interfaces.count)\n"
+                    try? debugInfo.write(toFile: "/tmp/container-debug/\(self.id).log", atomically: true, encoding: .utf8)
+                    
+                    print("DEBUG LinuxContainer: self.config.networks = \(self.config.networks)")
+                    print("DEBUG LinuxContainer: self.interfaces.count = \(self.interfaces.count)")
+                    for (index, interface) in self.interfaces.enumerated() {
+                        print("DEBUG LinuxContainer: Processing interface \(index): \(interface.address)")
+                        // Get the network name for this interface
+                        if index < self.config.networks.count {
+                            let networkName = self.config.networks[index]
+                            // Extract IP from the interface address (e.g., "192.168.64.2/24" -> "192.168.64.2")
+                            let ipComponents = interface.address.split(separator: "/")
+                            if let ipAddress = ipComponents.first {
+                                await ContainerRegistry.shared.register(
+                                    name: self.id,
+                                    ipAddress: String(ipAddress),
+                                    network: networkName
+                                )
+                            }
                         }
                     }
 
@@ -507,6 +534,9 @@ extension LinuxContainer {
                 try? await startedState.process.delete()
 
                 try await startedState.vm.stop()
+
+                // Unregister from ContainerRegistry for DNS discovery
+                await ContainerRegistry.shared.unregister(name: self.id)
                 state = .stopped
             } catch {
                 state.setErrored(error: error)

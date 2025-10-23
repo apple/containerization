@@ -1,0 +1,40 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:containerization}",
+            "name": "Debug cctl",
+            "program": "${workspaceFolder:containerization}/.build/debug/cctl",
+            "preLaunchTask": "swift: Build Debug cctl"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:containerization}",
+            "name": "Release cctl",
+            "program": "${workspaceFolder:containerization}/.build/release/cctl",
+            "preLaunchTask": "swift: Build Release cctl"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:containerization}",
+            "name": "Debug containerization-integration",
+            "program": "${workspaceFolder:containerization}/.build/debug/containerization-integration",
+            "preLaunchTask": "swift: Build Debug containerization-integration"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:containerization}",
+            "name": "Release containerization-integration",
+            "program": "${workspaceFolder:containerization}/.build/release/containerization-integration",
+            "preLaunchTask": "swift: Build Release containerization-integration"
+        }
+    ]
+}
