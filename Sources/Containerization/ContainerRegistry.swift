@@ -19,48 +19,72 @@ import Foundation
 /// Tracks running containers and their network information for DNS resolution
 public actor ContainerRegistry {
     public static let shared = ContainerRegistry()
-
+    
+    private let registryPath = "/tmp/container-registry.json"
+    
     /// Information about a registered container
-    public struct ContainerInfo: Sendable {
+    public struct ContainerInfo: Sendable, Codable {
         public let name: String
         public let ipAddress: String
         public let network: String
-
+        
         public init(name: String, ipAddress: String, network: String) {
             self.name = name
             self.ipAddress = ipAddress
             self.network = network
         }
     }
-
-    // Store containers by network: [networkName : [containerName: ContainerInfo]]
-    private var containers: [String: [String: ContainerInfo]] = [:]
-
+    
     private init() {}
-
+    
+    // Load registry from disk
+    private func load() -> [String: [String: ContainerInfo]] {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: registryPath)),
+              let decoded = try? JSONDecoder().decode([String: [String: ContainerInfo]].self, from: data) else {
+            return [:]
+        }
+        return decoded
+    }
+    
+    // Save registry to disk
+    private func save(_ containers: [String: [String: ContainerInfo]]) {
+        guard let data = try? JSONEncoder().encode(containers) else { return }
+        try? data.write(to: URL(fileURLWithPath: registryPath), options: .atomic)
+    }
+    
     /// Register a new container
     public func register(name: String, ipAddress: String, network: String) {
-        print("DEBUG ContainerRegistry.register: name=\(name), ip=\(ipAddress), network=\(network)")
+        var containers = load()
+        
         if containers[network] == nil {
             containers[network] = [:]
         }
         containers[network]?[name] = ContainerInfo(name: name, ipAddress: ipAddress, network: network)
+        
+        save(containers)
+        print("DEBUG ContainerRegistry.register: name=\(name), ip=\(ipAddress), network=\(network)")
     }
-
-    // Unregister a container
+    
+    /// Unregister a container
     public func unregister(name: String) {
+        var containers = load()
+        
         for (network, _) in containers {
             containers[network]?.removeValue(forKey: name)
         }
+        
+        save(containers)
     }
-
+    
     /// Get all containers on a specific network
     public func getContainersOnNetwork(_ network: String) -> [ContainerInfo] {
+        let containers = load()
         return Array(containers[network]?.values.map { $0 } ?? [])
     }
-
+    
     /// Get all registered containers (for debugging)
     public func getAllContainers() -> [ContainerInfo] {
+        let containers = load()
         return containers.values.flatMap { $0.values }
     }
 }
