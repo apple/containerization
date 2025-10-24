@@ -63,6 +63,13 @@ extension VsockProxy {
             return
         }
 
+        log?.info(
+            "stopping proxy",
+            metadata: [
+                "vport": "\(port)",
+                "uds": "\(path)",
+                "action": "\(action)",
+            ])
         try listener.close()
         let fm = FileManager.default
         if fm.fileExists(atPath: self.path.path) {
@@ -76,6 +83,14 @@ extension VsockProxy {
         guard listener == nil else {
             return
         }
+
+        log?.info(
+            "starting proxy",
+            metadata: [
+                "vport": "\(port)",
+                "uds": "\(path)",
+                "action": "\(action)",
+            ])
         switch self.action {
         case .dial:
             try dialHost()
@@ -127,6 +142,14 @@ extension VsockProxy {
             do {
                 for try await conn in stream {
                     Task {
+                        log?.info(
+                            "accepting connection",
+                            metadata: [
+                                "vport": "\(port)",
+                                "uds": "\(path)",
+                                "action": "\(action)",
+                                "socketType": "\(socketType)",
+                            ])
                         do {
                             try await handleConn(
                                 conn: conn,
@@ -175,45 +198,126 @@ extension VsockProxy {
 
                 // `clientFile` isn't used concurrently.
                 nonisolated(unsafe) var clientFile = OSFile.SpliceFile(fd: conn.fileDescriptor)
+                nonisolated(unsafe) var eofFromClient = false
                 // `serverFile` isn't used concurrently.
                 nonisolated(unsafe) var serverFile = OSFile.SpliceFile(fd: relayTo.fileDescriptor)
+                nonisolated(unsafe) var eofFromServer = false
+                let cleanup = { @Sendable [log, port, path, action] in
+                    log?.info(
+                        "cleaning up",
+                        metadata: [
+                            "vport": "\(port)",
+                            "uds": "\(path)",
+                            "action": "\(action)",
+                            "eofFromClient": "\(eofFromClient)",
+                            "eofFromServer": "\(eofFromServer)",
+                            "clientFd": "\(clientFile.fileDescriptor)",
+                            "serverFd": "\(serverFile.fileDescriptor)",
+                        ]
+                    )
 
-                let cleanup = { @Sendable in
-                    do {
-                        try ProcessSupervisor.default.poller.delete(clientFile.fileDescriptor)
-                        try ProcessSupervisor.default.poller.delete(serverFile.fileDescriptor)
-                        try conn.close()
-                        try relayTo.close()
-                    } catch {
-                        self.log?.error("Failed to clean up vsock proxy: \(error)")
+                    // both will be set when any of these conditions apply:
+                    //   - the client has completely hung up or errored
+                    //   - the server has completely hung up or errored
+                    //   - both the client and server have half closed via:
+                    //     - read hangup on epoll
+                    //     - EOF on splice
+                    if eofFromClient && eofFromServer {
+                        do {
+                            try ProcessSupervisor.default.poller.delete(clientFile.fileDescriptor)
+                            try ProcessSupervisor.default.poller.delete(serverFile.fileDescriptor)
+                            try conn.close()
+                            try relayTo.close()
+                        } catch {
+                            self.log?.error("Failed to clean up vsock proxy: \(error)")
+                        }
+                        c.resume()
                     }
-                    c.resume()
                 }
 
                 try! ProcessSupervisor.default.poller.add(clientFile.fileDescriptor, mask: EPOLLIN | EPOLLOUT) { mask in
                     if mask.readyToRead {
                         do {
-                            let (_, _, action) = try OSFile.splice(from: &clientFile, to: &serverFile)
-                            if action == .eof || action == .brokenPipe {
+                            let (readBytes, writeBytes, action) = try OSFile.splice(from: &clientFile, to: &serverFile)
+                            self.log?.debug(
+                                "transferred data",
+                                metadata: [
+                                    "vport": "\(self.port)",
+                                    "uds": "\(self.path)",
+                                    "ready": "read",
+                                    "direction": "toServer",
+                                    "action": "\(action)",
+                                    "readBytes": "\(readBytes)",
+                                    "writeBytes": "\(writeBytes)",
+                                    "clientFd": "\(clientFile.fileDescriptor)",
+                                    "serverFd": "\(serverFile.fileDescriptor)",
+                                ]
+                            )
+                            if action == .eof {
+                                // half close, shut down client to server transfer
+                                // we should see no more EPOLLIN events on the client fd
+                                // and no more EPOLLOUT events on the server fd
+                                eofFromClient = true
+                                shutdown(serverFile.fileDescriptor, SHUT_WR)
+                                return cleanup()
+                            } else if action == .brokenPipe {
+                                eofFromClient = true
+                                eofFromServer = true
                                 return cleanup()
                             }
                         } catch {
+                            eofFromClient = true
+                            eofFromServer = true
                             return cleanup()
                         }
                     }
 
                     if mask.readyToWrite {
                         do {
-                            let (_, _, action) = try OSFile.splice(from: &serverFile, to: &clientFile)
-                            if action == .eof || action == .brokenPipe {
+                            let (readBytes, writeBytes, action) = try OSFile.splice(from: &serverFile, to: &clientFile)
+                            self.log?.debug(
+                                "transferred data",
+                                metadata: [
+                                    "vport": "\(self.port)",
+                                    "uds": "\(self.path)",
+                                    "ready": "write",
+                                    "direction": "toClient",
+                                    "action": "\(action)",
+                                    "readBytes": "\(readBytes)",
+                                    "writeBytes": "\(writeBytes)",
+                                    "clientFd": "\(clientFile.fileDescriptor)",
+                                    "serverFd": "\(serverFile.fileDescriptor)",
+                                ]
+                            )
+                            if action == .eof {
+                                // half close, shut down server to client transfer
+                                // we should see no more EPOLLIN events on the server fd
+                                // and no more EPOLLOUT events on the client fd
+                                eofFromServer = true
+                                shutdown(clientFile.fileDescriptor, SHUT_WR)
+                                return cleanup()
+                            } else if action == .brokenPipe {
+                                eofFromClient = true
+                                eofFromServer = true
                                 return cleanup()
                             }
                         } catch {
+                            eofFromClient = true
+                            eofFromServer = true
                             return cleanup()
                         }
                     }
 
                     if mask.isHangup {
+                        eofFromClient = true
+                        eofFromServer = true
+                        return cleanup()
+                    } else if mask.isRhangup && !eofFromClient {
+                        // half close, shut down client to server transfer
+                        // we should see no more EPOLLIN events on the client fd
+                        // and no more EPOLLOUT events on the server fd
+                        eofFromClient = true
+                        shutdown(serverFile.fileDescriptor, SHUT_WR)
                         return cleanup()
                     }
                 }
@@ -221,27 +325,86 @@ extension VsockProxy {
                 try! ProcessSupervisor.default.poller.add(serverFile.fileDescriptor, mask: EPOLLIN | EPOLLOUT) { mask in
                     if mask.readyToRead {
                         do {
-                            let (_, _, action) = try OSFile.splice(from: &serverFile, to: &clientFile)
-                            if action == .eof || action == .brokenPipe {
+                            let (readBytes, writeBytes, action) = try OSFile.splice(from: &serverFile, to: &clientFile)
+                            self.log?.debug(
+                                "transferred data",
+                                metadata: [
+                                    "vport": "\(self.port)",
+                                    "uds": "\(self.path)",
+                                    "ready": "read",
+                                    "direction": "toClient",
+                                    "action": "\(action)",
+                                    "readBytes": "\(readBytes)",
+                                    "writeBytes": "\(writeBytes)",
+                                    "clientFd": "\(clientFile.fileDescriptor)",
+                                    "serverFd": "\(serverFile.fileDescriptor)",
+                                ]
+                            )
+                            if action == .eof {
+                                // half close, shut down server to client transfer
+                                // we should see no more EPOLLIN events on the server fd
+                                // and no more EPOLLOUT events on the client fd
+                                eofFromServer = true
+                                shutdown(clientFile.fileDescriptor, SHUT_WR)
+                                return cleanup()
+                            } else if action == .brokenPipe {
+                                eofFromClient = true
+                                eofFromServer = true
                                 return cleanup()
                             }
                         } catch {
+                            eofFromClient = true
+                            eofFromServer = true
                             return cleanup()
                         }
                     }
 
                     if mask.readyToWrite {
                         do {
-                            let (_, _, action) = try OSFile.splice(from: &clientFile, to: &serverFile)
-                            if action == .eof || action == .brokenPipe {
+                            let (readBytes, writeBytes, action) = try OSFile.splice(from: &clientFile, to: &serverFile)
+                            self.log?.debug(
+                                "transferred data",
+                                metadata: [
+                                    "vport": "\(self.port)",
+                                    "uds": "\(self.path)",
+                                    "ready": "write",
+                                    "direction": "toServer",
+                                    "action": "\(action)",
+                                    "readBytes": "\(readBytes)",
+                                    "writeBytes": "\(writeBytes)",
+                                    "clientFd": "\(clientFile.fileDescriptor)",
+                                    "serverFd": "\(serverFile.fileDescriptor)",
+                                ]
+                            )
+                            if action == .eof {
+                                // half close, shut down client to server transfer
+                                // we should see no more EPOLLIN events on the client fd
+                                // and no more EPOLLOUT events on the server fd
+                                eofFromClient = true
+                                shutdown(serverFile.fileDescriptor, SHUT_WR)
+                                return cleanup()
+                            } else if action == .brokenPipe {
+                                eofFromClient = true
+                                eofFromServer = true
                                 return cleanup()
                             }
                         } catch {
+                            eofFromClient = true
+                            eofFromServer = true
                             return cleanup()
                         }
                     }
 
                     if mask.isHangup {
+                        eofFromClient = true
+                        eofFromServer = true
+                        return cleanup()
+                    } else if mask.isRhangup && !eofFromServer {
+                        // half close, shut down server to client transfer
+                        // we should see no more EPOLLIN events on the server fd
+                        // and no more EPOLLOUT events on the client fd
+                        eofFromServer = true
+                        shutdown(clientFile.fileDescriptor, SHUT_WR)
                         return cleanup()
                     }
                 }

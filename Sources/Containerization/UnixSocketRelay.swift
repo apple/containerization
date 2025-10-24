@@ -159,6 +159,12 @@ extension SocketRelay {
         let hostSocket = try Socket(type: socketType)
         try hostSocket.listen()
 
+        log?.info(
+            "listening on host UDS",
+            metadata: [
+                "path": "\(hostConn.path)",
+                "vport": "\(self.port)",
+            ])
         let connectionStream = try hostSocket.acceptStream(closeOnDeinit: false)
         self.state.withLock {
             $0.t = Task {
@@ -185,6 +191,12 @@ extension SocketRelay {
         let log = self.log
 
         let connectionStream = try self.vm.listen(self.port)
+        log?.info(
+            "listening on guest vsock",
+            metadata: [
+                "path": "\(hostPath)",
+                "vport": "\(port)",
+            ])
         self.state.withLock {
             $0.t = Task {
                 do {
@@ -212,6 +224,13 @@ extension SocketRelay {
     ) async throws {
         do {
             let guestConn = try await vm.dial(port)
+            log?.info(
+                "initiating connection from host to guest",
+                metadata: [
+                    "vport": "\(port)",
+                    "hostFd": "\(guestConn.fileDescriptor)",
+                    "guestFd": "\(hostConn.fileDescriptor)",
+                ])
             try await self.relay(
                 hostConn: hostConn,
                 guestFd: guestConn.fileDescriptor
@@ -234,6 +253,13 @@ extension SocketRelay {
             type: socketType,
             closeOnDeinit: false
         )
+        log?.info(
+            "initiating connection from host to guest",
+            metadata: [
+                "vport": "\(port)",
+                "hostFd": "\(hostSocket.fileDescriptor)",
+                "guestFd": "\(vsockConn.fileDescriptor)",
+            ])
         try hostSocket.connect()
 
         do {
@@ -250,15 +276,19 @@ extension SocketRelay {
         hostConn: Socket,
         guestFd: Int32
     ) async throws {
+        // set up the source for host to guest transfers
         let connSource = DispatchSource.makeReadSource(
             fileDescriptor: hostConn.fileDescriptor,
             queue: self.q
         )
+
+        // set up the source for guest to host transfers
         let vsockConnectionSource = DispatchSource.makeReadSource(
             fileDescriptor: guestFd,
             queue: self.q
         )
 
+        // add the sources to the connection map
         let pairID = UUID().uuidString
         self.state.withLock {
             $0.relaySources[pairID] = ConnectionSources(
@@ -267,46 +297,72 @@ extension SocketRelay {
             )
         }
 
-        // `buf1` isn't used concurrently.
+        // `buf1` is thread-safe because it is only used when servicing a serial dispatch queue
         nonisolated(unsafe) let buf1 = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: Int(getpagesize()))
         connSource.setEventHandler {
             Self.fdCopyHandler(
                 buffer: buf1,
                 source: connSource,
                 from: hostConn.fileDescriptor,
-                to: guestFd
+                to: guestFd,
+                log: self.log
             )
         }
 
+        // `buf2` is thread-safe because it is only used when servicing a serial dispatch queue
         nonisolated(unsafe) let buf2 = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: Int(getpagesize()))
-        // `buf2` isn't used concurrently.
         vsockConnectionSource.setEventHandler {
             Self.fdCopyHandler(
                 buffer: buf2,
                 source: vsockConnectionSource,
                 from: guestFd,
-                to: hostConn.fileDescriptor
+                to: hostConn.fileDescriptor,
+                log: self.log
             )
         }
 
         connSource.setCancelHandler {
-            if !connSource.isCancelled {
+            self.log?.info(
+                "host cancel received",
+                metadata: [
+                    "hostFd": "\(hostConn.fileDescriptor)",
+                    "guestFd": "\(guestFd)",
+                ])
+
+            // only close underlying fds when both sources are at EOF
+            // ensure that one of the cancel handlers will see both sources cancelled
+            self.state.withLock { _ in
                 connSource.cancel()
+                if vsockConnectionSource.isCancelled {
+                    try? hostConn.close()
+                    close(guestFd)
+                }
             }
-            if !vsockConnectionSource.isCancelled {
-                vsockConnectionSource.cancel()
-            }
-            try? hostConn.close()
         }
 
         vsockConnectionSource.setCancelHandler {
-            if !vsockConnectionSource.isCancelled {
+            self.log?.info(
+                "guest cancel received",
+                metadata: [
+                    "hostFd": "\(hostConn.fileDescriptor)",
+                    "guestFd": "\(guestFd)",
+                ])
+
+            // only close underlying fds when both sources are at EOF
+            // ensure that one of the cancel handlers will see both sources cancelled
+            self.state.withLock { _ in
                 vsockConnectionSource.cancel()
+                if connSource.isCancelled {
+                    self.log?.info(
+                        "close file descriptors",
+                        metadata: [
+                            "hostFd": "\(hostConn.fileDescriptor)",
+                            "guestFd": "\(guestFd)",
+                        ])
+                    try? hostConn.close()
+                    close(guestFd)
+                }
             }
-            if !connSource.isCancelled {
-                connSource.cancel()
-            }
-            close(guestFd)
         }
 
         connSource.activate()
@@ -321,13 +377,33 @@ extension SocketRelay {
         log: Logger? = nil
     ) {
         if source.data == 0 {
+            log?.info(
+                "source EOF",
+                metadata: [
+                    "sourceFd": "\(sourceFd)",
+                    "dstFd": "\(destinationFd)",
+                ])
             if !source.isCancelled {
+                log?.info(
+                    "canceling DispatchSourceRead",
+                    metadata: [
+                        "sourceFd": "\(sourceFd)",
+                        "dstFd": "\(destinationFd)",
+                    ])
                 source.cancel()
+                shutdown(destinationFd, SHUT_WR)
             }
             return
         }
 
         do {
+            log?.debug(
+                "source copy",
+                metadata: [
+                    "sourceFd": "\(sourceFd)",
+                    "dstFd": "\(destinationFd)",
+                    "size": "\(source.data)",
+                ])
             try self.fileDescriptorCopy(
                 buffer: buffer,
                 size: source.data,
@@ -338,6 +414,7 @@ extension SocketRelay {
             log?.error("file descriptor copy failed \(error)")
             if !source.isCancelled {
                 source.cancel()
+                shutdown(destinationFd, SHUT_RDWR)
             }
         }
     }
@@ -374,7 +451,7 @@ extension SocketRelay {
                 if writeResult <= 0 {
                     throw ContainerizationError(
                         .internalError,
-                        message: "zero byte write or error in socket relay"
+                        message: "zero byte write or error in socket relay: fd \(destinationFd), result \(writeResult)"
                     )
                 }
                 writeBytesRemaining -= writeResult
