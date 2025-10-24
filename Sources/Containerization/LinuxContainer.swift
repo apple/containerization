@@ -316,7 +316,7 @@ extension LinuxContainer {
 
             try await vm.start()
             do {
-                let relayManager = UnixSocketRelayManager(vm: vm)
+                let relayManager = UnixSocketRelayManager(vm: vm, log: self.logger)
                 try await vm.withAgent { agent in
                     try await agent.standardSetup()
 
