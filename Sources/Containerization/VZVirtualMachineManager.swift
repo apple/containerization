@@ -24,7 +24,6 @@ import Logging
 public struct VZVirtualMachineManager: VirtualMachineManager {
     private let kernel: Kernel
     private let initialFilesystem: Mount
-    private let bootlog: String?
     private let rosetta: Bool
     private let nestedVirtualization: Bool
     private let logger: Logger?
@@ -32,14 +31,12 @@ public struct VZVirtualMachineManager: VirtualMachineManager {
     public init(
         kernel: Kernel,
         initialFilesystem: Mount,
-        bootlog: String? = nil,
         rosetta: Bool = false,
         nestedVirtualization: Bool = false,
         logger: Logger? = nil
     ) {
         self.kernel = kernel
         self.initialFilesystem = initialFilesystem
-        self.bootlog = bootlog
         self.rosetta = rosetta
         self.nestedVirtualization = nestedVirtualization
         self.logger = logger
@@ -60,12 +57,11 @@ public struct VZVirtualMachineManager: VirtualMachineManager {
                 instanceConfig.kernel = self.kernel
                 instanceConfig.initialFilesystem = self.initialFilesystem
 
-                instanceConfig.interfaces = vmConfig.interfaces
                 if let bootlog = vmConfig.bootlog {
                     instanceConfig.bootlog = bootlog
-                } else if let bootlog = self.bootlog {
-                    instanceConfig.bootlog = URL(filePath: bootlog)
                 }
+
+                instanceConfig.interfaces = vmConfig.interfaces
                 instanceConfig.rosetta = self.rosetta
                 instanceConfig.nestedVirtualization = useNestedVirtualization
 

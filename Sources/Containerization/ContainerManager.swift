@@ -213,7 +213,6 @@ public struct ContainerManager: Sendable {
         self.vmm = VZVirtualMachineManager(
             kernel: kernel,
             initialFilesystem: initfs,
-            bootlog: imageStore.path.appendingPathComponent("bootlog.log").absolutePath(),
             rosetta: rosetta,
             nestedVirtualization: nestedVirtualization
         )
@@ -240,7 +239,6 @@ public struct ContainerManager: Sendable {
         self.vmm = VZVirtualMachineManager(
             kernel: kernel,
             initialFilesystem: initfs,
-            bootlog: imageStore.path.appendingPathComponent("bootlog.log").absolutePath(),
             rosetta: rosetta,
             nestedVirtualization: nestedVirtualization
         )
@@ -282,7 +280,6 @@ public struct ContainerManager: Sendable {
         self.vmm = VZVirtualMachineManager(
             kernel: kernel,
             initialFilesystem: initfs,
-            bootlog: self.imageStore.path.appendingPathComponent("bootlog.log").absolutePath(),
             rosetta: rosetta,
             nestedVirtualization: nestedVirtualization
         )
@@ -327,7 +324,6 @@ public struct ContainerManager: Sendable {
         self.vmm = VZVirtualMachineManager(
             kernel: kernel,
             initialFilesystem: initfs,
-            bootlog: self.imageStore.path.appendingPathComponent("bootlog.log").absolutePath(),
             rosetta: rosetta,
             nestedVirtualization: nestedVirtualization
         )
@@ -421,43 +417,8 @@ public struct ContainerManager: Sendable {
                 config.interfaces = [interface]
                 config.dns = .init(nameservers: [interface.gateway!])
             }
+            config.bootlog = self.containerRoot.appendingPathComponent(id).appendingPathComponent("bootlog.log")
             try configuration(&config)
-        }
-    }
-
-    /// Returns an existing container from the provided image and root filesystem mount.
-    /// - Parameters:
-    ///   - id: The container ID.
-    ///   - image: The image.
-    public mutating func get(
-        _ id: String,
-        image: Image,
-    ) async throws -> LinuxContainer {
-        let path = containerRoot.appendingPathComponent(id)
-        guard FileManager.default.fileExists(atPath: path.absolutePath()) else {
-            throw ContainerizationError(.notFound, message: "\(id) does not exist")
-        }
-
-        let rootfs: Mount = .block(
-            format: "ext4",
-            source: path.appendingPathComponent("rootfs.ext4").absolutePath(),
-            destination: "/",
-            options: []
-        )
-
-        let imageConfig = try await image.config(for: .current).config
-        return try LinuxContainer(
-            id,
-            rootfs: rootfs,
-            vmm: self.vmm
-        ) { config in
-            if let imageConfig {
-                config.process = .init(from: imageConfig)
-            }
-            if let interface = try self.network?.create(id) {
-                config.interfaces = [interface]
-                config.dns = .init(nameservers: [interface.gateway!])
-            }
         }
     }
 

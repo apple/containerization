@@ -190,7 +190,7 @@ extension ManagedProcess {
             log.info(
                 "got back pid data",
                 metadata: [
-                    "id": "\(pid)"
+                    "pid": "\(pid)"
                 ])
             $0.pid = pid
 

@@ -39,7 +39,7 @@ public final class LinuxContainer: Container, Sendable {
     /// The configuration for the LinuxContainer.
     public struct Configuration: Sendable {
         /// Configuration for the init process of the container.
-        public var process = LinuxProcessConfiguration.init()
+        public var process = LinuxProcessConfiguration()
         /// The amount of cpus for the container.
         public var cpus: Int = 4
         /// The memory in bytes to give to the container.
@@ -62,6 +62,8 @@ public final class LinuxContainer: Container, Sendable {
         public var networks: [String] = []
         /// Enable nested virtualization support.
         public var virtualization: Bool = false
+        /// Optional file path to store serial boot logs.
+        public var bootlog: URL?
 
         public init() {}
     }
@@ -308,6 +310,7 @@ extension LinuxContainer {
                 memoryInBytes: self.memoryInBytes,
                 interfaces: self.interfaces,
                 mountsByID: [self.id: [self.rootfs] + self.config.mounts],
+                bootlog: self.config.bootlog,
                 nestedVirtualization: self.config.virtualization
             )
             let creationConfig = StandardVMConfig(configuration: vmConfig)
@@ -417,7 +420,7 @@ extension LinuxContainer {
                 let containerMounts = createdState.vm.mounts[self.id] ?? []
                 spec.mounts = containerMounts.dropFirst().map { $0.to }
 
-                let stdio = Self.setupIO(
+                let stdio = IOUtil.setup(
                     portAllocator: self.hostVsockPorts,
                     stdin: self.config.process.stdin,
                     stdout: self.config.process.stdout,
@@ -631,7 +634,7 @@ extension LinuxContainer {
             try configuration(&config)
             spec.process = config.toOCI()
 
-            let stdio = Self.setupIO(
+            let stdio = IOUtil.setup(
                 portAllocator: self.hostVsockPorts,
                 stdin: config.stdin,
                 stdout: config.stdout,
@@ -660,7 +663,7 @@ extension LinuxContainer {
             var spec = self.generateRuntimeSpec()
             spec.process = configuration.toOCI()
 
-            let stdio = Self.setupIO(
+            let stdio = IOUtil.setup(
                 portAllocator: self.hostVsockPorts,
                 stdin: configuration.stdin,
                 stdout: configuration.stdout,
@@ -764,7 +767,7 @@ extension LinuxContainer {
 extension VirtualMachineInstance {
     /// Scoped access to an agent instance to ensure the resources are always freed (mostly close(2)'ing
     /// the vsock fd)
-    fileprivate func withAgent<T>(fn: @Sendable (VirtualMachineAgent) async throws -> T) async throws -> T {
+    func withAgent<T>(fn: @Sendable (VirtualMachineAgent) async throws -> T) async throws -> T {
         let agent = try await self.dialAgent()
         do {
             let result = try await fn(agent)
@@ -778,12 +781,54 @@ extension VirtualMachineInstance {
 }
 
 extension AttachedFilesystem {
-    fileprivate var to: ContainerizationOCI.Mount {
+    var to: ContainerizationOCI.Mount {
         .init(
             type: self.type,
             source: self.source,
             destination: self.destination,
             options: self.options
+        )
+    }
+}
+
+struct IOUtil {
+    static func setup(
+        portAllocator: borrowing Atomic<UInt32>,
+        stdin: ReaderStream?,
+        stdout: Writer?,
+        stderr: Writer?
+    ) -> LinuxProcess.Stdio {
+        var stdinSetup: LinuxProcess.StdioReaderSetup? = nil
+        if let reader = stdin {
+            let ret = portAllocator.wrappingAdd(1, ordering: .relaxed)
+            stdinSetup = .init(
+                port: ret.oldValue,
+                reader: reader
+            )
+        }
+
+        var stdoutSetup: LinuxProcess.StdioSetup? = nil
+        if let writer = stdout {
+            let ret = portAllocator.wrappingAdd(1, ordering: .relaxed)
+            stdoutSetup = LinuxProcess.StdioSetup(
+                port: ret.oldValue,
+                writer: writer
+            )
+        }
+
+        var stderrSetup: LinuxProcess.StdioSetup? = nil
+        if let writer = stderr {
+            let ret = portAllocator.wrappingAdd(1, ordering: .relaxed)
+            stderrSetup = LinuxProcess.StdioSetup(
+                port: ret.oldValue,
+                writer: writer
+            )
+        }
+
+        return LinuxProcess.Stdio(
+            stdin: stdinSetup,
+            stdout: stdoutSetup,
+            stderr: stderrSetup
         )
     }
 }

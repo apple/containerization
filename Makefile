@@ -111,7 +111,7 @@ ifeq (,$(wildcard bin/vmlinux))
 	@exit 1
 endif
 	@echo Running the integration tests...
-	@./bin/containerization-integration --bootlog ./bin/boot.log
+	@./bin/containerization-integration
 
 .PHONY: fetch-default-kernel
 fetch-default-kernel:

@@ -144,8 +144,8 @@ struct IntegrationSuite: AsyncParsableCommand {
 
     private static let unpackCoordinator = UnpackCoordinator()
 
-    @Option(name: .shortAndLong, help: "Path to a log file")
-    var bootlog: String
+    @Option(name: .shortAndLong, help: "Path to a directory for boot logs")
+    var bootlogDir: String = "./bin/integration-bootlogs"
 
     @Option(name: .shortAndLong, help: "Path to a kernel binary")
     var kernel: String = "./bin/vmlinux"
@@ -159,7 +159,7 @@ struct IntegrationSuite: AsyncParsableCommand {
             .appendingPathComponent(name)
     }
 
-    func bootstrap(_ testID: String) async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image) {
+    func bootstrap(_ testID: String) async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image, bootlog: URL) {
         let reference = "ghcr.io/linuxcontainers/alpine:3.20"
         let store = Self.imageStore
 
@@ -210,14 +210,20 @@ struct IntegrationSuite: AsyncParsableCommand {
         try? FileManager.default.removeItem(atPath: clPath)
 
         let cl = try fs.clone(to: clPath)
+
+        // Create bootlog directory and per-container bootlog path
+        let bootlogDirURL = URL(filePath: bootlogDir)
+        try? FileManager.default.createDirectory(at: bootlogDirURL, withIntermediateDirectories: true)
+        let bootlogURL = bootlogDirURL.appendingPathComponent("\(testID).log")
+
         return (
             cl,
             VZVirtualMachineManager(
                 kernel: testKernel,
                 initialFilesystem: initfs,
-                bootlog: bootlog
             ),
-            image
+            image,
+            bootlogURL
         )
     }
 
@@ -262,6 +268,7 @@ struct IntegrationSuite: AsyncParsableCommand {
         log.info("starting integration suite\n")
 
         let tests: [Test] = [
+            // Containers
             Test("process true", testProcessTrue),
             Test("process false", testProcessFalse),
             Test("process echo hi", testProcessEchoHi),
@@ -284,6 +291,23 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("container /dev/console", testContainerDevConsole),
             Test("container statistics", testContainerStatistics),
             Test("container cgroup limits", testCgroupLimits),
+            Test("container no serial console", testNoSerialConsole),
+
+            // Pods
+            Test("pod single container", testPodSingleContainer),
+            Test("pod multiple containers", testPodMultipleContainers),
+            Test("pod container output", testPodContainerOutput),
+            Test("pod concurrent containers", testPodConcurrentContainers),
+            Test("pod exec in container", testPodExecInContainer),
+            Test("pod container hostname", testPodContainerHostname),
+            Test("pod pause resume", testPodPauseResume),
+            Test("pod stop container idempotency", testPodStopContainerIdempotency),
+            Test("pod list containers", testPodListContainers),
+            Test("pod container statistics", testPodContainerStatistics),
+            Test("pod container resource limits", testPodContainerResourceLimits),
+            Test("pod container filesystem isolation", testPodContainerFilesystemIsolation),
+            Test("pod container PID namespace isolation", testPodContainerPIDNamespaceIsolation),
+            Test("pod container independent resource limits", testPodContainerIndependentResourceLimits),
         ]
 
         let passed: Atomic<Int> = Atomic(0)
