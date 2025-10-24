@@ -61,6 +61,27 @@ public struct Spec: Codable, Sendable {
         case root
         case linux
     }
+
+    public init(from decoder: Decoder) throws {
+        self.init()
+
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.version = try container.decode(String.self, forKey: .version)
+        self.hooks = try container.decodeIfPresent(Hook.self, forKey: .hooks)
+        self.process = try container.decodeIfPresent(Process.self, forKey: .process)
+        if let hostname = try container.decodeIfPresent(String.self, forKey: .hostname) {
+            self.hostname = hostname
+        }
+        if let domainname = try container.decodeIfPresent(String.self, forKey: .domainname) {
+            self.domainname = domainname
+        }
+        if let mounts = try container.decodeIfPresent([Mount].self, forKey: .mounts) {
+            self.mounts = mounts
+        }
+        self.annotations = try container.decodeIfPresent([String: String].self, forKey: .annotations)
+        self.root = try container.decodeIfPresent(Root.self, forKey: .root)
+        self.linux = try container.decodeIfPresent(Linux.self, forKey: .linux)
+    }
 }
 
 public struct Process: Codable, Sendable {
@@ -77,6 +98,22 @@ public struct Process: Codable, Sendable {
     public var rlimits: [POSIXRlimit]
     public var args: [String]
     public var terminal: Bool
+
+    public enum CodingKeys: String, CodingKey {
+        case cwd
+        case env
+        case consoleSize
+        case selinuxLabel
+        case noNewPrivileges
+        case commandLine
+        case oomScoreAdj
+        case capabilities
+        case apparmorProfile
+        case user
+        case rlimits
+        case args
+        case terminal
+    }
 
     public init(
         args: [String] = [],
@@ -120,6 +157,40 @@ public struct Process: Codable, Sendable {
         }()
         self.init(args: args, cwd: cwd, env: env, user: user)
     }
+    public init(from decoder: Decoder) throws {
+        self.init()
+
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.cwd = try container.decode(String.self, forKey: .cwd)
+        if let env = try container.decodeIfPresent([String].self, forKey: .env) {
+            self.env = env
+        }
+        self.consoleSize = try container.decodeIfPresent(Box.self, forKey: .consoleSize)
+        if let selinuxLabel = try container.decodeIfPresent(String.self, forKey: .selinuxLabel) {
+            self.selinuxLabel = selinuxLabel
+        }
+        if let noNewPrivileges = try container.decodeIfPresent(Bool.self, forKey: .noNewPrivileges) {
+            self.noNewPrivileges = noNewPrivileges
+        }
+        if let commandLine = try container.decodeIfPresent(String.self, forKey: .commandLine) {
+            self.commandLine = commandLine
+        }
+        self.oomScoreAdj = try container.decodeIfPresent(Int.self, forKey: .oomScoreAdj)
+        self.capabilities = try container.decodeIfPresent(LinuxCapabilities.self, forKey: .capabilities)
+        if let apparmorProfile = try container.decodeIfPresent(String.self, forKey: .apparmorProfile) {
+            self.apparmorProfile = apparmorProfile
+        }
+        self.user = try container.decode(User.self, forKey: .user)
+        if let rlimits = try container.decodeIfPresent([POSIXRlimit].self, forKey: .rlimits) {
+            self.rlimits = rlimits
+        }
+        if let args = try container.decodeIfPresent([String].self, forKey: .args) {
+            self.args = args
+        }
+        if let terminal = try container.decodeIfPresent(Bool.self, forKey: .terminal) {
+            self.terminal = terminal
+        }
+    }
 }
 
 public struct LinuxCapabilities: Codable, Sendable {
@@ -160,6 +231,14 @@ public struct User: Codable, Sendable {
     public var additionalGids: [UInt32]
     public var username: String
 
+    public enum CodingKeys: String, CodingKey {
+        case uid
+        case gid
+        case umask
+        case additionalGids
+        case username
+    }
+
     public init(
         uid: UInt32 = 0,
         gid: UInt32 = 0,
@@ -173,15 +252,41 @@ public struct User: Codable, Sendable {
         self.additionalGids = additionalGids
         self.username = username
     }
+
+    public init(from decoder: Decoder) throws {
+        self.init()
+
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.uid = try container.decode(UInt32.self, forKey: .uid)
+        self.gid = try container.decode(UInt32.self, forKey: .gid)
+        self.umask = try container.decodeIfPresent(UInt32.self, forKey: .umask)
+        if let additionalGids = try container.decodeIfPresent([UInt32].self, forKey: .additionalGids) {
+            self.additionalGids = additionalGids
+        }
+        if let username = try container.decodeIfPresent(String.self, forKey: .username) {
+            self.username = username
+        }
+    }
 }
 
 public struct Root: Codable, Sendable {
     public var path: String
     public var readonly: Bool
 
+    public enum CodingKeys: String, CodingKey {
+        case path
+        case readonly
+    }
+
     public init(path: String, readonly: Bool) {
         self.path = path
         self.readonly = readonly
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.path = try container.decode(String.self, forKey: .path)
+        self.readonly = try container.decodeIfPresent(Bool.self, forKey: .readonly) ?? false
     }
 }
 
@@ -194,9 +299,18 @@ public struct Mount: Codable, Sendable {
     public var uidMappings: [LinuxIDMapping]
     public var gidMappings: [LinuxIDMapping]
 
+    public enum CodingKeys: String, CodingKey {
+        case type
+        case source
+        case destination
+        case options
+        case uidMappings
+        case gidMappings
+    }
+
     public init(
-        type: String,
-        source: String,
+        type: String = "",
+        source: String = "",
         destination: String,
         options: [String] = [],
         uidMappings: [LinuxIDMapping] = [],
@@ -208,6 +322,16 @@ public struct Mount: Codable, Sendable {
         self.options = options
         self.uidMappings = uidMappings
         self.gidMappings = gidMappings
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.type = try container.decodeIfPresent(String.self, forKey: .type) ?? ""
+        self.source = try container.decodeIfPresent(String.self, forKey: .source) ?? ""
+        self.destination = try container.decode(String.self, forKey: .destination)
+        self.options = try container.decodeIfPresent([String].self, forKey: .options) ?? []
+        self.uidMappings = try container.decodeIfPresent([LinuxIDMapping].self, forKey: .uidMappings) ?? []
+        self.gidMappings = try container.decodeIfPresent([LinuxIDMapping].self, forKey: .gidMappings) ?? []
     }
 }
 
