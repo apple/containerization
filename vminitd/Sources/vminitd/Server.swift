@@ -93,8 +93,8 @@ final class Initd: Sendable {
             await ProcessSupervisor.default.setLog(self.log)
             await ProcessSupervisor.default.ready()
 
-            log.debug(
-                "booting grpc server on vsock",
+            log.info(
+                "booting gRPC server on vsock",
                 metadata: [
                     "port": "\(port)"
                 ])
@@ -105,7 +105,7 @@ final class Initd: Sendable {
                     serviceProviders: [self])
             ).get()
             log.info(
-                "grpc api serving on vsock",
+                "gRPC API serving on vsock",
                 metadata: [
                     "port": "\(port)"
                 ])
@@ -114,6 +114,7 @@ final class Initd: Sendable {
                 try await server.onClose.get()
             }
             try await group.next()
+            log.info("closing gRPC server")
             group.cancelAll()
         }
     }

@@ -429,6 +429,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 "stdin": "Port: \(request.stdin)",
                 "stdout": "Port: \(request.stdout)",
                 "stderr": "Port: \(request.stderr)",
+                "configuration": "\(request.configuration.count)",
             ])
 
         if !request.hasContainerID {
@@ -508,7 +509,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             if error is GRPCStatus {
                 throw error
             }
-            throw GRPCStatus(code: .internalError, message: "create managed process: \(error)")
+            throw GRPCStatus(code: .internalError, message: "createProcess: \(error)")
         }
     }
 
