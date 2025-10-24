@@ -1,12 +1,12 @@
 LOCAL_DIR := $(ROOT_DIR)/.local
-LOCALBIN := $(LOCAL_DIR)/bin
+LOCAL_BIN_DIR := $(LOCAL_DIR)/bin
 
 ## Versions
 PROTOC_VERSION=26.1
 
 # protoc binary installation
 PROTOC_ZIP = protoc-$(PROTOC_VERSION)-osx-universal_binary.zip
-PROTOC = $(LOCALBIN)/protoc@$(PROTOC_VERSION)/protoc
+PROTOC = $(LOCAL_BIN_DIR)/protoc@$(PROTOC_VERSION)/protoc
 $(PROTOC):
 	@echo Downloading protocol buffers...
 	@mkdir -p $(LOCAL_DIR)
