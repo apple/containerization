@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -103,7 +103,7 @@ extension ImageStore {
     /// - Note: It is assumed that the underlying manifests and blob layers for the image already exists in the `ContentStore` that the `ImageStore` was initialized with. This method is invoked when the `pull(...)` , `load(...)` and `tag(...)` methods are used.
     /// - Returns: A `Containerization.Image`
     @discardableResult
-    internal func create(description: Image.Description) async throws -> Image {
+    public func create(description: Image.Description) async throws -> Image {
         try await self.lock.withLock { ctx in
             try await self._create(description: description, lock: ctx)
         }
@@ -192,7 +192,7 @@ extension ImageStore {
     /// - Returns: A `Containerization.Image` object to the newly pulled image.
     public func pull(
         reference: String, platform: Platform? = nil, insecure: Bool = false,
-        auth: Authentication? = nil, progress: ProgressHandler? = nil
+        auth: Authentication? = nil, progress: ProgressHandler? = nil, maxConcurrentDownloads: Int = 3
     ) async throws -> Image {
 
         let matcher = createPlatformMatcher(for: platform)
@@ -206,7 +206,8 @@ extension ImageStore {
 
         let rootDescriptor = try await client.resolve(name: name, tag: tag)
         let (id, tempDir) = try await self.contentStore.newIngestSession()
-        let operation = ImportOperation(name: name, contentStore: self.contentStore, client: client, ingestDir: tempDir, progress: progress)
+        let operation = ImportOperation(
+            name: name, contentStore: self.contentStore, client: client, ingestDir: tempDir, progress: progress, maxConcurrentDownloads: maxConcurrentDownloads)
         do {
             let index = try await operation.import(root: rootDescriptor, matcher: matcher)
             return try await self.lock.withLock { lock in

@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -68,6 +68,9 @@ public protocol VirtualMachineAgent: Sendable {
     func routeAddDefault(name: String, gateway: String) async throws
     func configureDNS(config: DNS, location: String) async throws
     func configureHosts(config: Hosts, location: String) async throws
+
+    // Container statistics
+    func containerStatistics(containerIDs: [String]) async throws -> [ContainerStatistics]
 }
 
 extension VirtualMachineAgent {
@@ -81,5 +84,9 @@ extension VirtualMachineAgent {
 
     public func writeFile(path: String, data: Data, flags: WriteFileFlags, mode: UInt32) async throws {
         throw ContainerizationError(.unsupported, message: "writeFile")
+    }
+
+    public func containerStatistics(containerIDs: [String]) async throws -> [ContainerStatistics] {
+        throw ContainerizationError(.unsupported, message: "containerStatistics")
     }
 }

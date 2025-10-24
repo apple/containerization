@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 //===----------------------------------------------------------------------===//
 
 import ArgumentParser
+import Cgroup
 import ContainerizationOCI
 import Foundation
 import LCShim
@@ -137,7 +138,7 @@ struct RunCommand: ParsableCommand {
         try App.setPermissions(user: process.user)
 
         // Finally execve the container process.
-        try App.exec(process: process)
+        try App.exec(process: process, currentEnv: process.env)
     }
 
     private func execInNamespace(spec: ContainerizationOCI.Spec, log: Logger) throws {
@@ -158,6 +159,20 @@ struct RunCommand: ParsableCommand {
         if processID == 0 {  // child
             try childSetup(spec: spec, ackPipe: ackPipe, syncPipe: syncPipe, log: log)
         } else {  // parent process
+            // Setup cgroup before child enters cgroup namespace
+            if let linux = spec.linux {
+                let cgroupPath = linux.cgroupsPath
+                if !cgroupPath.isEmpty {
+                    let cgroupManager = try Cgroup2Manager.load(group: URL(filePath: cgroupPath))
+
+                    if let resources = linux.resources {
+                        try cgroupManager.applyResources(resources: resources)
+                    }
+
+                    try cgroupManager.addProcess(pid: processID)
+                }
+            }
+
             // Send our child's pid before we exit.
             var childPid = processID
             let data = Data(bytes: &childPid, count: MemoryLayout.size(ofValue: childPid))

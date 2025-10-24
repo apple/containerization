@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@
 import ArgumentParser
 import ContainerizationError
 import ContainerizationOCI
+import ContainerizationOS
 import Foundation
 import LCShim
 import Logging
@@ -71,12 +72,18 @@ extension App {
         }
     }
 
-    static func exec(process: ContainerizationOCI.Process) throws {
+    static func exec(process: ContainerizationOCI.Process, currentEnv: [String]? = nil) throws {
         guard !process.args.isEmpty else {
             throw App.Errno(stage: "exec", info: "process args cannot be empty")
         }
 
-        let executable = strdup(process.args[0])
+        // lookup executable
+        let path = Path.findPath(currentEnv) ?? Path.getCurrentPath()
+        guard let resolvedExecutable = Path.lookPath(process.args[0], path: path) else {
+            throw App.Failure(message: "Failed to find target executable \(process.args[0])")
+        }
+
+        let executable = strdup(resolvedExecutable.path())
         var argv = process.args.map { strdup($0) }
         argv += [nil]
 

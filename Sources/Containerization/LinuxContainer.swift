@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -27,9 +27,6 @@ import struct ContainerizationOS.Terminal
 /// `LinuxContainer` is an easy to use type for launching and managing the
 /// full lifecycle of a Linux container ran inside of a virtual machine.
 public final class LinuxContainer: Container, Sendable {
-    /// The default PATH value for a process.
-    public static let defaultPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-
     /// The identifier of the container.
     public let id: String
 
@@ -41,66 +38,8 @@ public final class LinuxContainer: Container, Sendable {
 
     /// The configuration for the LinuxContainer.
     public struct Configuration: Sendable {
-        /// Configuration of a container process.
-        public struct Process: Sendable {
-            /// The arguments for the container process.
-            public var arguments: [String] = []
-            /// The environment variables for the container process.
-            public var environmentVariables: [String] = ["PATH=\(LinuxContainer.defaultPath)"]
-            /// The working directory for the container process.
-            public var workingDirectory: String = "/"
-            /// The user the container process will run as.
-            public var user: ContainerizationOCI.User = .init()
-            /// The rlimits for the container process.
-            public var rlimits: [POSIXRlimit] = []
-            /// Whether to allocate a pseudo terminal for the process. If you'd like interactive
-            /// behavior and are planning to use a terminal for stdin/out/err on the client side,
-            /// this should likely be set to true.
-            public var terminal: Bool = false
-            /// The stdin for the process.
-            public var stdin: ReaderStream?
-            /// The stdout for the process.
-            public var stdout: Writer?
-            /// The stderr for the process.
-            public var stderr: Writer?
-
-            public init() {}
-
-            public init(from config: ImageConfig) {
-                self.workingDirectory = config.workingDir ?? "/"
-                self.environmentVariables = config.env ?? []
-                self.arguments = (config.entrypoint ?? []) + (config.cmd ?? [])
-                self.user = {
-                    if let rawString = config.user {
-                        return User(username: rawString)
-                    }
-                    return User()
-                }()
-            }
-
-            func toOCI() -> ContainerizationOCI.Process {
-                ContainerizationOCI.Process(
-                    args: self.arguments,
-                    cwd: self.workingDirectory,
-                    env: self.environmentVariables,
-                    user: self.user,
-                    rlimits: self.rlimits,
-                    terminal: self.terminal
-                )
-            }
-
-            /// Sets up IO to be handled by the passed in Terminal, and edits the
-            /// process configuration to set the necessary state for using a pty.
-            mutating public func setTerminalIO(terminal: Terminal) {
-                self.environmentVariables.append("TERM=xterm")
-                self.terminal = true
-                self.stdin = terminal
-                self.stdout = terminal
-            }
-        }
-
         /// Configuration for the init process of the container.
-        public var process = Process.init()
+        public var process = LinuxProcessConfiguration()
         /// The amount of cpus for the container.
         public var cpus: Int = 4
         /// The memory in bytes to give to the container.
@@ -113,21 +52,21 @@ public final class LinuxContainer: Container, Sendable {
         public var interfaces: [any Interface] = []
         /// The Unix domain socket relays to setup for the container.
         public var sockets: [UnixSocketConfiguration] = []
-        /// Whether rosetta x86-64 emulation should be setup for the container.
-        public var rosetta: Bool = false
-        /// Whether nested virtualization should be turned on for the container.
-        public var virtualization: Bool = false
         /// The mounts for the container.
         public var mounts: [Mount] = LinuxContainer.defaultMounts()
         /// The DNS configuration for the container.
         public var dns: DNS?
         /// The hosts to add to /etc/hosts for the container.
         public var hosts: Hosts?
+        /// Enable nested virtualization support.
+        public var virtualization: Bool = false
+        /// Optional file path to store serial boot logs.
+        public var bootlog: URL?
 
         public init() {}
     }
 
-    private let state: Mutex<State>
+    private let state: AsyncMutex<State>
 
     // Ports to be allocated from for stdio and for
     // unix socket relays that are sharing a guest
@@ -140,52 +79,34 @@ public final class LinuxContainer: Container, Sendable {
     private enum State: Sendable {
         /// The container class has been created but no live resources are running.
         case initialized
-        /// The container is creating and booting the underlying virtual resources.
-        case creating(CreatingState)
         /// The container's virtual machine has been setup and the runtime environment has been configured.
         case created(CreatedState)
-        /// The initial process of the container is preparing to start.
-        case starting(StartingState)
         /// The initial process of the container has started and is running.
         case started(StartedState)
-        /// The container is preparing to stop.
-        case stopping(StoppingState)
         /// The container has run and fully stopped.
         case stopped
         /// An error occurred during the lifetime of this class.
         case errored(Swift.Error)
-        /// The container is being paused.
-        case pausing(PausingState)
         /// The container is paused.
         case paused(PausedState)
-        /// The container is being resumed.
-        case resuming(ResumingState)
-
-        struct Idempotent: Swift.Error {}
-
-        struct CreatingState: Sendable {}
 
         struct CreatedState: Sendable {
             let vm: any VirtualMachineInstance
             let relayManager: UnixSocketRelayManager
         }
 
-        struct StartingState: Sendable {
+        struct StartedState: Sendable {
             let vm: any VirtualMachineInstance
+            let process: LinuxProcess
             let relayManager: UnixSocketRelayManager
 
-            init(_ state: CreatedState) {
+            init(_ state: CreatedState, process: LinuxProcess) {
                 self.vm = state.vm
                 self.relayManager = state.relayManager
+                self.process = process
             }
-        }
 
-        struct PausingState: Sendable {
-            let vm: any VirtualMachineInstance
-            let relayManager: UnixSocketRelayManager
-            let process: LinuxProcess
-
-            init(_ state: StartedState) {
+            init(_ state: PausedState) {
                 self.vm = state.vm
                 self.relayManager = state.relayManager
                 self.process = state.process
@@ -197,138 +118,23 @@ public final class LinuxContainer: Container, Sendable {
             let relayManager: UnixSocketRelayManager
             let process: LinuxProcess
 
-            init(_ state: PausingState) {
-                self.vm = state.vm
-                self.relayManager = state.relayManager
-                self.process = state.process
-            }
-        }
-
-        struct ResumingState: Sendable {
-            let vm: any VirtualMachineInstance
-            let relayManager: UnixSocketRelayManager
-            let process: LinuxProcess
-
-            init(_ state: PausedState) {
-                self.vm = state.vm
-                self.relayManager = state.relayManager
-                self.process = state.process
-            }
-        }
-
-        struct StartedState: Sendable {
-            let vm: any VirtualMachineInstance
-            let process: LinuxProcess
-            let relayManager: UnixSocketRelayManager
-
-            init(_ state: StartingState, process: LinuxProcess) {
-                self.vm = state.vm
-                self.relayManager = state.relayManager
-                self.process = process
-            }
-
-            init(_ state: ResumingState) {
-                self.vm = state.vm
-                self.relayManager = state.relayManager
-                self.process = state.process
-            }
-        }
-
-        struct StoppingState: Sendable {
-            let vm: any VirtualMachineInstance
-
             init(_ state: StartedState) {
                 self.vm = state.vm
+                self.relayManager = state.relayManager
+                self.process = state.process
             }
         }
 
-        mutating func setCreating() throws {
-            switch self {
-            case .initialized, .stopped:
-                self = .creating(.init())
-            case .errored(let err):
-                throw err
-            default:
-                throw ContainerizationError(
-                    .invalidState,
-                    message: "container must be in initialized state to start"
-                )
-            }
-        }
-
-        mutating func setCreated(
-            vm: any VirtualMachineInstance,
-            relayManager: UnixSocketRelayManager
-        ) throws {
-            switch self {
-            case .creating:
-                self = .created(.init(vm: vm, relayManager: relayManager))
-            case .errored(let err):
-                throw err
-            default:
-                throw ContainerizationError(
-                    .invalidState,
-                    message: "container must be in creating state before created"
-                )
-            }
-        }
-
-        mutating func setStarting() throws -> any VirtualMachineInstance {
+        func createdState(_ operation: String) throws -> CreatedState {
             switch self {
             case .created(let state):
-                self = .starting(.init(state))
-                return state.vm
-            case .errored(let err):
-                throw err
-            default:
-                throw ContainerizationError(
-                    .invalidState,
-                    message: "container must be in created state before starting"
-                )
-            }
-        }
-
-        mutating func setStarted(process: LinuxProcess) throws {
-            switch self {
-            case .starting(let state):
-                self = .started(.init(state, process: process))
-            case .errored(let err):
-                throw err
-            default:
-                throw ContainerizationError(
-                    .invalidState,
-                    message: "container must be in starting state before started"
-                )
-            }
-        }
-
-        mutating func setResumed() throws {
-            switch self {
-            case .resuming(let state):
-                self = .started(.init(state))
-            case .errored(let err):
-                throw err
-            default:
-                throw ContainerizationError(
-                    .invalidState,
-                    message: "container must be in resuming state before being resumed"
-                )
-            }
-        }
-
-        mutating func setStopping() throws -> StartedState {
-            switch self {
-            case .started(let state):
-                self = .stopping(.init(state))
                 return state
-            case .stopping(_), .stopped:
-                throw Idempotent()
             case .errored(let err):
                 throw err
             default:
                 throw ContainerizationError(
                     .invalidState,
-                    message: "container must be in a started state before stopping"
+                    message: "failed to \(operation): container must be created"
                 )
             }
         }
@@ -347,62 +153,30 @@ public final class LinuxContainer: Container, Sendable {
             }
         }
 
-        mutating func setPausing() throws -> StartedState {
-            switch self {
-            case .started(let state):
-                self = .pausing(.init(state))
-                return state
-            case .errored(let err):
-                throw err
-            default:
-                throw ContainerizationError(
-                    .invalidState,
-                    message: "failed to pause: container must be running"
-                )
-            }
-        }
-
-        mutating func setPaused() throws {
-            switch self {
-            case .pausing(let state):
-                self = .paused(.init(state))
-            case .errored(let err):
-                throw err
-            default:
-                throw ContainerizationError(
-                    .invalidState,
-                    message: "failed to pause: container must be running"
-                )
-            }
-        }
-
-        mutating func setResuming() throws -> PausedState {
+        func pausedState(_ operation: String) throws -> PausedState {
             switch self {
             case .paused(let state):
-                self = .resuming(.init(state))
                 return state
             case .errored(let err):
                 throw err
             default:
                 throw ContainerizationError(
                     .invalidState,
-                    message: "failed to resume: container must be paused"
+                    message: "failed to \(operation): container must be paused"
                 )
             }
         }
 
-        mutating func setStopped() throws {
+        mutating func validateForCreate() throws {
             switch self {
-            case .stopping(_):
-                self = .stopped
-            case .stopped:
-                throw Idempotent()
+            case .initialized, .stopped:
+                break
             case .errored(let err):
                 throw err
             default:
                 throw ContainerizationError(
                     .invalidState,
-                    message: "container must be in a stopping state before setting to stopped"
+                    message: "container must be in initialized or stopped state to create"
                 )
             }
         }
@@ -437,7 +211,7 @@ public final class LinuxContainer: Container, Sendable {
         try configuration(&config)
 
         self.config = config
-        self.state = Mutex(.initialized)
+        self.state = AsyncMutex(.initialized)
     }
 
     private static func createDefaultRuntimeSpec(_ id: String) -> Spec {
@@ -466,6 +240,19 @@ public final class LinuxContainer: Container, Sendable {
 
         // Linux toggles.
         spec.linux?.sysctl = config.sysctl
+
+        // Resource limits.
+        // CPU: quota/period model where period is 100ms (100,000µs) and quota is cpus * period
+        // Memory: limit in bytes
+        spec.linux?.resources = LinuxResources(
+            memory: LinuxMemory(
+                limit: Int64(config.memoryInBytes)
+            ),
+            cpu: LinuxCPU(
+                quota: Int64(config.cpus * 100_000),
+                period: 100_000
+            )
+        )
 
         return spec
     }
@@ -513,94 +300,111 @@ extension LinuxContainer {
     /// and set up the runtime environment. The container's init process
     /// is NOT running afterwards.
     public func create() async throws {
-        try self.state.withLock { try $0.setCreating() }
+        try await self.state.withLock { state in
+            try state.validateForCreate()
 
-        let vm = try vmm.create(container: self)
-        try await vm.start()
-        do {
-            try await vm.withAgent { agent in
+            let vmConfig = VMConfiguration(
+                cpus: self.cpus,
+                memoryInBytes: self.memoryInBytes,
+                interfaces: self.interfaces,
+                mountsByID: [self.id: [self.rootfs] + self.config.mounts],
+                bootlog: self.config.bootlog,
+                nestedVirtualization: self.config.virtualization
+            )
+            let creationConfig = StandardVMConfig(configuration: vmConfig)
+            let vm = try await self.vmm.create(config: creationConfig)
+
+            try await vm.start()
+            do {
                 let relayManager = UnixSocketRelayManager(vm: vm)
+                try await vm.withAgent { agent in
+                    try await agent.standardSetup()
 
-                try await agent.standardSetup()
-
-                // Mount the rootfs.
-                var rootfs = vm.mounts[0].to
-                rootfs.destination = Self.guestRootfsPath(self.id)
-                try await agent.mount(rootfs)
-
-                // Start up our friendly unix socket relays.
-                for socket in self.config.sockets {
-                    try await self.relayUnixSocket(
-                        socket: socket,
-                        relayManager: relayManager,
-                        agent: agent
-                    )
-                }
-
-                // For every interface asked for:
-                // 1. Add the address requested
-                // 2. Online the adapter
-                // 3. If a gateway IP address is present, add the default route.
-                for (index, i) in self.interfaces.enumerated() {
-                    let name = "eth\(index)"
-                    try await agent.addressAdd(name: name, address: i.address)
-                    try await agent.up(name: name, mtu: 1280)
-                    if let gateway = i.gateway {
-                        try await agent.routeAddDefault(name: name, gateway: gateway)
+                    // Mount the rootfs.
+                    guard let attachments = vm.mounts[self.id], let rootfsAttachment = attachments.first else {
+                        throw ContainerizationError(.notFound, message: "rootfs mount not found")
                     }
-                }
+                    var rootfs = rootfsAttachment.to
+                    rootfs.destination = Self.guestRootfsPath(self.id)
+                    try await agent.mount(rootfs)
 
-                // Setup /etc/resolv.conf and /etc/hosts if asked for.
-                if let dns = self.config.dns {
-                    try await agent.configureDNS(config: dns, location: rootfs.destination)
-                }
-                if let hosts = self.config.hosts {
-                    try await agent.configureHosts(config: hosts, location: rootfs.destination)
-                }
+                    // Start up our friendly unix socket relays.
+                    for socket in self.config.sockets {
+                        try await self.relayUnixSocket(
+                            socket: socket,
+                            relayManager: relayManager,
+                            agent: agent
+                        )
+                    }
 
-                try self.state.withLock { try $0.setCreated(vm: vm, relayManager: relayManager) }
+                    // For every interface asked for:
+                    // 1. Add the address requested
+                    // 2. Online the adapter
+                    // 3. If a gateway IP address is present, add the default route.
+                    for (index, i) in self.interfaces.enumerated() {
+                        let name = "eth\(index)"
+                        try await agent.addressAdd(name: name, address: i.address)
+                        try await agent.up(name: name, mtu: 1280)
+                        if let gateway = i.gateway {
+                            try await agent.routeAddDefault(name: name, gateway: gateway)
+                        }
+                    }
+
+                    // Setup /etc/resolv.conf and /etc/hosts if asked for.
+                    if let dns = self.config.dns {
+                        try await agent.configureDNS(config: dns, location: rootfs.destination)
+                    }
+                    if let hosts = self.config.hosts {
+                        try await agent.configureHosts(config: hosts, location: rootfs.destination)
+                    }
+
+                }
+                state = .created(.init(vm: vm, relayManager: relayManager))
+            } catch {
+                try? await vm.stop()
+                state.setErrored(error: error)
+                throw error
             }
-        } catch {
-            try? await vm.stop()
-            self.state.withLock { $0.setErrored(error: error) }
-            throw error
         }
     }
 
     /// Start the container's initial process.
     public func start() async throws {
-        let vm = try self.state.withLock { try $0.setStarting() }
+        try await self.state.withLock { state in
+            let createdState = try state.createdState("start")
 
-        let agent = try await vm.dialAgent()
-        do {
-            var spec = generateRuntimeSpec()
-            // We don't need the rootfs, nor do OCI runtimes want it included.
-            spec.mounts = vm.mounts.dropFirst().map { $0.to }
+            let agent = try await createdState.vm.dialAgent()
+            do {
+                var spec = self.generateRuntimeSpec()
+                // We don't need the rootfs, nor do OCI runtimes want it included.
+                let containerMounts = createdState.vm.mounts[self.id] ?? []
+                spec.mounts = containerMounts.dropFirst().map { $0.to }
 
-            let stdio = Self.setupIO(
-                portAllocator: self.hostVsockPorts,
-                stdin: self.config.process.stdin,
-                stdout: self.config.process.stdout,
-                stderr: self.config.process.stderr
-            )
+                let stdio = IOUtil.setup(
+                    portAllocator: self.hostVsockPorts,
+                    stdin: self.config.process.stdin,
+                    stdout: self.config.process.stdout,
+                    stderr: self.config.process.stderr
+                )
 
-            let process = LinuxProcess(
-                self.id,
-                containerID: self.id,
-                spec: spec,
-                io: stdio,
-                agent: agent,
-                vm: vm,
-                logger: self.logger
-            )
-            try await process.start()
+                let process = LinuxProcess(
+                    self.id,
+                    containerID: self.id,
+                    spec: spec,
+                    io: stdio,
+                    agent: agent,
+                    vm: createdState.vm,
+                    logger: self.logger
+                )
+                try await process.start()
 
-            try self.state.withLock { try $0.setStarted(process: process) }
-        } catch {
-            try? await agent.close()
-            try? await vm.stop()
-            self.state.withLock { $0.setErrored(error: error) }
-            throw error
+                state = .started(.init(createdState, process: process))
+            } catch {
+                try? await agent.close()
+                try? await createdState.vm.stop()
+                state.setErrored(error: error)
+                throw error
+            }
         }
     }
 
@@ -645,193 +449,234 @@ extension LinuxContainer {
     }
 
     /// Stop the container from executing. This MUST be called even if wait() has returned
-    /// as their are additional
+    /// as their are additional resources to free.
     public func stop() async throws {
-        let startedState: State.StartedState
-        do {
-            startedState = try self.state.withLock { try $0.setStopping() }
-        } catch _ as State.Idempotent {
-            return
-        }
-
-        do {
-            try await startedState.relayManager.stopAll()
-
-            // It's possible the state of the vm is not in a great spot
-            // if the guest panicked or had any sort of bug/fault.
-            // First check if the vm is even still running, as trying to
-            // use a vsock handle like below here will cause NIO to
-            // fatalError because we'll get an EBADF.
-            if startedState.vm.state == .stopped {
-                try self.state.withLock { try $0.setStopped() }
+        try await self.state.withLock { state in
+            // Allow stop to be called multiple times.
+            if case .stopped = state {
                 return
             }
 
-            try await startedState.vm.withAgent { agent in
-                // First, we need to stop any unix socket relays as this will
-                // keep the rootfs from being able to umount (EBUSY).
-                let sockets = config.sockets
-                if !sockets.isEmpty {
-                    guard let relayAgent = agent as? SocketRelayAgent else {
-                        throw ContainerizationError(
-                            .unsupported,
-                            message: "VirtualMachineAgent does not support relaySocket surface"
-                        )
-                    }
-                    for socket in sockets {
-                        try await relayAgent.stopSocketRelay(configuration: socket)
-                    }
+            let startedState = try state.startedState("stop")
+
+            do {
+                try await startedState.relayManager.stopAll()
+
+                // It's possible the state of the vm is not in a great spot
+                // if the guest panicked or had any sort of bug/fault.
+                // First check if the vm is even still running, as trying to
+                // use a vsock handle like below here will cause NIO to
+                // fatalError because we'll get an EBADF.
+                if startedState.vm.state == .stopped {
+                    state = .stopped
+                    return
                 }
 
-                // Now lets ensure every process is donezo.
-                try await agent.kill(pid: -1, signal: SIGKILL)
+                try await startedState.vm.withAgent { agent in
+                    // First, we need to stop any unix socket relays as this will
+                    // keep the rootfs from being able to umount (EBUSY).
+                    let sockets = self.config.sockets
+                    if !sockets.isEmpty {
+                        guard let relayAgent = agent as? SocketRelayAgent else {
+                            throw ContainerizationError(
+                                .unsupported,
+                                message: "VirtualMachineAgent does not support relaySocket surface"
+                            )
+                        }
+                        for socket in sockets {
+                            try await relayAgent.stopSocketRelay(configuration: socket)
+                        }
+                    }
 
-                // Wait on init proc exit. Give it 5 seconds of leeway.
-                _ = try await agent.waitProcess(
-                    id: self.id,
-                    containerID: self.id,
-                    timeoutInSeconds: 5
-                )
+                    // Now lets ensure every process is donezo.
+                    try await agent.kill(pid: -1, signal: SIGKILL)
 
-                // Today, we leave EBUSY looping and other fun logic up to the
-                // guest agent.
-                try await agent.umount(
-                    path: Self.guestRootfsPath(self.id),
-                    flags: 0
-                )
+                    // Wait on init proc exit. Give it 5 seconds of leeway.
+                    _ = try await agent.waitProcess(
+                        id: self.id,
+                        containerID: self.id,
+                        timeoutInSeconds: 5
+                    )
+
+                    // Today, we leave EBUSY looping and other fun logic up to the
+                    // guest agent.
+                    try await agent.umount(
+                        path: Self.guestRootfsPath(self.id),
+                        flags: 0
+                    )
+                }
+
+                // Lets free up the init procs resources, as this includes the open agent conn.
+                try? await startedState.process.delete()
+
+                try await startedState.vm.stop()
+                state = .stopped
+            } catch {
+                state.setErrored(error: error)
+                throw error
             }
-
-            // Lets free up the init procs resources, as this includes the open agent conn.
-            try? await startedState.process.delete()
-
-            try await startedState.vm.stop()
-            try self.state.withLock { try $0.setStopped() }
-        } catch {
-            self.state.withLock { $0.setErrored(error: error) }
-            throw error
         }
     }
 
     /// Pause the container.
     public func pause() async throws {
-        do {
-            let state = try self.state.withLock { try $0.setPausing() }
-            try await state.vm.pause()
-            try self.state.withLock { try $0.setPaused() }
-        } catch {
-            self.state.withLock { $0.setErrored(error: error) }
+        try await self.state.withLock { state in
+            let startedState = try state.startedState("pause")
+            try await startedState.vm.pause()
+            state = .paused(.init(startedState))
         }
     }
 
     /// Resume the container.
     public func resume() async throws {
-        do {
-            let state = try self.state.withLock { try $0.setResuming() }
-            try await state.vm.resume()
-            try self.state.withLock { try $0.setResumed() }
-        } catch {
-            self.state.withLock { $0.setErrored(error: error) }
+        try await self.state.withLock { state in
+            let pausedState = try state.pausedState("resume")
+            try await pausedState.vm.resume()
+            state = .started(.init(pausedState))
         }
     }
 
     /// Send a signal to the container.
     public func kill(_ signal: Int32) async throws {
-        let state = try self.state.withLock { try $0.startedState("kill") }
-        try await state.process.kill(signal)
+        try await self.state.withLock {
+            let state = try $0.startedState("kill")
+            try await state.process.kill(signal)
+        }
     }
 
     /// Wait for the container to exit. Returns the exit code.
     @discardableResult
     public func wait(timeoutInSeconds: Int64? = nil) async throws -> ExitStatus {
-        let state = try self.state.withLock { try $0.startedState("wait") }
-        return try await state.process.wait(timeoutInSeconds: timeoutInSeconds)
+        let t = try await self.state.withLock {
+            let state = try $0.startedState("wait")
+            let t = Task {
+                try await state.process.wait(timeoutInSeconds: timeoutInSeconds)
+            }
+            return t
+        }
+        return try await t.value
     }
 
     /// Resize the container's terminal (if one was requested). This
     /// will error if terminal was set to false before creating the container.
     public func resize(to: Terminal.Size) async throws {
-        let state = try self.state.withLock { try $0.startedState("resize") }
-        try await state.process.resize(to: to)
+        try await self.state.withLock {
+            let state = try $0.startedState("resize")
+            try await state.process.resize(to: to)
+        }
     }
 
-    /// Execute a new process in the container.
-    public func exec(_ id: String, configuration: (inout Configuration.Process) throws -> Void) async throws -> LinuxProcess {
-        let state = try self.state.withLock { try $0.startedState("exec") }
+    /// Execute a new process in the container. The process is not started after this call, and must be manually started
+    /// via the `start` method.
+    public func exec(_ id: String, configuration: @Sendable @escaping (inout LinuxProcessConfiguration) throws -> Void) async throws -> LinuxProcess {
+        try await self.state.withLock {
+            let state = try $0.startedState("exec")
 
-        var spec = generateRuntimeSpec()
-        var config = Configuration.Process()
-        try configuration(&config)
-        spec.process = config.toOCI()
+            var spec = self.generateRuntimeSpec()
+            var config = LinuxProcessConfiguration()
+            try configuration(&config)
+            spec.process = config.toOCI()
 
-        let stdio = Self.setupIO(
-            portAllocator: self.hostVsockPorts,
-            stdin: config.stdin,
-            stdout: config.stdout,
-            stderr: config.stderr
-        )
-        let agent = try await state.vm.dialAgent()
-        let process = LinuxProcess(
-            id,
-            containerID: self.id,
-            spec: spec,
-            io: stdio,
-            agent: agent,
-            vm: state.vm,
-            logger: self.logger
-        )
-        return process
+            let stdio = IOUtil.setup(
+                portAllocator: self.hostVsockPorts,
+                stdin: config.stdin,
+                stdout: config.stdout,
+                stderr: config.stderr
+            )
+            let agent = try await state.vm.dialAgent()
+            let process = LinuxProcess(
+                id,
+                containerID: self.id,
+                spec: spec,
+                io: stdio,
+                agent: agent,
+                vm: state.vm,
+                logger: self.logger
+            )
+            return process
+        }
     }
 
-    /// Execute a new process in the container.
-    public func exec(_ id: String, configuration: Configuration.Process) async throws -> LinuxProcess {
-        let state = try self.state.withLock { try $0.startedState("exec") }
+    /// Execute a new process in the container. The process is not started after this call, and must be manually started
+    /// via the `start` method.
+    public func exec(_ id: String, configuration: LinuxProcessConfiguration) async throws -> LinuxProcess {
+        try await self.state.withLock {
+            let state = try $0.startedState("exec")
 
-        var spec = generateRuntimeSpec()
-        spec.process = configuration.toOCI()
+            var spec = self.generateRuntimeSpec()
+            spec.process = configuration.toOCI()
 
-        let stdio = Self.setupIO(
-            portAllocator: self.hostVsockPorts,
-            stdin: configuration.stdin,
-            stdout: configuration.stdout,
-            stderr: configuration.stderr
-        )
-        let agent = try await state.vm.dialAgent()
-        let process = LinuxProcess(
-            id,
-            containerID: self.id,
-            spec: spec,
-            io: stdio,
-            agent: agent,
-            vm: state.vm,
-            logger: self.logger
-        )
-        return process
+            let stdio = IOUtil.setup(
+                portAllocator: self.hostVsockPorts,
+                stdin: configuration.stdin,
+                stdout: configuration.stdout,
+                stderr: configuration.stderr
+            )
+            let agent = try await state.vm.dialAgent()
+            let process = LinuxProcess(
+                id,
+                containerID: self.id,
+                spec: spec,
+                io: stdio,
+                agent: agent,
+                vm: state.vm,
+                logger: self.logger
+            )
+
+            return process
+        }
     }
 
     /// Dial a vsock port in the container.
     public func dialVsock(port: UInt32) async throws -> FileHandle {
-        let state = try self.state.withLock { try $0.startedState("dialVsock") }
-        return try await state.vm.dial(port)
+        try await self.state.withLock {
+            let state = try $0.startedState("dialVsock")
+            return try await state.vm.dial(port)
+        }
     }
 
     /// Close the containers standard input to signal no more input is
     /// arriving.
     public func closeStdin() async throws {
-        let state = try self.state.withLock { try $0.startedState("closeStdin") }
-        return try await state.process.closeStdin()
+        try await self.state.withLock {
+            let state = try $0.startedState("closeStdin")
+            return try await state.process.closeStdin()
+        }
+    }
+
+    /// Get statistics for the container.
+    public func statistics() async throws -> ContainerStatistics {
+        try await self.state.withLock {
+            let state = try $0.startedState("statistics")
+
+            let stats = try await state.vm.withAgent { agent in
+                let allStats = try await agent.containerStatistics(containerIDs: [self.id])
+                guard let containerStats = allStats.first else {
+                    throw ContainerizationError(
+                        .notFound,
+                        message: "statistics for container \(self.id) not found"
+                    )
+                }
+                return containerStats
+            }
+
+            return stats
+        }
     }
 
     /// Relay a unix socket from in the container to the host, or from the host
     /// to inside the container.
     public func relayUnixSocket(socket: UnixSocketConfiguration) async throws {
-        let state = try self.state.withLock { try $0.startedState("relayUnixSocket") }
+        try await self.state.withLock {
+            let state = try $0.startedState("relayUnixSocket")
 
-        try await state.vm.withAgent { agent in
-            try await self.relayUnixSocket(
-                socket: socket,
-                relayManager: state.relayManager,
-                agent: agent
-            )
+            try await state.vm.withAgent { agent in
+                try await self.relayUnixSocket(
+                    socket: socket,
+                    relayManager: state.relayManager,
+                    agent: agent
+                )
+            }
         }
     }
 
@@ -865,11 +710,12 @@ extension LinuxContainer {
 extension VirtualMachineInstance {
     /// Scoped access to an agent instance to ensure the resources are always freed (mostly close(2)'ing
     /// the vsock fd)
-    fileprivate func withAgent(fn: @Sendable (VirtualMachineAgent) async throws -> Void) async throws {
+    func withAgent<T>(fn: @Sendable (VirtualMachineAgent) async throws -> T) async throws -> T {
         let agent = try await self.dialAgent()
         do {
-            try await fn(agent)
+            let result = try await fn(agent)
             try await agent.close()
+            return result
         } catch {
             try? await agent.close()
             throw error
@@ -878,12 +724,54 @@ extension VirtualMachineInstance {
 }
 
 extension AttachedFilesystem {
-    fileprivate var to: ContainerizationOCI.Mount {
+    var to: ContainerizationOCI.Mount {
         .init(
             type: self.type,
             source: self.source,
             destination: self.destination,
             options: self.options
+        )
+    }
+}
+
+struct IOUtil {
+    static func setup(
+        portAllocator: borrowing Atomic<UInt32>,
+        stdin: ReaderStream?,
+        stdout: Writer?,
+        stderr: Writer?
+    ) -> LinuxProcess.Stdio {
+        var stdinSetup: LinuxProcess.StdioReaderSetup? = nil
+        if let reader = stdin {
+            let ret = portAllocator.wrappingAdd(1, ordering: .relaxed)
+            stdinSetup = .init(
+                port: ret.oldValue,
+                reader: reader
+            )
+        }
+
+        var stdoutSetup: LinuxProcess.StdioSetup? = nil
+        if let writer = stdout {
+            let ret = portAllocator.wrappingAdd(1, ordering: .relaxed)
+            stdoutSetup = LinuxProcess.StdioSetup(
+                port: ret.oldValue,
+                writer: writer
+            )
+        }
+
+        var stderrSetup: LinuxProcess.StdioSetup? = nil
+        if let writer = stderr {
+            let ret = portAllocator.wrappingAdd(1, ordering: .relaxed)
+            stderrSetup = LinuxProcess.StdioSetup(
+                port: ret.oldValue,
+                writer: writer
+            )
+        }
+
+        return LinuxProcess.Stdio(
+            stdin: stdinSetup,
+            stdout: stdoutSetup,
+            stderr: stderrSetup
         )
     }
 }

@@ -1,5 +1,8 @@
 name: Release containerization
 
+permissions:
+  contents: read
+
 on: 
   push: 
     tags:

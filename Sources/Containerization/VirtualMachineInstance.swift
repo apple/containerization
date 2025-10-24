@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -33,7 +33,7 @@ public protocol VirtualMachineInstance: Sendable {
     // The state of the virtual machine.
     var state: VirtualMachineInstanceState { get }
 
-    var mounts: [AttachedFilesystem] { get }
+    var mounts: [String: [AttachedFilesystem]] { get }
     /// Dial the Agent. It's up the VirtualMachineInstance to determine
     /// what port the agent is listening on.
     func dialAgent() async throws -> Agent

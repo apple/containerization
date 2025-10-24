@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,6 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import Cgroup
 import ContainerizationError
 import ContainerizationOCI
 import ContainerizationOS
@@ -59,10 +60,7 @@ actor ManagedContainer {
         try cgManager.create()
 
         do {
-            try cgManager.toggleSubtreeControllers(
-                controllers: [.cpu, .cpuset, .hugetlb, .io, .memory, .pids],
-                enable: true
-            )
+            try cgManager.toggleAllAvailableControllers(enable: true)
 
             let initProcess = try ManagedProcess(
                 id: id,
@@ -157,6 +155,10 @@ extension ManagedContainer {
     func delete() throws {
         try self.bundle.delete()
         try self.cgroupManager.delete(force: true)
+    }
+
+    func stats() throws -> Cgroup2Stats {
+        try self.cgroupManager.stats()
     }
 
     func getExecOrInit(execID: String) throws -> ManagedProcess {

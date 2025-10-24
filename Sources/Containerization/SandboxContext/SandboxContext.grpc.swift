@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -113,6 +113,11 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtoc
     _ request: Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRequest,
     callOptions: CallOptions?
   ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRequest, Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse>
+
+  func containerStatistics(
+    _ request: Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest,
+    callOptions: CallOptions?
+  ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest, Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsResponse>
 
   func proxyVsock(
     _ request: Com_Apple_Containerization_Sandbox_V3_ProxyVsockRequest,
@@ -459,6 +464,24 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtocol {
     )
   }
 
+  /// Get statistics for containers.
+  ///
+  /// - Parameters:
+  ///   - request: Request to send to ContainerStatistics.
+  ///   - callOptions: Call options.
+  /// - Returns: A `UnaryCall` with futures for the metadata, status and response.
+  public func containerStatistics(
+    _ request: Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest,
+    callOptions: CallOptions? = nil
+  ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest, Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsResponse> {
+    return self.makeUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.containerStatistics.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeContainerStatisticsInterceptors() ?? []
+    )
+  }
+
   /// Proxy a vsock port to a unix domain socket in the guest, or vice versa.
   ///
   /// - Parameters:
@@ -783,6 +806,11 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientP
     callOptions: CallOptions?
   ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRequest, Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse>
 
+  func makeContainerStatisticsCall(
+    _ request: Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest,
+    callOptions: CallOptions?
+  ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest, Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsResponse>
+
   func makeProxyVsockCall(
     _ request: Com_Apple_Containerization_Sandbox_V3_ProxyVsockRequest,
     callOptions: CallOptions?
@@ -1033,6 +1061,18 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientProtoco
       request: request,
       callOptions: callOptions ?? self.defaultCallOptions,
       interceptors: self.interceptors?.makeCloseProcessStdinInterceptors() ?? []
+    )
+  }
+
+  public func makeContainerStatisticsCall(
+    _ request: Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest,
+    callOptions: CallOptions? = nil
+  ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest, Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsResponse> {
+    return self.makeAsyncUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.containerStatistics.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeContainerStatisticsInterceptors() ?? []
     )
   }
 
@@ -1351,6 +1391,18 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientProtoco
     )
   }
 
+  public func containerStatistics(
+    _ request: Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest,
+    callOptions: CallOptions? = nil
+  ) async throws -> Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsResponse {
+    return try await self.performAsyncUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.containerStatistics.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeContainerStatisticsInterceptors() ?? []
+    )
+  }
+
   public func proxyVsock(
     _ request: Com_Apple_Containerization_Sandbox_V3_ProxyVsockRequest,
     callOptions: CallOptions? = nil
@@ -1539,6 +1591,9 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextClientInterc
   /// - Returns: Interceptors to use when invoking 'closeProcessStdin'.
   func makeCloseProcessStdinInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRequest, Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse>]
 
+  /// - Returns: Interceptors to use when invoking 'containerStatistics'.
+  func makeContainerStatisticsInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest, Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsResponse>]
+
   /// - Returns: Interceptors to use when invoking 'proxyVsock'.
   func makeProxyVsockInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_ProxyVsockRequest, Com_Apple_Containerization_Sandbox_V3_ProxyVsockResponse>]
 
@@ -1591,6 +1646,7 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.waitProcess,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.resizeProcess,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.closeProcessStdin,
+      Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.containerStatistics,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.proxyVsock,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.stopVsockProxy,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.ipLinkSet,
@@ -1698,6 +1754,12 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
     public static let closeProcessStdin = GRPCMethodDescriptor(
       name: "CloseProcessStdin",
       path: "/com.apple.containerization.sandbox.v3.SandboxContext/CloseProcessStdin",
+      type: GRPCCallType.unary
+    )
+
+    public static let containerStatistics = GRPCMethodDescriptor(
+      name: "ContainerStatistics",
+      path: "/com.apple.containerization.sandbox.v3.SandboxContext/ContainerStatistics",
       type: GRPCCallType.unary
     )
 
@@ -1817,6 +1879,9 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider: Ca
 
   /// Close IO for a given process.
   func closeProcessStdin(request: Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse>
+
+  /// Get statistics for containers.
+  func containerStatistics(request: Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsResponse>
 
   /// Proxy a vsock port to a unix domain socket in the guest, or vice versa.
   func proxyVsock(request: Com_Apple_Containerization_Sandbox_V3_ProxyVsockRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_ProxyVsockResponse>
@@ -2003,6 +2068,15 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider {
         responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse>(),
         interceptors: self.interceptors?.makeCloseProcessStdinInterceptors() ?? [],
         userFunction: self.closeProcessStdin(request:context:)
+      )
+
+    case "ContainerStatistics":
+      return UnaryServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest>(),
+        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsResponse>(),
+        interceptors: self.interceptors?.makeContainerStatisticsInterceptors() ?? [],
+        userFunction: self.containerStatistics(request:context:)
       )
 
     case "ProxyVsock":
@@ -2205,6 +2279,12 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvide
     request: Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRequest,
     context: GRPCAsyncServerCallContext
   ) async throws -> Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse
+
+  /// Get statistics for containers.
+  func containerStatistics(
+    request: Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest,
+    context: GRPCAsyncServerCallContext
+  ) async throws -> Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsResponse
 
   /// Proxy a vsock port to a unix domain socket in the guest, or vice versa.
   func proxyVsock(
@@ -2430,6 +2510,15 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvider {
         wrapping: { try await self.closeProcessStdin(request: $0, context: $1) }
       )
 
+    case "ContainerStatistics":
+      return GRPCAsyncServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest>(),
+        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsResponse>(),
+        interceptors: self.interceptors?.makeContainerStatisticsInterceptors() ?? [],
+        wrapping: { try await self.containerStatistics(request: $0, context: $1) }
+      )
+
     case "ProxyVsock":
       return GRPCAsyncServerHandler(
         context: context,
@@ -2592,6 +2681,10 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextServerInterc
   ///   Defaults to calling `self.makeInterceptors()`.
   func makeCloseProcessStdinInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRequest, Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse>]
 
+  /// - Returns: Interceptors to use when handling 'containerStatistics'.
+  ///   Defaults to calling `self.makeInterceptors()`.
+  func makeContainerStatisticsInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest, Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsResponse>]
+
   /// - Returns: Interceptors to use when handling 'proxyVsock'.
   ///   Defaults to calling `self.makeInterceptors()`.
   func makeProxyVsockInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_ProxyVsockRequest, Com_Apple_Containerization_Sandbox_V3_ProxyVsockResponse>]
@@ -2654,6 +2747,7 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.waitProcess,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.resizeProcess,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.closeProcessStdin,
+      Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.containerStatistics,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.proxyVsock,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.stopVsockProxy,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.ipLinkSet,
@@ -2761,6 +2855,12 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
     public static let closeProcessStdin = GRPCMethodDescriptor(
       name: "CloseProcessStdin",
       path: "/com.apple.containerization.sandbox.v3.SandboxContext/CloseProcessStdin",
+      type: GRPCCallType.unary
+    )
+
+    public static let containerStatistics = GRPCMethodDescriptor(
+      name: "ContainerStatistics",
+      path: "/com.apple.containerization.sandbox.v3.SandboxContext/ContainerStatistics",
       type: GRPCCallType.unary
     )
 

@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -197,12 +197,15 @@ public struct ContainerManager: Sendable {
     }
 
     /// Create a new manager with the provided kernel, initfs mount, image store
-    /// and optional network implementation.
+    /// and optional network implementation. This will use a Virtualization.framework
+    /// backed VMM implicitly.
     public init(
         kernel: Kernel,
         initfs: Mount,
         imageStore: ImageStore,
-        network: Network? = nil
+        network: Network? = nil,
+        rosetta: Bool = false,
+        nestedVirtualization: Bool = false
     ) throws {
         self.imageStore = imageStore
         self.network = network
@@ -210,17 +213,21 @@ public struct ContainerManager: Sendable {
         self.vmm = VZVirtualMachineManager(
             kernel: kernel,
             initialFilesystem: initfs,
-            bootlog: self.imageStore.path.appendingPathComponent("bootlog.log").absolutePath()
+            rosetta: rosetta,
+            nestedVirtualization: nestedVirtualization
         )
     }
 
     /// Create a new manager with the provided kernel, initfs mount, root state
-    /// directory and optional network implementation.
+    /// directory and optional network implementation. This will use a Virtualization.framework
+    /// backed VMM implicitly.
     public init(
         kernel: Kernel,
         initfs: Mount,
         root: URL? = nil,
-        network: Network? = nil
+        network: Network? = nil,
+        rosetta: Bool = false,
+        nestedVirtualization: Bool = false
     ) throws {
         if let root {
             self.imageStore = try ImageStore(path: root)
@@ -232,17 +239,21 @@ public struct ContainerManager: Sendable {
         self.vmm = VZVirtualMachineManager(
             kernel: kernel,
             initialFilesystem: initfs,
-            bootlog: self.imageStore.path.appendingPathComponent("bootlog.log").absolutePath()
+            rosetta: rosetta,
+            nestedVirtualization: nestedVirtualization
         )
     }
 
     /// Create a new manager with the provided kernel, initfs reference, image store
-    /// and optional network implementation.
+    /// and optional network implementation. This will use a Virtualization.framework
+    /// backed VMM implicitly.
     public init(
         kernel: Kernel,
         initfsReference: String,
         imageStore: ImageStore,
-        network: Network? = nil
+        network: Network? = nil,
+        rosetta: Bool = false,
+        nestedVirtualization: Bool = false
     ) async throws {
         self.imageStore = imageStore
         self.network = network
@@ -269,16 +280,20 @@ public struct ContainerManager: Sendable {
         self.vmm = VZVirtualMachineManager(
             kernel: kernel,
             initialFilesystem: initfs,
-            bootlog: self.imageStore.path.appendingPathComponent("bootlog.log").absolutePath()
+            rosetta: rosetta,
+            nestedVirtualization: nestedVirtualization
         )
     }
 
     /// Create a new manager with the provided kernel and image reference for the initfs.
+    /// This will use a Virtualization.framework backed VMM implicitly.
     public init(
         kernel: Kernel,
         initfsReference: String,
         root: URL? = nil,
-        network: Network? = nil
+        network: Network? = nil,
+        rosetta: Bool = false,
+        nestedVirtualization: Bool = false
     ) async throws {
         if let root {
             self.imageStore = try ImageStore(path: root)
@@ -309,7 +324,8 @@ public struct ContainerManager: Sendable {
         self.vmm = VZVirtualMachineManager(
             kernel: kernel,
             initialFilesystem: initfs,
-            bootlog: self.imageStore.path.appendingPathComponent("bootlog.log").absolutePath()
+            rosetta: rosetta,
+            nestedVirtualization: nestedVirtualization
         )
     }
 
@@ -401,43 +417,8 @@ public struct ContainerManager: Sendable {
                 config.interfaces = [interface]
                 config.dns = .init(nameservers: [interface.gateway!])
             }
+            config.bootlog = self.containerRoot.appendingPathComponent(id).appendingPathComponent("bootlog.log")
             try configuration(&config)
-        }
-    }
-
-    /// Returns an existing container from the provided image and root filesystem mount.
-    /// - Parameters:
-    ///   - id: The container ID.
-    ///   - image: The image.
-    public mutating func get(
-        _ id: String,
-        image: Image,
-    ) async throws -> LinuxContainer {
-        let path = containerRoot.appendingPathComponent(id)
-        guard FileManager.default.fileExists(atPath: path.absolutePath()) else {
-            throw ContainerizationError(.notFound, message: "\(id) does not exist")
-        }
-
-        let rootfs: Mount = .block(
-            format: "ext4",
-            source: path.appendingPathComponent("rootfs.ext4").absolutePath(),
-            destination: "/",
-            options: []
-        )
-
-        let imageConfig = try await image.config(for: .current).config
-        return try LinuxContainer(
-            id,
-            rootfs: rootfs,
-            vmm: self.vmm
-        ) { config in
-            if let imageConfig {
-                config.process = .init(from: imageConfig)
-            }
-            if let interface = try self.network?.create(id) {
-                config.interfaces = [interface]
-                config.dns = .init(nameservers: [interface.gateway!])
-            }
         }
     }
 

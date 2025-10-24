@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -29,8 +29,6 @@ public struct Vminitd: Sendable {
     // Default vsock port that the agent and client use.
     public static let port: UInt32 = 1024
 
-    private static let defaultPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-
     let client: Client
 
     public init(client: Client) {
@@ -53,7 +51,7 @@ extension Vminitd: VirtualMachineAgent {
     public func standardSetup() async throws {
         try await up(name: "lo")
 
-        try await setenv(key: "PATH", value: Self.defaultPath)
+        try await setenv(key: "PATH", value: LinuxProcessConfiguration.defaultPath)
 
         let mounts: [ContainerizationOCI.Mount] = [
             .init(type: "sysfs", source: "sysfs", destination: "/sys"),
@@ -87,6 +85,67 @@ extension Vminitd: VirtualMachineAgent {
                     $0.createParentDirs = flags.createParentDirectories
                 }
             })
+    }
+
+    /// Get statistics for containers. If `containerIDs` is empty returns stats for all containers
+    /// in the guest.
+    public func containerStatistics(containerIDs: [String]) async throws -> [ContainerStatistics] {
+        let response = try await client.containerStatistics(
+            .with {
+                $0.containerIds = containerIDs
+            })
+
+        return response.containers.map { protoStats in
+            ContainerStatistics(
+                id: protoStats.containerID,
+                process: .init(
+                    current: protoStats.process.current,
+                    limit: protoStats.process.limit
+                ),
+                memory: .init(
+                    usageBytes: protoStats.memory.usageBytes,
+                    limitBytes: protoStats.memory.limitBytes,
+                    swapUsageBytes: protoStats.memory.swapUsageBytes,
+                    swapLimitBytes: protoStats.memory.swapLimitBytes,
+                    cacheBytes: protoStats.memory.cacheBytes,
+                    kernelStackBytes: protoStats.memory.kernelStackBytes,
+                    slabBytes: protoStats.memory.slabBytes,
+                    pageFaults: protoStats.memory.pageFaults,
+                    majorPageFaults: protoStats.memory.majorPageFaults
+                ),
+                cpu: .init(
+                    usageUsec: protoStats.cpu.usageUsec,
+                    userUsec: protoStats.cpu.userUsec,
+                    systemUsec: protoStats.cpu.systemUsec,
+                    throttlingPeriods: protoStats.cpu.throttlingPeriods,
+                    throttledPeriods: protoStats.cpu.throttledPeriods,
+                    throttledTimeUsec: protoStats.cpu.throttledTimeUsec
+                ),
+                blockIO: .init(
+                    devices: protoStats.blockIo.devices.map { device in
+                        .init(
+                            major: device.major,
+                            minor: device.minor,
+                            readBytes: device.readBytes,
+                            writeBytes: device.writeBytes,
+                            readOperations: device.readOperations,
+                            writeOperations: device.writeOperations
+                        )
+                    }
+                ),
+                networks: protoStats.networks.map { network in
+                    ContainerStatistics.NetworkStatistics(
+                        interface: network.interface,
+                        receivedPackets: network.receivedPackets,
+                        transmittedPackets: network.transmittedPackets,
+                        receivedBytes: network.receivedBytes,
+                        transmittedBytes: network.transmittedBytes,
+                        receivedErrors: network.receivedErrors,
+                        transmittedErrors: network.transmittedErrors
+                    )
+                }
+            )
+        }
     }
 
     /// Mount a filesystem in the sandbox's environment.

@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,8 +28,8 @@ import Virtualization
 struct VZVirtualMachineInstance: VirtualMachineInstance, Sendable {
     typealias Agent = Vminitd
 
-    /// Attached mounts on the sandbox.
-    public let mounts: [AttachedFilesystem]
+    /// Attached mounts on the sandbox, organized by metadata ID.
+    public let mounts: [String: [AttachedFilesystem]]
 
     /// Returns the runtime state of the vm.
     public var state: VirtualMachineInstanceState {
@@ -47,8 +47,8 @@ struct VZVirtualMachineInstance: VirtualMachineInstance, Sendable {
         public var rosetta: Bool
         /// Toggle nested virtualization support.
         public var nestedVirtualization: Bool
-        /// Mount attachments.
-        public var mounts: [Mount]
+        /// Mount attachments organized by metadata ID.
+        public var mountsByID: [String: [Mount]]
         /// Network interface attachments.
         public var interfaces: [any Interface]
         /// Kernel image.
@@ -63,7 +63,7 @@ struct VZVirtualMachineInstance: VirtualMachineInstance, Sendable {
             self.memoryInBytes = 1024.mib()
             self.rosetta = false
             self.nestedVirtualization = false
-            self.mounts = []
+            self.mountsByID = [:]
             self.interfaces = []
         }
     }
@@ -168,8 +168,8 @@ extension VZVirtualMachineInstance {
 
             try await self.timeSyncer.close()
 
-            try await self.vm.stop(queue: self.queue)
             try await self.group.shutdownGracefully()
+            try await self.vm.stop(queue: self.queue)
         }
     }
 
@@ -265,8 +265,12 @@ extension VZVirtualMachineInstance.Configuration {
         config.memorySize = self.memoryInBytes
         config.entropyDevices = [VZVirtioEntropyDeviceConfiguration()]
         config.socketDevices = [VZVirtioSocketDeviceConfiguration()]
+
         if let bootlog = self.bootlog {
             config.serialPorts = try serialPort(path: bootlog)
+        } else {
+            // We always supply a serial console. If no explicit path was provided just send em to the void.
+            config.serialPorts = try serialPort(path: URL(filePath: "/dev/null"))
         }
 
         config.networkDevices = try self.interfaces.map {
@@ -317,8 +321,10 @@ extension VZVirtualMachineInstance.Configuration {
         config.bootLoader = loader
 
         try initialFilesystem.configure(config: &config)
-        for mount in self.mounts {
-            try mount.configure(config: &config)
+        for (_, mounts) in self.mountsByID {
+            for mount in mounts {
+                try mount.configure(config: &config)
+            }
         }
 
         let platform = VZGenericPlatformConfiguration()
@@ -337,7 +343,7 @@ extension VZVirtualMachineInstance.Configuration {
         return config
     }
 
-    func mountAttachments() throws -> [AttachedFilesystem] {
+    func mountAttachments() throws -> [String: [AttachedFilesystem]] {
         let allocator = Character.blockDeviceTagAllocator()
         if let initialFilesystem {
             // When the initial filesystem is a blk, allocate the first letter "vd(a)"
@@ -347,11 +353,15 @@ extension VZVirtualMachineInstance.Configuration {
             }
         }
 
-        var attachments: [AttachedFilesystem] = []
-        for mount in self.mounts {
-            attachments.append(try .init(mount: mount, allocator: allocator))
+        var attachmentsByID: [String: [AttachedFilesystem]] = [:]
+        for (id, mounts) in self.mountsByID {
+            var attachments: [AttachedFilesystem] = []
+            for mount in mounts {
+                attachments.append(try .init(mount: mount, allocator: allocator))
+            }
+            attachmentsByID[id] = attachments
         }
-        return attachments
+        return attachmentsByID
     }
 }
 

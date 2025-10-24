@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -43,10 +43,10 @@ public struct Mount: Sendable {
     public enum RuntimeOptions: Sendable {
         case virtioblk([String])
         case virtiofs([String])
-        case any
+        case any([String])
     }
 
-    init(
+    public init(
         type: String,
         source: String,
         destination: String,
@@ -98,14 +98,15 @@ public struct Mount: Sendable {
         type: String,
         source: String,
         destination: String,
-        options: [String] = []
+        options: [String] = [],
+        runtimeOptions: [String] = []
     ) -> Self {
         .init(
             type: type,
             source: source,
             destination: destination,
             options: options,
-            runtimeOptions: .any
+            runtimeOptions: .any(runtimeOptions)
         )
     }
 

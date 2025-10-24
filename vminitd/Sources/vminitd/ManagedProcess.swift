@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors. All rights reserved.
+// Copyright © 2025 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,6 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import Cgroup
 import Containerization
 import ContainerizationError
 import ContainerizationOCI
@@ -189,20 +190,15 @@ extension ManagedProcess {
             log.info(
                 "got back pid data",
                 metadata: [
-                    "id": "\(pid)"
+                    "pid": "\(pid)"
                 ])
             $0.pid = pid
 
-            // Add to our cgroup. For execs (owningPid is non-nil) we'll
-            // see where the init process is actually located now (systemd
-            // loves to move all its processes to a child /init.scope cg).
-            if let cgroupManager {
-                try cgroupManager.addProcess(pid: pid)
-            } else {
-                if let owningPid {
-                    let cgManager = try Cgroup2Manager.loadFromPid(pid: owningPid)
-                    try cgManager.addProcess(pid: pid)
-                }
+            // This should probably happen in vmexec, but we don't need to set any cgroup
+            // toggles so the problem is much simpler to just do it here.
+            if let owningPid {
+                let cgManager = try Cgroup2Manager.loadFromPid(pid: owningPid)
+                try cgManager.addProcess(pid: pid)
             }
 
             log.info(
