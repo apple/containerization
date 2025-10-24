@@ -313,10 +313,10 @@ extension LinuxContainer {
             )
             let creationConfig = StandardVMConfig(configuration: vmConfig)
             let vm = try await self.vmm.create(config: creationConfig)
+            let relayManager = UnixSocketRelayManager(vm: vm, log: self.logger)
 
             try await vm.start()
             do {
-                let relayManager = UnixSocketRelayManager(vm: vm, log: self.logger)
                 try await vm.withAgent { agent in
                     try await agent.standardSetup()
 
@@ -361,6 +361,7 @@ extension LinuxContainer {
                 }
                 state = .created(.init(vm: vm, relayManager: relayManager))
             } catch {
+                try? await relayManager.stopAll()
                 try? await vm.stop()
                 state.setErrored(error: error)
                 throw error
