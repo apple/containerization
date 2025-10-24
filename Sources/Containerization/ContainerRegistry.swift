@@ -38,52 +38,73 @@ public actor ContainerRegistry {
     private init() {}
     
     // Load registry from disk
-    private func load() -> [String: [String: ContainerInfo]] {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: registryPath)),
-              let decoded = try? JSONDecoder().decode([String: [String: ContainerInfo]].self, from: data) else {
+    private func load() throws -> [String: [String: ContainerInfo]] {
+        guard FileManager.default.fileExists(atPath: registryPath) else {
             return [:]
         }
-        return decoded
+        
+        let data = try Data(contentsOf: URL(fileURLWithPath: registryPath))
+        return try JSONDecoder().decode([String: [String: ContainerInfo]].self, from: data)
     }
     
     // Save registry to disk
-    private func save(_ containers: [String: [String: ContainerInfo]]) {
-        guard let data = try? JSONEncoder().encode(containers) else { return }
-        try? data.write(to: URL(fileURLWithPath: registryPath), options: .atomic)
+    private func save(_ containers: [String: [String: ContainerInfo]]) throws {
+        let data = try JSONEncoder().encode(containers)
+        try data.write(to: URL(fileURLWithPath: registryPath), options: .atomic)
     }
     
     /// Register a new container
     public func register(name: String, ipAddress: String, network: String) {
-        var containers = load()
-        
-        if containers[network] == nil {
-            containers[network] = [:]
+        do {
+            var containers = try load()
+            
+            if containers[network] == nil {
+                containers[network] = [:]
+            }
+            containers[network]?[name] = ContainerInfo(name: name, ipAddress: ipAddress, network: network)
+            
+            try save(containers)
+        } catch {
+            // Log error but don't crash - registration failures shouldn't break container creation
+            print("Warning: Failed to register container \(name) in registry: \(error)")
         }
-        containers[network]?[name] = ContainerInfo(name: name, ipAddress: ipAddress, network: network)
-        
-        save(containers)
     }
     
     /// Unregister a container
     public func unregister(name: String) {
-        var containers = load()
-        
-        for (network, _) in containers {
-            containers[network]?.removeValue(forKey: name)
+        do {
+            var containers = try load()
+            
+            for (network, _) in containers {
+                containers[network]?.removeValue(forKey: name)
+            }
+            
+            try save(containers)
+        } catch {
+            // Log error but don't crash - unregistration failures shouldn't break container cleanup
+            print("Warning: Failed to unregister container \(name) from registry: \(error)")
         }
-        
-        save(containers)
     }
     
     /// Get all containers on a specific network
     public func getContainersOnNetwork(_ network: String) -> [ContainerInfo] {
-        let containers = load()
-        return Array(containers[network]?.values.map { $0 } ?? [])
+        do {
+            let containers = try load()
+            return Array(containers[network]?.values.map { $0 } ?? [])
+        } catch {
+            print("Warning: Failed to load registry when querying network \(network): \(error)")
+            return []
+        }
     }
     
     /// Get all registered containers (for debugging)
     public func getAllContainers() -> [ContainerInfo] {
-        let containers = load()
-        return containers.values.flatMap { $0.values }
+        do {
+            let containers = try load()
+            return containers.values.flatMap { $0.values }
+        } catch {
+            print("Warning: Failed to load registry when getting all containers: \(error)")
+            return []
+        }
     }
 }
