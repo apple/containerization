@@ -73,6 +73,10 @@ extension App {
     }
 
     static func exec(process: ContainerizationOCI.Process, currentEnv: [String]? = nil) throws {
+        guard !process.args.isEmpty else {
+            throw App.Errno(stage: "exec", info: "process args cannot be empty")
+        }
+
         // lookup executable
         let path = Path.findPath(currentEnv) ?? Path.getCurrentPath()
         guard let resolvedExecutable = Path.lookPath(process.args[0], path: path) else {
@@ -88,11 +92,11 @@ extension App {
 
         // switch cwd
         guard chdir(cwd) == 0 else {
-            throw App.Errno(stage: "chdir(cwd)", info: "Failed to change directory to '\(cwd)'")
+            throw App.Errno(stage: "chdir(cwd)", info: "failed to change directory to '\(cwd)'")
         }
 
         guard execvpe(executable, argv, env) != -1 else {
-            throw App.Errno(stage: "execvpe(\(String(describing: executable)))", info: "Failed to exec [\(process.args.joined(separator: " "))]")
+            throw App.Errno(stage: "execvpe(\(String(describing: executable)))", info: "failed to exec [\(process.args.joined(separator: " "))]")
         }
         fatalError("execvpe failed")
     }
