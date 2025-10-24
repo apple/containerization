@@ -85,11 +85,11 @@ extension App {
 
         // switch cwd
         guard chdir(cwd) == 0 else {
-            throw App.Errno(stage: "chdir(cwd)", info: "Failed to change directory to '\(cwd)'")
+            throw App.Errno(stage: "chdir(cwd)", info: "failed to change directory to '\(cwd)'")
         }
 
         guard execvpe(executable, argv, env) != -1 else {
-            throw App.Errno(stage: "execvpe(\(String(describing: executable)))", info: "Failed to exec [\(process.args.joined(separator: " "))]")
+            throw App.Errno(stage: "execvpe(\(String(describing: executable)))", info: "failed to exec [\(process.args.joined(separator: " "))]")
         }
         fatalError("execvpe failed")
     }
