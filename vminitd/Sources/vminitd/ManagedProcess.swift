@@ -70,10 +70,6 @@ final class ManagedProcess: Sendable {
     }
     // swiftlint: enable type_name
 
-    static func localizeLogger(log: inout Logger, id: String) {
-        log[metadataKey: "id"] = "\(id)"
-    }
-
     private static let ackPid = "AckPid"
     private static let ackConsole = "AckConsole"
 
@@ -87,7 +83,7 @@ final class ManagedProcess: Sendable {
     ) throws {
         self.id = id
         var log = log
-        Self.localizeLogger(log: &log, id: id)
+        log[metadataKey: "id"] = "\(id)"
         self.log = log
         self.owningPid = owningPid
 
