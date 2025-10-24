@@ -50,11 +50,17 @@ public struct Mount: Sendable {
 }
 
 extension Mount {
+    #if canImport(Glibc)
+    internal typealias Flag = Int
+    #else
+    internal typealias Flag = Int32
+    #endif
+
     internal struct FlagBehavior {
         let clear: Bool
-        let flag: Int32
+        let flag: Flag
 
-        public init(_ clear: Bool, _ flag: Int32) {
+        public init(_ clear: Bool, _ flag: Flag) {
             self.clear = clear
             self.flag = flag
         }
@@ -127,7 +133,7 @@ extension Mount {
     }
 
     private func mountToTarget(target: String, createWithPerms: Int16?) throws {
-        let pageSize = sysconf(_SC_PAGESIZE)
+        let pageSize = sysconf(Int32(_SC_PAGESIZE))
 
         let opts = parseMountOptions()
         let dataString = opts.data.joined(separator: ",")
@@ -135,7 +141,7 @@ extension Mount {
             throw Error.validation("data string exceeds page size (\(dataString.count) > \(pageSize))")
         }
 
-        let propagationTypes: Int32 = MS_SHARED | MS_PRIVATE | MS_SLAVE | MS_UNBINDABLE
+        let propagationTypes: Int32 = Int32(MS_SHARED) | Int32(MS_PRIVATE) | Int32(MS_SLAVE) | Int32(MS_UNBINDABLE)
 
         // Ensure propagation type change flags aren't included in other calls.
         let originalFlags = opts.flags & ~(propagationTypes)
@@ -147,7 +153,7 @@ extension Mount {
         }
         try mkdirAll(target, 0o755)
 
-        if opts.flags & MS_REMOUNT == 0 || !dataString.isEmpty {
+        if opts.flags & Int32(MS_REMOUNT) == 0 || !dataString.isEmpty {
             guard _mount(self.source, target, self.type, UInt(originalFlags), dataString) == 0 else {
                 throw Error.errno(
                     errno,
@@ -158,15 +164,15 @@ extension Mount {
 
         if opts.flags & propagationTypes != 0 {
             // Change the propagation type.
-            let pflags = propagationTypes | MS_REC | MS_SILENT
+            let pflags = propagationTypes | Int32(MS_REC) | Int32(MS_SILENT)
             guard _mount("", target, "", UInt(opts.flags & pflags), "") == 0 else {
                 throw Error.errno(errno, "failed propagation change mount")
             }
         }
 
-        let bindReadOnlyFlags = MS_BIND | MS_RDONLY
+        let bindReadOnlyFlags = Int32(MS_BIND) | Int32(MS_RDONLY)
         if originalFlags & bindReadOnlyFlags == bindReadOnlyFlags {
-            guard _mount("", target, "", UInt(originalFlags | MS_REMOUNT), "") == 0 else {
+            guard _mount("", target, "", UInt(originalFlags | Int32(MS_REMOUNT)), "") == 0 else {
                 throw Error.errno(errno, "failed bind mount")
             }
         }
@@ -185,9 +191,9 @@ extension Mount {
         for option in self.options {
             if let entry = Self.flagsDictionary[option], entry.flag != 0 {
                 if entry.clear {
-                    mountOpts.flags &= ~entry.flag
+                    mountOpts.flags &= ~Int32(entry.flag)
                 } else {
-                    mountOpts.flags |= entry.flag
+                    mountOpts.flags |= Int32(entry.flag)
                 }
             } else {
                 mountOpts.data.append(option)
