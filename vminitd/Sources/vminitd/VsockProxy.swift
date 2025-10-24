@@ -265,7 +265,20 @@ extension VsockProxy {
                         // we should see no more EPOLLIN events on the client fd
                         // and no more EPOLLOUT events on the server fd
                         eofFromClient = true
-                        shutdown(serverFile.fileDescriptor, SHUT_WR)
+                        if shutdown(serverFile.fileDescriptor, SHUT_WR) != 0 {
+                            self.log?.info(
+                                "failed to shut down client reads",
+                                metadata: [
+                                    "vport": "\(self.port)",
+                                    "uds": "\(self.path)",
+                                    "errno": "\(errno)",
+                                    "eofFromClient": "\(eofFromClient)",
+                                    "eofFromServer": "\(eofFromServer)",
+                                    "clientFd": "\(clientFile.fileDescriptor)",
+                                    "serverFd": "\(serverFile.fileDescriptor)",
+                                ]
+                            )
+                        }
                     }
 
                     if eofFromClient && eofFromServer {
@@ -304,7 +317,20 @@ extension VsockProxy {
                         // we should see no more EPOLLIN events on the server fd
                         // and no more EPOLLOUT events on the client fd
                         eofFromServer = true
-                        shutdown(clientFile.fileDescriptor, SHUT_WR)
+                        if shutdown(clientFile.fileDescriptor, SHUT_WR) != 0 {
+                            self.log?.info(
+                                "failed to shut down server reads",
+                                metadata: [
+                                    "vport": "\(self.port)",
+                                    "uds": "\(self.path)",
+                                    "errno": "\(errno)",
+                                    "eofFromClient": "\(eofFromClient)",
+                                    "eofFromServer": "\(eofFromServer)",
+                                    "clientFd": "\(clientFile.fileDescriptor)",
+                                    "serverFd": "\(serverFile.fileDescriptor)",
+                                ]
+                            )
+                        }
                     }
 
                     if eofFromClient && eofFromServer {
@@ -340,7 +366,20 @@ extension VsockProxy {
                 // half close, shut down client to server transfer
                 // we should see no more EPOLLIN events on the client fd
                 // and no more EPOLLOUT events on the server fd
-                shutdown(toFile.fileDescriptor, SHUT_WR)
+                if shutdown(toFile.fileDescriptor, SHUT_WR) != 0 {
+                    log?.info(
+                        "failed to shut down reads",
+                        metadata: [
+                            "description": "\(description)",
+                            "errno": "\(errno)",
+                            "action": "\(action)",
+                            "readBytes": "\(readBytes)",
+                            "writeBytes": "\(writeBytes)",
+                            "fromFd": "\(fromFile.fileDescriptor)",
+                            "toFd": "\(toFile.fileDescriptor)",
+                        ]
+                    )
+                }
                 return (true, false)
             } else if action == .brokenPipe {
                 return (true, true)

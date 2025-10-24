@@ -391,7 +391,16 @@ extension SocketRelay {
                         "dstFd": "\(destinationFd)",
                     ])
                 source.cancel()
-                shutdown(destinationFd, SHUT_WR)
+                if shutdown(destinationFd, SHUT_WR) != 0 {
+                    log?.info(
+                        "failed to shut down reads",
+                        metadata: [
+                            "errno": "\(errno)",
+                            "sourceFd": "\(sourceFd)",
+                            "dstFd": "\(destinationFd)",
+                        ]
+                    )
+                }
             }
             return
         }
@@ -414,7 +423,16 @@ extension SocketRelay {
             log?.error("file descriptor copy failed \(error)")
             if !source.isCancelled {
                 source.cancel()
-                shutdown(destinationFd, SHUT_RDWR)
+                if shutdown(destinationFd, SHUT_RDWR) != 0 {
+                    log?.info(
+                        "failed to shut down destination",
+                        metadata: [
+                            "errno": "\(errno)",
+                            "sourceFd": "\(sourceFd)",
+                            "dstFd": "\(destinationFd)",
+                        ]
+                    )
+                }
             }
         }
     }
