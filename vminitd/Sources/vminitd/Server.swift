@@ -94,7 +94,7 @@ final class Initd: Sendable {
             await ProcessSupervisor.default.ready()
 
             log.debug(
-                "booting grpc server on vsock",
+                "booting gRPC server on vsock",
                 metadata: [
                     "port": "\(port)"
                 ])
@@ -105,7 +105,7 @@ final class Initd: Sendable {
                     serviceProviders: [self])
             ).get()
             log.info(
-                "grpc api serving on vsock",
+                "gRPC API serving on vsock",
                 metadata: [
                     "port": "\(port)"
                 ])

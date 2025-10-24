@@ -76,7 +76,7 @@ extension App {
         // lookup executable
         let path = Path.findPath(currentEnv) ?? Path.getCurrentPath()
         guard let resolvedExecutable = Path.lookPath(process.args[0], path: path) else {
-            throw App.Failure(message: "Failed to find target executable \(process.args[0])")
+            throw App.Failure(message: "failed to find target executable \(process.args[0])")
         }
 
         let executable = strdup(resolvedExecutable.path())

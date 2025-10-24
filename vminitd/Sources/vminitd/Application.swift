@@ -112,9 +112,9 @@ struct Application {
         let server = Initd(log: log, group: eg)
 
         do {
-            log.info("serve vminitd api")
+            log.info("serve vminitd API")
             try await server.serve(port: vsockPort)
-            log.info("vminitd api returned...")
+            log.info("vminitd API returned...")
         } catch {
             log.error("vminitd boot error \(error)")
             exit(1)
