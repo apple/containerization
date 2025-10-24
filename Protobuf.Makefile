@@ -16,15 +16,13 @@ $(PROTOC):
 	@unzip -o $(PROTOC_ZIP) 'include/*' -d $(dir $@)
 	@rm -f $(PROTOC_ZIP)
 
-protoc_gen_grpc_swift:
-	swift build --product protoc-gen-grpc-swift
-
 .PHONY: protoc-gen-swift
 protoc-gen-swift:
-	swift build --product protoc-gen-swift
+	@$(SWIFT) build --product protoc-gen-swift
+	@$(SWIFT) build --product protoc-gen-grpc-swift
 
 .PHONY: protos
-protos: $(PROTOC) protoc_gen_grpc_swift protoc-gen-swift
+protos: $(PROTOC) protoc-gen-swift
 	@echo Generating protocol buffers source code...
 	@$(PROTOC) Sources/Containerization/SandboxContext/SandboxContext.proto \
 		--plugin=protoc-gen-grpc-swift=$(BUILD_BIN_DIR)/protoc-gen-grpc-swift \
