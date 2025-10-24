@@ -72,6 +72,10 @@ extension App {
     }
 
     static func exec(process: ContainerizationOCI.Process) throws {
+        guard !process.args.isEmpty else {
+            throw App.Errno(stage: "exec", info: "process args cannot be empty")
+        }
+
         let executable = strdup(process.args[0])
         var argv = process.args.map { strdup($0) }
         argv += [nil]
