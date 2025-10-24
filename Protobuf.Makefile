@@ -19,6 +19,7 @@ $(PROTOC):
 protoc_gen_grpc_swift:
 	swift build --product protoc-gen-grpc-swift
 
+.PHONY: protoc-gen-swift
 protoc-gen-swift:
 	swift build --product protoc-gen-swift
 
