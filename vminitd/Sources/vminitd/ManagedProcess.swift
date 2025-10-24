@@ -28,7 +28,7 @@ final class ManagedProcess: Sendable {
     let id: String
 
     private let log: Logger
-    private let process: Command
+    private let command: Command
     private let state: Mutex<State>
     private let owningPid: Int32?
     private let ackPipe: Pipe
@@ -108,7 +108,7 @@ final class ManagedProcess: Sendable {
             args = ["run", "--bundle-path", bundle.path.path]
         }
 
-        var process = Command(
+        var command = Command(
             "/sbin/vmexec",
             arguments: args,
             extraFiles: [
@@ -121,13 +121,13 @@ final class ManagedProcess: Sendable {
         if stdio.terminal {
             log.info("setting up terminal IO")
             let attrs = Command.Attrs(setsid: false, setctty: false)
-            process.attrs = attrs
+            command.attrs = attrs
             io = try TerminalIO(
                 stdio: stdio,
                 log: log
             )
         } else {
-            process.attrs = .init(setsid: false)
+            command.attrs = .init(setsid: false)
             io = StandardIO(
                 stdio: stdio,
                 log: log
@@ -137,10 +137,10 @@ final class ManagedProcess: Sendable {
         log.info("starting io")
 
         // Setup IO early. We expect the host to be listening already.
-        try io.start(process: &process)
+        try io.start(process: &command)
 
         self.cgroupManager = cgroupManager
-        self.process = process
+        self.command = command
         self.terminal = stdio.terminal
         self.bundle = bundle
         self.state = Mutex(State(io: io))
@@ -157,7 +157,7 @@ extension ManagedProcess {
                 ])
 
             // Start the underlying process.
-            try process.start()
+            try command.start()
             defer {
                 try? self.ackPipe.fileHandleForWriting.close()
                 try? self.syncPipe.fileHandleForReading.close()
