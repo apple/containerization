@@ -14,15 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-#if os(Linux)
-
 #if canImport(Musl)
 import Musl
-#elseif canImport(Glibc)
-import Glibc
-#else
-#error("Epoll not supported on this platform")
-#endif
 
 import Foundation
 import Synchronization
@@ -181,4 +174,4 @@ extension Epoll.Mask {
     }
 }
 
-#endif  // os(Linux)
+#endif  // canImport(Musl)
