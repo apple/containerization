@@ -24,7 +24,7 @@ import NIOPosix
 final class Initd: Sendable {
     let log: Logger
     let state: State
-    let group: MultiThreadedEventLoopGroup
+    let group: EventLoopGroup
 
     actor State {
         var containers: [String: ManagedContainer] = [:]
@@ -80,7 +80,7 @@ final class Initd: Sendable {
         }
     }
 
-    init(log: Logger, group: MultiThreadedEventLoopGroup) {
+    init(log: Logger, group: EventLoopGroup) {
         self.log = log
         self.group = group
         self.state = State()
