@@ -119,8 +119,9 @@ final class StandardIO: ManagedProcess.IO & Sendable {
         }
     }
 
-    // NOP
-    func resize(size: Terminal.Size) throws {}
+    func resize(size: Terminal.Size) throws {
+        throw ContainerizationError(.unsupported, message: "resize not supported")
+    }
 
     func close() throws {
         self.state.withLock {
