@@ -17,8 +17,6 @@
 import Foundation
 
 struct OSFile: Sendable {
-    private let fd: Int32
-
     enum IOAction: Equatable {
         case eof
         case again
@@ -26,6 +24,8 @@ struct OSFile: Sendable {
         case brokenPipe
         case error(_ errno: Int32)
     }
+
+    private let fd: Int32
 
     var closed: Bool {
         Foundation.fcntl(fd, F_GETFD) == -1 && errno == EBADF
