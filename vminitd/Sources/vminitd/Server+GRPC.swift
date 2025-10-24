@@ -508,7 +508,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             if error is GRPCStatus {
                 throw error
             }
-            throw GRPCStatus(code: .internalError, message: "create managed process: \(error)")
+            throw GRPCStatus(code: .internalError, message: "createProcess: \(error)")
         }
     }
 

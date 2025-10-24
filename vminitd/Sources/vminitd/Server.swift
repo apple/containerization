@@ -93,7 +93,7 @@ final class Initd: Sendable {
             await ProcessSupervisor.default.setLog(self.log)
             await ProcessSupervisor.default.ready()
 
-            log.debug(
+            log.info(
                 "booting gRPC server on vsock",
                 metadata: [
                     "port": "\(port)"
@@ -114,6 +114,7 @@ final class Initd: Sendable {
                 try await server.onClose.get()
             }
             try await group.next()
+            log.info("closing gRPC server")
             group.cancelAll()
         }
     }

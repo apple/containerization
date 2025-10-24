@@ -107,14 +107,14 @@ struct Application {
 
         log.logLevel = .debug
 
-        log.info("vminitd booting...")
+        log.info("vminitd booting")
         let eg = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
         let server = Initd(log: log, group: eg)
 
         do {
-            log.info("serve vminitd API")
+            log.info("serving vminitd API")
             try await server.serve(port: vsockPort)
-            log.info("vminitd API returned...")
+            log.info("vminitd API returned")
         } catch {
             log.error("vminitd boot error \(error)")
             exit(1)
