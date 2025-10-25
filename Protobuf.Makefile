@@ -1,12 +1,12 @@
 LOCAL_DIR := $(ROOT_DIR)/.local
-LOCALBIN := $(LOCAL_DIR)/bin
+LOCAL_BIN_DIR := $(LOCAL_DIR)/bin
 
-## Versions
-PROTOC_VERSION=26.1
+# Versions
+PROTOC_VERSION := 26.1
 
-# protoc binary installation
-PROTOC_ZIP = protoc-$(PROTOC_VERSION)-osx-universal_binary.zip
-PROTOC = $(LOCALBIN)/protoc@$(PROTOC_VERSION)/protoc
+# Protoc binary installation
+PROTOC_ZIP := protoc-$(PROTOC_VERSION)-osx-universal_binary.zip
+PROTOC := $(LOCAL_BIN_DIR)/protoc@$(PROTOC_VERSION)/protoc
 $(PROTOC):
 	@echo Downloading protocol buffers...
 	@mkdir -p $(LOCAL_DIR)
@@ -16,14 +16,13 @@ $(PROTOC):
 	@unzip -o $(PROTOC_ZIP) 'include/*' -d $(dir $@)
 	@rm -f $(PROTOC_ZIP)
 
-protoc_gen_grpc_swift:
-	swift build --product protoc-gen-grpc-swift
-
+.PHONY: protoc-gen-swift
 protoc-gen-swift:
-	swift build --product protoc-gen-swift
+	@$(SWIFT) build --product protoc-gen-swift
+	@$(SWIFT) build --product protoc-gen-grpc-swift
 
 .PHONY: protos
-protos: $(PROTOC) protoc_gen_grpc_swift protoc-gen-swift
+protos: $(PROTOC) protoc-gen-swift
 	@echo Generating protocol buffers source code...
 	@$(PROTOC) Sources/Containerization/SandboxContext/SandboxContext.proto \
 		--plugin=protoc-gen-grpc-swift=$(BUILD_BIN_DIR)/protoc-gen-grpc-swift \
@@ -35,3 +34,7 @@ protos: $(PROTOC) protoc_gen_grpc_swift protoc-gen-swift
 		--swift_opt=Visibility=Public \
 		-I.
 	@"$(MAKE)" update-licenses
+
+.PHONY: clean-protos
+clean-protos:
+	@rm -rf $(LOCAL_DIR)
