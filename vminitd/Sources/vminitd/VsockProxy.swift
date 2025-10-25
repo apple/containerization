@@ -30,6 +30,16 @@ actor VsockProxy {
         case vsock
     }
 
+    public let id: String
+    private let path: URL
+    private let action: Action
+    private let port: UInt32
+    private let udsPerms: UInt32?
+    private let log: Logger?
+
+    private var listener: Socket?
+    private var task: Task<(), Never>?
+
     init(
         id: String,
         action: Action,
@@ -45,16 +55,6 @@ actor VsockProxy {
         self.udsPerms = udsPerms
         self.log = log
     }
-
-    public let id: String
-    private let path: URL
-    private let action: Action
-    private let port: UInt32
-    private let udsPerms: UInt32?
-    private let log: Logger?
-
-    private var listener: Socket?
-    private var task: Task<(), Never>?
 }
 
 extension VsockProxy {

@@ -22,10 +22,6 @@ import NIOCore
 import NIOPosix
 
 final class Initd: Sendable {
-    let log: Logger
-    let state: State
-    let group: EventLoopGroup
-
     actor State {
         var containers: [String: ManagedContainer] = [:]
         var proxies: [String: VsockProxy] = [:]
@@ -79,6 +75,10 @@ final class Initd: Sendable {
             }
         }
     }
+
+    let log: Logger
+    let state: State
+    let group: EventLoopGroup
 
     init(log: Logger, group: EventLoopGroup) {
         self.log = log
