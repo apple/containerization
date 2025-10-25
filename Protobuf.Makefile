@@ -34,3 +34,7 @@ protos: $(PROTOC) protoc-gen-swift
 		--swift_opt=Visibility=Public \
 		-I.
 	@"$(MAKE)" update-licenses
+
+.PHONY: clean-protos
+clean-protos:
+	@rm -rf $(LOCAL_DIR)
