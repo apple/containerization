@@ -113,6 +113,8 @@ extension VsockProxy {
             perms: self.udsPerms,
             unlinkExisting: true
         )
+        let oldMask = umask(0)
+        defer { umask(oldMask) }
         let uds = try Socket(type: type)
         try uds.listen()
         listener = uds
