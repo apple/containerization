@@ -25,7 +25,7 @@ import NIOPosix
 import Synchronization
 import Virtualization
 
-struct VZVirtualMachineInstance: VirtualMachineInstance, Sendable {
+struct VZVirtualMachineInstance: Sendable {
     typealias Agent = Vminitd
 
     /// Attached mounts on the virtual machine, organized by metadata ID.
@@ -102,26 +102,7 @@ struct VZVirtualMachineInstance: VirtualMachineInstance, Sendable {
     }
 }
 
-extension VZVirtualMachineInstance {
-    func vzStateToInstanceState() -> VirtualMachineInstanceState {
-        self.queue.sync {
-            let state: VirtualMachineInstanceState
-            switch self.vm.state {
-            case .starting:
-                state = .starting
-            case .running:
-                state = .running
-            case .stopping:
-                state = .stopping
-            case .stopped:
-                state = .stopped
-            default:
-                state = .unknown
-            }
-            return state
-        }
-    }
-
+extension VZVirtualMachineInstance: VirtualMachineInstance {
     func start() async throws {
         try await lock.withLock { _ in
             guard self.state == .stopped else {
@@ -191,9 +172,7 @@ extension VZVirtualMachineInstance {
         let conn = try await dial(Vminitd.port)
         return Vminitd(connection: conn, group: self.group)
     }
-}
 
-extension VZVirtualMachineInstance {
     func dial(_ port: UInt32) async throws -> FileHandle {
         try await vm.connect(
             queue: queue,
@@ -219,6 +198,27 @@ extension VZVirtualMachineInstance {
             queue: queue,
             port: port
         )
+    }
+}
+
+extension VZVirtualMachineInstance {
+    func vzStateToInstanceState() -> VirtualMachineInstanceState {
+        self.queue.sync {
+            let state: VirtualMachineInstanceState
+            switch self.vm.state {
+            case .starting:
+                state = .starting
+            case .running:
+                state = .running
+            case .stopping:
+                state = .stopping
+            case .stopped:
+                state = .stopped
+            default:
+                state = .unknown
+            }
+            return state
+        }
     }
 
     func prestart() async throws {
