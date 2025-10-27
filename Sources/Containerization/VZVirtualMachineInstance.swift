@@ -28,7 +28,7 @@ import Virtualization
 struct VZVirtualMachineInstance: VirtualMachineInstance, Sendable {
     typealias Agent = Vminitd
 
-    /// Attached mounts on the sandbox, organized by metadata ID.
+    /// Attached mounts on the virtual machine, organized by metadata ID.
     public let mounts: [String: [AttachedFilesystem]]
 
     /// Returns the runtime state of the vm.
@@ -36,7 +36,7 @@ struct VZVirtualMachineInstance: VirtualMachineInstance, Sendable {
         vzStateToInstanceState()
     }
 
-    /// The sandbox configuration.
+    /// The virtual machine instance configuration.
     private let config: Configuration
     public struct Configuration: Sendable {
         /// Amount of cpus to allocated.
@@ -55,7 +55,7 @@ struct VZVirtualMachineInstance: VirtualMachineInstance, Sendable {
         public var kernel: Kernel?
         /// The root filesystem.
         public var initialFilesystem: Mount?
-        /// File path to store the sandbox boot logs.
+        /// File path to store the virtual machine's boot logs.
         public var bootlog: URL?
 
         init() {
@@ -90,7 +90,7 @@ struct VZVirtualMachineInstance: VirtualMachineInstance, Sendable {
         self.config = config
         self.group = group
         self.lock = .init()
-        self.queue = DispatchQueue(label: "com.apple.containerization.sandbox.\(UUID().uuidString)")
+        self.queue = DispatchQueue(label: "com.apple.containerization.vzvm.\(UUID().uuidString)")
         self.mounts = try config.mountAttachments()
         self.logger = logger
         self.timeSyncer = .init(logger: logger)
@@ -127,7 +127,7 @@ extension VZVirtualMachineInstance {
             guard self.state == .stopped else {
                 throw ContainerizationError(
                     .invalidState,
-                    message: "sandbox is not stopped \(self.state)"
+                    message: "virtual machine is not stopped \(self.state)"
                 )
             }
 
