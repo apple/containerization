@@ -119,7 +119,7 @@ final class ManagedProcess: Sendable {
 
         var io: IO
         if stdio.terminal {
-            log.info("setting up terminal IO")
+            log.info("setting up terminal I/O")
             let attrs = Command.Attrs(setsid: false, setctty: false)
             command.attrs = attrs
             io = try TerminalIO(
@@ -134,7 +134,7 @@ final class ManagedProcess: Sendable {
             )
         }
 
-        log.info("starting io")
+        log.info("starting I/O")
 
         // Setup IO early. We expect the host to be listening already.
         try io.start(process: &command)
@@ -172,7 +172,7 @@ extension ManagedProcess {
 
             let size = MemoryLayout<Int32>.size
             guard let piddata = try syncPipe.fileHandleForReading.read(upToCount: size) else {
-                throw ContainerizationError(.internalError, message: "no pid data from sync pipe")
+                throw ContainerizationError(.internalError, message: "no PID data from sync pipe")
             }
 
             guard piddata.count == size else {
@@ -206,7 +206,7 @@ extension ManagedProcess {
 
             if self.terminal {
                 log.info(
-                    "wait for pty fd",
+                    "wait for PTY FD",
                     metadata: [
                         "id": "\(id)"
                     ])
@@ -215,14 +215,14 @@ extension ManagedProcess {
                 guard let ptyFd = try self.syncPipe.fileHandleForReading.read(upToCount: size) else {
                     throw ContainerizationError(
                         .internalError,
-                        message: "no pty data from sync pipe"
+                        message: "no PTY data from sync pipe"
                     )
                 }
                 let fd = ptyFd.withUnsafeBytes { ptr in
                     ptr.load(as: Int32.self)
                 }
                 log.info(
-                    "received pty fd from container, attaching",
+                    "received PTY FD from container, attaching",
                     metadata: [
                         "id": "\(id)"
                     ])
@@ -259,7 +259,7 @@ extension ManagedProcess {
             do {
                 try $0.io.close()
             } catch {
-                self.log.error("failed to close io for process: \(error)")
+                self.log.error("failed to close I/O for process: \(error)")
             }
 
             for waiter in $0.waiters {
