@@ -19,31 +19,41 @@ import ContainerizationExtras
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
-import GRPC
+import GRPCCore
+import GRPCNIOTransportCore
 import NIOCore
 import NIOPosix
 
 /// A remote connection into the vminitd Linux guest agent via a port (vsock).
 /// Used to modify the runtime environment of the Linux sandbox.
 public struct Vminitd: Sendable {
-    public typealias Client = Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClient
-
     // Default vsock port that the agent and client use.
     public static let port: UInt32 = 1024
 
-    let client: Client
+    let client: Com_Apple_Containerization_Sandbox_V3_SandboxContext.Client<HTTP2ClientTransport.WrappedChannel>
+    private let grpcClient: GRPCClient<HTTP2ClientTransport.WrappedChannel>
+    private let connectionTask: Task<Void, Error>
 
-    public init(client: Client) {
-        self.client = client
-    }
-
-    public init(connection: FileHandle, group: EventLoopGroup) {
-        self.client = .init(connection: connection, group: group)
+    public init(connection: FileHandle, group: any EventLoopGroup) throws {
+        let channel = try ClientBootstrap(group: group)
+            .withConnectedSocket(connection.fileDescriptor).wait()
+        let transport = HTTP2ClientTransport.WrappedChannel.wrapping(
+            channel: channel,
+        )
+        let grpcClient = GRPCClient(transport: transport)
+        self.grpcClient = grpcClient
+        self.client = Com_Apple_Containerization_Sandbox_V3_SandboxContext.Client(wrapping: self.grpcClient)
+        // Not very structured concurrency friendly, but we'd need to expose a way on the protocol to "run" the
+        // agent otherwise, which some agents might not even need.
+        self.connectionTask = Task {
+            try await grpcClient.runConnections()
+        }
     }
 
     /// Close the connection to the guest agent.
     public func close() async throws {
-        try await client.close()
+        self.grpcClient.beginGracefulShutdown()
+        try await self.connectionTask.value
     }
 }
 
@@ -263,17 +273,17 @@ extension Vminitd: VirtualMachineAgent {
                 $0.containerID = containerID
             }
         }
-        var callOpts: CallOptions?
+
+        var callOpts = GRPCCore.CallOptions.defaults
         if let timeoutInSeconds {
-            var copts = CallOptions()
-            copts.timeLimit = .timeout(.seconds(timeoutInSeconds))
-            callOpts = copts
+            callOpts.timeout = .seconds(timeoutInSeconds)
         }
+
         do {
-            let resp = try await client.waitProcess(request, callOptions: callOpts)
+            let resp = try await client.waitProcess(request, options: callOpts)
             return ExitStatus(exitCode: resp.exitCode, exitedAt: resp.exitedAt.date)
         } catch {
-            if let err = error as? GRPCError.RPCTimedOut {
+            if let err = error as? RPCError, err.code == .deadlineExceeded {
                 throw ContainerizationError(
                     .timeout,
                     message: "failed to wait for process exit within timeout of \(timeoutInSeconds!) seconds",
@@ -446,9 +456,6 @@ extension Vminitd {
         chunkSize: Int,
         progress: ProgressHandler?
     ) async throws {
-        let fileHandle = try FileHandle(forReadingFrom: source)
-        defer { try? fileHandle.close() }
-
         let attrs = try FileManager.default.attributesOfItem(atPath: source.path)
         guard let fileSize = attrs[.size] as? Int64 else {
             throw ContainerizationError(
@@ -459,31 +466,29 @@ extension Vminitd {
 
         await progress?([ProgressEvent(event: "add-total-size", value: fileSize)])
 
-        let call = client.makeCopyInCall()
+        _ = try await client.copyIn(requestProducer: { writer in
+            let fileHandle = try FileHandle(forReadingFrom: source)
+            defer { try? fileHandle.close() }
 
-        try await call.requestStream.send(
-            .with {
-                $0.content = .init_p(
-                    .with {
-                        $0.path = destination.path
-                        $0.mode = mode
-                        $0.createParents = createParents
-                    })
+            try await writer.write(
+                .with {
+                    $0.content = .init_p(
+                        .with {
+                            $0.path = destination.path
+                            $0.mode = mode
+                            $0.createParents = createParents
+                        })
+                }
+            )
+
+            while true {
+                guard let data = try fileHandle.read(upToCount: chunkSize), !data.isEmpty else {
+                    break
+                }
+                try await writer.write(.with { $0.content = .data(data) })
+                await progress?([ProgressEvent(event: "add-size", value: Int64(data.count))])
             }
-        )
-
-        var totalSent: Int64 = 0
-        while true {
-            guard let data = try fileHandle.read(upToCount: chunkSize), !data.isEmpty else {
-                break
-            }
-            try await call.requestStream.send(.with { $0.content = .data(data) })
-            totalSent += Int64(data.count)
-            await progress?([ProgressEvent(event: "add-size", value: Int64(data.count))])
-        }
-
-        call.requestStream.finish()
-        _ = try await call.response
+        })
     }
 
     /// Copy a file from the guest to the host.
@@ -494,37 +499,37 @@ extension Vminitd {
         chunkSize: Int,
         progress: ProgressHandler?
     ) async throws {
-        let request = Com_Apple_Containerization_Sandbox_V3_CopyOutRequest.with {
-            $0.path = source.path
-        }
-
         if createParents {
             let parentDir = destination.deletingLastPathComponent()
             try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
         }
 
-        let fd = open(destination.path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
-        guard fd != -1 else {
-            throw ContainerizationError(
-                .internalError,
-                message: "copyOut: failed to open '\(destination.path)': \(String(cString: strerror(errno)))"
-            )
-        }
-        let fileHandle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-        defer { try? fileHandle.close() }
+        try await client.copyOut(
+            .with { $0.path = source.path },
+            onResponse: { response in
+                let fd = open(destination.path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
+                guard fd != -1 else {
+                    throw ContainerizationError(
+                        .internalError,
+                        message: "copyOut: failed to open '\(destination.path)': \(String(cString: strerror(errno)))"
+                    )
+                }
+                let fileHandle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+                defer { try? fileHandle.close() }
 
-        let stream = client.copyOut(request)
-        for try await chunk in stream {
-            switch chunk.content {
-            case .init_p(let initMsg):
-                await progress?([ProgressEvent(event: "add-total-size", value: Int64(initMsg.totalSize))])
-            case .data(let data):
-                try fileHandle.write(contentsOf: data)
-                await progress?([ProgressEvent(event: "add-size", value: Int64(data.count))])
-            case .none:
-                break
+                for try await chunk in response.messages {
+                    switch chunk.content {
+                    case .init_p(let initMsg):
+                        await progress?([ProgressEvent(event: "add-total-size", value: Int64(initMsg.totalSize))])
+                    case .data(let data):
+                        try fileHandle.write(contentsOf: data)
+                        await progress?([ProgressEvent(event: "add-size", value: Int64(data.count))])
+                    case .none:
+                        break
+                    }
+                }
             }
-        }
+        )
     }
 }
 
@@ -546,22 +551,6 @@ extension Hosts {
                 }
             }
         }
-    }
-}
-
-extension Vminitd.Client {
-    public init(connection: FileHandle, group: EventLoopGroup) {
-        var config = ClientConnection.Configuration.default(
-            target: .connectedSocket(connection.fileDescriptor),
-            eventLoopGroup: group
-        )
-        config.connectionBackoff = nil
-        config.maximumReceiveMessageLength = Int(64.mib())
-        self = .init(channel: ClientConnection(configuration: config))
-    }
-
-    public func close() async throws {
-        try await self.channel.close().get()
     }
 }
 
