@@ -25,17 +25,16 @@ import Logging
 import Synchronization
 
 final class ManagedProcess: Sendable {
-    let id: String
-
-    private let log: Logger
-    private let command: Command
-    private let state: Mutex<State>
-    private let owningPid: Int32?
-    private let ackPipe: Pipe
-    private let syncPipe: Pipe
-    private let terminal: Bool
-    private let bundle: ContainerizationOCI.Bundle
-    private let cgroupManager: Cgroup2Manager?
+    // swiftlint: disable type_name
+    protocol IO {
+        func attach(pid: Int32, fd: Int32) throws
+        func start(process: inout Command) throws
+        func resize(size: Terminal.Size) throws
+        func close() throws
+        func closeStdin() throws
+        func closeAfterExec() throws
+    }
+    // swiftlint: enable type_name
 
     struct ExitStatus {
         var exitStatus: Int32
@@ -53,25 +52,26 @@ final class ManagedProcess: Sendable {
         var pid: Int32 = 0
     }
 
+    private static let ackPid = "AckPid"
+    private static let ackConsole = "AckConsole"
+
+    let id: String
+
+    private let log: Logger
+    private let command: Command
+    private let state: Mutex<State>
+    private let owningPid: Int32?
+    private let ackPipe: Pipe
+    private let syncPipe: Pipe
+    private let terminal: Bool
+    private let bundle: ContainerizationOCI.Bundle
+    private let cgroupManager: Cgroup2Manager?
+
     var pid: Int32 {
         self.state.withLock {
             $0.pid
         }
     }
-
-    // swiftlint: disable type_name
-    protocol IO {
-        func attach(pid: Int32, fd: Int32) throws
-        func start(process: inout Command) throws
-        func resize(size: Terminal.Size) throws
-        func close() throws
-        func closeStdin() throws
-        func closeAfterExec() throws
-    }
-    // swiftlint: enable type_name
-
-    private static let ackPid = "AckPid"
-    private static let ackConsole = "AckConsole"
 
     init(
         id: String,
