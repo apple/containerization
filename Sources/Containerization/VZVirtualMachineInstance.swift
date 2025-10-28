@@ -154,6 +154,9 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
         }
     }
 
+    // NOTE: Investigate what is the "right" way to handle already vended vsock
+    // connections for pause and resume.
+
     func pause() async throws {
         try await lock.withLock { _ in
             await self.timeSyncer.pause()

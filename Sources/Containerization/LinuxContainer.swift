@@ -519,24 +519,6 @@ extension LinuxContainer {
         }
     }
 
-    /// Pause the container.
-    public func pause() async throws {
-        try await self.state.withLock { state in
-            let startedState = try state.startedState("pause")
-            try await startedState.vm.pause()
-            state = .paused(.init(startedState))
-        }
-    }
-
-    /// Resume the container.
-    public func resume() async throws {
-        try await self.state.withLock { state in
-            let pausedState = try state.pausedState("resume")
-            try await pausedState.vm.resume()
-            state = .started(.init(pausedState))
-        }
-    }
-
     /// Send a signal to the container.
     public func kill(_ signal: Int32) async throws {
         try await self.state.withLock {

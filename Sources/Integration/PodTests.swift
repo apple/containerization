@@ -243,33 +243,6 @@ extension IntegrationSuite {
         }
     }
 
-    func testPodPauseResume() async throws {
-        let id = "test-pod-pause-resume"
-
-        let bs = try await bootstrap(id)
-        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
-            config.cpus = 4
-            config.memoryInBytes = 1024.mib()
-            config.bootlog = bs.bootlog
-        }
-
-        try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
-            config.process.arguments = ["/bin/sleep", "infinity"]
-        }
-
-        try await pod.create()
-        try await pod.startContainer("container1")
-
-        // Test pause/resume
-        try await pod.pause()
-        try await Task.sleep(for: .milliseconds(500))
-        try await pod.resume()
-
-        try await pod.killContainer("container1", signal: SIGKILL)
-        try await pod.waitContainer("container1")
-        try await pod.stop()
-    }
-
     func testPodStopContainerIdempotency() async throws {
         let id = "test-pod-stop-container-idempotency"
 
