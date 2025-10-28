@@ -36,6 +36,11 @@ struct VZVirtualMachineInstance: Sendable {
         vzStateToInstanceState()
     }
 
+    /// Tracks vended connections and handles.
+    private struct VendedConnections: Sendable {
+        var agents: [Vminitd] = []
+    }
+
     /// The virtual machine instance configuration.
     private let config: Configuration
     public struct Configuration: Sendable {
@@ -72,7 +77,7 @@ struct VZVirtualMachineInstance: Sendable {
     private nonisolated(unsafe) let vm: VZVirtualMachine
     private let queue: DispatchQueue
     private let group: MultiThreadedEventLoopGroup
-    private let lock: AsyncLock
+    private let lock: AsyncMutex<VendedConnections>
     private let timeSyncer: TimeSyncer
     private let logger: Logger?
 
@@ -89,7 +94,7 @@ struct VZVirtualMachineInstance: Sendable {
     init(group: MultiThreadedEventLoopGroup, config: Configuration, logger: Logger?) throws {
         self.config = config
         self.group = group
-        self.lock = .init()
+        self.lock = .init(VendedConnections())
         self.queue = DispatchQueue(label: "com.apple.containerization.vzvm.\(UUID().uuidString)")
         self.mounts = try config.mountAttachments()
         self.logger = logger
@@ -138,7 +143,7 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
     }
 
     func stop() async throws {
-        try await lock.withLock { _ in
+        try await lock.withLock { connections in
             // NOTE: We should record HOW the vm stopped eventually. If the vm exited
             // unexpectedly virtualization framework offers you a way to store
             // an error on how it exited. We should report that here instead of the
@@ -148,6 +153,12 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
             }
 
             try await self.timeSyncer.close()
+
+            // Close all vended agents and handles
+            for agent in connections.agents {
+                try await agent.close()
+            }
+            connections.agents.removeAll()
 
             try await self.group.shutdownGracefully()
             try await self.vm.stop(queue: self.queue)
@@ -172,15 +183,27 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
     }
 
     public func dialAgent() async throws -> Vminitd {
-        let conn = try await dial(Vminitd.port)
-        return Vminitd(connection: conn, group: self.group)
+        try await lock.withLock { connections in
+            let handle = try await vm.connect(
+                queue: queue,
+                port: Vminitd.port
+            ).dupHandle()
+
+            let agent = Vminitd(connection: handle, group: self.group)
+            connections.agents.append(agent)
+
+            return agent
+        }
     }
 
     func dial(_ port: UInt32) async throws -> FileHandle {
-        try await vm.connect(
-            queue: queue,
-            port: port
-        ).dupHandle()
+        try await lock.withLock { connections in
+            let handle = try await vm.connect(
+                queue: queue,
+                port: port
+            ).dupHandle()
+            return handle
+        }
     }
 
     func listen(_ port: UInt32) throws -> VsockConnectionStream {
