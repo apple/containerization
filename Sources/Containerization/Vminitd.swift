@@ -19,6 +19,7 @@ import ContainerizationOCI
 import ContainerizationOS
 import Foundation
 import GRPC
+import NIOCore
 import NIOPosix
 
 /// A remote connection into the vminitd Linux guest agent via a port (vsock).
@@ -35,7 +36,7 @@ public struct Vminitd: Sendable {
         self.client = client
     }
 
-    public init(connection: FileHandle, group: MultiThreadedEventLoopGroup) {
+    public init(connection: FileHandle, group: EventLoopGroup) {
         self.client = .init(connection: connection, group: group)
     }
 
@@ -450,7 +451,7 @@ extension Hosts {
 }
 
 extension Vminitd.Client {
-    public init(socket: String, group: MultiThreadedEventLoopGroup) {
+    public init(socket: String, group: EventLoopGroup) {
         var config = ClientConnection.Configuration.default(
             target: .unixDomainSocket(socket),
             eventLoopGroup: group
@@ -461,7 +462,7 @@ extension Vminitd.Client {
         self = .init(channel: ClientConnection(configuration: config))
     }
 
-    public init(connection: FileHandle, group: MultiThreadedEventLoopGroup) {
+    public init(connection: FileHandle, group: EventLoopGroup) {
         var config = ClientConnection.Configuration.default(
             target: .connectedSocket(connection.fileDescriptor),
             eventLoopGroup: group

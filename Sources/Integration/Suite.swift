@@ -23,6 +23,7 @@ import ContainerizationOS
 import Foundation
 import Logging
 import NIOCore
+import NIOPosix
 import Synchronization
 
 actor UnpackCoordinator {
@@ -159,6 +160,8 @@ struct IntegrationSuite: AsyncParsableCommand {
             .appendingPathComponent(name)
     }
 
+    static let eventLoop = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
+
     func bootstrap(_ testID: String) async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image, bootlog: URL) {
         let reference = "ghcr.io/linuxcontainers/alpine:3.20"
         let store = Self.imageStore
@@ -221,6 +224,7 @@ struct IntegrationSuite: AsyncParsableCommand {
             VZVirtualMachineManager(
                 kernel: testKernel,
                 initialFilesystem: initfs,
+                group: Self.eventLoop
             ),
             image,
             bootlogURL
