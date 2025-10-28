@@ -1015,6 +1015,7 @@ extension IntegrationSuite {
             config.process.stdout = inotifyBuffer
             config.process.stderr = inotifyBuffer
             config.mounts.append(.share(source: directory.path, destination: "/mnt"))
+            config.bootlog = bs.bootlog
         }
 
         try await container.create()
