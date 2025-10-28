@@ -76,13 +76,14 @@ struct VZVirtualMachineInstance: Sendable {
     // `vm` isn't used concurrently.
     private nonisolated(unsafe) let vm: VZVirtualMachine
     private let queue: DispatchQueue
-    private let group: MultiThreadedEventLoopGroup
     private let lock: AsyncMutex<VendedConnections>
+    private let group: EventLoopGroup
+    private let ownsGroup: Bool
     private let timeSyncer: TimeSyncer
     private let logger: Logger?
 
     public init(
-        group: MultiThreadedEventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount),
+        group: EventLoopGroup? = nil,
         logger: Logger? = nil,
         with: (inout Configuration) throws -> Void
     ) throws {
@@ -91,9 +92,16 @@ struct VZVirtualMachineInstance: Sendable {
         try self.init(group: group, config: config, logger: logger)
     }
 
-    init(group: MultiThreadedEventLoopGroup, config: Configuration, logger: Logger?) throws {
+    init(group: EventLoopGroup?, config: Configuration, logger: Logger?) throws {
+        if let group {
+            self.ownsGroup = false
+            self.group = group
+        } else {
+            self.ownsGroup = true
+            self.group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
+        }
+
         self.config = config
-        self.group = group
         self.lock = .init(VendedConnections())
         self.queue = DispatchQueue(label: "com.apple.containerization.vzvm.\(UUID().uuidString)")
         self.mounts = try config.mountAttachments()
@@ -160,7 +168,10 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
             }
             connections.agents.removeAll()
 
-            try await self.group.shutdownGracefully()
+            if self.ownsGroup {
+                try await self.group.shutdownGracefully()
+            }
+
             try await self.vm.stop(queue: self.queue)
         }
     }

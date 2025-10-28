@@ -19,6 +19,7 @@ import ContainerizationError
 import ContainerizationOCI
 import Foundation
 import Logging
+import NIOCore
 
 /// A virtualization.framework backed `VirtualMachineManager` implementation.
 public struct VZVirtualMachineManager: VirtualMachineManager {
@@ -26,6 +27,7 @@ public struct VZVirtualMachineManager: VirtualMachineManager {
     private let initialFilesystem: Mount
     private let rosetta: Bool
     private let nestedVirtualization: Bool
+    private let group: EventLoopGroup?
     private let logger: Logger?
 
     public init(
@@ -33,12 +35,14 @@ public struct VZVirtualMachineManager: VirtualMachineManager {
         initialFilesystem: Mount,
         rosetta: Bool = false,
         nestedVirtualization: Bool = false,
+        group: EventLoopGroup? = nil,
         logger: Logger? = nil
     ) {
         self.kernel = kernel
         self.initialFilesystem = initialFilesystem
         self.rosetta = rosetta
         self.nestedVirtualization = nestedVirtualization
+        self.group = group
         self.logger = logger
     }
 
@@ -49,6 +53,7 @@ public struct VZVirtualMachineManager: VirtualMachineManager {
         let useNestedVirtualization = vmConfig.nestedVirtualization || self.nestedVirtualization
 
         return try VZVirtualMachineInstance(
+            group: self.group,
             logger: self.logger,
             with: { instanceConfig in
                 instanceConfig.cpus = vmConfig.cpus
