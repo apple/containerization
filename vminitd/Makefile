@@ -14,15 +14,15 @@
 
 BUILD_CONFIGURATION := debug
 WARNINGS_AS_ERRORS ?= true
-SWIFT_WARNING_CONFIG = $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors)
+SWIFT_WARNING_CONFIG := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors)
 SWIFT_CONFIGURATION := --swift-sdk aarch64-swift-linux-musl $(SWIFT_WARNING_CONFIG)
 
-SWIFT_VERSION = 6.2
-SWIFT_SDK_URL = https://download.swift.org/swift-6.2-release/static-sdk/swift-6.2-RELEASE/swift-6.2-RELEASE_static-linux-0.0.1.artifactbundle.tar.gz
-SWIFT_SDK_PATH = /tmp/$(notdir $(SWIFT_SDK_URL))
+SWIFT_VERSION := 6.2
+SWIFT_SDK_URL := https://download.swift.org/swift-6.2-release/static-sdk/swift-6.2-RELEASE/swift-6.2-RELEASE_static-linux-0.0.1.artifactbundle.tar.gz
+SWIFT_SDK_PATH := /tmp/$(notdir $(SWIFT_SDK_URL))
 
 SWIFTLY_URL := https://download.swift.org/swiftly/darwin/swiftly.pkg
-SWIFTLY_FILENAME = $(notdir $(SWIFTLY_URL))
+SWIFTLY_FILENAME := $(notdir $(SWIFTLY_URL))
 SWIFTLY_BIN_DIR ?= ~/.swiftly/bin
 BUILD_BIN_DIR := $(shell swift build -c $(BUILD_CONFIGURATION) $(SWIFT_CONFIGURATION) --show-bin-path)
 
