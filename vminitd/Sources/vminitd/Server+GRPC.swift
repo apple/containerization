@@ -761,7 +761,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             "ipAddrAdd",
             metadata: [
                 "interface": "\(request.interface)",
-                "addr": "\(request.address)",
+                "address": "\(request.address)",
             ])
 
         do {
