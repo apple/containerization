@@ -49,7 +49,7 @@ final class ManagedProcess: Sendable {
         let io: IO
         var waiters: [CheckedContinuation<ExitStatus, Never>] = []
         var exitStatus: ExitStatus? = nil
-        var pid: Int32 = 0
+        var pid: Int32?
     }
 
     private static let ackPid = "AckPid"
@@ -67,7 +67,7 @@ final class ManagedProcess: Sendable {
     private let bundle: ContainerizationOCI.Bundle
     private let cgroupManager: Cgroup2Manager?
 
-    var pid: Int32 {
+    var pid: Int32? {
         self.state.withLock {
             $0.pid
         }
@@ -286,12 +286,16 @@ extension ManagedProcess {
 
     func kill(_ signal: Int32) throws {
         try self.state.withLock {
+            guard let pid = $0.pid else {
+                throw ContainerizationError(.invalidState, message: "process PID is required")
+            }
+
             guard $0.exitStatus == nil else {
                 return
             }
 
-            self.log.info("sending signal \(signal) to process \($0.pid)")
-            guard Foundation.kill($0.pid, signal) == 0 else {
+            self.log.info("sending signal \(signal) to process \(pid)")
+            guard Foundation.kill(pid, signal) == 0 else {
                 throw POSIXError.fromErrno()
             }
         }
