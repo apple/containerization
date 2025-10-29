@@ -930,6 +930,73 @@ extension IntegrationSuite {
         }
     }
 
+    func testUnixSocketIntoGuest() async throws {
+        let id = "test-unixsocket-into-guest"
+
+        let bs = try await bootstrap(id)
+
+        let hostSocketPath = try createHostUnixSocket()
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.sockets = [
+                UnixSocketConfiguration(
+                    source: URL(filePath: hostSocketPath),
+                    destination: URL(filePath: "/tmp/test.sock"),
+                    direction: .into
+                )
+            ]
+            config.bootlog = bs.bootlog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Execute ls -l to check the socket exists and is indeed a socket
+            let lsExec = try await container.exec("ls-socket") { config in
+                config.arguments = ["ls", "-l", "/tmp/test.sock"]
+                config.stdout = buffer
+            }
+
+            try await lsExec.start()
+            let status = try await lsExec.wait()
+            try await lsExec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ls command failed with status \(status)")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert ls output to UTF8")
+            }
+
+            // Socket files in ls -l output start with 's'
+            guard output.hasPrefix("s") else {
+                throw IntegrationError.assert(
+                    msg: "expected socket file (starting with 's'), got: \(output)")
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    private func createHostUnixSocket() throws -> String {
+        let dir = FileManager.default.uniqueTemporaryDirectory(create: true)
+        let socketPath = dir.appendingPathComponent("test.sock").path
+
+        let socket = try Socket(type: UnixType(path: socketPath))
+        try socket.listen()
+
+        return socketPath
+    }
+
     private func createMountDirectory() throws -> URL {
         let dir = FileManager.default.uniqueTemporaryDirectory(create: true)
         try "hello".write(to: dir.appendingPathComponent("hi.txt"), atomically: true, encoding: .utf8)
