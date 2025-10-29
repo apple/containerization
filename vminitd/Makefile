@@ -24,7 +24,7 @@ SWIFT_SDK_PATH = /tmp/$(notdir $(SWIFT_SDK_URL))
 SWIFTLY_URL := https://download.swift.org/swiftly/darwin/swiftly.pkg
 SWIFTLY_FILENAME = $(notdir $(SWIFTLY_URL))
 SWIFTLY_BIN_DIR ?= ~/.swiftly/bin
-VMINITD_BIN_PATH := $(shell swift build -c $(BUILD_CONFIGURATION) $(SWIFT_CONFIGURATION) --show-bin-path)
+BUILD_BIN_DIR := $(shell swift build -c $(BUILD_CONFIGURATION) $(SWIFT_CONFIGURATION) --show-bin-path)
 
 MACOS_VERSION := $(shell sw_vers -productVersion)
 MACOS_MAJOR := $(shell echo $(MACOS_VERSION) | cut -d. -f1)
@@ -40,8 +40,8 @@ all:
 	@rm -f ./bin/vmexec
 	@swift --version
 	@swift build -c $(BUILD_CONFIGURATION) $(SWIFT_CONFIGURATION)
-	@install "$(VMINITD_BIN_PATH)/vminitd" ./bin/
-	@install "$(VMINITD_BIN_PATH)/vmexec" ./bin/
+	@install "$(BUILD_BIN_DIR)/vminitd" ./bin/
+	@install "$(BUILD_BIN_DIR)/vmexec" ./bin/
 
 .PHONY: cross-prep
 cross-prep: linux-sdk macos-sdk
