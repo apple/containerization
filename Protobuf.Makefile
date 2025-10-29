@@ -49,6 +49,7 @@ protos: $(PROTOC) protoc-gen-swift
 		-I.
 	@"$(MAKE)" update-licenses
 
-.PHONY: clean-protos
-clean-protos:
-	@rm -rf $(LOCAL_DIR)
+.PHONY: clean-proto-tools
+clean-proto-tools:
+	@echo Cleaning proto tools...
+	@rm -rf $(LOCAL_DIR)/bin/protoc*
