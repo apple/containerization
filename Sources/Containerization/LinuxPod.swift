@@ -705,13 +705,15 @@ extension LinuxPod {
         // Adjust paths to be relative to the container's rootfs
         let rootInGuest = URL(filePath: Self.guestRootfsPath(containerID))
 
+        let port: UInt32
         if socket.direction == .into {
+            port = self.hostVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
             socket.destination = rootInGuest.appending(path: socket.destination.path)
         } else {
+            port = self.guestVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
             socket.source = rootInGuest.appending(path: socket.source.path)
         }
 
-        let port = self.hostVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
         try await relayManager.start(port: port, socket: socket)
         try await relayAgent.relaySocket(port: port, configuration: socket)
     }
