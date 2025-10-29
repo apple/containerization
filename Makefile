@@ -13,7 +13,6 @@
 # limitations under the License.
 
 # Build configuration variables
-# The default version ID 0.0.0 indicates a local development build or PRB
 BUILD_CONFIGURATION ?= debug
 WARNINGS_AS_ERRORS ?= true
 SWIFT_CONFIGURATION := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors)
