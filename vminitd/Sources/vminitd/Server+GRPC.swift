@@ -849,6 +849,8 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 "location": "\(request.location)",
                 "nameservers": "\(request.nameservers)",
                 "domain": "\(domain ?? "")",
+                "searchDomains": "\(request.searchDomains)",
+                "options": "\(request.options)",
             ])
 
         do {
