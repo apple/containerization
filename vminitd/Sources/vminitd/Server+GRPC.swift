@@ -731,7 +731,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         request: Com_Apple_Containerization_Sandbox_V3_IpLinkSetRequest, context: GRPC.GRPCAsyncServerCallContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_IpLinkSetResponse {
         log.debug(
-            "ip-link-set",
+            "ipLinkSet",
             metadata: [
                 "interface": "\(request.interface)",
                 "up": "\(request.up)",
@@ -744,7 +744,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             try session.linkSet(interface: request.interface, up: request.up, mtu: mtuValue)
         } catch {
             log.error(
-                "ip-link-set",
+                "ipLinkSet",
                 metadata: [
                     "error": "\(error)"
                 ])
@@ -758,10 +758,10 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         request: Com_Apple_Containerization_Sandbox_V3_IpAddrAddRequest, context: GRPC.GRPCAsyncServerCallContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_IpAddrAddResponse {
         log.debug(
-            "ip-addr-add",
+            "ipAddrAdd",
             metadata: [
                 "interface": "\(request.interface)",
-                "addr": "\(request.address)",
+                "address": "\(request.address)",
             ])
 
         do {
@@ -770,7 +770,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             try session.addressAdd(interface: request.interface, address: request.address)
         } catch {
             log.error(
-                "ip-addr-add",
+                "ipAddrAdd",
                 metadata: [
                     "error": "\(error)"
                 ])
@@ -784,7 +784,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         request: Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest, context: GRPC.GRPCAsyncServerCallContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkResponse {
         log.debug(
-            "ip-route-add-link",
+            "ipRouteAddLink",
             metadata: [
                 "interface": "\(request.interface)",
                 "address": "\(request.address)",
@@ -801,7 +801,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             )
         } catch {
             log.error(
-                "ip-route-add-link",
+                "ipRouteAddLink",
                 metadata: [
                     "error": "\(error)"
                 ])
@@ -816,7 +816,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         context: GRPC.GRPCAsyncServerCallContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultResponse {
         log.debug(
-            "ip-route-add-default",
+            "ipRouteAddDefault",
             metadata: [
                 "interface": "\(request.interface)",
                 "gateway": "\(request.gateway)",
@@ -828,7 +828,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             try session.routeAddDefault(interface: request.interface, gateway: request.gateway)
         } catch {
             log.error(
-                "ip-route-add-default",
+                "ipRouteAddDefault",
                 metadata: [
                     "error": "\(error)"
                 ])
@@ -844,11 +844,13 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_ConfigureDnsResponse {
         let domain = request.hasDomain ? request.domain : nil
         log.debug(
-            "configure-dns",
+            "configureDns",
             metadata: [
                 "location": "\(request.location)",
                 "nameservers": "\(request.nameservers)",
                 "domain": "\(domain ?? "")",
+                "searchDomains": "\(request.searchDomains)",
+                "options": "\(request.options)",
             ])
 
         do {
@@ -867,7 +869,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             log.debug("wrote resolver configuration", metadata: ["path": "\(resolvConf.path)"])
         } catch {
             log.error(
-                "configure-dns",
+                "configureDns",
                 metadata: [
                     "error": "\(error)"
                 ])
