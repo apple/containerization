@@ -80,8 +80,7 @@ actor ProcessSupervisor {
         }
 
         for proc in exitedProcesses {
-            let pid = proc.pid
-            if pid <= 0 {
+            guard let pid = proc.pid else {
                 continue
             }
 

@@ -30,7 +30,7 @@ actor ManagedContainer {
     private let bundle: ContainerizationOCI.Bundle
     private var execs: [String: ManagedProcess] = [:]
 
-    var pid: Int32 {
+    var pid: Int32? {
         self.initProcess.pid
     }
 
