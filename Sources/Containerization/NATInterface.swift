@@ -18,6 +18,7 @@ public struct NATInterface: Interface {
     public var address: String
     public var gateway: String?
     public var macAddress: String?
+    public var routes: [Route] { [] }
 
     public init(address: String, gateway: String?, macAddress: String? = nil) {
         self.address = address

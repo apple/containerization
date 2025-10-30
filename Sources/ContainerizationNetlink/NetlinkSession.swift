@@ -276,7 +276,8 @@ public struct NetlinkSession {
     public func routeAdd(
         interface: String,
         destinationAddress: String,
-        srcAddr: String
+        srcAddr: String,
+        gateway: String,
     ) throws {
         // ip route add [dest-cidr] dev [interface] src [src-addr] proto kernel
         let parsed = try parseCIDR(cidr: destinationAddress)
@@ -285,9 +286,12 @@ public struct NetlinkSession {
         let dstAddrAttrSize = RTAttribute.size + dstAddrBytes.count
         let srcAddrBytes = try IPv4Address(srcAddr).networkBytes
         let srcAddrAttrSize = RTAttribute.size + srcAddrBytes.count
+        let hasGateway = !gateway.isEmpty
+        let gatewayAddrBytes = hasGateway ? try IPv4Address(gateway).networkBytes : []
+        let gatewayAddrAttrSize = hasGateway ? RTAttribute.size + gatewayAddrBytes.count : 0
         let interfaceAttrSize = RTAttribute.size + MemoryLayout<UInt32>.size
         let requestSize =
-            NetlinkMessageHeader.size + RouteInfo.size + dstAddrAttrSize + srcAddrAttrSize + interfaceAttrSize
+            NetlinkMessageHeader.size + RouteInfo.size + dstAddrAttrSize + srcAddrAttrSize + interfaceAttrSize + gatewayAddrAttrSize
         var requestBuffer = [UInt8](repeating: 0, count: requestSize)
         var requestOffset = 0
 
@@ -306,7 +310,7 @@ public struct NetlinkSession {
             tos: 0,
             table: RouteTable.MAIN,
             proto: RouteProtocol.KERNEL,
-            scope: RouteScope.LINK,
+            scope: hasGateway ? RouteScope.UNIVERSE : RouteScope.LINK,
             type: RouteType.UNICAST,
             flags: 0)
         requestOffset = try requestInfo.appendBuffer(&requestBuffer, offset: requestOffset)
@@ -326,12 +330,22 @@ public struct NetlinkSession {
         let interfaceAttr = RTAttribute(len: UInt16(interfaceAttrSize), type: RouteAttributeType.OIF)
         requestOffset = try interfaceAttr.appendBuffer(&requestBuffer, offset: requestOffset)
         guard
-            let requestOffset = requestBuffer.copyIn(
+            var requestOffset = requestBuffer.copyIn(
                 as: UInt32.self,
                 value: UInt32(interfaceIndex),
                 offset: requestOffset)
         else {
             throw NetlinkDataError.sendMarshalFailure
+        }
+
+        
+        if hasGateway {
+            let gatewayAttr = RTAttribute(len: UInt16(gatewayAddrAttrSize), type: RouteAttributeType.GATEWAY)
+            requestOffset = try gatewayAttr.appendBuffer(&requestBuffer, offset: requestOffset)
+            guard let newOffset = requestBuffer.copyIn(buffer: gatewayAddrBytes, offset: requestOffset) else {
+                throw NetlinkDataError.sendMarshalFailure
+            }
+            requestOffset = newOffset
         }
 
         guard requestOffset == requestSize else {
