@@ -987,6 +987,31 @@ extension IntegrationSuite {
         }
     }
 
+    func testNonClosureConstructor() async throws {
+        let id = "test-container-non-closure-constructor"
+
+        let bs = try await bootstrap(id)
+        let config = LinuxContainer.Configuration(
+            process: LinuxProcessConfiguration(arguments: ["/bin/true"])
+        )
+        let container = LinuxContainer(
+            id,
+            rootfs: bs.rootfs,
+            vmm: bs.vmm,
+            configuration: config
+        )
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+    }
+
     private func createHostUnixSocket() throws -> String {
         let dir = FileManager.default.uniqueTemporaryDirectory(create: true)
         let socketPath = dir.appendingPathComponent("test.sock").path

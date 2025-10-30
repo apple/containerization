@@ -294,6 +294,7 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("container cgroup limits", testCgroupLimits),
             Test("container no serial console", testNoSerialConsole),
             Test("unix socket into guest", testUnixSocketIntoGuest),
+            Test("container non-closure constructor", testNonClosureConstructor),
 
             // Pods
             Test("pod single container", testPodSingleContainer),
