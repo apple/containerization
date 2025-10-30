@@ -789,6 +789,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 "interface": "\(request.interface)",
                 "address": "\(request.address)",
                 "srcAddr": "\(request.srcAddr)",
+                "gateway": "\(request.gateway)",
             ])
 
         do {
@@ -797,7 +798,8 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             try session.routeAdd(
                 interface: request.interface,
                 destinationAddress: request.address,
-                srcAddr: request.srcAddr
+                srcAddr: request.srcAddr,
+                gateway: request.gateway ?? "",
             )
         } catch {
             log.error(
