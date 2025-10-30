@@ -58,6 +58,8 @@ public final class LinuxContainer: Container, Sendable {
         public var dns: DNS?
         /// The hosts to add to /etc/hosts for the container.
         public var hosts: Hosts?
+        /// The network names this container is attached to
+        public var networks: [String] = []
         /// Enable nested virtualization support.
         public var virtualization: Bool = false
         /// Optional file path to store serial boot logs.
@@ -359,13 +361,53 @@ extension LinuxContainer {
                         }
                     }
 
-                    // Setup /etc/resolv.conf and /etc/hosts if asked for.
+                    // Register this container in the ContainerRegistry for DNS discovery
+                    for (index, interface) in self.interfaces.enumerated() {
+                        if index < self.config.networks.count {
+                            let networkName = self.config.networks[index]
+                            let ipComponents = interface.address.split(separator: "/")
+                            if let ipAddress = ipComponents.first {
+                                await ContainerRegistry.shared.register(
+                                    name: self.id,
+                                    ipAddress: String(ipAddress),
+                                    network: networkName
+                                )
+                            }
+                        }
+                    }
+
+                    var hostsEntries = [Hosts.Entry.localHostIPV4()]
+
+                    // Add ourselves
+                    if let firstInterface = self.interfaces.first {
+                        let ip = firstInterface.address.split(separator: "/").first.map(String.init) ?? firstInterface.address
+                        hostsEntries.append(Hosts.Entry(ipAddress: ip, hostnames: [self.id]))
+                    }
+
+                    // Query registry for other containers on our networks
+                    for networkName in self.config.networks {
+                        let allContainers = await ContainerRegistry.shared.getAllContainers()
+                        
+                        let otherContainers = await ContainerRegistry.shared.getContainersOnNetwork(networkName)
+                        
+                        for containerInfo in otherContainers {
+                            if containerInfo.name != self.id {
+                                hostsEntries.append(
+                                    Hosts.Entry(ipAddress: containerInfo.ipAddress, hostnames: [containerInfo.name])
+                                )
+                            }
+                        }
+                    }
+
+                    // Build the complete hosts configuration
+                    let completeHosts = Hosts(entries: hostsEntries)
+
+                    // Setup /etc/resolv.conf and /etc/hosts
                     if let dns = self.config.dns {
                         try await agent.configureDNS(config: dns, location: rootfs.destination)
                     }
-                    if let hosts = self.config.hosts {
-                        try await agent.configureHosts(config: hosts, location: rootfs.destination)
-                    }
+                    // ALWAYS write the hosts file with all discovered containers
+                    try await agent.configureHosts(config: completeHosts, location: rootfs.destination)
 
                 }
                 state = .created(.init(vm: vm, relayManager: relayManager))
@@ -407,6 +449,18 @@ extension LinuxContainer {
                     logger: self.logger
                 )
                 try await process.start()
+
+                // Register container in registry for DNS discovery
+                if let firstInterface = self.interfaces.first {
+                    let ipAddress = firstInterface.address.split(separator: "/").first.map(String.init) ?? firstInterface.address                    
+                    for networkName in self.config.networks {
+                        await ContainerRegistry.shared.register(
+                            name: self.id,
+                            ipAddress: ipAddress,
+                            network: networkName
+                        )
+                    }
+                }
 
                 state = .started(.init(createdState, process: process))
             } catch {
@@ -478,6 +532,8 @@ extension LinuxContainer {
                 // use a vsock handle like below here will cause NIO to
                 // fatalError because we'll get an EBADF.
                 if startedState.vm.state == .stopped {
+                    // Unregister from ContainerRegistry for DNS discovery
+                    await ContainerRegistry.shared.unregister(name: self.id)
                     state = .stopped
                     return
                 }
@@ -520,6 +576,9 @@ extension LinuxContainer {
                 try? await startedState.process.delete()
 
                 try await startedState.vm.stop()
+
+                // Unregister from ContainerRegistry for DNS discovery
+                await ContainerRegistry.shared.unregister(name: self.id)
                 state = .stopped
             } catch {
                 state.setErrored(error: error)
