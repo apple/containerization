@@ -243,6 +243,7 @@ message IpRouteAddLinkRequest {
   string interface = 1;
   string address = 2;
   string srcAddr = 3;
+  optional string gateway = 4;
 }
 
 message IpRouteAddLinkResponse {}

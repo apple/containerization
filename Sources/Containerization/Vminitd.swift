@@ -382,6 +382,17 @@ extension Vminitd {
             })
     }
 
+    public func routeAddLink(name: String, address: String, gateway: String, srcAddr: String = "") async throws {
+        _ = try await client.ipRouteAddLink(
+            .with {
+                $0.interface = name
+                $0.address = address
+                $0.gateway = gateway
+                $0.srcAddr = srcAddr
+            }
+        )
+    }
+
     /// Configure DNS within the sandbox's environment.
     public func configureDNS(config: DNS, location: String) async throws {
         _ = try await client.configureDns(

@@ -339,6 +339,15 @@ extension LinuxPod {
                         if let gateway = i.gateway {
                             try await agent.routeAddDefault(name: name, gateway: gateway)
                         }
+
+                        for route in i.routes {
+                            try await agent.routeAddLink(
+                                name: name,
+                                address: route.destination,
+                                gateway: route.gateway,
+                                srcAddr: ""
+                            )
+                        }
                     }
 
                     // Setup /etc/resolv.conf if asked for

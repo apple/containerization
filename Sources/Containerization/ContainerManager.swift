@@ -94,6 +94,7 @@ public struct ContainerManager: Sendable {
             public let address: String
             public let gateway: String?
             public let macAddress: String?
+            public let routes: [Route]
 
             // `reference` isn't used concurrently.
             nonisolated(unsafe) private let reference: vmnet_network_ref
@@ -102,12 +103,14 @@ public struct ContainerManager: Sendable {
                 reference: vmnet_network_ref,
                 address: String,
                 gateway: String,
-                macAddress: String? = nil
+                macAddress: String? = nil,
+                routes: [Route] = []
             ) {
                 self.address = address
                 self.gateway = gateway
                 self.macAddress = macAddress
                 self.reference = reference
+                self.routes = routes
             }
 
             /// Returns the underlying `VZVirtioNetworkDeviceConfiguration`.

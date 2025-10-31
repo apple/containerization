@@ -322,7 +322,8 @@ struct NetlinkSessionTest {
         try session.routeAdd(
             interface: "eth0",
             destinationAddress: "192.168.64.0/24",
-            srcAddr: "192.168.64.3"
+            srcAddr: "192.168.64.3",
+            gateway: ""
         )
 
         #expect(mockSocket.requests.count == 2)

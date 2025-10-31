@@ -29,6 +29,7 @@ public final class NATNetworkInterface: Interface, Sendable {
     public let address: String
     public let gateway: String?
     public let macAddress: String?
+    public var routes: [Route] { [] }
 
     @available(macOS 26, *)
     // `reference` isn't used concurrently.
