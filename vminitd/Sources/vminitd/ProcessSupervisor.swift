@@ -98,7 +98,7 @@ actor ProcessSupervisor {
         }
     }
 
-    func start(process: ManagedProcess) throws -> Int32 {
+    func start(process: ManagedProcess, onPidReady: (@Sendable (Int32) throws -> Void)? = nil) throws -> Int32 {
         self.log?.debug("in supervisor lock to start process")
         defer {
             self.log?.debug("out of supervisor lock to start process")
@@ -106,7 +106,7 @@ actor ProcessSupervisor {
 
         do {
             self.processes.append(process)
-            return try process.start()
+            return try process.start(onPidReady: onPidReady)
         } catch {
             self.log?.error("process start failed \(error)", metadata: ["process-id": "\(process.id)"])
             throw error
