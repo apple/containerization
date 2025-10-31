@@ -27,7 +27,13 @@ extension EXT4.Formatter {
     /// Unpack the provided archive on to the ext4 filesystem.
     public func unpack(reader: ArchiveReader, progress: ProgressHandler? = nil) throws {
         var hardlinks: Hardlinks = [:]
-        for (entry, data) in reader {
+        // Allocate a single 128KiB reusable buffer for all files to minimize allocations
+        // and reduce the number of read calls to libarchive.
+        let bufferSize = 128 * 1024
+        let reusableBuffer = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: bufferSize)
+        defer { reusableBuffer.deallocate() }
+
+        for (entry, streamReader) in reader.makeStreamingIterator() {
             try Task.checkCancellation()
             guard var pathEntry = entry.path else {
                 continue
@@ -73,20 +79,16 @@ extension EXT4.Formatter {
                     gid: entry.group,
                     xattrs: entry.xattrs)
             case .regular:
-                let inputStream = InputStream(data: data)
-                inputStream.open()
                 try self.create(
-                    path: path, mode: EXT4.Inode.Mode(.S_IFREG, entry.permissions), ts: ts, buf: inputStream,
+                    path: path, mode: EXT4.Inode.Mode(.S_IFREG, entry.permissions), ts: ts, buf: streamReader,
                     uid: entry.owner,
-                    gid: entry.group, xattrs: entry.xattrs)
-                inputStream.close()
+                    gid: entry.group, xattrs: entry.xattrs, fileBuffer: reusableBuffer)
 
                 // Count the size of files
-                if let progress {
+                if let progress, let size = entry.size {
                     Task {
-                        let size = Int64(data.count)
                         await progress([
-                            ProgressEvent(event: "add-size", value: size)
+                            ProgressEvent(event: "add-size", value: Int64(size))
                         ])
                     }
                 }
