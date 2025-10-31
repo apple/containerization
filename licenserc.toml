@@ -4,6 +4,7 @@ headerPath = "scripts/license-header.txt"
 
 includes = [
     "Makefile",
+    "*.Makefile",
     "*.swift",
     "*.h",
     "*.cpp",

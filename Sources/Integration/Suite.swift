@@ -293,6 +293,7 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("container statistics", testContainerStatistics),
             Test("container cgroup limits", testCgroupLimits),
             Test("container no serial console", testNoSerialConsole),
+            Test("unix socket into guest", testUnixSocketIntoGuest),
 
             // Pods
             Test("pod single container", testPodSingleContainer),
