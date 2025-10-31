@@ -64,6 +64,34 @@ public final class LinuxContainer: Container, Sendable {
         public var bootlog: URL?
 
         public init() {}
+
+        public init(
+            process: LinuxProcessConfiguration,
+            cpus: Int = 4,
+            memoryInBytes: UInt64 = 1024.mib(),
+            hostname: String = "",
+            sysctl: [String: String] = [:],
+            interfaces: [any Interface] = [],
+            sockets: [UnixSocketConfiguration] = [],
+            mounts: [Mount] = LinuxContainer.defaultMounts(),
+            dns: DNS? = nil,
+            hosts: Hosts? = nil,
+            virtualization: Bool = false,
+            bootlog: URL? = nil
+        ) {
+            self.process = process
+            self.cpus = cpus
+            self.memoryInBytes = memoryInBytes
+            self.hostname = hostname
+            self.sysctl = sysctl
+            self.interfaces = interfaces
+            self.sockets = sockets
+            self.mounts = mounts
+            self.dns = dns
+            self.hosts = hosts
+            self.virtualization = virtualization
+            self.bootlog = bootlog
+        }
     }
 
     private let state: AsyncMutex<State>
@@ -189,10 +217,14 @@ public final class LinuxContainer: Container, Sendable {
     private let vmm: VirtualMachineManager
     private let logger: Logger?
 
-    /// Create a new `LinuxContainer`. A `Mount` that contains the contents
-    /// of the container image must be provided, as well as a `VirtualMachineManager`
-    /// instance that will handle launching the virtual machine the container will
-    /// execute inside of.
+    /// Create a new `LinuxContainer`.
+    ///
+    /// - Parameters:
+    ///   - id: The identifier for the container.
+    ///   - rootfs: The root filesystem mount containing the container image contents.
+    ///   - vmm: The virtual machine manager that will handle launching the VM for the container.
+    ///   - logger: Optional logger for container operations.
+    ///   - configuration: A closure that configures the container by modifying the Configuration instance.
     public init(
         _ id: String,
         rootfs: Mount,
@@ -211,6 +243,32 @@ public final class LinuxContainer: Container, Sendable {
         try configuration(&config)
 
         self.config = config
+        self.state = AsyncMutex(.initialized)
+    }
+
+    /// Create a new `LinuxContainer`.
+    ///
+    /// - Parameters:
+    ///   - id: The identifier for the container.
+    ///   - rootfs: The root filesystem mount containing the container image contents.
+    ///   - vmm: The virtual machine manager that will handle launching the VM for the container.
+    ///   - configuration: The container configuration specifying process, resources, networking, and other settings.
+    ///   - logger: Optional logger for container operations.
+    public init(
+        _ id: String,
+        rootfs: Mount,
+        vmm: VirtualMachineManager,
+        configuration: LinuxContainer.Configuration,
+        logger: Logger? = nil
+    ) {
+        self.id = id
+        self.vmm = vmm
+        self.hostVsockPorts = Atomic<UInt32>(0x1000_0000)
+        self.guestVsockPorts = Atomic<UInt32>(0x1000_0000)
+        self.rootfs = rootfs
+        self.logger = logger
+
+        self.config = configuration
         self.state = AsyncMutex(.initialized)
     }
 
