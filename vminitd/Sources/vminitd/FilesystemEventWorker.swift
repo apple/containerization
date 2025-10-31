@@ -42,11 +42,11 @@ final class FilesystemEventWorker: Sendable {
 
     // Cross-thread state (synchronized via Mutex)
     private struct State {
-        var childPID: Int32?
+        var isStarted: Bool = false
         var isStopped: Bool = false
         var channel: Channel?
     }
-    private let state: Mutex<State> = Mutex(State(childPID: nil, isStopped: false))
+    private let state: Mutex<State> = Mutex(State(isStarted: false, isStopped: false))
 
     init(containerID: String, containerPID: Int32, eventLoop: EventLoop, log: Logger) {
         self.containerID = containerID
@@ -56,7 +56,7 @@ final class FilesystemEventWorker: Sendable {
     }
 
     func start() throws {
-        guard state.withLock({ $0.childPID }) == nil else {
+        guard !state.withLock({ $0.isStarted }) else {
             throw ContainerizationError(.invalidState, message: "FilesystemEventWorker already started")
         }
 
@@ -77,33 +77,27 @@ final class FilesystemEventWorker: Sendable {
         let errorReadFD = errorPipe[0]
         let errorWriteFD = errorPipe[1]
 
-        // Use Command to exec vminitd fs-notify subcommand (fork+execve)
-        // Socket is FD 3 (extraFiles[0]), error pipe is FD 4 (extraFiles[1])
-        var command = Command("/sbin/vminitd", arguments: ["fs-notify", String(containerPID)])
-        command.extraFiles = [
-            FileHandle(fileDescriptor: childSocket, closeOnDealloc: false),
-            FileHandle(fileDescriptor: errorWriteFD, closeOnDealloc: false),
-        ]
-        command.stdin = .standardInput
-        command.stdout = .standardOutput
-        command.stderr = .standardError
+        let containerID = self.containerID
+        let containerPID = self.containerPID
+        let log = self.log
 
-        do {
-            try command.start()
-        } catch {
-            close(parentSocket)
-            close(childSocket)
-            close(errorReadFD)
-            close(errorWriteFD)
-            throw ContainerizationError(.internalError, message: "Failed to start fs-notify process: \(error)")
-        }
+        let thread = Thread { [weak self] in
+            defer {
+                close(childSocket)
+            }
 
-        let pid = command.pid
-        close(childSocket)
-        close(errorWriteFD)  // Close write end in parent
-        state.withLock {
-            $0.childPID = pid
+            self?.runWorkerThread(
+                socket: childSocket,
+                errorPipe: errorWriteFD,
+                containerID: containerID,
+                containerPID: containerPID,
+                log: log
+            )
         }
+        thread.name = "fsnotify-\(containerID)"
+        thread.start()
+
+        state.withLock { $0.isStarted = true }
 
         var handshake: UInt8 = 0
         let readResult = read(parentSocket, &handshake, 1)
@@ -111,41 +105,35 @@ final class FilesystemEventWorker: Sendable {
         if readResult != 1 {
             close(parentSocket)
             close(errorReadFD)
-            var status: Int32 = 0
-            waitpid(pid, &status, 0)
-            state.withLock { $0.childPID = nil }
-            throw ContainerizationError(.internalError, message: "Child process failed to start")
+            state.withLock { $0.isStarted = false }
+            throw ContainerizationError(.internalError, message: "Worker thread failed to send handshake")
         }
 
         if handshake == Self.handshakeFailure {
             close(parentSocket)
 
-            // Read error message from child
+            // Read error message from thread
             var errorBuffer = [UInt8](repeating: 0, count: 1024)
             let bytesRead = read(errorReadFD, &errorBuffer, errorBuffer.count)
             close(errorReadFD)
 
-            var status: Int32 = 0
-            waitpid(pid, &status, 0)
-            state.withLock { $0.childPID = nil }
+            state.withLock { $0.isStarted = false }
 
             let errorMsg =
                 bytesRead > 0
                 ? (String(bytes: errorBuffer.prefix(bytesRead), encoding: .utf8) ?? "unknown error")
                 : "no error message"
-            throw ContainerizationError(.internalError, message: "Child process failed: \(errorMsg)")
+            throw ContainerizationError(.internalError, message: "Worker thread failed: \(errorMsg)")
         }
 
         if handshake != Self.handshakeReady {
             close(parentSocket)
             close(errorReadFD)
-            var status: Int32 = 0
-            waitpid(pid, &status, 0)
-            state.withLock { $0.childPID = nil }
-            throw ContainerizationError(.internalError, message: "Child process sent unexpected handshake: \(handshake)")
+            state.withLock { $0.isStarted = false }
+            throw ContainerizationError(.internalError, message: "Worker thread sent unexpected handshake: \(handshake)")
         }
 
-        // Success - close error pipe
+        // Success - close error pipe read end
         close(errorReadFD)
 
         do {
@@ -158,11 +146,159 @@ final class FilesystemEventWorker: Sendable {
             }
         } catch {
             close(parentSocket)
-            var status: Int32 = 0
-            waitpid(pid, &status, 0)
-            state.withLock { $0.childPID = nil }
+            state.withLock { $0.isStarted = false }
             throw ContainerizationError(.internalError, message: "Failed to setup NIO channel: \(error)")
         }
+    }
+
+    private func runWorkerThread(
+        socket: Int32,
+        errorPipe: Int32,
+        containerID: String,
+        containerPID: Int32,
+        log: Logger
+    ) {
+        // Helper to send error and handshake failure
+        func sendError(_ message: String) {
+            _ = message.utf8CString.withUnsafeBufferPointer { buffer in
+                write(errorPipe, buffer.baseAddress, buffer.count - 1)
+            }
+            close(errorPipe)
+            var failureHandshake = Self.handshakeFailure
+            _ = write(socket, &failureHandshake, 1)
+        }
+
+        do {
+            try enterContainerNamespace(containerPID: containerPID, log: log)
+        } catch {
+            sendError("Failed to enter namespace: \(error)")
+            return
+        }
+
+        close(errorPipe)
+        var readyHandshake = Self.handshakeReady
+        guard write(socket, &readyHandshake, 1) == 1 else {
+            return
+        }
+
+        while true {
+            do {
+                guard let (path, eventType) = try readEventFromParent(socket: socket) else {
+                    break
+                }
+
+                do {
+                    try generateSyntheticInotifyEvent(path: path, eventType: eventType)
+                } catch {
+                    let errorMsg = "Failed to generate inotify event: path=\(path), type=\(eventType), error=\(error)"
+                    fputs(errorMsg + "\n", stderr)
+                    fflush(stderr)
+                }
+            } catch {
+                fputs("Protocol error reading from parent: \(error)\n", stderr)
+                fflush(stderr)
+                break
+            }
+        }
+    }
+
+    private func enterContainerNamespace(containerPID: Int32, log: Logger) throws {
+        let nsPath = "/proc/\(containerPID)/ns/mnt"
+        let vmNsPath = "/proc/self/ns/mnt"
+
+        let containerNsStatPtr = UnsafeMutablePointer<stat>.allocate(capacity: 1)
+        let vmNsStatPtr = UnsafeMutablePointer<stat>.allocate(capacity: 1)
+        defer {
+            containerNsStatPtr.deallocate()
+            vmNsStatPtr.deallocate()
+        }
+
+        let containerStatResult = stat(nsPath, containerNsStatPtr)
+        let vmStatResult = stat(vmNsPath, vmNsStatPtr)
+
+        if containerStatResult == 0 && vmStatResult == 0 {
+            let containerInode = containerNsStatPtr.pointee.st_ino
+            let vmInode = vmNsStatPtr.pointee.st_ino
+
+            if containerInode == vmInode {
+                return
+            }
+        }
+
+        let fd = open(nsPath, O_RDONLY)
+        guard fd >= 0 else {
+            throw ContainerizationError(.internalError, message: "Failed to open namespace file: \(nsPath), errno \(errno)")
+        }
+        defer {
+            close(fd)
+        }
+
+        #if canImport(Musl)
+        let unshareResult = Musl.unshare(CLONE_FS)
+        #elseif canImport(Glibc)
+        let unshareResult = Glibc.unshare(CLONE_FS)
+        #endif
+        guard unshareResult == 0 else {
+            throw ContainerizationError(.internalError, message: "Failed to unshare filesystem structure: errno \(errno)")
+        }
+
+        #if canImport(Musl)
+        let setnsResult = Musl.setns(fd, CLONE_NEWNS)
+        #elseif canImport(Glibc)
+        let setnsResult = Glibc.setns(fd, CLONE_NEWNS)
+        #endif
+        guard setnsResult == 0 else {
+            throw ContainerizationError(.internalError, message: "Failed to setns to mount namespace: errno \(errno)")
+        }
+    }
+
+    private func readEventFromParent(socket: Int32) throws -> (String, FileSystemEventType)? {
+        var eventTypeValue: UInt32 = 0
+        guard read(socket, &eventTypeValue, 4) == 4 else {
+            return nil
+        }
+        eventTypeValue = UInt32(bigEndian: eventTypeValue)
+
+        var pathLen: UInt32 = 0
+        guard read(socket, &pathLen, 4) == 4 else {
+            throw ContainerizationError(.internalError, message: "Failed to read path length from parent")
+        }
+        pathLen = UInt32(bigEndian: pathLen)
+
+        let pathData = UnsafeMutablePointer<UInt8>.allocate(capacity: Int(pathLen))
+        defer { pathData.deallocate() }
+        guard read(socket, pathData, Int(pathLen)) == pathLen else {
+            throw ContainerizationError(.internalError, message: "Failed to read path from parent")
+        }
+        let pathBytes = Data(bytes: pathData, count: Int(pathLen))
+        guard let path = String(data: pathBytes, encoding: .utf8) else {
+            throw ContainerizationError(.internalError, message: "Failed to decode path as UTF-8")
+        }
+
+        guard let eventType = FileSystemEventType(rawValue: Int(eventTypeValue)) else {
+            throw ContainerizationError(.internalError, message: "Invalid event type: \(eventTypeValue)")
+        }
+
+        return (path, eventType)
+    }
+
+    private func generateSyntheticInotifyEvent(
+        path: String,
+        eventType: FileSystemEventType
+    ) throws {
+        if eventType == .delete && !FileManager.default.fileExists(atPath: path) {
+            return
+        }
+
+        let attributes = try FileManager.default.attributesOfItem(atPath: path)
+        guard let permissions = attributes[.posixPermissions] as? NSNumber else {
+            throw ContainerizationError(.internalError, message: "Failed to get file permissions for path: \(path)")
+        }
+
+        try FileManager.default.setAttributes(
+            [.posixPermissions: permissions],
+            ofItemAtPath: path
+        )
     }
 
     func enqueueEvent(path: String, eventType: FileSystemEventType) throws {
@@ -195,26 +331,15 @@ final class FilesystemEventWorker: Sendable {
     }
 
     func stop() {
+        state.withLock { state in
+            state.isStopped = true
+            state.isStarted = false
+        }
+
         eventLoop.execute {
             self.state.withLock { state in
                 state.channel?.close(promise: nil)
                 state.channel = nil
-                state.isStopped = true
-            }
-        }
-
-        // Kill child process
-        state.withLock { state in
-            if let pid = state.childPID {
-                #if canImport(Musl)
-                Musl.kill(pid, SIGTERM)
-                #elseif canImport(Glibc)
-                Glibc.kill(pid, SIGTERM)
-                #endif
-
-                var status: Int32 = 0
-                waitpid(pid, &status, 0)
-                state.childPID = nil
             }
         }
     }
