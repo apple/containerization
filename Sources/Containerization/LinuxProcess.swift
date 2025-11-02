@@ -119,19 +119,21 @@ public final class LinuxProcess: Sendable {
 extension LinuxProcess {
     func setupIO(streams: [VsockConnectionStream?]) async throws -> [FileHandle?] {
         let handles = try await Timeout.run(seconds: 3) {
-            await withTaskGroup(of: (Int, FileHandle?).self) { group in
+            try await withThrowingTaskGroup(of: (Int, FileHandle?).self) { group in
                 var results = [FileHandle?](repeating: nil, count: 3)
 
                 for (index, stream) in streams.enumerated() {
                     guard let stream = stream else { continue }
 
                     group.addTask {
-                        let first = await stream.connections.first(where: { _ in true })
+                        let first = await stream.first(where: { _ in true })
+                        stream.finish()
+                        try self.vm.stopListen(stream.port)
                         return (index, first)
                     }
                 }
 
-                for await (index, fileHandle) in group {
+                for try await (index, fileHandle) in group {
                     results[index] = fileHandle
                 }
                 return results
