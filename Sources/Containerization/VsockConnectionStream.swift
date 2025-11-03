@@ -21,9 +21,11 @@ import Virtualization
 #endif
 
 /// A stream of vsock connections.
-public final class VsockConnectionStream: NSObject, Sendable {
+public final class VsockConnectionStream: NSObject, Sendable, AsyncSequence {
+    public typealias Element = FileHandle
+
     /// A stream of connections dialed from the remote.
-    public let connections: AsyncStream<FileHandle>
+    private let connections: AsyncStream<FileHandle>
     /// The port the connections are for.
     public let port: UInt32
 
@@ -39,6 +41,10 @@ public final class VsockConnectionStream: NSObject, Sendable {
     public func finish() {
         self.cont.finish()
     }
+
+    public func makeAsyncIterator() -> AsyncStream<FileHandle>.AsyncIterator {
+        connections.makeAsyncIterator()
+    }
 }
 
 #if os(macOS)
@@ -49,9 +55,18 @@ extension VsockConnectionStream: VZVirtioSocketListenerDelegate {
         from _: VZVirtioSocketDevice
     ) -> Bool {
         let fd = dup(conn.fileDescriptor)
+        guard fd != -1 else {
+            return false
+        }
         conn.close()
 
-        cont.yield(FileHandle(fileDescriptor: fd, closeOnDealloc: false))
+        let fh = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
+        let result = cont.yield(fh)
+        if case .terminated = result {
+            try? fh.close()
+            return false
+        }
+
         return true
     }
 }

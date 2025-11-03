@@ -201,7 +201,7 @@ extension SocketRelay {
             $0.t = Task {
                 do {
                     defer { connectionStream.finish() }
-                    for await connection in connectionStream.connections {
+                    for await connection in connectionStream {
                         try await self.handleGuestVsockConn(
                             vsockConn: connection,
                             hostConnectionPath: hostPath,
