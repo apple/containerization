@@ -123,6 +123,7 @@ extension Application {
                     print("Reference resolved to \(reference.description)")
                 }
 
+                var startTime = ContinuousClock.now
                 let image = try await Images.withAuthentication(ref: normalizedReference) { auth in
                     try await imageStore.pull(reference: normalizedReference, platform: platform, insecure: http, auth: auth)
                 }
@@ -132,7 +133,9 @@ extension Application {
                     Application.exit(withError: POSIXError(.EACCES))
                 }
 
-                print("image pulled")
+                var duration = ContinuousClock.now - startTime
+                print("Image pull took: \(duration)\n")
+
                 guard let unpackPath else {
                     return
                 }
@@ -144,6 +147,7 @@ extension Application {
 
                 let unpacker = EXT4Unpacker.init(blockSizeInBytes: 2.gib())
 
+                startTime = ContinuousClock.now
                 if let platform {
                     let name = platform.description.replacingOccurrences(of: "/", with: "-")
                     let _ = try await unpacker.unpack(image, for: platform, at: unpackUrl.appending(component: name))
@@ -160,6 +164,8 @@ extension Application {
                         print("created snapshot for platform \(descPlatform.description)")
                     }
                 }
+                duration = ContinuousClock.now - startTime
+                print("\nUnpacking took: \(duration)")
             }
         }
 

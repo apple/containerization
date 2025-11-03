@@ -17,6 +17,32 @@
 import CArchive
 import Foundation
 
+/// A protocol for reading data in chunks, compatible with both `InputStream` and zero-allocation archive readers.
+public protocol ReadableStream {
+    /// Reads up to `maxLength` bytes into the provided buffer.
+    /// Returns the number of bytes actually read, 0 for EOF, or -1 for error.
+    func read(_ buffer: UnsafeMutablePointer<UInt8>, maxLength: Int) -> Int
+}
+
+extension InputStream: ReadableStream {}
+
+/// Small wrapper type to read data from an archive entry.
+public struct ArchiveEntryReader: ReadableStream {
+    private weak var reader: ArchiveReader?
+
+    init(reader: ArchiveReader) {
+        self.reader = reader
+    }
+
+    /// Reads up to `maxLength` bytes into the provided buffer.
+    /// Returns the number of bytes actually read, 0 for EOF, or -1 for error.
+    public func read(_ buffer: UnsafeMutablePointer<UInt8>, maxLength: Int) -> Int {
+        guard let archive = reader?.underlying else { return -1 }
+        let bytesRead = archive_read_data(archive, buffer, maxLength)
+        return bytesRead < 0 ? -1 : bytesRead
+    }
+}
+
 /// A class responsible for reading entries from an archive file.
 public final class ArchiveReader {
     /// A pointer to the underlying `archive` C structure.
@@ -96,6 +122,29 @@ extension ArchiveReader: Sequence {
             }
             let data = reader.readDataForEntry(entry)
             return (entry, data)
+        }
+    }
+
+    /// Returns an iterator that yields archive entries.
+    public func makeStreamingIterator() -> StreamingIterator {
+        StreamingIterator(reader: self)
+    }
+
+    public struct StreamingIterator: Sequence, IteratorProtocol {
+        var reader: ArchiveReader
+
+        public func makeIterator() -> StreamingIterator {
+            self
+        }
+
+        public mutating func next() -> (WriteEntry, ArchiveEntryReader)? {
+            let entry = WriteEntry()
+            let result = archive_read_next_header2(reader.underlying, entry.underlying)
+            if result == ARCHIVE_EOF {
+                return nil
+            }
+            let streamReader = ArchiveEntryReader(reader: reader)
+            return (entry, streamReader)
         }
     }
 
