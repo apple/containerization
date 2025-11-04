@@ -525,17 +525,45 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 "signal": "\(request.signal)",
             ])
 
-        if !request.hasContainerID {
-            throw ContainerizationError(
-                .invalidArgument,
-                message: "processes in the root of the vm not implemented"
-            )
+        do {
+            if !request.hasContainerID {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "processes in the root of the vm not implemented"
+                )
+            }
+
+            let ctr = try await self.state.get(container: request.containerID)
+            try await ctr.kill(execID: request.id, request.signal)
+
+            return .init()
+        } catch let err as ContainerizationError {
+            log.error(
+                "killProcess",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(err)",
+                ])
+            switch err.code {
+            case .notFound:
+                throw GRPCStatus(code: .notFound, message: "killProcess: \(err)")
+            default:
+                throw GRPCStatus(code: .internalError, message: "killProcess: failed to kill process: \(err)")
+            }
+        } catch {
+            log.error(
+                "killProcess",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(error)",
+                ])
+            if error is GRPCStatus {
+                throw error
+            }
+            throw GRPCStatus(code: .internalError, message: "killProcess: failed to kill process: \(error)")
         }
-
-        let ctr = try await self.state.get(container: request.containerID)
-        try await ctr.kill(execID: request.id, request.signal)
-
-        return .init()
     }
 
     func deleteProcess(
