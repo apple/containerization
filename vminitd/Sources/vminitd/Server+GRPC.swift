@@ -697,6 +697,26 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 $0.exitCode = exitStatus.exitStatus
                 $0.exitedAt = Google_Protobuf_Timestamp(date: exitStatus.exitedAt)
             }
+        } catch let err as ContainerizationError {
+            log.error(
+                "waitProcess",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(err)",
+                ])
+            switch err.code {
+            case .notFound:
+                throw GRPCStatus(
+                    code: .notFound,
+                    message: "waitProcess: \(err)"
+                )
+            default:
+                throw GRPCStatus(
+                    code: .internalError,
+                    message: "waitProcess: failed to wait on process: \(err)"
+                )
+            }
         } catch {
             log.error(
                 "waitProcess",
@@ -705,6 +725,9 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                     "containerID": "\(request.containerID)",
                     "error": "\(error)",
                 ])
+            if error is GRPCStatus {
+                throw error
+            }
             throw GRPCStatus(
                 code: .internalError,
                 message: "waitProcess: failed to wait on process: \(error)"
