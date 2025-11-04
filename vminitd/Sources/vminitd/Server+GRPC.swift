@@ -576,25 +576,53 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 "containerID": "\(request.containerID)",
             ])
 
-        if !request.hasContainerID {
-            throw ContainerizationError(
-                .invalidArgument,
-                message: "processes in the root of the vm not implemented"
-            )
+        do {
+            if !request.hasContainerID {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "processes in the root of the vm not implemented"
+                )
+            }
+
+            let ctr = try await self.state.get(container: request.containerID)
+
+            // Are we trying to delete the container itself?
+            if request.id == request.containerID {
+                try await ctr.delete()
+                try await state.remove(container: request.id)
+            } else {
+                // Or just a single exec.
+                try await ctr.deleteExec(id: request.id)
+            }
+
+            return .init()
+        } catch let err as ContainerizationError {
+            log.error(
+                "deleteProcess",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(err)",
+                ])
+            switch err.code {
+            case .notFound:
+                throw GRPCStatus(code: .notFound, message: "deleteProcess: \(err)")
+            default:
+                throw GRPCStatus(code: .internalError, message: "deleteProcess: \(err)")
+            }
+        } catch {
+            log.error(
+                "deleteProcess",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(error)",
+                ])
+            if error is GRPCStatus {
+                throw error
+            }
+            throw GRPCStatus(code: .internalError, message: "deleteProcess: \(error)")
         }
-
-        let ctr = try await self.state.get(container: request.containerID)
-
-        // Are we trying to delete the container itself?
-        if request.id == request.containerID {
-            try await ctr.delete()
-            try await state.remove(container: request.id)
-        } else {
-            // Or just a single exec.
-            try await ctr.deleteExec(id: request.id)
-        }
-
-        return .init()
     }
 
     func startProcess(
