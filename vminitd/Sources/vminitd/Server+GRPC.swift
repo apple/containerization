@@ -975,7 +975,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 metadata: [
                     "error": "\(error)"
                 ])
-            throw GRPCStatus(code: .internalError, message: "configure-dns: \(error)")
+            throw GRPCStatus(code: .internalError, message: "failed to configure DNS at location \(request.location): \(error)")
         }
 
         return .init()
