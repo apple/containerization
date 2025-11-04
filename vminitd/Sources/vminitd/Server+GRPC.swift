@@ -876,7 +876,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 metadata: [
                     "error": "\(error)"
                 ])
-            throw GRPCStatus(code: .internalError, message: "ip-addr-add: \(error)")
+            throw GRPCStatus(code: .internalError, message: "failed to set IP address on interface \(request.interface): \(error)")
         }
 
         return .init()
