@@ -593,6 +593,26 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             return .with {
                 $0.pid = pid
             }
+        } catch let err as ContainerizationError {
+            log.error(
+                "startProcess",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(err)",
+                ])
+            switch err.code {
+            case .notFound:
+                throw GRPCStatus(
+                    code: .notFound,
+                    message: "startProcess: \(err)"
+                )
+            default:
+                throw GRPCStatus(
+                    code: .internalError,
+                    message: "startProcess: failed to start process: \(err)"
+                )
+            }
         } catch {
             log.error(
                 "startProcess",
@@ -601,6 +621,9 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                     "containerID": "\(request.containerID)",
                     "error": "\(error)",
                 ])
+            if error is GRPCStatus {
+                throw error
+            }
             throw GRPCStatus(
                 code: .internalError,
                 message: "startProcess: failed to start process: \(error)"
