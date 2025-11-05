@@ -72,10 +72,8 @@ public struct Path {
         guard let env = env else {
             return nil
         }
-        return env.first(where: { path in
-            let split = path.split(separator: "=")
-            return split.count == 2 && split[0] == "PATH"
-        })
+        return env.first(where: { $0.hasPrefix("PATH=") })
+            .map { String($0.dropFirst(5)) }
     }
 
     // findExec returns true if the provided path is an executable
