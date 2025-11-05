@@ -168,11 +168,6 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtoc
     _ request: Com_Apple_Containerization_Sandbox_V3_KillRequest,
     callOptions: CallOptions?
   ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_KillRequest, Com_Apple_Containerization_Sandbox_V3_KillResponse>
-
-  func notifyFileSystemEvent(
-    callOptions: CallOptions?,
-    handler: @escaping (Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse) -> Void
-  ) -> BidirectionalStreamingCall<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest, Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse>
 }
 
 extension Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtocol {
@@ -666,27 +661,6 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtocol {
       interceptors: self.interceptors?.makeKillInterceptors() ?? []
     )
   }
-
-  /// Notify guest of filesystem events from host.
-  ///
-  /// Callers should use the `send` method on the returned object to send messages
-  /// to the server. The caller should send an `.end` after the final message has been sent.
-  ///
-  /// - Parameters:
-  ///   - callOptions: Call options.
-  ///   - handler: A closure called when each response is received from the server.
-  /// - Returns: A `ClientStreamingCall` with futures for the metadata and status.
-  public func notifyFileSystemEvent(
-    callOptions: CallOptions? = nil,
-    handler: @escaping (Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse) -> Void
-  ) -> BidirectionalStreamingCall<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest, Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse> {
-    return self.makeBidirectionalStreamingCall(
-      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.notifyFileSystemEvent.path,
-      callOptions: callOptions ?? self.defaultCallOptions,
-      interceptors: self.interceptors?.makeNotifyFileSystemEventInterceptors() ?? [],
-      handler: handler
-    )
-  }
 }
 
 @available(*, deprecated)
@@ -886,10 +860,6 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientP
     _ request: Com_Apple_Containerization_Sandbox_V3_KillRequest,
     callOptions: CallOptions?
   ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_KillRequest, Com_Apple_Containerization_Sandbox_V3_KillResponse>
-
-  func makeNotifyFileSystemEventCall(
-    callOptions: CallOptions?
-  ) -> GRPCAsyncBidirectionalStreamingCall<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest, Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse>
 }
 
 @available(macOS 10.15, iOS 13, tvOS 13, watchOS 6, *)
@@ -1225,16 +1195,6 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientProtoco
       interceptors: self.interceptors?.makeKillInterceptors() ?? []
     )
   }
-
-  public func makeNotifyFileSystemEventCall(
-    callOptions: CallOptions? = nil
-  ) -> GRPCAsyncBidirectionalStreamingCall<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest, Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse> {
-    return self.makeAsyncBidirectionalStreamingCall(
-      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.notifyFileSystemEvent.path,
-      callOptions: callOptions ?? self.defaultCallOptions,
-      interceptors: self.interceptors?.makeNotifyFileSystemEventInterceptors() ?? []
-    )
-  }
 }
 
 @available(macOS 10.15, iOS 13, tvOS 13, watchOS 6, *)
@@ -1562,30 +1522,6 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientProtoco
       interceptors: self.interceptors?.makeKillInterceptors() ?? []
     )
   }
-
-  public func notifyFileSystemEvent<RequestStream>(
-    _ requests: RequestStream,
-    callOptions: CallOptions? = nil
-  ) -> GRPCAsyncResponseStream<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse> where RequestStream: Sequence, RequestStream.Element == Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest {
-    return self.performAsyncBidirectionalStreamingCall(
-      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.notifyFileSystemEvent.path,
-      requests: requests,
-      callOptions: callOptions ?? self.defaultCallOptions,
-      interceptors: self.interceptors?.makeNotifyFileSystemEventInterceptors() ?? []
-    )
-  }
-
-  public func notifyFileSystemEvent<RequestStream>(
-    _ requests: RequestStream,
-    callOptions: CallOptions? = nil
-  ) -> GRPCAsyncResponseStream<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse> where RequestStream: AsyncSequence & Sendable, RequestStream.Element == Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest {
-    return self.performAsyncBidirectionalStreamingCall(
-      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.notifyFileSystemEvent.path,
-      requests: requests,
-      callOptions: callOptions ?? self.defaultCallOptions,
-      interceptors: self.interceptors?.makeNotifyFileSystemEventInterceptors() ?? []
-    )
-  }
 }
 
 @available(macOS 10.15, iOS 13, tvOS 13, watchOS 6, *)
@@ -1687,9 +1623,6 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextClientInterc
 
   /// - Returns: Interceptors to use when invoking 'kill'.
   func makeKillInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_KillRequest, Com_Apple_Containerization_Sandbox_V3_KillResponse>]
-
-  /// - Returns: Interceptors to use when invoking 'notifyFileSystemEvent'.
-  func makeNotifyFileSystemEventInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest, Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse>]
 }
 
 public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
@@ -1724,7 +1657,6 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.configureHosts,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.sync,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.kill,
-      Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.notifyFileSystemEvent,
     ]
   )
 
@@ -1890,12 +1822,6 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
       path: "/com.apple.containerization.sandbox.v3.SandboxContext/Kill",
       type: GRPCCallType.unary
     )
-
-    public static let notifyFileSystemEvent = GRPCMethodDescriptor(
-      name: "NotifyFileSystemEvent",
-      path: "/com.apple.containerization.sandbox.v3.SandboxContext/NotifyFileSystemEvent",
-      type: GRPCCallType.bidirectionalStreaming
-    )
   }
 }
 
@@ -1986,9 +1912,6 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider: Ca
 
   /// Send a signal to a process via the PID.
   func kill(request: Com_Apple_Containerization_Sandbox_V3_KillRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_KillResponse>
-
-  /// Notify guest of filesystem events from host.
-  func notifyFileSystemEvent(context: StreamingResponseCallContext<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse>) -> EventLoopFuture<(StreamEvent<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest>) -> Void>
 }
 
 extension Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider {
@@ -2246,15 +2169,6 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider {
         userFunction: self.kill(request:context:)
       )
 
-    case "NotifyFileSystemEvent":
-      return BidirectionalStreamingServerHandler(
-        context: context,
-        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest>(),
-        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse>(),
-        interceptors: self.interceptors?.makeNotifyFileSystemEventInterceptors() ?? [],
-        observerFactory: self.notifyFileSystemEvent(context:)
-      )
-
     default:
       return nil
     }
@@ -2431,13 +2345,6 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvide
     request: Com_Apple_Containerization_Sandbox_V3_KillRequest,
     context: GRPCAsyncServerCallContext
   ) async throws -> Com_Apple_Containerization_Sandbox_V3_KillResponse
-
-  /// Notify guest of filesystem events from host.
-  func notifyFileSystemEvent(
-    requestStream: GRPCAsyncRequestStream<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest>,
-    responseStream: GRPCAsyncResponseStreamWriter<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse>,
-    context: GRPCAsyncServerCallContext
-  ) async throws
 }
 
 @available(macOS 10.15, iOS 13, tvOS 13, watchOS 6, *)
@@ -2702,15 +2609,6 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvider {
         wrapping: { try await self.kill(request: $0, context: $1) }
       )
 
-    case "NotifyFileSystemEvent":
-      return GRPCAsyncServerHandler(
-        context: context,
-        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest>(),
-        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse>(),
-        interceptors: self.interceptors?.makeNotifyFileSystemEventInterceptors() ?? [],
-        wrapping: { try await self.notifyFileSystemEvent(requestStream: $0, responseStream: $1, context: $2) }
-      )
-
     default:
       return nil
     }
@@ -2826,10 +2724,6 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextServerInterc
   /// - Returns: Interceptors to use when handling 'kill'.
   ///   Defaults to calling `self.makeInterceptors()`.
   func makeKillInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_KillRequest, Com_Apple_Containerization_Sandbox_V3_KillResponse>]
-
-  /// - Returns: Interceptors to use when handling 'notifyFileSystemEvent'.
-  ///   Defaults to calling `self.makeInterceptors()`.
-  func makeNotifyFileSystemEventInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest, Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse>]
 }
 
 public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
@@ -2864,7 +2758,6 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.configureHosts,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.sync,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.kill,
-      Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.notifyFileSystemEvent,
     ]
   )
 
@@ -3029,12 +2922,6 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
       name: "Kill",
       path: "/com.apple.containerization.sandbox.v3.SandboxContext/Kill",
       type: GRPCCallType.unary
-    )
-
-    public static let notifyFileSystemEvent = GRPCMethodDescriptor(
-      name: "NotifyFileSystemEvent",
-      path: "/com.apple.containerization.sandbox.v3.SandboxContext/NotifyFileSystemEvent",
-      type: GRPCCallType.bidirectionalStreaming
     )
   }
 }

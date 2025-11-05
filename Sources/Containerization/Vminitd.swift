@@ -333,9 +333,6 @@ extension Vminitd: VirtualMachineAgent {
 
 /// Vminitd specific rpcs.
 extension Vminitd {
-    public typealias FileSystemEventRequest = Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest
-    public typealias FileSystemEventResponse = Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse
-    public typealias FileSystemEventType = Com_Apple_Containerization_Sandbox_V3_FileSystemEventType
     /// Sets up an emulator in the guest.
     public func setupEmulator(binaryPath: String, configuration: Binfmt.Entry) async throws {
         let request = Com_Apple_Containerization_Sandbox_V3_SetupEmulatorRequest.with {
@@ -429,46 +426,6 @@ extension Vminitd {
         _ = try await self.kill(pid: -1, signal: SIGKILL)
         try await Task.sleep(for: .milliseconds(10))
         try await self.sync()
-    }
-
-    /// Send filesystem event notifications to the guest
-    public func notifyFileSystemEvents(
-        _ events: [FileSystemEventRequest]
-    ) async throws -> [FileSystemEventResponse] {
-        let requests = AsyncStream<FileSystemEventRequest> { continuation in
-            for event in events {
-                continuation.yield(event)
-            }
-            continuation.finish()
-        }
-
-        let responses = client.notifyFileSystemEvent(requests)
-        var results: [FileSystemEventResponse] = []
-
-        for try await response in responses {
-            results.append(response)
-        }
-
-        guard results.count == events.count else {
-            throw ContainerizationError(.internalError, message: "Expected \(events.count) responses, got \(results.count)")
-        }
-
-        return results
-    }
-
-    public func notifyFileSystemEvent(
-        path: String,
-        eventType: FileSystemEventType,
-        containerID: String
-    ) async throws -> FileSystemEventResponse {
-        let request = FileSystemEventRequest.with {
-            $0.path = path
-            $0.eventType = eventType
-            $0.containerID = containerID
-        }
-
-        let responses = try await notifyFileSystemEvents([request])
-        return responses[0]
     }
 }
 

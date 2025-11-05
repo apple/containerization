@@ -22,8 +22,6 @@ import ContainerizationOS
 import Crypto
 import Foundation
 import Logging
-import NIOCore
-import NIOPosix
 
 extension IntegrationSuite {
     func testProcessTrue() async throws {
@@ -1022,87 +1020,6 @@ extension IntegrationSuite {
         try socket.listen()
 
         return socketPath
-    }
-
-    func testFSNotifyEvents() async throws {
-        let id = "test-fsnotify-events"
-
-        let bs = try await bootstrap(id, reference: "docker.io/library/node:18-alpine")
-        let directory = try createMountDirectory()
-        let inotifyBuffer: IntegrationSuite.BufferWriter = BufferWriter()
-        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
-            config.process.arguments = [
-                "node",
-                "-e",
-                "fs=require('fs');fs.watch(process.argv[1],(t,f)=>console.log(t,f))",
-                "/mnt",
-            ]
-            config.process.stdout = inotifyBuffer
-            config.process.stderr = inotifyBuffer
-            config.mounts.append(.share(source: directory.path, destination: "/mnt"))
-            config.bootlog = bs.bootlog
-        }
-
-        try await container.create()
-        try await container.start()
-
-        // Get the vminitd agent to send notifications
-        let connection = try await container.dialVsock(port: 1024)  // Default vminitd port
-        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
-        let agent = Vminitd(connection: connection, group: group)
-        try await Task.sleep(for: .seconds(1))
-
-        // Send CREATE event
-        let createResponse = try await agent.notifyFileSystemEvent(
-            path: "/mnt/hi.txt",
-            eventType: .create,
-            containerID: id
-        )
-        guard createResponse.success else {
-            throw IntegrationError.assert(msg: "CREATE event failed: \(createResponse.error)")
-        }
-
-        try await Task.sleep(for: .seconds(1))
-
-        let output1 = String(data: inotifyBuffer.data, encoding: .utf8) ?? ""
-        let lines1 = output1.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: .newlines).filter { !$0.isEmpty }
-
-        guard lines1 == ["change hi.txt"] else {
-            throw IntegrationError.assert(msg: "CREATE should output 'change hi.txt'. Got: \(lines1)")
-        }
-
-        // Send MODIFY event
-        let modifyResponse = try await agent.notifyFileSystemEvent(
-            path: "/mnt/hi.txt",
-            eventType: .modify,
-            containerID: id
-        )
-        guard modifyResponse.success else {
-            throw IntegrationError.assert(msg: "MODIFY event failed: \(modifyResponse.error)")
-        }
-
-        try await Task.sleep(for: .seconds(1))
-
-        let output2 = String(data: inotifyBuffer.data, encoding: .utf8) ?? ""
-        let lines2 = output2.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: .newlines).filter { !$0.isEmpty }
-
-        guard lines2 == ["change hi.txt", "change hi.txt"] else {
-            throw IntegrationError.assert(msg: "After MODIFY, expected exactly 2 'change hi.txt'. Got: \(lines2)")
-        }
-
-        // Send DELETE event on non-existent file (should succeed but not crash)
-        let deleteResponse = try await agent.notifyFileSystemEvent(
-            path: "/mnt/nonexistent.txt",
-            eventType: .delete,
-            containerID: id
-        )
-        guard deleteResponse.success else {
-            throw IntegrationError.assert(msg: "DELETE event failed: \(deleteResponse.error)")
-        }
-
-        try await agent.close()
-        try await group.shutdownGracefully()
-        try await container.stop()
     }
 
     private func createMountDirectory() throws -> URL {

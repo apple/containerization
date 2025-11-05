@@ -492,8 +492,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                     id: request.id,
                     stdio: stdioPorts,
                     spec: ociSpec,
-                    log: self.log,
-                    group: self.group
+                    log: self.log
                 )
                 try await self.state.add(container: ctr)
             }
@@ -1080,57 +1079,6 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         let r = _kill(request.pid, request.signal)
         return .with {
             $0.result = r
-        }
-    }
-
-    func notifyFileSystemEvent(
-        requestStream: GRPCAsyncRequestStream<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest>,
-        responseStream: GRPCAsyncResponseStreamWriter<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse>,
-        context: GRPC.GRPCAsyncServerCallContext
-    ) async throws {
-        for try await request in requestStream {
-            log.debug(
-                "notifyFileSystemEvent",
-                metadata: [
-                    "containerID": "\(request.containerID)",
-                    "path": "\(request.path)",
-                    "eventType": "\(request.eventType)",
-                ])
-
-            guard let container = await self.state.containers[request.containerID] else {
-                log.warning(
-                    "fs event for non-existent container",
-                    metadata: [
-                        "containerID": "\(request.containerID)"
-                    ])
-                let response = Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse.with {
-                    $0.success = false
-                    $0.error = "fs event for non-existent container: \(request.containerID)"
-                }
-                try await responseStream.send(response)
-                return
-            }
-
-            do {
-                try await container.executeFileSystemEvent(path: request.path, eventType: request.eventType)
-                let response = Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse.with {
-                    $0.success = true
-                }
-                try await responseStream.send(response)
-
-            } catch {
-                log.error(
-                    "notifyFileSystemEvent",
-                    metadata: [
-                        "error": "\(error)"
-                    ])
-
-                let response = Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse.with {
-                    $0.success = false
-                    $0.error = error.localizedDescription
-                }
-                try await responseStream.send(response)
-            }
         }
     }
 }
