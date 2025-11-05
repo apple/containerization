@@ -139,8 +139,11 @@ extension VZVirtualMachine {
 }
 
 extension VZVirtioSocketConnection {
-    func dupHandle() -> FileHandle {
+    func dupHandle() throws -> FileHandle {
         let fd = dup(self.fileDescriptor)
+        if fd == -1 {
+            throw POSIXError.fromErrno()
+        }
         self.close()
         return FileHandle(fileDescriptor: fd, closeOnDealloc: false)
     }
