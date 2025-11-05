@@ -1142,7 +1142,7 @@ extension Initd {
         }
 
         if !process.env.contains(where: { $0.hasPrefix("PATH=") }) {
-            process.env.append("PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+            process.env.append("PATH=\(LinuxProcessConfiguration.defaultPath)")
         }
 
         if !process.env.contains(where: { $0.hasPrefix("HOME=") }) {
