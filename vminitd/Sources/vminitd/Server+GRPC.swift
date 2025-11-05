@@ -1141,6 +1141,10 @@ extension Initd {
             seenSuppGids.insert($0).inserted
         }
 
+        if !process.env.contains(where: { $0.hasPrefix("PATH=") }) {
+            process.env.append("PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+        }
+
         if !process.env.contains(where: { $0.hasPrefix("HOME=") }) {
             process.env.append("HOME=\(parsedUser.home)")
         }
