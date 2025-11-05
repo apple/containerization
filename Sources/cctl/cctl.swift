@@ -66,6 +66,7 @@ struct Application: AsyncParsableCommand {
             Login.self,
             Rootfs.self,
             Run.self,
+            FSNotify.self,
         ]
     )
 }

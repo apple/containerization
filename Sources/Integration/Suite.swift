@@ -162,8 +162,9 @@ struct IntegrationSuite: AsyncParsableCommand {
 
     static let eventLoop = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
 
-    func bootstrap(_ testID: String) async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image, bootlog: URL) {
-        let reference = "ghcr.io/linuxcontainers/alpine:3.20"
+    func bootstrap(_ testID: String, reference: String = "ghcr.io/linuxcontainers/alpine:3.20") async throws -> (
+        rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image, bootlog: URL
+    ) {
         let store = Self.imageStore
 
         let initImage = try await store.getInitImage(reference: Self.initImage)
@@ -310,6 +311,9 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("pod container filesystem isolation", testPodContainerFilesystemIsolation),
             Test("pod container PID namespace isolation", testPodContainerPIDNamespaceIsolation),
             Test("pod container independent resource limits", testPodContainerIndependentResourceLimits),
+
+            // fsnotify
+            Test("fsnotify events", testFSNotifyEvents),
         ]
 
         let passed: Atomic<Int> = Atomic(0)
