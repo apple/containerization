@@ -195,25 +195,47 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
 
     public func dialAgent() async throws -> Vminitd {
         try await lock.withLock { connections in
-            let handle = try await vm.connect(
-                queue: queue,
-                port: Vminitd.port
-            ).dupHandle()
+            do {
+                let conn = try await vm.connect(
+                    queue: queue,
+                    port: Vminitd.port
+                )
+                let handle = try conn.dupHandle()
+                let agent = Vminitd(connection: handle, group: self.group)
+                connections.agents.append(agent)
 
-            let agent = Vminitd(connection: handle, group: self.group)
-            connections.agents.append(agent)
-
-            return agent
+                return agent
+            } catch {
+                if let err = error as? ContainerizationError {
+                    throw err
+                }
+                throw ContainerizationError(
+                    .internalError,
+                    message: "failed to dial agent",
+                    cause: error
+                )
+            }
         }
     }
 
     func dial(_ port: UInt32) async throws -> FileHandle {
         try await lock.withLock { connections in
-            let handle = try await vm.connect(
-                queue: queue,
-                port: port
-            ).dupHandle()
-            return handle
+            do {
+                let conn = try await vm.connect(
+                    queue: queue,
+                    port: port
+                )
+                return try conn.dupHandle()
+            } catch {
+                if let err = error as? ContainerizationError {
+                    throw err
+                }
+                throw ContainerizationError(
+                    .internalError,
+                    message: "failed to dial vsock port",
+                    cause: error
+                )
+            }
         }
     }
 
