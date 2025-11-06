@@ -371,7 +371,7 @@ public struct Com_Apple_Containerization_Sandbox_V3_GetenvResponse: Sendable {
   fileprivate var _value: String? = nil
 }
 
-public struct Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest: @unchecked Sendable {
+public struct Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -693,7 +693,7 @@ public struct Com_Apple_Containerization_Sandbox_V3_MkdirResponse: Sendable {
   public init() {}
 }
 
-public struct Com_Apple_Containerization_Sandbox_V3_WriteFileRequest: @unchecked Sendable {
+public struct Com_Apple_Containerization_Sandbox_V3_WriteFileRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1212,11 +1212,7 @@ fileprivate let _protobuf_package = "com.apple.containerization.sandbox.v3"
 
 extension Com_Apple_Containerization_Sandbox_V3_Stdio: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Stdio"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "stdinPort"),
-    2: .same(proto: "stdoutPort"),
-    3: .same(proto: "stderrPort"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}stdinPort\0\u{1}stdoutPort\0\u{1}stderrPort\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1260,15 +1256,7 @@ extension Com_Apple_Containerization_Sandbox_V3_Stdio: SwiftProtobuf.Message, Sw
 
 extension Com_Apple_Containerization_Sandbox_V3_SetupEmulatorRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SetupEmulatorRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .standard(proto: "binary_path"),
-    2: .same(proto: "name"),
-    3: .same(proto: "type"),
-    4: .same(proto: "offset"),
-    5: .same(proto: "magic"),
-    6: .same(proto: "mask"),
-    7: .same(proto: "flags"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}binary_path\0\u{1}name\0\u{1}type\0\u{1}offset\0\u{1}magic\0\u{1}mask\0\u{1}flags\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1347,10 +1335,7 @@ extension Com_Apple_Containerization_Sandbox_V3_SetupEmulatorResponse: SwiftProt
 
 extension Com_Apple_Containerization_Sandbox_V3_SetTimeRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SetTimeRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "sec"),
-    2: .same(proto: "usec"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}sec\0\u{1}usec\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1404,9 +1389,7 @@ extension Com_Apple_Containerization_Sandbox_V3_SetTimeResponse: SwiftProtobuf.M
 
 extension Com_Apple_Containerization_Sandbox_V3_SysctlRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SysctlRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "settings"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}settings\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1455,13 +1438,7 @@ extension Com_Apple_Containerization_Sandbox_V3_SysctlResponse: SwiftProtobuf.Me
 
 extension Com_Apple_Containerization_Sandbox_V3_ProxyVsockRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ProxyVsockRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "id"),
-    2: .standard(proto: "vsock_port"),
-    3: .same(proto: "guestPath"),
-    4: .same(proto: "guestSocketPermissions"),
-    5: .same(proto: "action"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{3}vsock_port\0\u{1}guestPath\0\u{1}guestSocketPermissions\0\u{1}action\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1514,10 +1491,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ProxyVsockRequest: SwiftProtobuf
 }
 
 extension Com_Apple_Containerization_Sandbox_V3_ProxyVsockRequest.Action: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    0: .same(proto: "INTO"),
-    1: .same(proto: "OUT_OF"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0INTO\0\u{1}OUT_OF\0")
 }
 
 extension Com_Apple_Containerization_Sandbox_V3_ProxyVsockResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
@@ -1541,9 +1515,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ProxyVsockResponse: SwiftProtobu
 
 extension Com_Apple_Containerization_Sandbox_V3_StopVsockProxyRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".StopVsockProxyRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "id"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1592,12 +1564,7 @@ extension Com_Apple_Containerization_Sandbox_V3_StopVsockProxyResponse: SwiftPro
 
 extension Com_Apple_Containerization_Sandbox_V3_MountRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".MountRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "type"),
-    2: .same(proto: "source"),
-    3: .same(proto: "destination"),
-    4: .same(proto: "options"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}type\0\u{1}source\0\u{1}destination\0\u{1}options\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1661,10 +1628,7 @@ extension Com_Apple_Containerization_Sandbox_V3_MountResponse: SwiftProtobuf.Mes
 
 extension Com_Apple_Containerization_Sandbox_V3_UmountRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".UmountRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "path"),
-    2: .same(proto: "flags"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{1}flags\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1718,10 +1682,7 @@ extension Com_Apple_Containerization_Sandbox_V3_UmountResponse: SwiftProtobuf.Me
 
 extension Com_Apple_Containerization_Sandbox_V3_SetenvRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SetenvRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "key"),
-    2: .same(proto: "value"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}key\0\u{1}value\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1779,9 +1740,7 @@ extension Com_Apple_Containerization_Sandbox_V3_SetenvResponse: SwiftProtobuf.Me
 
 extension Com_Apple_Containerization_Sandbox_V3_GetenvRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GetenvRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "key"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}key\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1811,9 +1770,7 @@ extension Com_Apple_Containerization_Sandbox_V3_GetenvRequest: SwiftProtobuf.Mes
 
 extension Com_Apple_Containerization_Sandbox_V3_GetenvResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GetenvResponse"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "value"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}value\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1847,15 +1804,7 @@ extension Com_Apple_Containerization_Sandbox_V3_GetenvResponse: SwiftProtobuf.Me
 
 extension Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".CreateProcessRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "id"),
-    2: .same(proto: "containerID"),
-    3: .same(proto: "stdin"),
-    4: .same(proto: "stdout"),
-    5: .same(proto: "stderr"),
-    6: .same(proto: "configuration"),
-    7: .same(proto: "options"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}containerID\0\u{1}stdin\0\u{1}stdout\0\u{1}stderr\0\u{1}configuration\0\u{1}options\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1938,10 +1887,7 @@ extension Com_Apple_Containerization_Sandbox_V3_CreateProcessResponse: SwiftProt
 
 extension Com_Apple_Containerization_Sandbox_V3_WaitProcessRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".WaitProcessRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "id"),
-    2: .same(proto: "containerID"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}containerID\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1980,10 +1926,7 @@ extension Com_Apple_Containerization_Sandbox_V3_WaitProcessRequest: SwiftProtobu
 
 extension Com_Apple_Containerization_Sandbox_V3_WaitProcessResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".WaitProcessResponse"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "exitCode"),
-    2: .standard(proto: "exited_at"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}exitCode\0\u{3}exited_at\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2022,12 +1965,7 @@ extension Com_Apple_Containerization_Sandbox_V3_WaitProcessResponse: SwiftProtob
 
 extension Com_Apple_Containerization_Sandbox_V3_ResizeProcessRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ResizeProcessRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "id"),
-    2: .same(proto: "containerID"),
-    3: .same(proto: "rows"),
-    4: .same(proto: "columns"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}containerID\0\u{1}rows\0\u{1}columns\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2095,10 +2033,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ResizeProcessResponse: SwiftProt
 
 extension Com_Apple_Containerization_Sandbox_V3_DeleteProcessRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".DeleteProcessRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "id"),
-    2: .same(proto: "containerID"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}containerID\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2156,10 +2091,7 @@ extension Com_Apple_Containerization_Sandbox_V3_DeleteProcessResponse: SwiftProt
 
 extension Com_Apple_Containerization_Sandbox_V3_StartProcessRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".StartProcessRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "id"),
-    2: .same(proto: "containerID"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}containerID\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2198,9 +2130,7 @@ extension Com_Apple_Containerization_Sandbox_V3_StartProcessRequest: SwiftProtob
 
 extension Com_Apple_Containerization_Sandbox_V3_StartProcessResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".StartProcessResponse"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "pid"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}pid\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2230,11 +2160,7 @@ extension Com_Apple_Containerization_Sandbox_V3_StartProcessResponse: SwiftProto
 
 extension Com_Apple_Containerization_Sandbox_V3_KillProcessRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".KillProcessRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "id"),
-    2: .same(proto: "containerID"),
-    3: .same(proto: "signal"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}containerID\0\u{1}signal\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2278,9 +2204,7 @@ extension Com_Apple_Containerization_Sandbox_V3_KillProcessRequest: SwiftProtobu
 
 extension Com_Apple_Containerization_Sandbox_V3_KillProcessResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".KillProcessResponse"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "result"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}result\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2310,10 +2234,7 @@ extension Com_Apple_Containerization_Sandbox_V3_KillProcessResponse: SwiftProtob
 
 extension Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".CloseProcessStdinRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "id"),
-    2: .same(proto: "containerID"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}containerID\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2371,11 +2292,7 @@ extension Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse: Swift
 
 extension Com_Apple_Containerization_Sandbox_V3_MkdirRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".MkdirRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "path"),
-    2: .same(proto: "all"),
-    3: .same(proto: "perms"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{1}all\0\u{1}perms\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2434,12 +2351,7 @@ extension Com_Apple_Containerization_Sandbox_V3_MkdirResponse: SwiftProtobuf.Mes
 
 extension Com_Apple_Containerization_Sandbox_V3_WriteFileRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".WriteFileRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "path"),
-    2: .same(proto: "data"),
-    3: .same(proto: "mode"),
-    4: .same(proto: "flags"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{1}data\0\u{1}mode\0\u{1}flags\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2488,11 +2400,7 @@ extension Com_Apple_Containerization_Sandbox_V3_WriteFileRequest: SwiftProtobuf.
 
 extension Com_Apple_Containerization_Sandbox_V3_WriteFileRequest.WriteFileFlags: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = Com_Apple_Containerization_Sandbox_V3_WriteFileRequest.protoMessageName + ".WriteFileFlags"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .standard(proto: "create_parent_dirs"),
-    2: .same(proto: "append"),
-    3: .standard(proto: "create_if_missing"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}create_parent_dirs\0\u{1}append\0\u{3}create_if_missing\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2551,11 +2459,7 @@ extension Com_Apple_Containerization_Sandbox_V3_WriteFileResponse: SwiftProtobuf
 
 extension Com_Apple_Containerization_Sandbox_V3_IpLinkSetRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".IpLinkSetRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "interface"),
-    2: .same(proto: "up"),
-    3: .same(proto: "mtu"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}interface\0\u{1}up\0\u{1}mtu\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2618,10 +2522,7 @@ extension Com_Apple_Containerization_Sandbox_V3_IpLinkSetResponse: SwiftProtobuf
 
 extension Com_Apple_Containerization_Sandbox_V3_IpAddrAddRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".IpAddrAddRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "interface"),
-    2: .same(proto: "address"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}interface\0\u{1}address\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2675,11 +2576,7 @@ extension Com_Apple_Containerization_Sandbox_V3_IpAddrAddResponse: SwiftProtobuf
 
 extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".IpRouteAddLinkRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "interface"),
-    2: .same(proto: "address"),
-    3: .same(proto: "srcAddr"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}interface\0\u{1}address\0\u{1}srcAddr\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2738,10 +2635,7 @@ extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkResponse: SwiftPro
 
 extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".IpRouteAddDefaultRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "interface"),
-    2: .same(proto: "gateway"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}interface\0\u{1}gateway\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2795,13 +2689,7 @@ extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultResponse: Swift
 
 extension Com_Apple_Containerization_Sandbox_V3_ConfigureDnsRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ConfigureDnsRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "location"),
-    2: .same(proto: "nameservers"),
-    3: .same(proto: "domain"),
-    4: .same(proto: "searchDomains"),
-    5: .same(proto: "options"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}location\0\u{1}nameservers\0\u{1}domain\0\u{1}searchDomains\0\u{1}options\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2874,11 +2762,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ConfigureDnsResponse: SwiftProto
 
 extension Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ConfigureHostsRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "location"),
-    2: .same(proto: "entries"),
-    3: .same(proto: "comment"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}location\0\u{1}entries\0\u{1}comment\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2922,11 +2806,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest: SwiftProt
 
 extension Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest.HostsEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest.protoMessageName + ".HostsEntry"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "ipAddress"),
-    2: .same(proto: "hostnames"),
-    3: .same(proto: "comment"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}ipAddress\0\u{1}hostnames\0\u{1}comment\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3027,10 +2907,7 @@ extension Com_Apple_Containerization_Sandbox_V3_SyncResponse: SwiftProtobuf.Mess
 
 extension Com_Apple_Containerization_Sandbox_V3_KillRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".KillRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "pid"),
-    3: .same(proto: "signal"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}pid\0\u{2}\u{2}signal\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3065,9 +2942,7 @@ extension Com_Apple_Containerization_Sandbox_V3_KillRequest: SwiftProtobuf.Messa
 
 extension Com_Apple_Containerization_Sandbox_V3_KillResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".KillResponse"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "result"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}result\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3097,9 +2972,7 @@ extension Com_Apple_Containerization_Sandbox_V3_KillResponse: SwiftProtobuf.Mess
 
 extension Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ContainerStatisticsRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .standard(proto: "container_ids"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}container_ids\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3129,9 +3002,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest: Swif
 
 extension Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ContainerStatisticsResponse"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "containers"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}containers\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3161,14 +3032,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsResponse: Swi
 
 extension Com_Apple_Containerization_Sandbox_V3_ContainerStats: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ContainerStats"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .standard(proto: "container_id"),
-    2: .same(proto: "process"),
-    3: .same(proto: "memory"),
-    4: .same(proto: "cpu"),
-    5: .standard(proto: "block_io"),
-    6: .same(proto: "networks"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}container_id\0\u{1}process\0\u{1}memory\0\u{1}cpu\0\u{3}block_io\0\u{1}networks\0")
 
   fileprivate class _StorageClass {
     var _containerID: String = String()
@@ -3273,10 +3137,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ContainerStats: SwiftProtobuf.Me
 
 extension Com_Apple_Containerization_Sandbox_V3_ProcessStats: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ProcessStats"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "current"),
-    2: .same(proto: "limit"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}current\0\u{1}limit\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3311,17 +3172,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ProcessStats: SwiftProtobuf.Mess
 
 extension Com_Apple_Containerization_Sandbox_V3_MemoryStats: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".MemoryStats"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .standard(proto: "usage_bytes"),
-    2: .standard(proto: "limit_bytes"),
-    3: .standard(proto: "swap_usage_bytes"),
-    4: .standard(proto: "swap_limit_bytes"),
-    5: .standard(proto: "cache_bytes"),
-    6: .standard(proto: "kernel_stack_bytes"),
-    7: .standard(proto: "slab_bytes"),
-    8: .standard(proto: "page_faults"),
-    9: .standard(proto: "major_page_faults"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}usage_bytes\0\u{3}limit_bytes\0\u{3}swap_usage_bytes\0\u{3}swap_limit_bytes\0\u{3}cache_bytes\0\u{3}kernel_stack_bytes\0\u{3}slab_bytes\0\u{3}page_faults\0\u{3}major_page_faults\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3391,14 +3242,7 @@ extension Com_Apple_Containerization_Sandbox_V3_MemoryStats: SwiftProtobuf.Messa
 
 extension Com_Apple_Containerization_Sandbox_V3_CPUStats: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".CPUStats"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .standard(proto: "usage_usec"),
-    2: .standard(proto: "user_usec"),
-    3: .standard(proto: "system_usec"),
-    4: .standard(proto: "throttling_periods"),
-    5: .standard(proto: "throttled_periods"),
-    6: .standard(proto: "throttled_time_usec"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}usage_usec\0\u{3}user_usec\0\u{3}system_usec\0\u{3}throttling_periods\0\u{3}throttled_periods\0\u{3}throttled_time_usec\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3453,9 +3297,7 @@ extension Com_Apple_Containerization_Sandbox_V3_CPUStats: SwiftProtobuf.Message,
 
 extension Com_Apple_Containerization_Sandbox_V3_BlockIOStats: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".BlockIOStats"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "devices"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}devices\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3485,14 +3327,7 @@ extension Com_Apple_Containerization_Sandbox_V3_BlockIOStats: SwiftProtobuf.Mess
 
 extension Com_Apple_Containerization_Sandbox_V3_BlockIOEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".BlockIOEntry"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "major"),
-    2: .same(proto: "minor"),
-    3: .standard(proto: "read_bytes"),
-    4: .standard(proto: "write_bytes"),
-    5: .standard(proto: "read_operations"),
-    6: .standard(proto: "write_operations"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}major\0\u{1}minor\0\u{3}read_bytes\0\u{3}write_bytes\0\u{3}read_operations\0\u{3}write_operations\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3547,15 +3382,7 @@ extension Com_Apple_Containerization_Sandbox_V3_BlockIOEntry: SwiftProtobuf.Mess
 
 extension Com_Apple_Containerization_Sandbox_V3_NetworkStats: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".NetworkStats"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "interface"),
-    2: .same(proto: "receivedPackets"),
-    3: .same(proto: "transmittedPackets"),
-    4: .same(proto: "receivedBytes"),
-    5: .same(proto: "transmittedBytes"),
-    6: .same(proto: "receivedErrors"),
-    7: .same(proto: "transmittedErrors"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}interface\0\u{1}receivedPackets\0\u{1}transmittedPackets\0\u{1}receivedBytes\0\u{1}transmittedBytes\0\u{1}receivedErrors\0\u{1}transmittedErrors\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
