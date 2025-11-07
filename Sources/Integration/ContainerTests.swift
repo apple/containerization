@@ -64,6 +64,18 @@ extension IntegrationSuite {
         }
     }
 
+    final class DiscardingWriter: @unchecked Sendable, Writer {
+        var count: Int = 0
+
+        func write(_ data: Data) throws {
+            count += data.count
+        }
+
+        func close() throws {
+            return
+        }
+    }
+
     final class BufferWriter: Writer {
         // `data` isn't used concurrently.
         nonisolated(unsafe) var data = Data()
@@ -1026,5 +1038,68 @@ extension IntegrationSuite {
         let dir = FileManager.default.uniqueTemporaryDirectory(create: true)
         try "hello".write(to: dir.appendingPathComponent("hi.txt"), atomically: true, encoding: .utf8)
         return dir
+    }
+
+    func testLargeStdioOutput() async throws {
+        let id = "test-large-stdout-stderr-output"
+
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/sleep", "1000"]
+            config.bootlog = bs.bootlog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let stdoutBuffer = DiscardingWriter()
+            let stderrBuffer = DiscardingWriter()
+
+            let exec = try await container.exec("large-output") { config in
+                config.arguments = [
+                    "sh",
+                    "-c",
+                    """
+                    dd if=/dev/zero bs=1M count=250 status=none && \
+                    dd if=/dev/zero bs=1M count=250 status=none >&2
+                    """,
+                ]
+                config.stdout = stdoutBuffer
+                config.stderr = stderrBuffer
+            }
+
+            let started = CFAbsoluteTimeGetCurrent()
+
+            try await exec.start()
+            let status = try await exec.wait()
+
+            let lasted = CFAbsoluteTimeGetCurrent() - started
+            print("Test \(id) finished process ingesting stdio in \(lasted)")
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "exec process status \(status) != 0")
+            }
+
+            try await exec.delete()
+
+            let expectedSize = 250 * 1024 * 1024
+            guard stdoutBuffer.count == expectedSize else {
+                throw IntegrationError.assert(
+                    msg: "stdout size \(stdoutBuffer.count) != expected \(expectedSize)")
+            }
+
+            guard stderrBuffer.count == expectedSize else {
+                throw IntegrationError.assert(
+                    msg: "stderr size \(stderrBuffer.count) != expected \(expectedSize)")
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
     }
 }
