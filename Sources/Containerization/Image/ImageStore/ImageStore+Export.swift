@@ -40,7 +40,7 @@ extension ImageStore {
         }
 
         @discardableResult
-        public func export(index: Descriptor, platforms: (Platform) -> Bool) async throws -> Descriptor {
+        public func export(index: Descriptor, platforms: (Platform) -> Bool, filter: (Descriptor) -> Bool = { _ in true }) async throws -> Descriptor {
             var pushQueue: [[Descriptor]] = []
             var current: [Descriptor] = [index]
             while !current.isEmpty {
@@ -61,7 +61,7 @@ extension ImageStore {
             try await withThrowingTaskGroup(of: Void.self) { group in
                 for layerGroup in pushQueue.reversed() {
                     for chunk in layerGroup.chunks(ofCount: 8) {
-                        for desc in chunk {
+                        for desc in chunk.filter(filter) {
                             guard let content = try await self.contentStore.get(digest: desc.digest) else {
                                 throw ContainerizationError(.notFound, message: "content with digest \(desc.digest)")
                             }
