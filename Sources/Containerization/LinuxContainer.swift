@@ -522,21 +522,18 @@ extension LinuxContainer {
             }
 
             let startedState = try state.startedState("stop")
+            let vm = startedState.vm
 
+            var firstError: Error?
             do {
                 try await startedState.relayManager.stopAll()
+            } catch {
+                self.logger?.error("failed to stop relay manager: \(error)")
+                firstError = firstError ?? error
+            }
 
-                // It's possible the state of the vm is not in a great spot
-                // if the guest panicked or had any sort of bug/fault.
-                // First check if the vm is even still running, as trying to
-                // use a vsock handle like below here will cause NIO to
-                // fatalError because we'll get an EBADF.
-                if startedState.vm.state == .stopped {
-                    state = .stopped
-                    return
-                }
-
-                try await startedState.vm.withAgent { agent in
+            do {
+                try await vm.withAgent { agent in
                     // First, we need to stop any unix socket relays as this will
                     // keep the rootfs from being able to umount (EBUSY).
                     let sockets = self.config.sockets
@@ -571,19 +568,38 @@ extension LinuxContainer {
 
                     try await agent.sync()
                 }
-
-                for process in startedState.vendedProcesses.values {
-                    try? await process._delete()
-                }
-
-                // Now delete the init proc
-                try await startedState.process.delete()
-
-                try await startedState.vm.stop()
-                state = .stopped
             } catch {
-                state.setErrored(error: error)
-                throw error
+                self.logger?.error("failed during guest cleanup: \(error)")
+                firstError = firstError ?? error
+            }
+
+            for process in startedState.vendedProcesses.values {
+                do {
+                    try await process._delete()
+                } catch {
+                    self.logger?.error("failed to delete process \(process.id): \(error)")
+                    firstError = firstError ?? error
+                }
+            }
+
+            do {
+                try await startedState.process.delete()
+            } catch {
+                self.logger?.error("failed to delete init process: \(error)")
+                firstError = firstError ?? error
+            }
+
+            do {
+                try await vm.stop()
+                state = .stopped
+                if let firstError {
+                    throw firstError
+                }
+            } catch {
+                self.logger?.error("failed to stop VM: \(error)")
+                let finalError = firstError ?? error
+                state.setErrored(error: finalError)
+                throw finalError
             }
         }
     }

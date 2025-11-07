@@ -555,18 +555,32 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             )
         }
 
-        let ctr = try await self.state.get(container: request.containerID)
+        do {
+            let ctr = try await self.state.get(container: request.containerID)
 
-        // Are we trying to delete the container itself?
-        if request.id == request.containerID {
-            try await ctr.delete()
-            try await state.remove(container: request.id)
-        } else {
-            // Or just a single exec.
-            try await ctr.deleteExec(id: request.id)
+            // Are we trying to delete the container itself?
+            if request.id == request.containerID {
+                try await ctr.delete()
+                try await state.remove(container: request.id)
+            } else {
+                // Or just a single exec.
+                try await ctr.deleteExec(id: request.id)
+            }
+
+            return .init()
+        } catch {
+            log.error(
+                "deleteProcess",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(error)",
+                ])
+            throw GRPCStatus(
+                code: .internalError,
+                message: "deleteProcess: \(error)"
+            )
         }
-
-        return .init()
     }
 
     func startProcess(
