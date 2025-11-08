@@ -18,7 +18,7 @@ SWIFT = /usr/bin/swift
 
 .PHONY: all build clean run
 
-all: build
+all: containerization run
 
 build:
 	$(SWIFT) build --configuration release
@@ -39,3 +39,10 @@ debug:
 
 fmt:
 	$(SWIFT) format --in-place --recursive Sources/
+
+containerization: 
+	$(MAKE) -C ../.. all
+
+fetch-default-kernel:
+	$(MAKE) -C ../.. fetch-default-kernel
+	cp -L ../../.local/vmlinux ./vmlinux
