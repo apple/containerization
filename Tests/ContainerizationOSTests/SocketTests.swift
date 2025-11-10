@@ -106,7 +106,8 @@ final class SocketTests {
         let originalFD = testFileHandle.fileDescriptor
 
         try sendFileDescriptor(socket: sendSocket, fd: originalFD)
-        let receivedFileHandle = try recvSocket.receiveFileDescriptor()
+        let receivedFd = try recvSocket.receiveFileDescriptor()
+        let receivedFileHandle = FileHandle(fileDescriptor: receivedFd)
         defer { try? receivedFileHandle.close() }
 
         try #require(receivedFileHandle.fileDescriptor != originalFD, "Received FD should be different")
