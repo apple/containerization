@@ -38,6 +38,7 @@ Read through the sources:
 ## Build and run the example
 
 ```bash
+$ cd examples/ctr-example
 $ make
 $ ./ctr-example
 ```
