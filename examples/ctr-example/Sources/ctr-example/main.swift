@@ -29,10 +29,11 @@ struct CtrExample {
         defer { current.tryReset() }
 
         let initfsReference = "ghcr.io/apple/containerization/vminit:0.13.0"
+        let kernelPath = "./vmlinux"
         print("Fetching base container filesystem...")
         // Create container manager with file-based initfs
         var manager = try await ContainerManager(
-            kernel: Kernel(path: URL(fileURLWithPath: "./vmlinux"), platform: .linuxArm),
+            kernel: Kernel(path: URL(fileURLWithPath: kernelPath), platform: .linuxArm),
             initfsReference: initfsReference,
             network: try ContainerManager.VmnetNetwork()
         )
