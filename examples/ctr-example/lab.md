@@ -15,7 +15,7 @@ This'll install your kernel.
 After this start your first container. On first launch, this'll install another artifact for our guest init process:
 
 ```
-container run -it alpine sh
+container run alpine uname
 ```
 
 Container starts after this will be fast!
@@ -42,7 +42,7 @@ Read through the sources:
 Run 
 
 ```
-cp "~/Library/Application Support/com.apple.container/kernels/vmlinux-6.12.28-153" ./vmlinux
+cp ~/Library/Application\ Support/com.apple.container/kernels/vmlinux-6.12.28-153 ./vmlinux
 ```
 
 ## Build and run the example
