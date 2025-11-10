@@ -90,7 +90,10 @@ let package = Package(
             name: "ContainerizationUnitTests",
             dependencies: ["Containerization"],
             path: "Tests/ContainerizationTests",
-            resources: [.copy("ImageTests/Resources/scratch.tar")]
+            resources: [
+                .copy("ImageTests/Resources/scratch.tar"),
+                .copy("ImageTests/Resources/scratch_no_annotations.tar"),
+            ]
         ),
         .target(
             name: "ContainerizationEXT4",
