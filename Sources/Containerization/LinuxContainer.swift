@@ -566,7 +566,7 @@ extension LinuxContainer {
                 }
 
                 // Lets free up the init procs resources, as this includes the open agent conn.
-                try? await startedState.process.delete()
+                try await startedState.process.delete()
 
                 try await startedState.vm.stop()
                 state = .stopped

@@ -399,12 +399,16 @@ extension LinuxProcess {
                 containerID: self.owningContainer
             )
         } catch {
-            self.logger?.error(
-                "process deletion",
-                metadata: [
-                    "id": "\(self.id)",
-                    "error": "\(error)",
-                ])
+            self.state.withLock {
+                $0.stdinRelay?.cancel()
+                try? $0.stdio.close()
+            }
+            try? await self.agent.close()
+            throw ContainerizationError(
+                .internalError,
+                message: "failed to delete process",
+                cause: error,
+            )
         }
 
         do {
@@ -413,12 +417,12 @@ extension LinuxProcess {
                 try $0.stdio.close()
             }
         } catch {
-            self.logger?.error(
-                "closing process stdio",
-                metadata: [
-                    "id": "\(self.id)",
-                    "error": "\(error)",
-                ])
+            try? await self.agent.close()
+            throw ContainerizationError(
+                .internalError,
+                message: "failed to close stdio",
+                cause: error,
+            )
         }
 
         do {
