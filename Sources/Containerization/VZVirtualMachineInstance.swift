@@ -36,11 +36,6 @@ struct VZVirtualMachineInstance: Sendable {
         vzStateToInstanceState()
     }
 
-    /// Tracks vended connections and handles.
-    private struct VendedConnections: Sendable {
-        var agents: [Vminitd] = []
-    }
-
     /// The virtual machine instance configuration.
     private let config: Configuration
     public struct Configuration: Sendable {
@@ -76,7 +71,7 @@ struct VZVirtualMachineInstance: Sendable {
     // `vm` isn't used concurrently.
     private nonisolated(unsafe) let vm: VZVirtualMachine
     private let queue: DispatchQueue
-    private let lock: AsyncMutex<VendedConnections>
+    private let lock: AsyncLock
     private let group: EventLoopGroup
     private let ownsGroup: Bool
     private let timeSyncer: TimeSyncer
@@ -102,7 +97,7 @@ struct VZVirtualMachineInstance: Sendable {
         }
 
         self.config = config
-        self.lock = .init(VendedConnections())
+        self.lock = .init()
         self.queue = DispatchQueue(label: "com.apple.containerization.vzvm.\(UUID().uuidString)")
         self.mounts = try config.mountAttachments()
         self.logger = logger
@@ -162,12 +157,6 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
 
             try await self.timeSyncer.close()
 
-            // Close all vended agents and handles
-            for agent in connections.agents {
-                try await agent.close()
-            }
-            connections.agents.removeAll()
-
             if self.ownsGroup {
                 try await self.group.shutdownGracefully()
             }
@@ -194,7 +183,7 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
     }
 
     public func dialAgent() async throws -> Vminitd {
-        try await lock.withLock { connections in
+        try await lock.withLock { _ in
             do {
                 let conn = try await vm.connect(
                     queue: queue,
@@ -202,8 +191,6 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
                 )
                 let handle = try conn.dupHandle()
                 let agent = Vminitd(connection: handle, group: self.group)
-                connections.agents.append(agent)
-
                 return agent
             } catch {
                 if let err = error as? ContainerizationError {
@@ -219,7 +206,7 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
     }
 
     func dial(_ port: UInt32) async throws -> FileHandle {
-        try await lock.withLock { connections in
+        try await lock.withLock { _ in
             do {
                 let conn = try await vm.connect(
                     queue: queue,
