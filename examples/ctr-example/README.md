@@ -6,8 +6,17 @@ Very basic example of launching a Linux container using Containerization.
 
 ### 1. Fetch Kernel
 
-In your terminal, change directories to examples/ctr-example and run
-`make fetch-default-kernel`
+In your terminal, change directories to examples/ctr-example and run:
+
+**Option A: Using Makefile (recommended)**
+```bash
+make fetch-default-kernel
+```
+
+**Option B: Copy from installed container tool**
+```bash
+cp "$(ls -t ~/Library/Application\ Support/com.apple.container/kernels/vmlinux-* | head -1)" ./vmlinux
+```
 
 You should now see the `vmlinux` image in examples/ctr-example
 

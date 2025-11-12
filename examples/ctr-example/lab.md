@@ -41,8 +41,8 @@ Read through the sources:
 
 Run 
 
-```
-cp "~/Library/Application Support/com.apple.container/kernels/vmlinux-6.12.28-153" ./vmlinux
+```bash
+cp "$(ls -t ~/Library/Application\ Support/com.apple.container/kernels/vmlinux-* | head -1)" ./vmlinux
 ```
 
 ## Build and run the example
