@@ -414,19 +414,6 @@ extension Vminitd {
             })
         return response.result
     }
-
-    /// Syncing shutdown will send a SIGTERM to all processes
-    /// and wait, perform a sync operation, then issue a SIGKILL
-    /// to the remaining processes before syncing again.
-    public func syncingShutdown() async throws {
-        _ = try await self.kill(pid: -1, signal: SIGTERM)
-        try await Task.sleep(for: .milliseconds(10))
-        try await self.sync()
-
-        _ = try await self.kill(pid: -1, signal: SIGKILL)
-        try await Task.sleep(for: .milliseconds(10))
-        try await self.sync()
-    }
 }
 
 extension Hosts {
