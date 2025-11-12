@@ -71,6 +71,16 @@ If you submit a contribution that adds a new file, please add the license header
 make update-licenses
 ```
 
+### AI Contribution Guidelines
+
+We welcome thoughtful use of AI tools in your contributions to this repository. We ask that you adhere to these rules in order to preserve the project's integrity, clarity, and quality, and to respect maintainer bandwidth:
+
+* You should be able to explain and justify every line of code or documentation that was generated or assisted by AI. Your submission should reflect your own understanding and intent.
+* Use AI to augment, not totally replace, your reasoning or familiarity, especially for non-trivial parts of the system. 
+* Avoid dumping AI-generated walls of text that you cannot explain. Low-effort, unexplained submissions will be deprioritized to protect maintainer bandwidth.
+
+AI tools should be used to **enhance, not replace** the human elements that make OSS special: learning, collaboration, and community growth.
+
 ## Code of Conduct
 
 To clarify of what is expected of our contributors and community members, the Containerization team has adopted the code of conduct defined by the Contributor Covenant. This document is used across many open source communities and articulates our values well. For more detail, please read the [Code of Conduct](https://github.com/apple/.github/blob/main/CODE_OF_CONDUCT.md "Code of Conduct").
