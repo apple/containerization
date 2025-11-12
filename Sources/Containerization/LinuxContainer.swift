@@ -563,6 +563,8 @@ extension LinuxContainer {
                         path: Self.guestRootfsPath(self.id),
                         flags: 0
                     )
+
+                    try await agent.sync()
                 }
 
                 // Lets free up the init procs resources, as this includes the open agent conn.
