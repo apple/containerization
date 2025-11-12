@@ -17,6 +17,7 @@
 import ArgumentParser
 import Containerization
 import ContainerizationError
+import ContainerizationExtras
 import ContainerizationOCI
 import Foundation
 
@@ -74,7 +75,8 @@ extension Application {
                     shouldRetry: ({ response in
                         response.status.code >= 500
                     })
-                )
+                ),
+                tlsConfiguration: TLSUtils.makeEnvironmentAwareTLSConfiguration(),
             )
             try await client.ping()
             try keychain.save(domain: server, username: username, password: password)
