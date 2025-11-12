@@ -14,6 +14,19 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+/// A custom route for an interface.
+public struct Route: Sendable {
+    /// Destination network in CIDR notation (e.g., "192.168.1.0/24")
+    public var destination: String
+
+    /// Gateway IP address for this route
+    public var gateway: String
+
+    public init(destination: String, gateway: String) {
+        self.destination = destination
+        self.gateway = gateway
+    }
+}
 /// A network interface.
 public protocol Interface: Sendable {
     /// The interface IPv4 address and subnet prefix length, as a CIDR address.
@@ -25,4 +38,7 @@ public protocol Interface: Sendable {
 
     /// The interface MAC address, or nil to auto-configure the address.
     var macAddress: String? { get }
+
+    /// Custom routes to configure for this interface.
+    var routes: [Route] { get }
 }

@@ -29,6 +29,7 @@ public final class NATNetworkInterface: Interface, Sendable {
     public let address: String
     public let gateway: String?
     public let macAddress: String?
+    public nonisolated(unsafe) var routes: [Route]
 
     @available(macOS 26, *)
     // `reference` isn't used concurrently.
@@ -39,24 +40,28 @@ public final class NATNetworkInterface: Interface, Sendable {
         address: String,
         gateway: String?,
         reference: sending vmnet_network_ref,
-        macAddress: String? = nil
+        macAddress: String? = nil,
+        routes: [Route] = []
     ) {
         self.address = address
         self.gateway = gateway
         self.macAddress = macAddress
         self.reference = reference
+        self.routes = routes
     }
 
     @available(macOS, obsoleted: 26, message: "Use init(address:gateway:reference:macAddress:) instead")
     public init(
         address: String,
         gateway: String?,
-        macAddress: String? = nil
+        macAddress: String? = nil,
+        routes: [Route] = []
     ) {
         self.address = address
         self.gateway = gateway
         self.macAddress = macAddress
         self.reference = nil
+        self.routes = routes
     }
 }
 

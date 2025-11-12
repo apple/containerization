@@ -406,6 +406,15 @@ extension LinuxContainer {
                         if let gateway = i.gateway {
                             try await agent.routeAddDefault(name: name, gateway: gateway)
                         }
+
+                        for route in i.routes {
+                            try await agent.routeAddLink(
+                                name: name,
+                                address: route.destination,
+                                gateway: route.gateway,
+                                srcAddr: ""
+                            )
+                        }
                     }
 
                     // Setup /etc/resolv.conf and /etc/hosts if asked for.

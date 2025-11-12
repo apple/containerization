@@ -816,9 +816,20 @@ public struct Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest: Senda
 
   public var srcAddr: String = String()
 
+  public var gateway: String {
+    get {return _gateway ?? String()}
+    set {_gateway = newValue}
+  }
+  /// Returns true if `gateway` has been explicitly set.
+  public var hasGateway: Bool {return self._gateway != nil}
+  /// Clears the value of `gateway`. Subsequent reads from it will return its default value.
+  public mutating func clearGateway() {self._gateway = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
+
+  fileprivate var _gateway: String? = nil
 }
 
 public struct Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkResponse: Sendable {
@@ -2679,6 +2690,7 @@ extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest: SwiftProt
     1: .same(proto: "interface"),
     2: .same(proto: "address"),
     3: .same(proto: "srcAddr"),
+    4: .same(proto: "gateway"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -2690,12 +2702,17 @@ extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest: SwiftProt
       case 1: try { try decoder.decodeSingularStringField(value: &self.interface) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.address) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.srcAddr) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self._gateway) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
     if !self.interface.isEmpty {
       try visitor.visitSingularStringField(value: self.interface, fieldNumber: 1)
     }
@@ -2705,6 +2722,9 @@ extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest: SwiftProt
     if !self.srcAddr.isEmpty {
       try visitor.visitSingularStringField(value: self.srcAddr, fieldNumber: 3)
     }
+    try { if let v = self._gateway {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 4)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -2712,6 +2732,7 @@ extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest: SwiftProt
     if lhs.interface != rhs.interface {return false}
     if lhs.address != rhs.address {return false}
     if lhs.srcAddr != rhs.srcAddr {return false}
+    if lhs._gateway != rhs._gateway {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
