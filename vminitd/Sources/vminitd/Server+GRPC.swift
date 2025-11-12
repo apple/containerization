@@ -1141,6 +1141,10 @@ extension Initd {
             seenSuppGids.insert($0).inserted
         }
 
+        if !process.env.contains(where: { $0.hasPrefix("PATH=") }) {
+            process.env.append("PATH=\(LinuxProcessConfiguration.defaultPath)")
+        }
+
         if !process.env.contains(where: { $0.hasPrefix("HOME=") }) {
             process.env.append("HOME=\(parsedUser.home)")
         }

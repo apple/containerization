@@ -15,7 +15,7 @@ This'll install your kernel.
 After this start your first container. On first launch, this'll install another artifact for our guest init process:
 
 ```
-container run -it alpine sh
+container run alpine uname
 ```
 
 Container starts after this will be fast!

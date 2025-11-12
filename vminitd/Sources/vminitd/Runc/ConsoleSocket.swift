@@ -65,7 +65,7 @@ public final class ConsoleSocket: Sendable {
     }
 
     /// Receive the PTY master file descriptor from runc
-    public func receiveMaster() throws -> FileHandle {
+    public func receiveMaster() throws -> Int32 {
         let connection = try socket.accept()
         defer { try? connection.close() }
 
