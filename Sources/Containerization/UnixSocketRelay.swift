@@ -254,7 +254,7 @@ extension SocketRelay {
             closeOnDeinit: false
         )
         log?.info(
-            "initiating connection from host to guest",
+            "initiating connection from guest to host",
             metadata: [
                 "vport": "\(port)",
                 "hostFd": "\(hostSocket.fileDescriptor)",
@@ -322,7 +322,7 @@ extension SocketRelay {
         }
 
         connSource.setCancelHandler {
-            self.log?.info(
+            self.log?.debug(
                 "host cancel received",
                 metadata: [
                     "hostFd": "\(hostConn.fileDescriptor)",
@@ -334,6 +334,12 @@ extension SocketRelay {
             self.state.withLock { _ in
                 connSource.cancel()
                 if vsockConnectionSource.isCancelled {
+                    self.log?.info(
+                        "close file descriptors",
+                        metadata: [
+                            "hostFd": "\(hostConn.fileDescriptor)",
+                            "guestFd": "\(guestFd)",
+                        ])
                     try? hostConn.close()
                     close(guestFd)
                 }
@@ -341,7 +347,7 @@ extension SocketRelay {
         }
 
         vsockConnectionSource.setCancelHandler {
-            self.log?.info(
+            self.log?.debug(
                 "guest cancel received",
                 metadata: [
                     "hostFd": "\(hostConn.fileDescriptor)",
@@ -377,14 +383,14 @@ extension SocketRelay {
         log: Logger? = nil
     ) {
         if source.data == 0 {
-            log?.info(
+            log?.debug(
                 "source EOF",
                 metadata: [
                     "sourceFd": "\(sourceFd)",
                     "dstFd": "\(destinationFd)",
                 ])
             if !source.isCancelled {
-                log?.info(
+                log?.debug(
                     "canceling DispatchSourceRead",
                     metadata: [
                         "sourceFd": "\(sourceFd)",
@@ -392,7 +398,7 @@ extension SocketRelay {
                     ])
                 source.cancel()
                 if shutdown(destinationFd, SHUT_WR) != 0 {
-                    log?.info(
+                    log?.warning(
                         "failed to shut down reads",
                         metadata: [
                             "errno": "\(errno)",
@@ -406,7 +412,7 @@ extension SocketRelay {
         }
 
         do {
-            log?.debug(
+            log?.trace(
                 "source copy",
                 metadata: [
                     "sourceFd": "\(sourceFd)",
@@ -424,8 +430,8 @@ extension SocketRelay {
             if !source.isCancelled {
                 source.cancel()
                 if shutdown(destinationFd, SHUT_RDWR) != 0 {
-                    log?.info(
-                        "failed to shut down destination",
+                    log?.warning(
+                        "failed to shut down destination after I/O error",
                         metadata: [
                             "errno": "\(errno)",
                             "sourceFd": "\(sourceFd)",
