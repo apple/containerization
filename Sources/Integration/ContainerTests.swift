@@ -244,11 +244,12 @@ extension IntegrationSuite {
                 try await group.waitForAll()
                 print("all group processes exit")
 
-                // kill the init process.
-                try await container.kill(SIGKILL)
-                try await container.wait()
-                try await container.stop()
             }
+            try await exec.delete()
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
         }
     }
 
@@ -914,6 +915,8 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "cpu.max '\(cpuLimit)' != expected '\(expectedCpu)'")
             }
 
+            try await sleepExec.delete()
+
             try await container.kill(SIGKILL)
             try await container.wait()
             try await container.stop()
@@ -1094,6 +1097,95 @@ extension IntegrationSuite {
                     msg: "stderr size \(stderrBuffer.count) != expected \(expectedSize)")
             }
 
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testProcessDeleteIdempotency() async throws {
+        let id = "test-process-delete-idempotency"
+
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/sleep", "1000"]
+            config.bootlog = bs.bootlog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Create an exec process
+            let exec = try await container.exec("test-exec") { config in
+                config.arguments = ["/bin/true"]
+            }
+
+            try await exec.start()
+            let status = try await exec.wait()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "exec process status \(status) != 0")
+            }
+
+            // Call delete twice to verify idempotency
+            try await exec.delete()
+            try await exec.delete()  // Should be a no-op
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testMultipleExecsWithoutDelete() async throws {
+        let id = "test-multiple-execs-without-delete"
+
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/sleep", "1000"]
+            config.bootlog = bs.bootlog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Create 3 exec processes without deleting them
+            let exec1 = try await container.exec("exec-1") { config in
+                config.arguments = ["/bin/true"]
+            }
+            try await exec1.start()
+            let status1 = try await exec1.wait()
+            guard status1.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "exec1 process status \(status1) != 0")
+            }
+
+            let exec2 = try await container.exec("exec-2") { config in
+                config.arguments = ["/bin/true"]
+            }
+            try await exec2.start()
+            let status2 = try await exec2.wait()
+            guard status2.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "exec2 process status \(status2) != 0")
+            }
+
+            let exec3 = try await container.exec("exec-3") { config in
+                config.arguments = ["/bin/true"]
+            }
+            try await exec3.start()
+            let status3 = try await exec3.wait()
+            guard status3.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "exec3 process status \(status3) != 0")
+            }
+
+            // Stop should handle cleanup of all exec processes gracefully
             try await container.kill(SIGKILL)
             try await container.wait()
             try await container.stop()
