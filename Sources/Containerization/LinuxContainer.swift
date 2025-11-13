@@ -127,17 +127,20 @@ public final class LinuxContainer: Container, Sendable {
             let vm: any VirtualMachineInstance
             let process: LinuxProcess
             let relayManager: UnixSocketRelayManager
+            var vendedProcesses: [String: LinuxProcess]
 
             init(_ state: CreatedState, process: LinuxProcess) {
                 self.vm = state.vm
                 self.relayManager = state.relayManager
                 self.process = process
+                self.vendedProcesses = [:]
             }
 
             init(_ state: PausedState) {
                 self.vm = state.vm
                 self.relayManager = state.relayManager
                 self.process = state.process
+                self.vendedProcesses = state.vendedProcesses
             }
         }
 
@@ -145,11 +148,13 @@ public final class LinuxContainer: Container, Sendable {
             let vm: any VirtualMachineInstance
             let relayManager: UnixSocketRelayManager
             let process: LinuxProcess
+            var vendedProcesses: [String: LinuxProcess]
 
             init(_ state: StartedState) {
                 self.vm = state.vm
                 self.relayManager = state.relayManager
                 self.process = state.process
+                self.vendedProcesses = state.vendedProcesses
             }
         }
 
@@ -567,7 +572,11 @@ extension LinuxContainer {
                     try await agent.sync()
                 }
 
-                // Lets free up the init procs resources, as this includes the open agent conn.
+                for process in startedState.vendedProcesses.values {
+                    try? await process._delete()
+                }
+
+                // Now delete the init proc
                 try await startedState.process.delete()
 
                 try await startedState.vm.stop()
@@ -612,8 +621,8 @@ extension LinuxContainer {
     /// Execute a new process in the container. The process is not started after this call, and must be manually started
     /// via the `start` method.
     public func exec(_ id: String, configuration: @Sendable @escaping (inout LinuxProcessConfiguration) throws -> Void) async throws -> LinuxProcess {
-        try await self.state.withLock {
-            let state = try $0.startedState("exec")
+        try await self.state.withLock { state in
+            var startedState = try state.startedState("exec")
 
             var spec = self.generateRuntimeSpec()
             var config = LinuxProcessConfiguration()
@@ -626,16 +635,23 @@ extension LinuxContainer {
                 stdout: config.stdout,
                 stderr: config.stderr
             )
-            let agent = try await state.vm.dialAgent()
+            let agent = try await startedState.vm.dialAgent()
             let process = LinuxProcess(
                 id,
                 containerID: self.id,
                 spec: spec,
                 io: stdio,
                 agent: agent,
-                vm: state.vm,
-                logger: self.logger
+                vm: startedState.vm,
+                logger: self.logger,
+                onDelete: { [weak self] in
+                    await self?.removeProcess(id: id)
+                }
             )
+
+            startedState.vendedProcesses[id] = process
+            state = .started(startedState)
+
             return process
         }
     }
@@ -644,7 +660,7 @@ extension LinuxContainer {
     /// via the `start` method.
     public func exec(_ id: String, configuration: LinuxProcessConfiguration) async throws -> LinuxProcess {
         try await self.state.withLock {
-            let state = try $0.startedState("exec")
+            var state = try $0.startedState("exec")
 
             var spec = self.generateRuntimeSpec()
             spec.process = configuration.toOCI()
@@ -663,8 +679,14 @@ extension LinuxContainer {
                 io: stdio,
                 agent: agent,
                 vm: state.vm,
-                logger: self.logger
+                logger: self.logger,
+                onDelete: { [weak self] in
+                    await self?.removeProcess(id: id)
+                }
             )
+
+            state.vendedProcesses[id] = process
+            $0 = .started(state)
 
             return process
         }
@@ -684,6 +706,17 @@ extension LinuxContainer {
         try await self.state.withLock {
             let state = try $0.startedState("closeStdin")
             return try await state.process.closeStdin()
+        }
+    }
+
+    /// Remove a process from the vended processes tracking.
+    private func removeProcess(id: String) async {
+        await self.state.withLock {
+            guard case .started(var state) = $0 else {
+                return
+            }
+            state.vendedProcesses.removeValue(forKey: id)
+            $0 = .started(state)
         }
     }
 

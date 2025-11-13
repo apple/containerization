@@ -77,6 +77,7 @@ public final class LinuxProcess: Sendable {
         var stdio: StdioHandles
         var stdinRelay: Task<(), Never>?
         var ioTracker: IoTracker?
+        var deletionTask: Task<Void, Error>?
 
         struct IoTracker {
             let stream: AsyncStream<Void>
@@ -96,6 +97,7 @@ public final class LinuxProcess: Sendable {
     private let agent: any VirtualMachineAgent
     private let vm: any VirtualMachineInstance
     private let logger: Logger?
+    private let onDelete: (@Sendable () async -> Void)?
 
     init(
         _ id: String,
@@ -104,7 +106,8 @@ public final class LinuxProcess: Sendable {
         io: Stdio,
         agent: any VirtualMachineAgent,
         vm: any VirtualMachineInstance,
-        logger: Logger?
+        logger: Logger?,
+        onDelete: (@Sendable () async -> Void)? = nil
     ) {
         self.id = id
         self.owningContainer = containerID
@@ -113,6 +116,7 @@ public final class LinuxProcess: Sendable {
         self.agent = agent
         self.vm = vm
         self.logger = logger
+        self.onDelete = onDelete
     }
 }
 
@@ -393,6 +397,28 @@ extension LinuxProcess {
 
     /// Cleans up guest state and waits on and closes any host resources (stdio handles).
     public func delete() async throws {
+        try await self._delete()
+        await self.onDelete?()
+    }
+
+    func _delete() async throws {
+        let task = self.state.withLock { state in
+            if let existingTask = state.deletionTask {
+                // Deletion already in progress or finished.
+                return existingTask
+            }
+
+            let task = Task<Void, Error> {
+                try await self.performDeletion()
+            }
+            state.deletionTask = task
+            return task
+        }
+
+        try await task.value
+    }
+
+    private func performDeletion() async throws {
         do {
             try await self.agent.deleteProcess(
                 id: self.id,
