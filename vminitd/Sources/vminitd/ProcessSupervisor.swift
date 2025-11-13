@@ -24,7 +24,7 @@ actor ProcessSupervisor {
     private let queue: DispatchQueue
     // `DispatchSourceSignal` is thread-safe.
     private nonisolated(unsafe) let source: DispatchSourceSignal
-    private var processes = [ManagedProcess]()
+    private var processes = [any ContainerProcess]()
     private let reaperCommandRunner = ReaperCommandRunner()
 
     var log: Logger?
@@ -65,9 +65,6 @@ actor ProcessSupervisor {
         let exited = Reaper.reap()
         self.log?.debug("finished wait4 of \(exited.count) processes")
 
-        // Notify runc waiters
-        // NOTE: Runc/OCI runtimes are not hooked up at the moment so this is
-        // a nop, but ManagedProcess will be transitioned to this model.
         for (pid, status) in exited {
             reaperCommandRunner.notifyExit(pid: pid, status: status)
         }
@@ -98,7 +95,7 @@ actor ProcessSupervisor {
         }
     }
 
-    func start(process: ManagedProcess) throws -> Int32 {
+    func start(process: any ContainerProcess) async throws -> Int32 {
         self.log?.debug("in supervisor lock to start process")
         defer {
             self.log?.debug("out of supervisor lock to start process")
@@ -106,7 +103,7 @@ actor ProcessSupervisor {
 
         do {
             self.processes.append(process)
-            return try process.start()
+            return try await process.start()
         } catch {
             self.log?.error("process start failed \(error)", metadata: ["process-id": "\(process.id)"])
             throw error

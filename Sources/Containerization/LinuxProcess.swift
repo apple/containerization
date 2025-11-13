@@ -96,6 +96,7 @@ public final class LinuxProcess: Sendable {
     private let ioSetup: Stdio
     private let agent: any VirtualMachineAgent
     private let vm: any VirtualMachineInstance
+    private let ociRuntimePath: String?
     private let logger: Logger?
     private let onDelete: (@Sendable () async -> Void)?
 
@@ -104,6 +105,7 @@ public final class LinuxProcess: Sendable {
         containerID: String? = nil,
         spec: Spec,
         io: Stdio,
+        ociRuntimePath: String?,
         agent: any VirtualMachineAgent,
         vm: any VirtualMachineInstance,
         logger: Logger?,
@@ -114,6 +116,7 @@ public final class LinuxProcess: Sendable {
         self.state = Mutex<State>(.init(spec: spec, pid: -1, stdio: StdioHandles()))
         self.ioSetup = io
         self.agent = agent
+        self.ociRuntimePath = ociRuntimePath
         self.vm = vm
         self.logger = logger
         self.onDelete = onDelete
@@ -260,6 +263,7 @@ extension LinuxProcess {
                 stdinPort: self.ioSetup.stdin?.port,
                 stdoutPort: self.ioSetup.stdout?.port,
                 stderrPort: self.ioSetup.stderr?.port,
+                ociRuntimePath: self.ociRuntimePath,
                 configuration: spec,
                 options: nil
             )

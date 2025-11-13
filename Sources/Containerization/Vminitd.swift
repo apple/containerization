@@ -185,6 +185,7 @@ extension Vminitd: VirtualMachineAgent {
         stdinPort: UInt32?,
         stdoutPort: UInt32?,
         stderrPort: UInt32?,
+        ociRuntimePath: String?,
         configuration: ContainerizationOCI.Spec,
         options: Data?
     ) async throws {
@@ -203,6 +204,9 @@ extension Vminitd: VirtualMachineAgent {
                 }
                 if let containerID {
                     $0.containerID = containerID
+                }
+                if let ociRuntimePath {
+                    $0.ociRuntimePath = ociRuntimePath
                 }
                 $0.configuration = try enc.encode(configuration)
             })

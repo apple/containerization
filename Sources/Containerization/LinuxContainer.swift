@@ -62,6 +62,9 @@ public final class LinuxContainer: Container, Sendable {
         public var virtualization: Bool = false
         /// Optional destination for serial boot logs.
         public var bootLog: BootLog?
+        /// EXPERIMENTAL: Path in the root filesystem for the virtual
+        /// machine where the OCI runtime used to spawn the container lives.
+        public var ociRuntimePath: String?
 
         public init() {}
 
@@ -77,7 +80,8 @@ public final class LinuxContainer: Container, Sendable {
             dns: DNS? = nil,
             hosts: Hosts? = nil,
             virtualization: Bool = false,
-            bootLog: BootLog? = nil
+            bootLog: BootLog? = nil,
+            ociRuntimePath: String? = nil
         ) {
             self.process = process
             self.cpus = cpus
@@ -91,6 +95,7 @@ public final class LinuxContainer: Container, Sendable {
             self.hosts = hosts
             self.virtualization = virtualization
             self.bootLog = bootLog
+            self.ociRuntimePath = ociRuntimePath
         }
     }
 
@@ -317,19 +322,42 @@ public final class LinuxContainer: Container, Sendable {
             )
         )
 
+        spec.linux?.namespaces = [
+            LinuxNamespace(type: .cgroup),
+            LinuxNamespace(type: .ipc),
+            LinuxNamespace(type: .mount),
+            LinuxNamespace(type: .pid),
+            LinuxNamespace(type: .uts),
+        ]
+
         return spec
     }
 
+    /// The default set of mounts for a LinuxContainer.
     public static func defaultMounts() -> [Mount] {
         let defaultOptions = ["nosuid", "noexec", "nodev"]
         return [
-            .any(type: "proc", source: "proc", destination: "/proc", options: defaultOptions),
+            .any(type: "proc", source: "proc", destination: "/proc"),
             .any(type: "sysfs", source: "sysfs", destination: "/sys", options: defaultOptions),
             .any(type: "devtmpfs", source: "none", destination: "/dev", options: ["nosuid", "mode=755"]),
             .any(type: "mqueue", source: "mqueue", destination: "/dev/mqueue", options: defaultOptions),
             .any(type: "tmpfs", source: "tmpfs", destination: "/dev/shm", options: defaultOptions + ["mode=1777", "size=65536k"]),
             .any(type: "cgroup2", source: "none", destination: "/sys/fs/cgroup", options: defaultOptions),
-            .any(type: "devpts", source: "devpts", destination: "/dev/pts", options: ["nosuid", "noexec", "gid=5", "mode=620", "ptmxmode=666"]),
+            .any(type: "devpts", source: "devpts", destination: "/dev/pts", options: ["nosuid", "noexec", "newinstance", "gid=5", "mode=0620", "ptmxmode=0666"]),
+        ]
+    }
+
+    /// A more traditional default set of mounts that OCI runtimes typically employ.
+    public static func defaultOCIMounts() -> [Mount] {
+        let defaultOptions = ["nosuid", "noexec", "nodev"]
+        return [
+            .any(type: "proc", source: "proc", destination: "/proc"),
+            .any(type: "tmpfs", source: "tmpfs", destination: "/dev", options: ["nosuid", "mode=755", "size=65536k"]),
+            .any(type: "devpts", source: "devpts", destination: "/dev/pts", options: ["nosuid", "noexec", "newinstance", "gid=5", "mode=0620", "ptmxmode=0666"]),
+            .any(type: "sysfs", source: "sysfs", destination: "/sys", options: defaultOptions),
+            .any(type: "mqueue", source: "mqueue", destination: "/dev/mqueue", options: defaultOptions),
+            .any(type: "tmpfs", source: "tmpfs", destination: "/dev/shm", options: defaultOptions + ["mode=1777", "size=65536k"]),
+            .any(type: "cgroup2", source: "none", destination: "/sys/fs/cgroup", options: defaultOptions),
         ]
     }
 
@@ -456,6 +484,7 @@ extension LinuxContainer {
                     containerID: self.id,
                     spec: spec,
                     io: stdio,
+                    ociRuntimePath: self.config.ociRuntimePath,
                     agent: agent,
                     vm: createdState.vm,
                     logger: self.logger
@@ -657,6 +686,7 @@ extension LinuxContainer {
                 containerID: self.id,
                 spec: spec,
                 io: stdio,
+                ociRuntimePath: self.config.ociRuntimePath,
                 agent: agent,
                 vm: startedState.vm,
                 logger: self.logger,
@@ -693,6 +723,7 @@ extension LinuxContainer {
                 containerID: self.id,
                 spec: spec,
                 io: stdio,
+                ociRuntimePath: self.config.ociRuntimePath,
                 agent: agent,
                 vm: state.vm,
                 logger: self.logger,

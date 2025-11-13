@@ -488,10 +488,11 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                     try hostname.write(toFile: hostnamePath.path, atomically: true, encoding: .utf8)
                 }
 
-                let ctr = try ManagedContainer(
+                let ctr = try await ManagedContainer(
                     id: request.id,
                     stdio: stdioPorts,
                     spec: ociSpec,
+                    ociRuntimePath: request.hasOciRuntimePath ? request.ociRuntimePath : nil,
                     log: self.log
                 )
                 try await self.state.add(container: ctr)
@@ -685,7 +686,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             let exitStatus = try await ctr.wait(execID: request.id)
 
             return .with {
-                $0.exitCode = exitStatus.exitStatus
+                $0.exitCode = exitStatus.exitCode
                 $0.exitedAt = Google_Protobuf_Timestamp(date: exitStatus.exitedAt)
             }
         } catch {

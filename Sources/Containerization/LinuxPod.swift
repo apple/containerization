@@ -406,6 +406,7 @@ extension LinuxPod {
                     containerID: containerID,
                     spec: spec,
                     io: stdio,
+                    ociRuntimePath: nil,
                     agent: agent,
                     vm: createdState.vm,
                     logger: self.logger
@@ -613,6 +614,7 @@ extension LinuxPod {
                 containerID: containerID,
                 spec: spec,
                 io: stdio,
+                ociRuntimePath: nil,
                 agent: agent,
                 vm: createdState.vm,
                 logger: self.logger

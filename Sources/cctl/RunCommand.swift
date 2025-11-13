@@ -58,6 +58,9 @@ extension Application {
         @Option(name: .customLong("ns"), help: "Nameserver addresses")
         var nameservers: [String] = []
 
+        @Option(name: .long, help: "Path to OCI runtime to use for spawning the container")
+        var ociRuntimePath: String?
+
         @Option(
             name: [.customLong("kernel"), .customShort("k")], help: "Kernel binary path", completion: .file(),
             transform: { str in
@@ -132,6 +135,10 @@ extension Application {
                         ))
                 }
                 config.hosts = hosts
+                if let ociRuntimePath {
+                    config.ociRuntimePath = ociRuntimePath
+                    config.mounts = LinuxContainer.defaultOCIMounts()
+                }
             }
 
             defer {
