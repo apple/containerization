@@ -286,6 +286,7 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("container hostname", testHostname),
             Test("container hosts", testHostsFile),
             Test("container mount", testMounts),
+            Test("container stop idempotency", testContainerStopIdempotency),
             Test("nested virt", testNestedVirtualizationEnabled),
             Test("container manager", testContainerManagerCreate),
             Test("container reuse", testContainerReuse),

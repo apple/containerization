@@ -602,10 +602,8 @@ extension IntegrationSuite {
     func testContainerManagerCreate() async throws {
         let id = "test-container-manager"
 
-        // Get the kernel from bootstrap
         let bs = try await bootstrap(id)
 
-        // Create ContainerManager with kernel and initfs reference
         var manager = try ContainerManager(vmm: bs.vmm)
         defer {
             try? manager.delete(id)
@@ -622,11 +620,9 @@ extension IntegrationSuite {
             config.bootlog = bs.bootlog
         }
 
-        // Start the container
         try await container.create()
         try await container.start()
 
-        // Wait for completion
         let status = try await container.wait()
         try await container.stop()
 
@@ -644,10 +640,8 @@ extension IntegrationSuite {
     func testContainerStopIdempotency() async throws {
         let id = "test-container-stop-idempotency"
 
-        // Get the kernel from bootstrap
         let bs = try await bootstrap(id)
 
-        // Create ContainerManager with kernel and initfs reference
         var manager = try ContainerManager(vmm: bs.vmm)
         defer {
             try? manager.delete(id)
@@ -664,22 +658,19 @@ extension IntegrationSuite {
             config.bootlog = bs.bootlog
         }
 
-        // Start the container
         try await container.create()
         try await container.start()
 
-        // Wait for completion
         let status = try await container.wait()
         guard status.exitCode == 0 else {
             throw IntegrationError.assert(msg: "process status \(status) != 0")
         }
 
         try await container.stop()
-        // Second go around should return with no problems.
         try await container.stop()
 
         let output = String(data: buffer.data, encoding: .utf8)
-        guard output == "ContainerManager test\n" else {
+        guard output == "please stop me\n" else {
             throw IntegrationError.assert(
                 msg: "process should have returned 'ContainerManager test' != '\(output ?? "nil")'")
         }
@@ -688,10 +679,8 @@ extension IntegrationSuite {
     func testContainerReuse() async throws {
         let id = "test-container-reuse"
 
-        // Get the kernel from bootstrap
         let bs = try await bootstrap(id)
 
-        // Create ContainerManager with kernel and initfs reference
         var manager = try ContainerManager(vmm: bs.vmm)
         defer {
             try? manager.delete(id)
@@ -708,18 +697,15 @@ extension IntegrationSuite {
             config.bootlog = bs.bootlog
         }
 
-        // Start the container
         try await container.create()
         try await container.start()
 
-        // Wait for completion
         var status = try await container.wait()
         guard status.exitCode == 0 else {
             throw IntegrationError.assert(msg: "process status \(status) != 0")
         }
         try await container.stop()
 
-        // Recreate things.
         try await container.create()
         try await container.start()
 
