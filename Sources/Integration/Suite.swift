@@ -162,7 +162,7 @@ struct IntegrationSuite: AsyncParsableCommand {
 
     static let eventLoop = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
 
-    func bootstrap(_ testID: String) async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image, bootlog: URL) {
+    func bootstrap(_ testID: String) async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image, bootLog: BootLog) {
         let reference = "ghcr.io/linuxcontainers/alpine:3.20"
         let store = Self.imageStore
 
@@ -214,7 +214,7 @@ struct IntegrationSuite: AsyncParsableCommand {
 
         let cl = try fs.clone(to: clPath)
 
-        // Create bootlog directory and per-container bootlog path
+        // Create bootLog directory and per-container bootLog path
         let bootlogDirURL = URL(filePath: bootlogDir)
         try? FileManager.default.createDirectory(at: bootlogDirURL, withIntermediateDirectories: true)
         let bootlogURL = bootlogDirURL.appendingPathComponent("\(testID).log")
@@ -227,7 +227,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 group: Self.eventLoop
             ),
             image,
-            bootlogURL
+            BootLog.file(path: bootlogURL)
         )
     }
 
@@ -299,6 +299,7 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("container test large stdio ingest", testLargeStdioOutput),
             Test("process delete idempotency", testProcessDeleteIdempotency),
             Test("multiple execs without delete", testMultipleExecsWithoutDelete),
+            Test("container bootlog using filehandle", testBootLogFileHandle),
 
             // Pods
             Test("pod single container", testPodSingleContainer),

@@ -30,7 +30,7 @@ extension IntegrationSuite {
         let bs = try await bootstrap(id)
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["/bin/true"]
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         try await container.create()
@@ -50,7 +50,7 @@ extension IntegrationSuite {
         let bs = try await bootstrap(id)
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["/bin/false"]
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         try await container.create()
@@ -115,7 +115,7 @@ extension IntegrationSuite {
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["/bin/echo", "hi"]
             config.process.stdout = buffer
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         do {
@@ -145,7 +145,7 @@ extension IntegrationSuite {
         let bs = try await bootstrap(id)
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["/bin/sleep", "1000"]
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         do {
@@ -188,7 +188,7 @@ extension IntegrationSuite {
         let bs = try await bootstrap(id)
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["/bin/sleep", "1000"]
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         do {
@@ -262,7 +262,7 @@ extension IntegrationSuite {
             config.process.arguments = ["/usr/bin/id"]
             config.process.user = .init(uid: 1, gid: 1, additionalGids: [1])
             config.process.stdout = buffer
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         try await container.create()
@@ -287,7 +287,7 @@ extension IntegrationSuite {
             // Try some uid that doesn't exist. This is supported.
             config.process.user = .init(uid: 40000, gid: 40000)
             config.process.stdout = buffer
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         try await container.create()
@@ -312,7 +312,7 @@ extension IntegrationSuite {
             // Try some uid that doesn't exist. This is supported.
             config.process.user = .init(username: "40000:40000")
             config.process.stdout = buffer
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         try await container.create()
@@ -337,7 +337,7 @@ extension IntegrationSuite {
             // Now for our final trick, try and run a username that doesn't exist.
             config.process.user = .init(username: "thisdoesntexist")
             config.process.stdout = buffer
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         try await container.create()
@@ -359,7 +359,7 @@ extension IntegrationSuite {
             config.process.arguments = ["env"]
             config.process.terminal = true
             config.process.stdout = buffer
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         try await container.create()
@@ -394,7 +394,7 @@ extension IntegrationSuite {
             config.process.arguments = ["env"]
             config.process.user = .init(uid: 0, gid: 0)
             config.process.stdout = buffer
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         try await container.create()
@@ -430,7 +430,7 @@ extension IntegrationSuite {
             config.process.environmentVariables.append(customHomeEnvvar)
             config.process.user = .init(uid: 0, gid: 0)
             config.process.stdout = buffer
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         try await container.create()
@@ -461,7 +461,7 @@ extension IntegrationSuite {
             config.process.arguments = ["/bin/hostname"]
             config.hostname = "foo-bar"
             config.process.stdout = buffer
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         try await container.create()
@@ -491,7 +491,7 @@ extension IntegrationSuite {
             config.process.arguments = ["cat", "/etc/hosts"]
             config.hosts = Hosts(entries: [entry])
             config.process.stdout = buffer
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         try await container.create()
@@ -520,7 +520,7 @@ extension IntegrationSuite {
             config.process.arguments = ["cat"]
             config.process.stdin = StdinBuffer(data: "Hello from test".data(using: .utf8)!)
             config.process.stdout = buffer
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         try await container.create()
@@ -550,7 +550,7 @@ extension IntegrationSuite {
             config.process.arguments = ["/bin/cat", "/mnt/hi.txt"]
             config.mounts.append(.share(source: directory.path, destination: "/mnt"))
             config.process.stdout = buffer
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         try await container.create()
@@ -578,7 +578,7 @@ extension IntegrationSuite {
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["/bin/true"]
             config.virtualization = true
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         do {
@@ -618,7 +618,7 @@ extension IntegrationSuite {
         ) { config in
             config.process.arguments = ["/bin/echo", "ContainerManager test"]
             config.process.stdout = buffer
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         try await container.create()
@@ -656,7 +656,7 @@ extension IntegrationSuite {
         ) { config in
             config.process.arguments = ["/bin/echo", "please stop me"]
             config.process.stdout = buffer
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         try await container.create()
@@ -695,7 +695,7 @@ extension IntegrationSuite {
         ) { config in
             config.process.arguments = ["/bin/echo", "ContainerManager test"]
             config.process.stdout = buffer
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         try await container.create()
@@ -749,7 +749,7 @@ extension IntegrationSuite {
             config.process.arguments = ["mount"]
             config.process.terminal = true
             config.process.stdout = buffer
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         try await container.create()
@@ -779,7 +779,7 @@ extension IntegrationSuite {
         let bs = try await bootstrap(id)
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["sleep", "infinity"]
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         do {
@@ -825,7 +825,7 @@ extension IntegrationSuite {
             config.process.arguments = ["sleep", "infinity"]
             config.cpus = 2
             config.memoryInBytes = 512.mib()
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         do {
@@ -948,7 +948,7 @@ extension IntegrationSuite {
                     direction: .into
                 )
             ]
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         do {
@@ -1029,13 +1029,60 @@ extension IntegrationSuite {
         return dir
     }
 
+    func testBootLogFileHandle() async throws {
+        let id = "test-bootlog-filehandle"
+
+        let bs = try await bootstrap(id)
+
+        // Create a pipe to capture boot log data
+        let pipe = Pipe()
+        let bootLog = BootLog.fileHandle(pipe.fileHandleForWriting)
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/echo", "test complete"]
+            config.bootLog = bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let status = try await container.wait()
+            try await container.stop()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "process status \(status) != 0")
+            }
+
+            try pipe.fileHandleForWriting.close()
+            let bootLogData = try pipe.fileHandleForReading.readToEnd()
+            guard let bootLogData = bootLogData, bootLogData.count > 0 else {
+                throw IntegrationError.assert(
+                    msg: "expected to receive boot log data from pipe, but got no data")
+            }
+
+            guard let bootLogString = String(data: bootLogData, encoding: .utf8) else {
+                throw IntegrationError.assert(
+                    msg: "failed to convert boot log data to UTF8 string")
+            }
+
+            guard bootLogString.count > 100 else {
+                throw IntegrationError.assert(
+                    msg: "boot log output smaller than expected: got \(bootLogString.count)")
+            }
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
     func testLargeStdioOutput() async throws {
         let id = "test-large-stdout-stderr-output"
 
         let bs = try await bootstrap(id)
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["/bin/sleep", "1000"]
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         do {
@@ -1098,7 +1145,7 @@ extension IntegrationSuite {
         let bs = try await bootstrap(id)
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["/bin/sleep", "1000"]
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         do {
@@ -1136,7 +1183,7 @@ extension IntegrationSuite {
         let bs = try await bootstrap(id)
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["/bin/sleep", "1000"]
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         do {

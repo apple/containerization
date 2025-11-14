@@ -49,7 +49,7 @@ public final class LinuxPod: Sendable {
         /// Whether nested virtualization should be turned on for the pod.
         public var virtualization: Bool = false
         /// Optional file path to store serial boot logs.
-        public var bootlog: URL?
+        public var bootLog: BootLog?
 
         public init() {}
     }
@@ -293,7 +293,7 @@ extension LinuxPod {
                 memoryInBytes: self.config.memoryInBytes,
                 interfaces: self.config.interfaces,
                 mountsByID: mountsByID,
-                bootlog: self.config.bootlog,
+                bootLog: self.config.bootLog,
                 nestedVirtualization: self.config.virtualization
             )
             let creationConfig = StandardVMConfig(configuration: vmConfig)

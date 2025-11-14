@@ -62,8 +62,8 @@ public struct VZVirtualMachineManager: VirtualMachineManager {
                 instanceConfig.kernel = self.kernel
                 instanceConfig.initialFilesystem = self.initialFilesystem
 
-                if let bootlog = vmConfig.bootlog {
-                    instanceConfig.bootlog = bootlog
+                if let bootLog = vmConfig.bootLog {
+                    instanceConfig.bootLog = bootLog
                 }
 
                 instanceConfig.interfaces = vmConfig.interfaces

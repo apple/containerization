@@ -417,7 +417,7 @@ public struct ContainerManager: Sendable {
                 config.interfaces = [interface]
                 config.dns = .init(nameservers: [interface.gateway!])
             }
-            config.bootlog = self.containerRoot.appendingPathComponent(id).appendingPathComponent("bootlog.log")
+            config.bootLog = BootLog.file(path: self.containerRoot.appendingPathComponent(id).appendingPathComponent("bootlog.log"))
             try configuration(&config)
         }
     }
