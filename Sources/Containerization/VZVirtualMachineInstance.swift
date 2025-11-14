@@ -55,8 +55,8 @@ struct VZVirtualMachineInstance: Sendable {
         public var kernel: Kernel?
         /// The root filesystem.
         public var initialFilesystem: Mount?
-        /// File path to store the virtual machine's boot logs.
-        public var bootlog: URL?
+        /// Destination for the virtual machine's boot logs.
+        public var bootLog: BootLog?
 
         init() {
             self.cpus = 4
@@ -298,9 +298,17 @@ extension VZVirtualMachineInstance.Configuration {
         }
     }
 
-    private func serialPort(path: URL) throws -> [VZVirtioConsoleDeviceSerialPortConfiguration] {
+    private func serialPort(destination: BootLog) throws -> [VZVirtioConsoleDeviceSerialPortConfiguration] {
         let c = VZVirtioConsoleDeviceSerialPortConfiguration()
-        c.attachment = try VZFileSerialPortAttachment(url: path, append: true)
+        switch destination.base {
+        case .file(let path, let append):
+            c.attachment = try VZFileSerialPortAttachment(url: path, append: append)
+        case .fileHandle(let fileHandle):
+            c.attachment = VZFileHandleSerialPortAttachment(
+                fileHandleForReading: nil,
+                fileHandleForWriting: fileHandle
+            )
+        }
         return [c]
     }
 
@@ -312,11 +320,11 @@ extension VZVirtualMachineInstance.Configuration {
         config.entropyDevices = [VZVirtioEntropyDeviceConfiguration()]
         config.socketDevices = [VZVirtioSocketDeviceConfiguration()]
 
-        if let bootlog = self.bootlog {
-            config.serialPorts = try serialPort(path: bootlog)
+        if let bootLog = self.bootLog {
+            config.serialPorts = try serialPort(destination: bootLog)
         } else {
             // We always supply a serial console. If no explicit path was provided just send em to the void.
-            config.serialPorts = try serialPort(path: URL(filePath: "/dev/null"))
+            config.serialPorts = try serialPort(destination: .file(path: URL(filePath: "/dev/null")))
         }
 
         config.networkDevices = try self.interfaces.map {

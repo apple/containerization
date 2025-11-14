@@ -37,7 +37,7 @@ extension IntegrationSuite {
         let pod = try LinuxPod(id, vmm: bs.vmm) { config in
             config.cpus = 4
             config.memoryInBytes = 1024.mib()
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
@@ -62,7 +62,7 @@ extension IntegrationSuite {
         let pod = try LinuxPod(id, vmm: bs.vmm) { config in
             config.cpus = 4
             config.memoryInBytes = 1024.mib()
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         try await pod.addContainer("container1", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container1")) { config in
@@ -99,7 +99,7 @@ extension IntegrationSuite {
         let pod = try LinuxPod(id, vmm: bs.vmm) { config in
             config.cpus = 4
             config.memoryInBytes = 1024.mib()
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         let buffer = BufferWriter()
@@ -131,7 +131,7 @@ extension IntegrationSuite {
         let pod = try LinuxPod(id, vmm: bs.vmm) { config in
             config.cpus = 4
             config.memoryInBytes = 1024.mib()
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         // Add 5 containers
@@ -176,7 +176,7 @@ extension IntegrationSuite {
         let pod = try LinuxPod(id, vmm: bs.vmm) { config in
             config.cpus = 4
             config.memoryInBytes = 1024.mib()
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
@@ -217,7 +217,7 @@ extension IntegrationSuite {
         let pod = try LinuxPod(id, vmm: bs.vmm) { config in
             config.cpus = 4
             config.memoryInBytes = 1024.mib()
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         let buffer = BufferWriter()
@@ -250,7 +250,7 @@ extension IntegrationSuite {
         let pod = try LinuxPod(id, vmm: bs.vmm) { config in
             config.cpus = 4
             config.memoryInBytes = 1024.mib()
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
@@ -279,7 +279,7 @@ extension IntegrationSuite {
         let pod = try LinuxPod(id, vmm: bs.vmm) { config in
             config.cpus = 4
             config.memoryInBytes = 1024.mib()
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         let containerIDs = ["container1", "container2", "container3"]
@@ -307,7 +307,7 @@ extension IntegrationSuite {
         let pod = try LinuxPod(id, vmm: bs.vmm) { config in
             config.cpus = 4
             config.memoryInBytes = 1024.mib()
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         try await pod.addContainer("container1", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container1")) { config in
@@ -363,7 +363,7 @@ extension IntegrationSuite {
         let pod = try LinuxPod(id, vmm: bs.vmm) { config in
             config.cpus = 4
             config.memoryInBytes = 1024.mib()
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
@@ -434,7 +434,7 @@ extension IntegrationSuite {
         let pod = try LinuxPod(id, vmm: bs.vmm) { config in
             config.cpus = 4
             config.memoryInBytes = 1024.mib()
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         try await pod.addContainer("container1", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container1")) { config in
@@ -505,7 +505,7 @@ extension IntegrationSuite {
         let pod = try LinuxPod(id, vmm: bs.vmm) { config in
             config.cpus = 4
             config.memoryInBytes = 1024.mib()
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         try await pod.addContainer("container1", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container1")) { config in
@@ -586,7 +586,7 @@ extension IntegrationSuite {
         let pod = try LinuxPod(id, vmm: bs.vmm) { config in
             config.cpus = 4
             config.memoryInBytes = 1024.mib()
-            config.bootlog = bs.bootlog
+            config.bootLog = bs.bootLog
         }
 
         // Container1 with 1 CPU and 128 MiB memory
