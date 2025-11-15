@@ -39,6 +39,7 @@ final class ManagedProcess: Sendable {
     struct ExitStatus {
         var exitStatus: Int32
         var exitedAt: Date
+        var error: ContainerizationError?
     }
 
     private struct State {
@@ -50,6 +51,8 @@ final class ManagedProcess: Sendable {
         var waiters: [CheckedContinuation<ExitStatus, Never>] = []
         var exitStatus: ExitStatus? = nil
         var pid: Int32?
+        var errorData: Data = Data()
+        var errorPipe: Pipe?
     }
 
     private static let ackPid = "AckPid"
@@ -95,6 +98,9 @@ final class ManagedProcess: Sendable {
         try ackPipe.setCloexec()
         self.ackPipe = ackPipe
 
+        let errorPipe = Pipe()
+        try errorPipe.setCloexec()
+
         let args: [String]
         if let owningPid {
             args = [
@@ -114,6 +120,7 @@ final class ManagedProcess: Sendable {
             extraFiles: [
                 syncPipe.fileHandleForWriting,
                 ackPipe.fileHandleForReading,
+                errorPipe.fileHandleForWriting,
             ]
         )
 
@@ -144,6 +151,9 @@ final class ManagedProcess: Sendable {
         self.terminal = stdio.terminal
         self.bundle = bundle
         self.state = Mutex(State(io: io))
+        self.state.withLock { state in
+            state.errorPipe = errorPipe
+        }
     }
 }
 
@@ -158,6 +168,16 @@ extension ManagedProcess {
 
             // Start the underlying process.
             try command.start()
+
+            if let errorPipe = $0.errorPipe {
+                let errorReadHandle = errorPipe.fileHandleForReading
+                Task { [weak self] in
+                    if let data = try? errorReadHandle.readToEnd() {
+                        self?.state.withLock { $0.errorData = data }
+                    }
+                } 
+            }
+
             defer {
                 try? self.ackPipe.fileHandleForWriting.close()
                 try? self.syncPipe.fileHandleForReading.close()
@@ -246,28 +266,43 @@ extension ManagedProcess {
     }
 
     func setExit(_ status: Int32) {
-        self.state.withLock {
+        self.state.withLock { state in
             self.log.info(
                 "managed process exit",
                 metadata: [
                     "status": "\(status)"
                 ])
 
-            let exitStatus = ExitStatus(exitStatus: status, exitedAt: Date.now)
-            $0.exitStatus = exitStatus
+            var error: ContainerizationError? = nil
+            if status != 0, !state.errorData.isEmpty {
+                if let errorString = String(data: state.errorData, encoding: .utf8) {
+                    self.log.error("vmexec failed with error: \(errorString)")
+                    error = ContainerizationError(
+                        .internalError,
+                        message: errorString.trimmingCharacters(in: .whitespacesAndNewlines)
+                    )
+                }
+            }
+
+            let exitStatus = ExitStatus(exitStatus: status, exitedAt: Date.now, error: error)
+            state.exitStatus = exitStatus
+
+            try? state.errorPipe?.fileHandleForReading.close()
+            try? state.errorPipe?.fileHandleForWriting.close()
+            state.errorPipe = nil
 
             do {
-                try $0.io.close()
+                try state.io.close()
             } catch {
                 self.log.error("failed to close I/O for process: \(error)")
             }
 
-            for waiter in $0.waiters {
+            for waiter in state.waiters {
                 waiter.resume(returning: exitStatus)
             }
 
-            self.log.debug("\($0.waiters.count) managed process waiters signaled")
-            $0.waiters.removeAll()
+            self.log.debug("\(state.waiters.count) managed process waiters signaled")
+            state.waiters.removeAll()
         }
     }
 
