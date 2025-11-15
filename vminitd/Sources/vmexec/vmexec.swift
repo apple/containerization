@@ -182,4 +182,20 @@ extension App {
             message: message
         )
     }
+
+    static func writeError(_ error: Error) {
+        let errorPipe = FileHandle(fileDescriptor: 5)
+
+        let errorMessage: String
+        if let czError = error as? ContainerizationError {
+            errorMessage = czError.description
+        } else {
+            errorMessage = String(describing: error)
+        }
+
+        if let data = errorMessage.data(using: .utf8) {
+            try? errorPipe.write(contentsOf: data)
+        }
+        try? errorPipe.close()
+    }
 }

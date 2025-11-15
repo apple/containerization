@@ -32,12 +32,17 @@ struct RunCommand: ParsableCommand {
     var bundlePath: String
 
     mutating func run() throws {
-        LoggingSystem.bootstrap(App.standardError)
-        let log = Logger(label: "vmexec")
+        do {
+            LoggingSystem.bootstrap(App.standardError)
+            let log = Logger(label: "vmexec")
 
-        let bundle = try ContainerizationOCI.Bundle.load(path: URL(filePath: bundlePath))
-        let ociSpec = try bundle.loadConfig()
-        try execInNamespace(spec: ociSpec, log: log)
+            let bundle = try ContainerizationOCI.Bundle.load(path: URL(filePath: bundlePath))
+            let ociSpec = try bundle.loadConfig()
+            try execInNamespace(spec: ociSpec, log: log)
+        } catch {
+            App.writeError(error)
+            throw error
+        }
     }
 
     private func childRootSetup(rootfs: ContainerizationOCI.Root, mounts: [ContainerizationOCI.Mount], log: Logger) throws {
