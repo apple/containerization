@@ -205,11 +205,8 @@ extension LocalOCILayoutClient {
         descriptor.annotations = annotations
     }
 
-    package func getImageReferencefromDescriptor(descriptor: Descriptor) -> String? {
+    package func getImageReferencefromDescriptor(descriptor: Descriptor) -> String {
         let annotations = descriptor.annotations
-        guard let annotations else {
-            return nil
-        }
 
         // Annotations here do not conform to the OCI image specification.
         // The interpretation of the annotations "org.opencontainers.image.ref.name" and
@@ -220,16 +217,21 @@ extension LocalOCILayoutClient {
         //     https://github.com/moby/buildkit/issues/4615#issuecomment-2521810830
         // Until a consensus is reached, the preference is given to "com.apple.containerization.image.name" and then to
         // using "io.containerd.image.name" as it is the next safest choice
-        if let name = annotations[AnnotationKeys.containerizationImageName] {
-            return name
+        if let annotations {
+            if let name = annotations[AnnotationKeys.containerizationImageName] {
+                return name
+            }
+            if let name = annotations[AnnotationKeys.containerdImageName] {
+                return name
+            }
+            if let name = annotations[AnnotationKeys.openContainersImageName] {
+                return name
+            }
         }
-        if let name = annotations[AnnotationKeys.containerdImageName] {
-            return name
-        }
-        if let name = annotations[AnnotationKeys.openContainersImageName] {
-            return name
-        }
-        return nil
+
+        // Fallback: Generate digest-based reference for images without annotations
+        // This makes sure OCI spec compliance as annotations are optional
+        return "untagged@\(descriptor.digest)"
     }
 
     package enum Error: Swift.Error {
