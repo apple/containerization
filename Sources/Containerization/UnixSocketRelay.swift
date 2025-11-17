@@ -88,6 +88,7 @@ package final class SocketRelay: Sendable {
     private struct State {
         var relaySources: [String: ConnectionSources] = [:]
         var t: Task<(), Never>? = nil
+        var listener: VsockListener? = nil
     }
 
     // `DispatchSourceRead` is thread-safe.
@@ -137,15 +138,15 @@ extension SocketRelay {
             t.cancel()
             $0.t = nil
             $0.relaySources.removeAll()
-        }
 
-        switch configuration.direction {
-        case .outOf:
-            // If we created the host conn, lets unlink it also. It's possible it was
-            // already unlinked if the relay failed earlier.
-            try? FileManager.default.removeItem(at: self.configuration.destination)
-        case .into:
-            try self.vm.stopListen(self.port)
+            switch configuration.direction {
+            case .outOf:
+                // If we created the host conn, lets unlink it also. It's possible it was
+                // already unlinked if the relay failed earlier.
+                try? FileManager.default.removeItem(at: self.configuration.destination)
+            case .into:
+                try $0.listener?.finish()
+            }
         }
     }
 
@@ -190,18 +191,20 @@ extension SocketRelay {
         let port = self.port
         let log = self.log
 
-        let connectionStream = try self.vm.listen(self.port)
+        let listener = try self.vm.listen(self.port)
         log?.info(
             "listening on guest vsock",
             metadata: [
                 "path": "\(hostPath)",
                 "vport": "\(port)",
             ])
+
         self.state.withLock {
+            $0.listener = listener
             $0.t = Task {
                 do {
-                    defer { connectionStream.finish() }
-                    for await connection in connectionStream {
+                    defer { try? listener.finish() }
+                    for await connection in listener {
                         try await self.handleGuestVsockConn(
                             vsockConn: connection,
                             hostConnectionPath: hostPath,

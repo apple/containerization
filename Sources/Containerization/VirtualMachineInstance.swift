@@ -40,9 +40,7 @@ public protocol VirtualMachineInstance: Sendable {
     /// Dial a vsock port in the guest.
     func dial(_ port: UInt32) async throws -> FileHandle
     /// Listen on a host vsock port.
-    func listen(_ port: UInt32) throws -> VsockConnectionStream
-    /// Stop listening on a vsock port.
-    func stopListen(_ port: UInt32) throws
+    func listen(_ port: UInt32) throws -> VsockListener
     /// Start the virtual machine.
     func start() async throws
     /// Stop the virtual machine.
