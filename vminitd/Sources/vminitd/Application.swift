@@ -121,6 +121,11 @@ struct Application {
             #endif
         } catch {
             log.error("vminitd boot error \(error)")
+
+            #if os(Linux)
+            Musl.sync()
+            #endif
+
             exit(1)
         }
     }
