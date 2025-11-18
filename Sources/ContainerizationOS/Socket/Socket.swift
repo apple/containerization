@@ -329,7 +329,7 @@ extension Socket {
 
         var cmsgBuf = [UInt8](repeating: 0, count: Int(CZ_CMSG_SPACE(Int(MemoryLayout<Int32>.size))))
         msg.msg_control = withUnsafeMutablePointer(to: &cmsgBuf[0]) { UnsafeMutableRawPointer($0) }
-        msg.msg_controllen = socklen_t(cmsgBuf.count)
+        msg.msg_controllen = numericCast(cmsgBuf.count)
 
         let recvResult = withUnsafeMutablePointer(to: &msg) { msgPtr in
             sysRecvmsg(handle.fileDescriptor, msgPtr, 0)
