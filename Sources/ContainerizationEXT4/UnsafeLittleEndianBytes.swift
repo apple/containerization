@@ -71,12 +71,8 @@ public enum Endianness {
 
 // returns current endianness
 public var Endian: Endianness {
-    switch CFByteOrderGetCurrent() {
-    case CFByteOrder(CFByteOrderLittleEndian.rawValue):
-        return .little
-    case CFByteOrder(CFByteOrderBigEndian.rawValue):
-        return .big
-    default:
-        fatalError("impossible")
+    var value: UInt32 = 0x0102_0304
+    return withUnsafeBytes(of: &value) { buffer in
+        buffer.first == 0x04 ? .little : .big
     }
 }

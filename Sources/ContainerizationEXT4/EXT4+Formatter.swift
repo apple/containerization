@@ -201,21 +201,42 @@ extension EXT4 {
             let pathNode = pathPtr.pointee
             let inodeNumber = Int(pathNode.inode) - 1
             let pathInodePtr = self.inodes[inodeNumber]
-            var pathInode = pathInodePtr.pointee
+            let pathInode = pathInodePtr.pointee
 
             if directoryWhiteout && !pathInode.mode.isDir() {
                 throw Error.notDirectory(path)
             }
 
-            for childPtr in pathNode.children {
-                try self.unlink(path: path.join(childPtr.pointee.name))
+            // Iterative breath-first traversal of the FileTree to prevent recursion attacks
+            var queue: [(parent: Ptr<FileTree.FileTreeNode>?, entry: Ptr<FileTree.FileTreeNode>)] = pathNode.children.map { (pathPtr, $0) }
+            var head: Int = 0
+            while head < queue.count {
+                let currNode = queue[head].entry
+                for childPtr in currNode.pointee.children {
+                    queue.append((currNode, childPtr))
+                }
+                head += 1
+            }
+
+            for (parent, entry) in queue.reversed() {
+                try _unlink(parentNodePtr: parent, pathNodePtr: entry)
             }
 
             guard !directoryWhiteout else {
                 return
             }
 
-            if let parentNodePtr = self.tree.lookup(path: path.dir) {
+            try _unlink(parentNodePtr: self.tree.lookup(path: path.dir), pathNodePtr: pathPtr)
+        }
+
+        private func _unlink(parentNodePtr: Ptr<FileTree.FileTreeNode>?, pathNodePtr: Ptr<FileTree.FileTreeNode>) throws {
+            let pathNode = pathNodePtr.pointee
+            let pathComponent = pathNode.name
+            let inodeNumber = Int(pathNode.inode) - 1
+            let pathInodePtr = self.inodes[inodeNumber]
+            var pathInode = pathInodePtr.pointee
+
+            if let parentNodePtr {
                 let parentNode = parentNodePtr.pointee
                 let parentInodePtr = self.inodes[Int(parentNode.inode) - 1]
                 var parentInode = parentInodePtr.pointee
@@ -226,7 +247,7 @@ extension EXT4 {
                 }
                 parentInodePtr.initialize(to: parentInode)
                 parentNode.children.removeAll { childPtr in
-                    childPtr.pointee.name == path.base
+                    childPtr.pointee.name == pathComponent
                 }
                 parentNodePtr.initialize(to: parentNode)
             }
@@ -346,6 +367,10 @@ extension EXT4 {
                     if inode.mode.isDir() {
                         guard mode.isLink() else {  // unless it is a link, then it can be replaced by a dir
                             throw Error.notFile(path)
+                        }
+                        // root cannot be replaced with a link
+                        if path.isRoot {
+                            throw Error.unsupportedFiletype
                         }
                     }
                     try self.unlink(path: path)
@@ -953,7 +978,7 @@ extension EXT4 {
                     contentsOf: Array<UInt8>.init(repeating: 0, count: Int(EXT4.InodeSize) - inodeSize))
             }
             let tableSize: UInt64 = UInt64(EXT4.InodeSize) * blockGroups * inodesPerGroup
-            let rest = tableSize - uint32(self.inodes.count) * EXT4.InodeSize
+            let rest = tableSize - UInt32(self.inodes.count) * EXT4.InodeSize
             let zeroBlock = Array<UInt8>.init(repeating: 0, count: Int(self.blockSize))
             for _ in 0..<(rest / self.blockSize) {
                 try self.handle.write(contentsOf: zeroBlock)

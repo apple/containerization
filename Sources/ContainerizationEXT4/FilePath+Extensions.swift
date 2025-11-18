@@ -49,6 +49,10 @@ extension FilePath {
         self.components.map { $0.string }
     }
 
+    public var isRoot: Bool {  // platform agnostic
+        self.removingRoot().isEmpty
+    }
+
     public init(_ url: URL) {
         self.init(url.path(percentEncoded: false))
     }
