@@ -199,42 +199,63 @@ extension EXT4 {
         //
         // - `path`: The `FilePath` specifying the path of the file or directory to delete.
         public func unlink(path: FilePath, directoryWhiteout: Bool = false) throws {
-            guard let pathPtr = self.tree.lookup(path: path) else {
+            guard let pathPtr = self.tree.lookup(path: path),
+                let parentPtr = self.tree.lookup(path: path.dir)
+            else {
                 // We are being asked to unlink something that does not exist. Ignore
                 return
             }
             let pathNode = pathPtr.pointee
             let inodeNumber = Int(pathNode.inode) - 1
             let pathInodePtr = self.inodes[inodeNumber]
-            var pathInode = pathInodePtr.pointee
+            let pathInode = pathInodePtr.pointee
 
             if directoryWhiteout && !pathInode.mode.isDir() {
                 throw Error.notDirectory(path)
             }
 
-            for childPtr in pathNode.children {
-                try self.unlink(path: path.join(childPtr.pointee.name))
+            // Iterative breath-first traversal of the FileTree to prevent recursion attacks
+            var queue: [(parent: Ptr<FileTree.FileTreeNode>, entry: Ptr<FileTree.FileTreeNode>)] = pathNode.children.map { (pathPtr, $0) }
+            var head: Int = 0
+            while head < queue.count {
+                let currNode = queue[head].entry
+                for childPtr in currNode.pointee.children {
+                    queue.append((currNode, childPtr))
+                }
+                head += 1
+            }
+
+            for (parent, entry) in queue.reversed() {
+                try _unlink(parentNodePtr: parent, pathNodePtr: entry)
             }
 
             guard !directoryWhiteout else {
                 return
             }
 
-            if let parentNodePtr = self.tree.lookup(path: path.dir) {
-                let parentNode = parentNodePtr.pointee
-                let parentInodePtr = self.inodes[Int(parentNode.inode) - 1]
-                var parentInode = parentInodePtr.pointee
-                if pathInode.mode.isDir() {
-                    if parentInode.linksCount > 2 {
-                        parentInode.linksCount -= 1
-                    }
+            try _unlink(parentNodePtr: parentPtr, pathNodePtr: pathPtr)
+        }
+
+        private func _unlink(parentNodePtr: Ptr<FileTree.FileTreeNode>, pathNodePtr: Ptr<FileTree.FileTreeNode>) throws {
+            let pathNode = pathNodePtr.pointee
+            let pathComponent = pathNode.name
+            let inodeNumber = Int(pathNode.inode) - 1
+            let pathInodePtr = self.inodes[inodeNumber]
+            var pathInode = pathInodePtr.pointee
+
+            let parentNode = parentNodePtr.pointee
+            let parentInodePtr = self.inodes[Int(parentNode.inode) - 1]
+            var parentInode = parentInodePtr.pointee
+            if pathInode.mode.isDir() {
+                if parentInode.linksCount > 2 {
+                    parentInode.linksCount -= 1
                 }
-                parentInodePtr.pointee = parentInode
-                parentNode.children.removeAll { childPtr in
-                    childPtr.pointee.name == path.base
-                }
-                parentNodePtr.pointee = parentNode
             }
+            parentInodePtr.pointee = parentInode
+            parentNode.children.removeAll { childPtr in
+                childPtr.pointee.name == pathComponent
+            }
+            parentNodePtr.pointee = parentNode
 
             if let hardlink = pathNode.link {
                 // the file we are deleting is a hardlink, decrement the link count
@@ -351,6 +372,10 @@ extension EXT4 {
                     if inode.mode.isDir() {
                         guard mode.isLink() else {  // unless it is a link, then it can be replaced by a dir
                             throw Error.notFile(path)
+                        }
+                        // root cannot be replaced with a link
+                        if path.isRoot {
+                            throw Error.unsupportedFiletype
                         }
                     }
                     try self.unlink(path: path)
