@@ -41,9 +41,12 @@ struct RunCommand: ParsableCommand {
     }
 
     private func childRootSetup(rootfs: ContainerizationOCI.Root, mounts: [ContainerizationOCI.Mount], log: Logger) throws {
+        let sharedFileDirectory = URL(fileURLWithPath: bundlePath).appendingPathComponent("virtiofs")
+
         // setup rootfs
         try prepareRoot(rootfs: rootfs.path)
-        try mountRootfs(rootfs: rootfs.path, mounts: mounts)
+        try prepareSharedFiles(sharedFileDirectory: sharedFileDirectory, mounts: mounts)
+        try mountRootfs(rootfs: rootfs.path, sharedFileDirectory: sharedFileDirectory, mounts: mounts)
         try setDevSymlinks(rootfs: rootfs.path)
 
         try pivotRoot(rootfs: rootfs.path)
@@ -180,8 +183,8 @@ struct RunCommand: ParsableCommand {
         }
     }
 
-    private func mountRootfs(rootfs: String, mounts: [ContainerizationOCI.Mount]) throws {
-        let containerMount = ContainerMount(rootfs: rootfs, mounts: mounts)
+    private func mountRootfs(rootfs: String, sharedFileDirectory: URL, mounts: [ContainerizationOCI.Mount]) throws {
+        let containerMount = ContainerMount(rootfs: rootfs, sharedFileDirectory: sharedFileDirectory, mounts: mounts)
         try containerMount.mountToRootfs()
         try containerMount.configureConsole()
     }
@@ -193,6 +196,17 @@ struct RunCommand: ParsableCommand {
 
         guard mount(rootfs, rootfs, "bind", UInt(MS_BIND | MS_REC), nil) == 0 else {
             throw App.Errno(stage: "mount(bind|rec)")
+        }
+    }
+
+    private func prepareSharedFiles(sharedFileDirectory: URL, mounts: [ContainerizationOCI.Mount]) throws {
+        if let source = mounts.first(where: { $0.isSharedFile })?.source {
+            let tag = URL(string: source)!.deletingLastPathComponent().path
+
+            try FileManager.default.createDirectory(at: sharedFileDirectory, withIntermediateDirectories: false)
+            guard mount(tag, sharedFileDirectory.path, "virtiofs", UInt(0), nil) == 0 else {
+                throw App.Errno(stage: "mount(shared)")
+            }
         }
     }
 
