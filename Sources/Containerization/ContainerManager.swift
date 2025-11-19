@@ -419,6 +419,18 @@ public struct ContainerManager: Sendable {
             }
             config.bootLog = BootLog.file(path: self.containerRoot.appendingPathComponent(id).appendingPathComponent("bootlog.log"))
             try configuration(&config)
+
+            let sharedDir = sharedFileDirectory(id)
+            for i in config.mounts.indices {
+                if config.mounts[i].isFile {
+                    let file = URL(fileURLWithPath: config.mounts[i].source)
+                    let hardlink = sharedDir.appendingPathComponent(file.lastPathComponent)
+
+                    try FileManager.default.linkItem(at: file, to: hardlink)
+                    config.mounts[i].hardlinkDirectory = sharedDir.path
+                    config.mounts[i].options.append("bind")
+                }
+            }
         }
     }
 
@@ -433,7 +445,13 @@ public struct ContainerManager: Sendable {
     private func createContainerRoot(_ id: String) throws -> URL {
         let path = containerRoot.appendingPathComponent(id)
         try FileManager.default.createDirectory(at: path, withIntermediateDirectories: false)
+        try FileManager.default.createDirectory(at: sharedFileDirectory(id), withIntermediateDirectories: false)
+
         return path
+    }
+
+    private func sharedFileDirectory(_ id: String) -> URL {
+        containerRoot.appendingPathComponent(id).appendingPathComponent("virtiofs")
     }
 
     private func unpack(image: Image, destination: URL, size: UInt64) async throws -> Mount {

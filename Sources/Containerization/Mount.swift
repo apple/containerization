@@ -36,6 +36,8 @@ public struct Mount: Sendable {
     /// should create for this specific mount (virtioblock
     /// virtiofs etc.).
     public let runtimeOptions: RuntimeOptions
+    /// hardlink directory path if the source is file.
+    public var hardlinkDirectory: String?
 
     /// A type representing a "hint" of what type
     /// of mount this really is (block, directory, purely
@@ -144,7 +146,15 @@ extension Mount {
                 throw ContainerizationError(.notFound, message: "directory \(source) does not exist")
             }
 
-            let name = try hashMountSource(source: self.source)
+            let source = isFile ? self.hardlinkDirectory! : self.source
+            let name = try hashMountSource(source: source)
+            guard
+                !config.directorySharingDevices.contains(
+                    where: { ($0 as? VZVirtioFileSystemDeviceConfiguration)?.tag == name })
+            else {
+                break
+            }
+
             let urlSource = URL(fileURLWithPath: source)
 
             let device = VZVirtioFileSystemDeviceConfiguration(tag: name)

@@ -16,6 +16,7 @@
 
 import ContainerizationExtras
 import ContainerizationOCI
+import Foundation
 
 /// A filesystem that was attached and able to be mounted inside the runtime environment.
 public struct AttachedFilesystem: Sendable {
@@ -32,7 +33,16 @@ public struct AttachedFilesystem: Sendable {
     public init(mount: Mount, allocator: any AddressAllocator<Character>) throws {
         switch mount.type {
         case "virtiofs":
-            let name = try hashMountSource(source: mount.source)
+            let name: String = try {
+                guard mount.isFile else {
+                    return try hashMountSource(source: mount.source)
+                }
+
+                let file = URL(fileURLWithPath: mount.source).lastPathComponent
+                let directory = try hashMountSource(source: mount.hardlinkDirectory!)
+
+                return URL(string: directory)!.appendingPathComponent(file).path
+            }()
             self.source = name
         case "ext4":
             let char = try allocator.allocate()
