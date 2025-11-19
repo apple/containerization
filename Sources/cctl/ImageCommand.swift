@@ -35,6 +35,7 @@ extension Application {
                 Push.self,
                 Save.self,
                 Load.self,
+                Prune.self,
             ]
         )
 
@@ -257,6 +258,33 @@ extension Application {
                 for image in imported {
                     print("imported \(image.reference)")
                 }
+            }
+        }
+
+        struct Prune: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "prune",
+                abstract: "Remove unreferenced image data from the image store"
+            )
+
+            func run() async throws {
+                let store = Application.imageStore
+                let (deleted, freed) = try await store.prune()
+
+                if deleted.isEmpty {
+                    print("No unreferenced data to remove")
+                    print("Total reclaimed space: 0 B")
+                } else {
+                    print("Deleted \(deleted.count) unreferenced blob(s)")
+                    print("Total reclaimed space: \(formatBytes(freed))")
+                }
+            }
+
+            private func formatBytes(_ bytes: UInt64) -> String {
+                let formatter = ByteCountFormatter()
+                formatter.allowedUnits = [.useKB, .useMB, .useGB]
+                formatter.countStyle = .file
+                return formatter.string(fromByteCount: Int64(bytes))
             }
         }
 
