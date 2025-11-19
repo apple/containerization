@@ -38,10 +38,10 @@ public struct AttachedFilesystem: Sendable {
                     return try hashMountSource(source: mount.source)
                 }
 
-                let file = URL(fileURLWithPath: mount.source).lastPathComponent
+                let fileTag = try hashMountSource(source: mount.source)
                 let directory = try hashMountSource(source: mount.hardlinkDirectory!)
 
-                return URL(string: directory)!.appendingPathComponent(file).path
+                return URL(string: directory)!.appendingPathComponent(fileTag).path
             }()
             self.source = name
         case "ext4":

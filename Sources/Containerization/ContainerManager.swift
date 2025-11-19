@@ -424,7 +424,8 @@ public struct ContainerManager: Sendable {
             for i in config.mounts.indices {
                 if config.mounts[i].isFile {
                     let file = URL(fileURLWithPath: config.mounts[i].source)
-                    let hardlink = sharedDir.appendingPathComponent(file.lastPathComponent)
+                    let fileTag = try hashMountSource(source: config.mounts[i].source)
+                    let hardlink = sharedDir.appendingPathComponent(fileTag)
 
                     try FileManager.default.linkItem(at: file, to: hardlink)
                     config.mounts[i].hardlinkDirectory = sharedDir.path
