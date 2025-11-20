@@ -124,25 +124,55 @@ extension ImageStore {
         try await self.lock.withLock { lockCtx in
             try await self.referenceManager.delete(reference: reference)
             if performCleanup {
-                try await self._prune(lockCtx)
+                try await self.cleanupOrphanedBlobs(lockCtx)
             }
         }
     }
 
     /// Perform a garbage collection in the underlying `ContentStore` that is managed by the `ImageStore`.
     ///
+    /// - Parameters:
+    ///   - keepingReferences: List of image references to keep. All images NOT in this list will be removed.
+    ///
     /// - Returns: Returns a tuple of `(deleted, freed)`.
     ///   `deleted` :  A  list of the names of the content items that were deleted from the `ContentStore`,
     ///   `freed` : The total size of the items that were deleted.
     @discardableResult
-    public func prune() async throws -> (deleted: [String], freed: UInt64) {
+    public func prune(keepingReferences: [String]) async throws -> (deleted: [String], freed: UInt64) {
         try await self.lock.withLock { lockCtx in
-            try await self._prune(lockCtx)
+            let deletedImages = try await self._prune(lockCtx, keepingReferences: keepingReferences)
+            let (deletedContent, freedBytes) = try await self.cleanupOrphanedBlobs(lockCtx)
+
+            let allDeleted = deletedImages + deletedContent
+            return (allDeleted, freedBytes)
         }
     }
 
     @discardableResult
-    private func _prune(_ lock: AsyncLock.Context) async throws -> ([String], UInt64) {
+    private func _prune(_ lock: AsyncLock.Context, keepingReferences: [String]) async throws -> [String] {
+        let allImages = try await self.list()
+
+        // Delete all images NOT in the keepingReferences list
+        let imagesToDelete = allImages.filter { image in
+            !keepingReferences.contains(image.reference)
+        }
+
+        var deletedReferences: [String] = []
+        for image in imagesToDelete {
+            try await self.referenceManager.delete(reference: image.reference)
+            deletedReferences.append(image.reference)
+        }
+
+        return deletedReferences
+    }
+
+    /// Clean up orphaned blobs that are no longer referenced by any image.
+    ///
+    /// - Returns: Returns a tuple of `(deleted, freed)`.
+    ///   `deleted` :  A  list of the names of the content items that were deleted from the `ContentStore`,
+    ///   `freed` : The total size of the items that were deleted.
+    @discardableResult
+    private func cleanupOrphanedBlobs(_ lock: AsyncLock.Context) async throws -> (deleted: [String], freed: UInt64) {
         let images = try await self.list()
         var referenced: [String] = []
         for image in images {
@@ -150,7 +180,6 @@ extension ImageStore {
         }
         let (deleted, size) = try await self.contentStore.delete(keeping: referenced)
         return (deleted, size)
-
     }
 
     /// Tag an existing image such that it can be referenced by another name.
