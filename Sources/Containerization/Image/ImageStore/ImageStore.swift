@@ -124,25 +124,25 @@ extension ImageStore {
         try await self.lock.withLock { lockCtx in
             try await self.referenceManager.delete(reference: reference)
             if performCleanup {
-                try await self._prune(lockCtx)
+                try await self._cleanupOrphanedBlobs(lockCtx)
             }
         }
     }
 
-    /// Perform a garbage collection in the underlying `ContentStore` that is managed by the `ImageStore`.
+    /// Clean up orphaned blobs that are no longer referenced by any image.
     ///
     /// - Returns: Returns a tuple of `(deleted, freed)`.
     ///   `deleted` :  A  list of the names of the content items that were deleted from the `ContentStore`,
     ///   `freed` : The total size of the items that were deleted.
     @discardableResult
-    public func prune() async throws -> (deleted: [String], freed: UInt64) {
+    public func cleanupOrphanedBlobs() async throws -> (deleted: [String], freed: UInt64) {
         try await self.lock.withLock { lockCtx in
-            try await self._prune(lockCtx)
+            try await self._cleanupOrphanedBlobs(lockCtx)
         }
     }
 
     @discardableResult
-    private func _prune(_ lock: AsyncLock.Context) async throws -> ([String], UInt64) {
+    private func _cleanupOrphanedBlobs(_ lock: AsyncLock.Context) async throws -> (deleted: [String], freed: UInt64) {
         let images = try await self.list()
         var referenced: [String] = []
         for image in images {
@@ -150,7 +150,6 @@ extension ImageStore {
         }
         let (deleted, size) = try await self.contentStore.delete(keeping: referenced)
         return (deleted, size)
-
     }
 
     /// Tag an existing image such that it can be referenced by another name.
