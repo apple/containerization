@@ -129,43 +129,6 @@ extension ImageStore {
         }
     }
 
-    /// Perform a garbage collection in the underlying `ContentStore` that is managed by the `ImageStore`.
-    ///
-    /// - Parameters:
-    ///   - keepingReferences: List of image references to keep. All images NOT in this list will be removed.
-    ///
-    /// - Returns: Returns a tuple of `(deleted, freed)`.
-    ///   `deleted` :  A  list of the names of the content items that were deleted from the `ContentStore`,
-    ///   `freed` : The total size of the items that were deleted.
-    @discardableResult
-    public func prune(keepingReferences: [String]) async throws -> (deleted: [String], freed: UInt64) {
-        try await self.lock.withLock { lockCtx in
-            let deletedImages = try await self._prune(lockCtx, keepingReferences: keepingReferences)
-            let (deletedContent, freedBytes) = try await self._cleanupOrphanedBlobs(lockCtx)
-
-            let allDeleted = deletedImages + deletedContent
-            return (allDeleted, freedBytes)
-        }
-    }
-
-    @discardableResult
-    private func _prune(_ lock: AsyncLock.Context, keepingReferences: [String]) async throws -> [String] {
-        let allImages = try await self.list()
-
-        // Delete all images NOT in the keepingReferences list
-        let imagesToDelete = allImages.filter { image in
-            !keepingReferences.contains(image.reference)
-        }
-
-        var deletedReferences: [String] = []
-        for image in imagesToDelete {
-            try await self.referenceManager.delete(reference: image.reference)
-            deletedReferences.append(image.reference)
-        }
-
-        return deletedReferences
-    }
-
     /// Clean up orphaned blobs that are no longer referenced by any image.
     ///
     /// - Returns: Returns a tuple of `(deleted, freed)`.
