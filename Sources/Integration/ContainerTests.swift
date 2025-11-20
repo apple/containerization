@@ -168,15 +168,9 @@ extension IntegrationSuite {
                     }
                 }
 
-                // wait for all the exec'd processes.
                 try await group.waitForAll()
-                print("all group processes exit")
 
-                // kill the init process.
-                try await container.kill(SIGKILL)
-                let status = try await container.wait()
                 try await container.stop()
-                print("Init process exited with: \(status)")
             }
         } catch {
             throw error
@@ -240,10 +234,7 @@ extension IntegrationSuite {
                     }
                 }
 
-                // wait for all the exec'd processes.
                 try await group.waitForAll()
-                print("all group processes exit")
-
             }
             try await exec.delete()
 
