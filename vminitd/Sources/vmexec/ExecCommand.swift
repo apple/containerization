@@ -34,16 +34,21 @@ struct ExecCommand: ParsableCommand {
     var parentPid: Int
 
     func run() throws {
-        LoggingSystem.bootstrap(App.standardError)
-        let log = Logger(label: "vmexec")
+        do {
+            LoggingSystem.bootstrap(App.standardError)
+            let log = Logger(label: "vmexec")
 
-        let src = URL(fileURLWithPath: processPath)
-        let processBytes = try Data(contentsOf: src)
-        let process = try JSONDecoder().decode(
-            ContainerizationOCI.Process.self,
-            from: processBytes
-        )
-        try execInNamespaces(process: process, log: log)
+            let src = URL(fileURLWithPath: processPath)
+            let processBytes = try Data(contentsOf: src)
+            let process = try JSONDecoder().decode(
+                ContainerizationOCI.Process.self,
+                from: processBytes
+            )
+            try execInNamespaces(process: process, log: log)
+        } catch {
+            App.writeError(error)
+            throw error
+        }
     }
 
     static func enterNS(pidFd: Int32, nsType: Int32) throws {

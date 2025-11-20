@@ -397,7 +397,7 @@ extension SocketRelay {
                         "dstFd": "\(destinationFd)",
                     ])
                 source.cancel()
-                if shutdown(destinationFd, SHUT_WR) != 0 {
+                if shutdown(destinationFd, Int32(SHUT_WR)) != 0 {
                     log?.warning(
                         "failed to shut down reads",
                         metadata: [
@@ -429,7 +429,7 @@ extension SocketRelay {
             log?.error("file descriptor copy failed \(error)")
             if !source.isCancelled {
                 source.cancel()
-                if shutdown(destinationFd, SHUT_RDWR) != 0 {
+                if shutdown(destinationFd, Int32(SHUT_RDWR)) != 0 {
                     log?.warning(
                         "failed to shut down destination after I/O error",
                         metadata: [

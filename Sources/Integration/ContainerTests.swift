@@ -1227,4 +1227,23 @@ extension IntegrationSuite {
             throw error
         }
     }
+
+    func testNonExistentBinary() async throws {
+        let id = "test-non-existent-binary"
+
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["foo-bar-baz"]
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        do {
+            try await container.start()
+        } catch {
+            return
+        }
+        try await container.stop()
+        throw IntegrationError.assert(msg: "container start should have failed")
+    }
 }

@@ -438,25 +438,13 @@ extension Hosts {
 }
 
 extension Vminitd.Client {
-    public init(socket: String, group: EventLoopGroup) {
-        var config = ClientConnection.Configuration.default(
-            target: .unixDomainSocket(socket),
-            eventLoopGroup: group
-        )
-        config.maximumReceiveMessageLength = Int(64.mib())
-        config.connectionBackoff = ConnectionBackoff(retries: .upTo(5))
-
-        self = .init(channel: ClientConnection(configuration: config))
-    }
-
     public init(connection: FileHandle, group: EventLoopGroup) {
         var config = ClientConnection.Configuration.default(
             target: .connectedSocket(connection.fileDescriptor),
             eventLoopGroup: group
         )
+        config.connectionBackoff = nil
         config.maximumReceiveMessageLength = Int(64.mib())
-        config.connectionBackoff = ConnectionBackoff(retries: .upTo(5))
-
         self = .init(channel: ClientConnection(configuration: config))
     }
 
