@@ -14,6 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import Cgroup
 import Containerization
 import ContainerizationError
 import ContainerizationOS
@@ -91,23 +92,86 @@ struct Application {
         CZ_set_sub_reaper()
         #endif
 
+        log.logLevel = .debug
+
         signal(SIGPIPE, SIG_IGN)
 
-        // Because the sysctl rpc wouldn't make sense if this didn't always exist, we
-        // ALWAYS mount /proc.
-        guard Musl.mount("proc", "/proc", "proc", 0, "") == 0 else {
-            log.error("failed to mount /proc")
-            exit(1)
-        }
-        guard Musl.mount("tmpfs", "/run", "tmpfs", 0, "") == 0 else {
-            log.error("failed to mount /run")
-            exit(1)
+        log.info("vminitd booting")
+
+        // Set of mounts necessary to be mounted prior to taking any RPCs.
+        // 1. /proc as the sysctl rpc wouldn't make sense if it wasn't there.
+        // 2. /run as that is where we store container state.
+        // 3. /sys as we need it for /sys/fs/cgroup
+        // 4. /sys/fs/cgroup to add the agent to a cgroup, as well as containers later.
+        let mounts = [
+            ContainerizationOS.Mount(
+                type: "proc",
+                source: "proc",
+                target: "/proc",
+                options: []
+            ),
+            ContainerizationOS.Mount(
+                type: "tmpfs",
+                source: "tmpfs",
+                target: "/run",
+                options: []
+            ),
+            ContainerizationOS.Mount(
+                type: "sysfs",
+                source: "sysfs",
+                target: "/sys",
+                options: []
+            ),
+            ContainerizationOS.Mount(
+                type: "cgroup2",
+                source: "none",
+                target: "/sys/fs/cgroup",
+                options: []
+            ),
+        ]
+
+        for mnt in mounts {
+            log.info("mounting \(mnt.target)")
+
+            try mnt.mount(createWithPerms: 0o755)
         }
         try Binfmt.mount()
 
-        log.logLevel = .debug
+        let cgManager = Cgroup2Manager(
+            group: URL(filePath: "/vminitd"),
+            logger: log
+        )
+        try cgManager.create()
+        try cgManager.toggleAllAvailableControllers(enable: true)
 
-        log.info("vminitd booting")
+        // Set memory.high threshold to 75 MiB
+        let threshold: UInt64 = 75 * 1024 * 1024
+        try cgManager.setMemoryHigh(bytes: threshold)
+        try cgManager.addProcess(pid: getpid())
+
+        let memoryMonitor = try MemoryMonitor(
+            cgroupManager: cgManager,
+            threshold: threshold,
+            logger: log
+        ) { [log] (currentUsage, highMark) in
+            log.warning(
+                "vminitd memory threshold exceeded",
+                metadata: [
+                    "threshold_bytes": "\(threshold)",
+                    "current_bytes": "\(currentUsage)",
+                    "high_events_total": "\(highMark)",
+                ])
+        }
+
+        let t = Thread { [log] in
+            do {
+                try memoryMonitor.run()
+            } catch {
+                log.error("memory monitor failed: \(error)")
+            }
+        }
+        t.start()
+
         let eg = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
         let server = Initd(log: log, group: eg)
 

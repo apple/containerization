@@ -54,24 +54,14 @@ extension Vminitd: VirtualMachineAgent {
 
         try await setenv(key: "PATH", value: LinuxProcessConfiguration.defaultPath)
 
+        // Vminitd mounts /proc, /sys, /sys/fs/cgroup and /run automatically.
         let mounts: [ContainerizationOCI.Mount] = [
-            .init(type: "sysfs", source: "sysfs", destination: "/sys"),
             .init(type: "tmpfs", source: "tmpfs", destination: "/tmp"),
             .init(type: "devpts", source: "devpts", destination: "/dev/pts", options: ["gid=5", "mode=620", "ptmxmode=666"]),
-            .init(type: "cgroup2", source: "none", destination: "/sys/fs/cgroup"),
         ]
         for mount in mounts {
             try await self.mount(mount)
         }
-
-        // Setup root cg subtree_control.
-        let data = "+memory +pids +io +cpu +cpuset +hugetlb".data(using: .utf8)!
-        try await writeFile(
-            path: "/sys/fs/cgroup/cgroup.subtree_control",
-            data: data,
-            flags: .init(),
-            mode: 0
-        )
     }
 
     public func writeFile(path: String, data: Data, flags: WriteFileFlags, mode: UInt32) async throws {
