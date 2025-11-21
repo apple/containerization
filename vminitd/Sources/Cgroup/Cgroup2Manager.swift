@@ -234,6 +234,38 @@ package struct Cgroup2Manager: Sendable {
         }
     }
 
+    package func setMemoryHigh(bytes: UInt64) throws {
+        self.logger?.debug(
+            "setting memory.high",
+            metadata: [
+                "path": "\(self.path.path)",
+                "bytes": "\(bytes)",
+            ])
+
+        try Self.writeValue(
+            path: self.path,
+            value: String(bytes),
+            fileName: "memory.high"
+        )
+    }
+
+    package func getMemoryEvents() throws -> MemoryEvents {
+        let content = try readFileContent(fileName: "memory.events")
+        let values = parseKeyValuePairs(content)
+
+        return MemoryEvents(
+            low: values["low"] ?? 0,
+            high: values["high"] ?? 0,
+            max: values["max"] ?? 0,
+            oom: values["oom"] ?? 0,
+            oomKill: values["oom_kill"] ?? 0
+        )
+    }
+
+    package func getMemoryEventsPath() -> String {
+        self.path.appending(path: "memory.events").path
+    }
+
     package func kill() throws {
         try Self.writeValue(
             path: self.path,
@@ -605,6 +637,28 @@ package struct IOEntry: Sendable {
         self.wios = wios
         self.dbytes = dbytes
         self.dios = dios
+    }
+}
+
+package struct MemoryEvents: Sendable {
+    package var low: UInt64
+    package var high: UInt64
+    package var max: UInt64
+    package var oom: UInt64
+    package var oomKill: UInt64
+
+    package init(
+        low: UInt64 = 0,
+        high: UInt64 = 0,
+        max: UInt64 = 0,
+        oom: UInt64 = 0,
+        oomKill: UInt64 = 0
+    ) {
+        self.low = low
+        self.high = high
+        self.max = max
+        self.oom = oom
+        self.oomKill = oomKill
     }
 }
 
