@@ -26,7 +26,6 @@ import Logging
 import NIOCore
 import NIOPosix
 import SwiftProtobuf
-import _NIOFileSystem
 
 private let _setenv = Foundation.setenv
 
