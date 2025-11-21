@@ -423,6 +423,16 @@ extension Mount {
     var isBlock: Bool {
         type == "ext4"
     }
+
+    var isFile: Bool {
+        guard self.type == "virtiofs" else {
+            return false
+        }
+
+        var isDirectory: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: self.source, isDirectory: &isDirectory)
+        return exists && !isDirectory.boolValue
+    }
 }
 
 extension Kernel {
