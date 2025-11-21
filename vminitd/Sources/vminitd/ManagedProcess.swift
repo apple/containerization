@@ -24,7 +24,7 @@ import GRPC
 import Logging
 import Synchronization
 
-final class ManagedProcess: Sendable {
+final class ManagedProcess: ContainerProcess, Sendable {
     // swiftlint: disable type_name
     protocol IO {
         func attach(pid: Int32, fd: Int32) throws
@@ -36,19 +36,14 @@ final class ManagedProcess: Sendable {
     }
     // swiftlint: enable type_name
 
-    struct ExitStatus {
-        var exitStatus: Int32
-        var exitedAt: Date
-    }
-
     private struct State {
         init(io: IO) {
             self.io = io
         }
 
         let io: IO
-        var waiters: [CheckedContinuation<ExitStatus, Never>] = []
-        var exitStatus: ExitStatus? = nil
+        var waiters: [CheckedContinuation<ContainerExitStatus, Never>] = []
+        var exitStatus: ContainerExitStatus? = nil
         var pid: Int32?
     }
 
@@ -154,7 +149,7 @@ final class ManagedProcess: Sendable {
 }
 
 extension ManagedProcess {
-    func start() throws -> Int32 {
+    func start() async throws -> Int32 {
         do {
             return try self.state.withLock {
                 log.info(
@@ -274,7 +269,7 @@ extension ManagedProcess {
                     "status": "\(status)"
                 ])
 
-            let exitStatus = ExitStatus(exitStatus: status, exitedAt: Date.now)
+            let exitStatus = ContainerExitStatus(exitCode: status, exitedAt: Date.now)
             state.exitStatus = exitStatus
 
             do {
@@ -293,7 +288,7 @@ extension ManagedProcess {
     }
 
     /// Wait on the process to exit
-    func wait() async -> ExitStatus {
+    func wait() async -> ContainerExitStatus {
         await withCheckedContinuation { cont in
             self.state.withLock {
                 if let status = $0.exitStatus {
@@ -305,7 +300,7 @@ extension ManagedProcess {
         }
     }
 
-    func kill(_ signal: Int32) throws {
+    func kill(_ signal: Int32) async throws {
         try self.state.withLock {
             guard let pid = $0.pid else {
                 throw ContainerizationError(.invalidState, message: "process PID is required")
@@ -335,5 +330,10 @@ extension ManagedProcess {
         try self.state.withLock {
             try $0.io.closeStdin()
         }
+    }
+
+    func delete() async throws {
+        // vmexec doesn't require explicit cleanup - the process is cleaned up
+        // when it exits and IO is closed via setExit()
     }
 }

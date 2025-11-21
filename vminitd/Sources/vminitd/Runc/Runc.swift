@@ -26,6 +26,25 @@ enum LogFormat: String, Sendable {
 
 /// Configuration and client for interacting with the runc binary
 struct Runc: Sendable {
+    /// IO configuration for runc operations
+    struct IO: Sendable {
+        var stdin: FileHandle?
+        var stdout: FileHandle?
+        var stderr: FileHandle?
+
+        init(
+            stdin: FileHandle? = nil,
+            stdout: FileHandle? = nil,
+            stderr: FileHandle? = nil
+        ) {
+            self.stdin = stdin
+            self.stdout = stdout
+            self.stderr = stderr
+        }
+
+        static let inherit = IO()
+    }
+
     /// Path to the runc binary
     var command: String
 
@@ -111,13 +130,17 @@ struct CreateOpts: Sendable {
     /// Additional file descriptors to pass to the container
     var extraFiles: [FileHandle]
 
+    /// IO configuration for the runc process
+    var io: Runc.IO
+
     init(
         pidFile: String? = nil,
         consoleSocket: String? = nil,
         detach: Bool = false,
         noPivot: Bool = false,
         noNewKeyring: Bool = false,
-        extraFiles: [FileHandle] = []
+        extraFiles: [FileHandle] = [],
+        io: Runc.IO = .inherit
     ) {
         self.pidFile = pidFile
         self.consoleSocket = consoleSocket
@@ -125,6 +148,7 @@ struct CreateOpts: Sendable {
         self.noPivot = noPivot
         self.noNewKeyring = noNewKeyring
         self.extraFiles = extraFiles
+        self.io = io
     }
 }
 
@@ -142,16 +166,21 @@ struct ExecOpts: Sendable {
     /// Path to process.json file
     var processPath: String?
 
+    /// IO configuration for the runc process
+    var io: Runc.IO
+
     init(
         pidFile: String? = nil,
         consoleSocket: String? = nil,
         detach: Bool = false,
-        processPath: String? = nil
+        processPath: String? = nil,
+        io: Runc.IO = .inherit
     ) {
         self.pidFile = pidFile
         self.consoleSocket = consoleSocket
         self.detach = detach
         self.processPath = processPath
+        self.io = io
     }
 }
 
@@ -424,6 +453,9 @@ extension Runc {
 
         try await executeVoid(
             args: args,
+            stdin: opts.io.stdin,
+            stdout: opts.io.stdout,
+            stderr: opts.io.stderr,
             extraFiles: opts.extraFiles,
             directory: bundle
         )
@@ -474,6 +506,9 @@ extension Runc {
 
         try await executeVoid(
             args: args,
+            stdin: opts.io.stdin,
+            stdout: opts.io.stdout,
+            stderr: opts.io.stderr,
             extraFiles: opts.extraFiles,
             directory: bundle
         )
@@ -528,10 +563,7 @@ extension Runc {
     func exec(
         id: String,
         processSpec: String,
-        opts: ExecOpts = ExecOpts(),
-        stdin: FileHandle? = nil,
-        stdout: FileHandle? = nil,
-        stderr: FileHandle? = nil
+        opts: ExecOpts = ExecOpts()
     ) async throws -> Int? {
         var args = baseArgs() + ["exec"]
 
@@ -555,9 +587,9 @@ extension Runc {
 
         try await executeVoid(
             args: args,
-            stdin: stdin,
-            stdout: stdout,
-            stderr: stderr
+            stdin: opts.io.stdin,
+            stdout: opts.io.stdout,
+            stderr: opts.io.stderr
         )
 
         // Read PID if pidFile was specified

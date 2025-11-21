@@ -300,7 +300,8 @@ extension Socket {
         return Socket(
             fd: clientFD,
             type: newSocketType,
-            closeOnDeinit: closeOnDeinit
+            closeOnDeinit: closeOnDeinit,
+            connected: true
         )
     }
 

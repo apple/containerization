@@ -148,8 +148,9 @@ message CreateProcessRequest {
   optional uint32 stdin = 3;
   optional uint32 stdout = 4;
   optional uint32 stderr = 5;
-  bytes configuration = 6;
-  optional bytes options = 7;
+  optional string ociRuntimePath = 6;
+  bytes configuration = 7;
+  optional bytes options = 8;
 }
 
 message CreateProcessResponse {}

@@ -55,6 +55,9 @@ extension Application {
             @Option(name: .long, help: "Path to vminitd")
             var vminitd: String
 
+            @Option(name: .long, help: "Path to OCI runtime")
+            var ociRuntime: String?
+
             // The path where the intermediate tar archive is created.
             @Argument var tarPath: String
 
@@ -143,6 +146,15 @@ extension Application {
                 entry.path = "sbin/vmexec"
                 entry.size = Int64(data.count)
                 try writer.writeEntry(entry: entry, data: data)
+
+                if let ociRuntimePath = self.ociRuntime {
+                    src = URL(fileURLWithPath: ociRuntimePath)
+                    let fileName = src.lastPathComponent
+                    data = try Data(contentsOf: src)
+                    entry.path = "sbin/\(fileName)"
+                    entry.size = Int64(data.count)
+                    try writer.writeEntry(entry: entry, data: data)
+                }
 
                 for addFile in addFiles {
                     let paths = addFile.components(separatedBy: ":")

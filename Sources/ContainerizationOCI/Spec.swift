@@ -296,8 +296,8 @@ public struct Mount: Codable, Sendable {
     public var destination: String
     public var options: [String]
 
-    public var uidMappings: [LinuxIDMapping]
-    public var gidMappings: [LinuxIDMapping]
+    public var uidMappings: [LinuxIDMapping]?
+    public var gidMappings: [LinuxIDMapping]?
 
     public enum CodingKeys: String, CodingKey {
         case type
@@ -313,8 +313,8 @@ public struct Mount: Codable, Sendable {
         source: String = "",
         destination: String,
         options: [String] = [],
-        uidMappings: [LinuxIDMapping] = [],
-        gidMappings: [LinuxIDMapping] = []
+        uidMappings: [LinuxIDMapping]? = nil,
+        gidMappings: [LinuxIDMapping]? = nil
     ) {
         self.destination = destination
         self.type = type
@@ -330,8 +330,18 @@ public struct Mount: Codable, Sendable {
         self.source = try container.decodeIfPresent(String.self, forKey: .source) ?? ""
         self.destination = try container.decode(String.self, forKey: .destination)
         self.options = try container.decodeIfPresent([String].self, forKey: .options) ?? []
-        self.uidMappings = try container.decodeIfPresent([LinuxIDMapping].self, forKey: .uidMappings) ?? []
-        self.gidMappings = try container.decodeIfPresent([LinuxIDMapping].self, forKey: .gidMappings) ?? []
+        self.uidMappings = try container.decodeIfPresent([LinuxIDMapping].self, forKey: .uidMappings)
+        self.gidMappings = try container.decodeIfPresent([LinuxIDMapping].self, forKey: .gidMappings)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(type, forKey: .type)
+        try container.encode(source, forKey: .source)
+        try container.encode(destination, forKey: .destination)
+        try container.encode(options, forKey: .options)
+        try container.encodeIfPresent(uidMappings, forKey: .uidMappings)
+        try container.encodeIfPresent(gidMappings, forKey: .gidMappings)
     }
 }
 

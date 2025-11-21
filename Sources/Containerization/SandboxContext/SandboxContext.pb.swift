@@ -414,6 +414,15 @@ public struct Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest: @unche
   /// Clears the value of `stderr`. Subsequent reads from it will return its default value.
   public mutating func clearStderr() {self._stderr = nil}
 
+  public var ociRuntimePath: String {
+    get {return _ociRuntimePath ?? String()}
+    set {_ociRuntimePath = newValue}
+  }
+  /// Returns true if `ociRuntimePath` has been explicitly set.
+  public var hasOciRuntimePath: Bool {return self._ociRuntimePath != nil}
+  /// Clears the value of `ociRuntimePath`. Subsequent reads from it will return its default value.
+  public mutating func clearOciRuntimePath() {self._ociRuntimePath = nil}
+
   public var configuration: Data = Data()
 
   public var options: Data {
@@ -433,6 +442,7 @@ public struct Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest: @unche
   fileprivate var _stdin: UInt32? = nil
   fileprivate var _stdout: UInt32? = nil
   fileprivate var _stderr: UInt32? = nil
+  fileprivate var _ociRuntimePath: String? = nil
   fileprivate var _options: Data? = nil
 }
 
@@ -1853,8 +1863,9 @@ extension Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest: SwiftProto
     3: .same(proto: "stdin"),
     4: .same(proto: "stdout"),
     5: .same(proto: "stderr"),
-    6: .same(proto: "configuration"),
-    7: .same(proto: "options"),
+    6: .same(proto: "ociRuntimePath"),
+    7: .same(proto: "configuration"),
+    8: .same(proto: "options"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -1868,8 +1879,9 @@ extension Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest: SwiftProto
       case 3: try { try decoder.decodeSingularUInt32Field(value: &self._stdin) }()
       case 4: try { try decoder.decodeSingularUInt32Field(value: &self._stdout) }()
       case 5: try { try decoder.decodeSingularUInt32Field(value: &self._stderr) }()
-      case 6: try { try decoder.decodeSingularBytesField(value: &self.configuration) }()
-      case 7: try { try decoder.decodeSingularBytesField(value: &self._options) }()
+      case 6: try { try decoder.decodeSingularStringField(value: &self._ociRuntimePath) }()
+      case 7: try { try decoder.decodeSingularBytesField(value: &self.configuration) }()
+      case 8: try { try decoder.decodeSingularBytesField(value: &self._options) }()
       default: break
       }
     }
@@ -1895,11 +1907,14 @@ extension Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest: SwiftProto
     try { if let v = self._stderr {
       try visitor.visitSingularUInt32Field(value: v, fieldNumber: 5)
     } }()
+    try { if let v = self._ociRuntimePath {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 6)
+    } }()
     if !self.configuration.isEmpty {
-      try visitor.visitSingularBytesField(value: self.configuration, fieldNumber: 6)
+      try visitor.visitSingularBytesField(value: self.configuration, fieldNumber: 7)
     }
     try { if let v = self._options {
-      try visitor.visitSingularBytesField(value: v, fieldNumber: 7)
+      try visitor.visitSingularBytesField(value: v, fieldNumber: 8)
     } }()
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -1910,6 +1925,7 @@ extension Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest: SwiftProto
     if lhs._stdin != rhs._stdin {return false}
     if lhs._stdout != rhs._stdout {return false}
     if lhs._stderr != rhs._stderr {return false}
+    if lhs._ociRuntimePath != rhs._ociRuntimePath {return false}
     if lhs.configuration != rhs.configuration {return false}
     if lhs._options != rhs._options {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}

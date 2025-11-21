@@ -23,7 +23,6 @@ import Foundation
 public final class ConsoleSocket: Sendable {
     private let socket: Socket
     private let socketPath: String
-    private let shouldRemove: Bool
 
     /// The path to the console socket
     public var path: String { socketPath }
@@ -43,7 +42,6 @@ public final class ConsoleSocket: Sendable {
 
         let socketType = try UnixType(path: absPath, unlinkExisting: true)
         self.socket = try Socket(type: socketType)
-        self.shouldRemove = false
 
         try socket.listen()
     }
@@ -68,23 +66,13 @@ public final class ConsoleSocket: Sendable {
     public func receiveMaster() throws -> Int32 {
         let connection = try socket.accept()
         defer { try? connection.close() }
-
         return try connection.receiveFileDescriptor()
     }
 
     /// Close the socket and optionally remove the socket file
     public func close() throws {
         try socket.close()
-
-        if shouldRemove {
-            try? FileManager.default.removeItem(atPath: socketPath)
-
-            let pathURL = URL(fileURLWithPath: socketPath)
-            let dir = pathURL.deletingLastPathComponent().path
-            if dir.contains("runc-console-") {
-                try? FileManager.default.removeItem(atPath: dir)
-            }
-        }
+        try FileManager.default.removeItem(atPath: socketPath)
     }
 
     deinit {

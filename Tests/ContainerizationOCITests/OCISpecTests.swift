@@ -140,7 +140,7 @@ struct OCISpecTests {
         #expect(decodedSpec.source == "")
         #expect(decodedSpec.destination == destination)
         #expect(decodedSpec.options.isEmpty)
-        #expect(decodedSpec.uidMappings.isEmpty)
-        #expect(decodedSpec.gidMappings.isEmpty)
+        #expect(decodedSpec.uidMappings == nil)
+        #expect(decodedSpec.gidMappings == nil)
     }
 }

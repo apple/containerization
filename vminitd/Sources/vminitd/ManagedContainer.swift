@@ -23,12 +23,13 @@ import Logging
 
 actor ManagedContainer {
     let id: String
-    let initProcess: ManagedProcess
+    let initProcess: any ContainerProcess
 
     private let cgroupManager: Cgroup2Manager
     private let log: Logger
     private let bundle: ContainerizationOCI.Bundle
-    private var execs: [String: ManagedProcess] = [:]
+    private let needsCgroupCleanup: Bool
+    private var execs: [String: any ContainerProcess] = [:]
 
     var pid: Int32? {
         self.initProcess.pid
@@ -38,8 +39,9 @@ actor ManagedContainer {
         id: String,
         stdio: HostStdio,
         spec: ContainerizationOCI.Spec,
+        ociRuntimePath: String? = nil,
         log: Logger
-    ) throws {
+    ) async throws {
         var cgroupsPath: String
         if let cgPath = spec.linux?.cgroupsPath {
             cgroupsPath = cgPath
@@ -62,15 +64,38 @@ actor ManagedContainer {
         do {
             try cgManager.toggleAllAvailableControllers(enable: true)
 
-            let initProcess = try ManagedProcess(
-                id: id,
-                stdio: stdio,
-                bundle: bundle,
-                cgroupManager: cgManager,
-                owningPid: nil,
-                log: log
-            )
-            log.info("created managed init process")
+            let initProcess: any ContainerProcess
+
+            if let runtimePath = ociRuntimePath {
+                // Use runc runtime
+                let runc = await ProcessSupervisor.default.getRuncWithReaper(
+                    Runc(
+                        command: runtimePath,
+                        root: "/run/runc"
+                    )
+                )
+                initProcess = try RuncProcess(
+                    id: id,
+                    stdio: stdio,
+                    bundle: bundle,
+                    runc: runc,
+                    log: log
+                )
+                self.needsCgroupCleanup = false
+                log.info("created runc init process with runtime: \(runtimePath)")
+            } else {
+                // Use vmexec runtime
+                initProcess = try ManagedProcess(
+                    id: id,
+                    stdio: stdio,
+                    bundle: bundle,
+                    cgroupManager: cgManager,
+                    owningPid: nil,
+                    log: log
+                )
+                self.needsCgroupCleanup = true
+                log.info("created vmexec init process")
+            }
 
             self.cgroupManager = cgManager
             self.initProcess = initProcess
@@ -122,14 +147,14 @@ extension ManagedContainer {
         return try await ProcessSupervisor.default.start(process: proc)
     }
 
-    func wait(execID: String) async throws -> ManagedProcess.ExitStatus {
+    func wait(execID: String) async throws -> ContainerExitStatus {
         let proc = try self.getExecOrInit(execID: execID)
         return await proc.wait()
     }
 
-    func kill(execID: String, _ signal: Int32) throws {
+    func kill(execID: String, _ signal: Int32) async throws {
         let proc = try self.getExecOrInit(execID: execID)
-        try proc.kill(signal)
+        try await proc.kill(signal)
     }
 
     func resize(execID: String, size: Terminal.Size) throws {
@@ -152,16 +177,22 @@ extension ManagedContainer {
         self.execs.removeValue(forKey: id)
     }
 
-    func delete() throws {
+    func delete() async throws {
+        // Delete the init process if it's a RuncProcess
+        try await self.initProcess.delete()
+
+        // Delete the bundle and cgroup
         try self.bundle.delete()
-        try self.cgroupManager.delete(force: true)
+        if self.needsCgroupCleanup {
+            try self.cgroupManager.delete(force: true)
+        }
     }
 
     func stats() throws -> Cgroup2Stats {
         try self.cgroupManager.stats()
     }
 
-    func getExecOrInit(execID: String) throws -> ManagedProcess {
+    func getExecOrInit(execID: String) throws -> any ContainerProcess {
         if execID == self.id {
             return self.initProcess
         }
