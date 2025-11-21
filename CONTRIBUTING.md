@@ -41,11 +41,7 @@ working on an issue:
 
 ### Getting Help
 
-Once you start working on the issue, you will inevitably end up having a lot of questions. Don't be afraid to ask for help! The codebase is large and wrapping your head around it will take time. When asking for help, prefer giving as much information as possible, while highlighting the parts that you think are important. Refer to the [section](#-Maintainers-to-ping-for-help) below for the appropriate maintainers to ping.
-
-### Maintainers to ping for help
-
-// TODO
+Once you start working on the issue, you will inevitably end up having a lot of questions. Don't be afraid to ask for help! The codebase is large and wrapping your head around it will take time. When asking for help, prefer giving as much information as possible, while highlighting the parts that you think are important.
 
 ### I didn't get a response from someone. What should I do?
 
@@ -64,7 +60,7 @@ Be sure to comment on the issue saying you’re stepping away, so that someone e
 
 We require all commits be signed with any of GitHub's supported methods, such as GPG or SSH. Information on how to set this up can be found on [GitHub's docs](https://docs.github.com/en/authentication/managing-commit-signature-verification/about-commit-signature-verification#about-commit-signature-verification).
 
-To make a pull request, use [GitHub](https://github.com/apple/containerization/compare). Please give the team a few days to review but it's ok to check in on occasion. Refer again to this [section](#-Maintainers-to-ping-for-help) for the appropriate maintainers to ping. We appreciate your contribution!
+To make a pull request, use [GitHub](https://github.com/apple/containerization/compare). Please give the team a few days to review but it's ok to check in on occasion. We appreciate your contribution!
 
 We use a "squash and merge" strategy to keep our `main` branch history clean and easy to follow. When your pull request
 is merged, all of your commits will be combined into a single commit.
