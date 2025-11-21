@@ -14,24 +14,57 @@ We would love your contributions in the form of:
 
 Anything else that could enhance the project!
 
-## Submitting Issues and Pull Requests
-
-### Issues
+## Submitting Issues
 
 To file a bug or feature request, use [GitHub issues](https://github.com/apple/containerization/issues/new).
 
 🚧 For unexpected behavior or usability limitations, detailed instructions on how to reproduce the issue are appreciated. This will greatly help the priority setting and speed at which maintainers can get to your issue.
 
-### Pull Requests
+## How do I pick something to work on?
 
-We require all commits be signed with any of GitHub's supported methods, such as GPG or SSH. Information on how to set this up can be found on [GitHub's docs](https://docs.github.com/en/authentication/managing-commit-signature-verification/about-commit-signature-verification#about-commit-signature-verification).
+In case you don't have anything specific to work on, you could
+start off by picking a [good first issue](https://github.com/apple/containerization/contribute). Before you start
+working on an issue:
+* Check the comments, assignees, and any references to pull requests — make sure
+  nobody else is actively working on it, or awaiting help or review.
 
-To make a pull request, use [GitHub](https://github.com/apple/containerization/compare). Please give the team a few days to review but it's ok to check in on occasion. We appreciate your contribution!
+* If someone is assigned to the issue or volunteered to work on it, and there
+  are no signs of progress or activity over at least the past month, don't
+  hesitate to check in with them — it might be that the person moved on.
+
+* Leave a comment that you have started working on it.
 
 > [!IMPORTANT]
 > If you plan to make substantial changes or add new features, we encourage you to first discuss them with the wider containerization developer community.
 > You can do this by filing a [GitHub issue](https://github.com/apple/containerization/issues/new).
 > This will save time and increases the chance of your pull request being accepted.
+
+### Getting Help
+
+Once you start working on the issue, you will inevitably end up having a lot of questions. Don't be afraid to ask for help! The codebase is large and wrapping your head around it will take time. When asking for help, prefer giving as much information as possible, while highlighting the parts that you think are important. Refer to the [section](#-Maintainers-to-ping-for-help) below for the appropriate maintainers to ping.
+
+### Maintainers to ping for help
+
+// TODO
+
+### I didn't get a response from someone. What should I do?
+
+It's possible that you ask someone a question in a issue/pull request and
+you don't get a response as quickly as you'd like. If you don't get a response
+within a week, it's okay to politely ping them using an `@` mention with a
+reminder. If you don't get a response for 2-3 weeks in a row, please ping
+someone else.
+
+### I can't finish the contribution I started. :frowning_face:
+
+Sometimes an issue ends up bigger, harder, or more time-consuming than expected — **and that’s completely fine.**
+Be sure to comment on the issue saying you’re stepping away, so that someone else is able to pick it up.
+
+## Pull Requests
+
+We require all commits be signed with any of GitHub's supported methods, such as GPG or SSH. Information on how to set this up can be found on [GitHub's docs](https://docs.github.com/en/authentication/managing-commit-signature-verification/about-commit-signature-verification#about-commit-signature-verification).
+
+To make a pull request, use [GitHub](https://github.com/apple/containerization/compare). Please give the team a few days to review but it's ok to check in on occasion. Refer again to this [section](#-Maintainers-to-ping-for-help) for the appropriate maintainers to ping. We appreciate your contribution!
 
 We use a "squash and merge" strategy to keep our `main` branch history clean and easy to follow. When your pull request
 is merged, all of your commits will be combined into a single commit.
