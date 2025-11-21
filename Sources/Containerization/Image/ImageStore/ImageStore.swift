@@ -141,6 +141,15 @@ extension ImageStore {
         }
     }
 
+    /// Calculate the size of orphaned blobs without deleting them.
+    ///
+    /// - Returns: The total size in bytes of blobs that are not referenced by any image.
+    public func calculateOrphanedBlobsSize() async throws -> UInt64 {
+        try await self.lock.withLock { lockCtx in
+            try await self._calculateOrphanedBlobsSize(lockCtx)
+        }
+    }
+
     @discardableResult
     private func _cleanupOrphanedBlobs(_ lock: AsyncLock.Context) async throws -> (deleted: [String], freed: UInt64) {
         let images = try await self.list()
@@ -150,6 +159,39 @@ extension ImageStore {
         }
         let (deleted, size) = try await self.contentStore.delete(keeping: referenced)
         return (deleted, size)
+    }
+
+    private func _calculateOrphanedBlobsSize(_ lock: AsyncLock.Context) async throws -> UInt64 {
+        let images = try await self.list()
+        var referenced: [String] = []
+        for image in images {
+            try await referenced.append(contentsOf: image.referencedDigests().uniqued())
+        }
+
+        // Calculate size of blobs not in the referenced list
+        let referencedSet = Set(referenced.map { $0.trimmingDigestPrefix })
+        let blobsPath = self.path.appendingPathComponent("content/blobs/sha256")
+
+        let fileManager = FileManager.default
+        let allBlobs = try fileManager.contentsOfDirectory(
+            at: blobsPath,
+            includingPropertiesForKeys: [.fileSizeKey],
+            options: [.skipsHiddenFiles]
+        )
+
+        var orphanedSize: UInt64 = 0
+        for blobURL in allBlobs {
+            let digest = blobURL.lastPathComponent
+            if !referencedSet.contains(digest) {
+                if let resourceValues = try? blobURL.resourceValues(forKeys: [.fileSizeKey]),
+                    let size = resourceValues.fileSize
+                {
+                    orphanedSize += UInt64(size)
+                }
+            }
+        }
+
+        return orphanedSize
     }
 
     /// Tag an existing image such that it can be referenced by another name.
