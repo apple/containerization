@@ -4,6 +4,20 @@ Very basic example of launching a Linux container using Containerization.
 
 ## Build and Run
 
+### 0. Verify Your Setup
+
+Before building, ensure you have the required dependencies:
+
+- **macOS**: macOS 26 beta or later
+- **Xcode**: Xcode 26 beta or later  
+- **Swift**: Apple Swift version 6.2 or later
+- **Hardware**: Mac with Apple silicon
+
+You can verify your Swift version by running:
+```bash
+swift --version
+```
+
 ### 1. Fetch Kernel
 
 In your terminal, change directories to examples/ctr-example and run:
