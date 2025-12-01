@@ -38,6 +38,8 @@ struct exec_command_attrs {
   gid_t gid;
   /// signal mask for the child process
   int mask;
+  /// parent death signal (Linux only, 0 to disable)
+  int pdeathSignal;
 };
 
 void exec_command_attrs_init(struct exec_command_attrs *attrs);

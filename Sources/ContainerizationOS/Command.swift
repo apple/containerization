@@ -68,6 +68,8 @@ public struct Command: Sendable {
         public var uid: UInt32?
         /// Set the process group ID.
         public var gid: UInt32?
+        /// Signal to send when parent process dies (Linux only).
+        public var pdeathSignal: Int32?
 
         public init(
             setPGroup: Bool = false,
@@ -77,7 +79,8 @@ public struct Command: Sendable {
             setsid: Bool = false,
             setctty: Bool = false,
             uid: UInt32? = nil,
-            gid: UInt32? = nil
+            gid: UInt32? = nil,
+            pdeathSignal: Int32? = nil
         ) {
             self.setPGroup = setPGroup
             self.resetIDs = resetIDs
@@ -87,6 +90,7 @@ public struct Command: Sendable {
             self.setctty = setctty
             self.uid = uid
             self.gid = gid
+            self.pdeathSignal = pdeathSignal
         }
     }
 
@@ -205,6 +209,10 @@ extension Command {
         }
         if let gid = self.attrs.gid {
             attrs.gid = gid
+        }
+
+        if let pdeathSignal = self.attrs.pdeathSignal {
+            attrs.pdeathSignal = pdeathSignal
         }
 
         var pid: pid_t = 0

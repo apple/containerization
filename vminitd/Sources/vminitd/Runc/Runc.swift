@@ -339,7 +339,9 @@ extension Runc {
         cmd.stdout = stdout ?? outPipe.fileHandleForWriting
         cmd.stderr = stderr ?? outPipe.fileHandleForWriting
 
-        // FIXME: pdeathSignal handling if Command supported it.
+        if let pdeathSignal = pdeathSignal {
+            cmd.attrs.pdeathSignal = pdeathSignal
+        }
 
         if setpgid {
             cmd.attrs.setPGroup = true
