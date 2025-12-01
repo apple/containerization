@@ -33,8 +33,8 @@ The API allows the runtime environment to be configured and containerized proces
 To build the Containerization package, you need:
 
 - Mac with Apple silicon
-- macOS 26 beta
-- Xcode 26 beta
+- macOS 26
+- Xcode 26
 
 Older versions of macOS are not supported. 
 
