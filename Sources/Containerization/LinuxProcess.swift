@@ -124,18 +124,17 @@ public final class LinuxProcess: Sendable {
 }
 
 extension LinuxProcess {
-    func setupIO(streams: [VsockConnectionStream?]) async throws -> [FileHandle?] {
+    func setupIO(listeners: [VsockListener?]) async throws -> [FileHandle?] {
         let handles = try await Timeout.run(seconds: 3) {
             try await withThrowingTaskGroup(of: (Int, FileHandle?).self) { group in
                 var results = [FileHandle?](repeating: nil, count: 3)
 
-                for (index, stream) in streams.enumerated() {
-                    guard let stream = stream else { continue }
+                for (index, listener) in listeners.enumerated() {
+                    guard let listener else { continue }
 
                     group.addTask {
-                        let first = await stream.first(where: { _ in true })
-                        stream.finish()
-                        try self.vm.stopListen(stream.port)
+                        let first = await listener.first(where: { _ in true })
+                        try listener.finish()
                         return (index, first)
                     }
                 }
@@ -236,12 +235,12 @@ extension LinuxProcess {
     public func start() async throws {
         do {
             let spec = self.state.withLock { $0.spec }
-            var streams = [VsockConnectionStream?](repeating: nil, count: 3)
+            var listeners = [VsockListener?](repeating: nil, count: 3)
             if let stdin = self.ioSetup.stdin {
-                streams[0] = try self.vm.listen(stdin.port)
+                listeners[0] = try self.vm.listen(stdin.port)
             }
             if let stdout = self.ioSetup.stdout {
-                streams[1] = try self.vm.listen(stdout.port)
+                listeners[1] = try self.vm.listen(stdout.port)
             }
             if let stderr = self.ioSetup.stderr {
                 if spec.process!.terminal {
@@ -250,11 +249,11 @@ extension LinuxProcess {
                         message: "stderr should not be configured with terminal=true"
                     )
                 }
-                streams[2] = try self.vm.listen(stderr.port)
+                listeners[2] = try self.vm.listen(stderr.port)
             }
 
             let t = Task {
-                try await self.setupIO(streams: streams)
+                try await self.setupIO(listeners: listeners)
             }
 
             try await agent.createProcess(

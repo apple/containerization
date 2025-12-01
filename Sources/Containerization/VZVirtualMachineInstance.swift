@@ -226,8 +226,8 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
         }
     }
 
-    func listen(_ port: UInt32) throws -> VsockConnectionStream {
-        let stream = VsockConnectionStream(port: port)
+    func listen(_ port: UInt32) throws -> VsockListener {
+        let stream = VsockListener(port: port, stopListen: self.stopListen)
         let listener = VZVirtioSocketListener()
         listener.delegate = stream
 
@@ -239,7 +239,7 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
         return stream
     }
 
-    func stopListen(_ port: UInt32) throws {
+    private func stopListen(_ port: UInt32) throws {
         try self.vm.removeListener(
             queue: queue,
             port: port
