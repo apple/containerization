@@ -520,9 +520,6 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                     "containerID": "\(request.containerID)",
                     "error": "\(error)",
                 ])
-            if error is GRPCStatus {
-                throw error
-            }
             throw GRPCStatus(code: .internalError, message: "createProcess: \(error)")
         }
     }
@@ -573,9 +570,6 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                     "containerID": "\(request.containerID)",
                     "error": "\(error)",
                 ])
-            if error is GRPCStatus {
-                throw error
-            }
             throw GRPCStatus(code: .internalError, message: "killProcess: failed to kill process: \(error)")
         }
     }
@@ -632,9 +626,6 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                     "containerID": "\(request.containerID)",
                     "error": "\(error)",
                 ])
-            if error is GRPCStatus {
-                throw error
-            }
             throw GRPCStatus(code: .internalError, message: "deleteProcess: \(error)")
         }
     }
@@ -685,9 +676,6 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                     "containerID": "\(request.containerID)",
                     "error": "\(error)",
                 ])
-            if error is GRPCStatus {
-                throw error
-            }
             throw GRPCStatus(
                 code: .internalError,
                 message: "startProcess: failed to start process: \(error)"
@@ -783,9 +771,6 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                     "containerID": "\(request.containerID)",
                     "error": "\(error)",
                 ])
-            if error is GRPCStatus {
-                throw error
-            }
             throw GRPCStatus(
                 code: .internalError,
                 message: "waitProcess: failed to wait on process: \(error)"
