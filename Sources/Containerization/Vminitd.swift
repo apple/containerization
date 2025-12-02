@@ -414,19 +414,6 @@ extension Vminitd {
             })
         return response.result
     }
-
-    /// Syncing shutdown will send a SIGTERM to all processes
-    /// and wait, perform a sync operation, then issue a SIGKILL
-    /// to the remaining processes before syncing again.
-    public func syncingShutdown() async throws {
-        _ = try await self.kill(pid: -1, signal: SIGTERM)
-        try await Task.sleep(for: .milliseconds(10))
-        try await self.sync()
-
-        _ = try await self.kill(pid: -1, signal: SIGKILL)
-        try await Task.sleep(for: .milliseconds(10))
-        try await self.sync()
-    }
 }
 
 extension Hosts {
@@ -451,25 +438,13 @@ extension Hosts {
 }
 
 extension Vminitd.Client {
-    public init(socket: String, group: EventLoopGroup) {
-        var config = ClientConnection.Configuration.default(
-            target: .unixDomainSocket(socket),
-            eventLoopGroup: group
-        )
-        config.maximumReceiveMessageLength = Int(64.mib())
-        config.connectionBackoff = ConnectionBackoff(retries: .upTo(5))
-
-        self = .init(channel: ClientConnection(configuration: config))
-    }
-
     public init(connection: FileHandle, group: EventLoopGroup) {
         var config = ClientConnection.Configuration.default(
             target: .connectedSocket(connection.fileDescriptor),
             eventLoopGroup: group
         )
+        config.connectionBackoff = nil
         config.maximumReceiveMessageLength = Int(64.mib())
-        config.connectionBackoff = ConnectionBackoff(retries: .upTo(5))
-
         self = .init(channel: ClientConnection(configuration: config))
     }
 

@@ -29,7 +29,10 @@ actor TimeSyncer {
     }
 
     func start(context: Vminitd, interval: Duration = .seconds(30)) {
-        precondition(task == nil, "time syncer is already running")
+        guard self.task == nil else {
+            return
+        }
+
         self.context = context
         self.task = Task {
             while true {
@@ -70,10 +73,13 @@ actor TimeSyncer {
 
     func close() async throws {
         guard let task else {
-            preconditionFailure("time syncer was already closed")
+            // Already closed, nop.
+            return
         }
 
         task.cancel()
+        await task.value
+
         try await self.context?.close()
         self.task = nil
         self.context = nil

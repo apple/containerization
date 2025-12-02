@@ -114,9 +114,18 @@ struct Application {
         do {
             log.info("serving vminitd API")
             try await server.serve(port: vsockPort)
-            log.info("vminitd API returned")
+            log.info("vminitd API returned, syncing filesystems")
+
+            #if os(Linux)
+            Musl.sync()
+            #endif
         } catch {
             log.error("vminitd boot error \(error)")
+
+            #if os(Linux)
+            Musl.sync()
+            #endif
+
             exit(1)
         }
     }

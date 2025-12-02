@@ -306,7 +306,7 @@ extension Socket {
 
     /// Receive a file descriptor via SCM_RIGHTS control message.
     /// This is commonly used for passing file descriptors between processes via Unix domain sockets.
-    public func receiveFileDescriptor() throws -> FileHandle {
+    public func receiveFileDescriptor() throws -> Int32 {
         let handle = try state.withLock { currentState in
             guard currentState.socketState == .connected else {
                 throw SocketError.invalidOperationOnSocket("receiveFileDescriptor")
@@ -329,7 +329,12 @@ extension Socket {
 
         var cmsgBuf = [UInt8](repeating: 0, count: Int(CZ_CMSG_SPACE(Int(MemoryLayout<Int32>.size))))
         msg.msg_control = withUnsafeMutablePointer(to: &cmsgBuf[0]) { UnsafeMutableRawPointer($0) }
+
+        #if canImport(Glibc)
+        msg.msg_controllen = size_t(cmsgBuf.count)
+        #else
         msg.msg_controllen = socklen_t(cmsgBuf.count)
+        #endif
 
         let recvResult = withUnsafeMutablePointer(to: &msg) { msgPtr in
             sysRecvmsg(handle.fileDescriptor, msgPtr, 0)
@@ -361,7 +366,7 @@ extension Socket {
             throw SocketError.invalidFileDescriptor
         }
 
-        return FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        return fd
     }
 
     public func read(buffer: inout Data) throws -> Int {

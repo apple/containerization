@@ -80,9 +80,7 @@ extension ImageStore {
         let (id, tempDir) = try await self.contentStore.newIngestSession()
         do {
             for descriptor in index.manifests {
-                guard let reference = client.getImageReferencefromDescriptor(descriptor: descriptor) else {
-                    continue
-                }
+                let reference = client.getImageReferencefromDescriptor(descriptor: descriptor)
                 let ref = try Reference.parse(reference)
                 let name = ref.path
                 let operation = ImportOperation(name: name, contentStore: self.contentStore, client: client, ingestDir: tempDir, progress: progress)

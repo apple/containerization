@@ -36,11 +36,6 @@ struct VZVirtualMachineInstance: Sendable {
         vzStateToInstanceState()
     }
 
-    /// Tracks vended connections and handles.
-    private struct VendedConnections: Sendable {
-        var agents: [Vminitd] = []
-    }
-
     /// The virtual machine instance configuration.
     private let config: Configuration
     public struct Configuration: Sendable {
@@ -60,8 +55,8 @@ struct VZVirtualMachineInstance: Sendable {
         public var kernel: Kernel?
         /// The root filesystem.
         public var initialFilesystem: Mount?
-        /// File path to store the virtual machine's boot logs.
-        public var bootlog: URL?
+        /// Destination for the virtual machine's boot logs.
+        public var bootLog: BootLog?
 
         init() {
             self.cpus = 4
@@ -76,7 +71,7 @@ struct VZVirtualMachineInstance: Sendable {
     // `vm` isn't used concurrently.
     private nonisolated(unsafe) let vm: VZVirtualMachine
     private let queue: DispatchQueue
-    private let lock: AsyncMutex<VendedConnections>
+    private let lock: AsyncLock
     private let group: EventLoopGroup
     private let ownsGroup: Bool
     private let timeSyncer: TimeSyncer
@@ -102,7 +97,7 @@ struct VZVirtualMachineInstance: Sendable {
         }
 
         self.config = config
-        self.lock = .init(VendedConnections())
+        self.lock = .init()
         self.queue = DispatchQueue(label: "com.apple.containerization.vzvm.\(UUID().uuidString)")
         self.mounts = try config.mountAttachments()
         self.logger = logger
@@ -162,12 +157,6 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
 
             try await self.timeSyncer.close()
 
-            // Close all vended agents and handles
-            for agent in connections.agents {
-                try await agent.close()
-            }
-            connections.agents.removeAll()
-
             if self.ownsGroup {
                 try await self.group.shutdownGracefully()
             }
@@ -194,26 +183,46 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
     }
 
     public func dialAgent() async throws -> Vminitd {
-        try await lock.withLock { connections in
-            let handle = try await vm.connect(
-                queue: queue,
-                port: Vminitd.port
-            ).dupHandle()
-
-            let agent = Vminitd(connection: handle, group: self.group)
-            connections.agents.append(agent)
-
-            return agent
+        try await lock.withLock { _ in
+            do {
+                let conn = try await vm.connect(
+                    queue: queue,
+                    port: Vminitd.port
+                )
+                let handle = try conn.dupHandle()
+                let agent = Vminitd(connection: handle, group: self.group)
+                return agent
+            } catch {
+                if let err = error as? ContainerizationError {
+                    throw err
+                }
+                throw ContainerizationError(
+                    .internalError,
+                    message: "failed to dial agent",
+                    cause: error
+                )
+            }
         }
     }
 
     func dial(_ port: UInt32) async throws -> FileHandle {
-        try await lock.withLock { connections in
-            let handle = try await vm.connect(
-                queue: queue,
-                port: port
-            ).dupHandle()
-            return handle
+        try await lock.withLock { _ in
+            do {
+                let conn = try await vm.connect(
+                    queue: queue,
+                    port: port
+                )
+                return try conn.dupHandle()
+            } catch {
+                if let err = error as? ContainerizationError {
+                    throw err
+                }
+                throw ContainerizationError(
+                    .internalError,
+                    message: "failed to dial vsock port",
+                    cause: error
+                )
+            }
         }
     }
 
@@ -289,9 +298,17 @@ extension VZVirtualMachineInstance.Configuration {
         }
     }
 
-    private func serialPort(path: URL) throws -> [VZVirtioConsoleDeviceSerialPortConfiguration] {
+    private func serialPort(destination: BootLog) throws -> [VZVirtioConsoleDeviceSerialPortConfiguration] {
         let c = VZVirtioConsoleDeviceSerialPortConfiguration()
-        c.attachment = try VZFileSerialPortAttachment(url: path, append: true)
+        switch destination.base {
+        case .file(let path, let append):
+            c.attachment = try VZFileSerialPortAttachment(url: path, append: append)
+        case .fileHandle(let fileHandle):
+            c.attachment = VZFileHandleSerialPortAttachment(
+                fileHandleForReading: nil,
+                fileHandleForWriting: fileHandle
+            )
+        }
         return [c]
     }
 
@@ -303,11 +320,11 @@ extension VZVirtualMachineInstance.Configuration {
         config.entropyDevices = [VZVirtioEntropyDeviceConfiguration()]
         config.socketDevices = [VZVirtioSocketDeviceConfiguration()]
 
-        if let bootlog = self.bootlog {
-            config.serialPorts = try serialPort(path: bootlog)
+        if let bootLog = self.bootLog {
+            config.serialPorts = try serialPort(destination: bootLog)
         } else {
             // We always supply a serial console. If no explicit path was provided just send em to the void.
-            config.serialPorts = try serialPort(path: URL(filePath: "/dev/null"))
+            config.serialPorts = try serialPort(destination: .file(path: URL(filePath: "/dev/null")))
         }
 
         config.networkDevices = try self.interfaces.map {
