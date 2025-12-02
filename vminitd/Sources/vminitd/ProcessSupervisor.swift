@@ -17,20 +17,25 @@
 import ContainerizationOS
 import Foundation
 import Logging
+import Synchronization
 
-actor ProcessSupervisor {
+final class ProcessSupervisor: Sendable {
     let poller: Epoll
 
     private let queue: DispatchQueue
     // `DispatchSourceSignal` is thread-safe.
     private nonisolated(unsafe) let source: DispatchSourceSignal
-    private var processes = [any ContainerProcess]()
+
+    private struct State {
+        var processes: [any ContainerProcess] = []
+        var log: Logger?
+    }
+
+    private let state: Mutex<State>
     private let reaperCommandRunner = ReaperCommandRunner()
 
-    var log: Logger?
-
     func setLog(_ log: Logger?) {
-        self.log = log
+        self.state.withLock { $0.log = log }
     }
 
     static let `default` = ProcessSupervisor()
@@ -40,6 +45,7 @@ actor ProcessSupervisor {
         self.source = DispatchSource.makeSignalSource(signal: SIGCHLD, queue: queue)
         self.queue = queue
         self.poller = try! Epoll()
+        self.state = Mutex(State())
         let t = Thread {
             try! self.poller.run()
         }
@@ -48,64 +54,62 @@ actor ProcessSupervisor {
 
     func ready() {
         self.source.setEventHandler {
-            do {
-                self.log?.debug("received SIGCHLD, reaping processes")
-                try self.handleSignal()
-            } catch {
-                self.log?.error("reaping processes failed", metadata: ["error": "\(error)"])
-            }
+            self.handleSignal()
         }
         self.source.resume()
     }
 
-    private func handleSignal() throws {
+    private func handleSignal() {
         dispatchPrecondition(condition: .onQueue(queue))
 
-        self.log?.debug("starting to wait4 processes")
         let exited = Reaper.reap()
-        self.log?.debug("finished wait4 of \(exited.count) processes")
 
         for (pid, status) in exited {
             reaperCommandRunner.notifyExit(pid: pid, status: status)
         }
 
-        self.log?.debug("checking for exit of managed process", metadata: ["exits": "\(exited)", "processes": "\(processes.count)"])
-        let exitedProcesses = self.processes.filter { proc in
-            exited.contains { pid, _ in
-                proc.pid == pid
-            }
-        }
+        self.state.withLock { state in
+            state.log?.debug("received SIGCHLD, reaping processes")
+            state.log?.debug("finished wait4 of \(exited.count) processes")
+            state.log?.debug("checking for exit of managed process", metadata: ["exits": "\(exited)", "processes": "\(state.processes.count)"])
 
-        for proc in exitedProcesses {
-            guard let pid = proc.pid else {
-                continue
+            let exitedProcesses = state.processes.filter { proc in
+                exited.contains { pid, _ in
+                    proc.pid == pid
+                }
             }
 
-            if let status = exited[pid] {
-                self.log?.debug(
-                    "managed process exited",
-                    metadata: [
-                        "pid": "\(pid)",
-                        "status": "\(status)",
-                        "count": "\(processes.count - 1)",
-                    ])
-                proc.setExit(status)
-                self.processes.removeAll(where: { $0.pid == pid })
+            for proc in exitedProcesses {
+                guard let pid = proc.pid else {
+                    continue
+                }
+
+                if let status = exited[pid] {
+                    state.log?.debug(
+                        "managed process exited",
+                        metadata: [
+                            "pid": "\(pid)",
+                            "status": "\(status)",
+                            "count": "\(state.processes.count - 1)",
+                        ])
+                    proc.setExit(status)
+                    state.processes.removeAll(where: { $0.pid == pid })
+                }
             }
         }
     }
 
     func start(process: any ContainerProcess) async throws -> Int32 {
-        self.log?.debug("in supervisor lock to start process")
-        defer {
-            self.log?.debug("out of supervisor lock to start process")
+        self.state.withLock { state in
+            state.log?.debug("in supervisor lock to start process")
+            state.processes.append(process)
         }
-
         do {
-            self.processes.append(process)
             return try await process.start()
         } catch {
-            self.log?.error("process start failed \(error)", metadata: ["process-id": "\(process.id)"])
+            self.state.withLock { state in
+                state.processes.removeAll(where: { $0.id == process.id })
+            }
             throw error
         }
     }
@@ -118,7 +122,7 @@ actor ProcessSupervisor {
     }
 
     deinit {
-        self.log?.info("process supervisor deinit")
         source.cancel()
+        try? poller.shutdown()
     }
 }

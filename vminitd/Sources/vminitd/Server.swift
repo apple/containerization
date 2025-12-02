@@ -90,8 +90,8 @@ final class Initd: Sendable {
         try await withThrowingTaskGroup(of: Void.self) { group in
             log.debug("starting process supervisor")
 
-            await ProcessSupervisor.default.setLog(self.log)
-            await ProcessSupervisor.default.ready()
+            ProcessSupervisor.default.setLog(self.log)
+            ProcessSupervisor.default.ready()
 
             log.info(
                 "booting gRPC server on vsock",
