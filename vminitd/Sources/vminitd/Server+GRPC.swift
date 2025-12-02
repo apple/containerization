@@ -561,7 +561,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 ])
             switch err.code {
             case .notFound:
-                throw GRPCStatus(code: .notFound, message: "killProcess: \(err)")
+                throw GRPCStatus(code: .notFound, message: "killProcess: failed to kill process: \(err)")
             default:
                 throw GRPCStatus(code: .internalError, message: "killProcess: failed to kill process: \(err)")
             }
@@ -620,9 +620,9 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 ])
             switch err.code {
             case .notFound:
-                throw GRPCStatus(code: .notFound, message: "deleteProcess: \(err)")
+                throw GRPCStatus(code: .notFound, message: "deleteProcess: failed to delete process: \(err)")
             default:
-                throw GRPCStatus(code: .internalError, message: "deleteProcess: \(err)")
+                throw GRPCStatus(code: .internalError, message: "deleteProcess: failed to delete process: \(err)")
             }
         } catch {
             log.error(
@@ -673,15 +673,9 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 ])
             switch err.code {
             case .notFound:
-                throw GRPCStatus(
-                    code: .notFound,
-                    message: "startProcess: \(err)"
-                )
+                throw GRPCStatus(code: .notFound, message: "startProcess: failed to start process: \(err)")
             default:
-                throw GRPCStatus(
-                    code: .internalError,
-                    message: "startProcess: failed to start process: \(err)"
-                )
+                throw GRPCStatus(code: .internalError, message: "startProcess: failed to start process: \(err)")
             }
         } catch {
             log.error(
@@ -777,15 +771,9 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 ])
             switch err.code {
             case .notFound:
-                throw GRPCStatus(
-                    code: .notFound,
-                    message: "waitProcess: \(err)"
-                )
+                throw GRPCStatus(code: .notFound, message: "waitProcess: failed to wait on process: \(err)")
             default:
-                throw GRPCStatus(
-                    code: .internalError,
-                    message: "waitProcess: failed to wait on process: \(err)"
-                )
+                throw GRPCStatus(code: .internalError, message: "waitProcess: failed to wait on process: \(err)")
             }
         } catch {
             log.error(
