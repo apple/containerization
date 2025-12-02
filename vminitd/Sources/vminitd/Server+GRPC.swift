@@ -498,6 +498,20 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             }
 
             return .init()
+        } catch let err as ContainerizationError {
+            log.error(
+                "createProcess",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(err)",
+                ])
+            switch err.code {
+            case .invalidArgument:
+                throw GRPCStatus(code: .invalidArgument, message: "createProcess: failed to create process: \(err)")
+            default:
+                throw GRPCStatus(code: .internalError, message: "createProcess: failed to create process: \(err)")
+            }
         } catch {
             log.error(
                 "createProcess",
@@ -525,14 +539,14 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 "signal": "\(request.signal)",
             ])
 
-        do {
-            if !request.hasContainerID {
-                throw ContainerizationError(
-                    .invalidArgument,
-                    message: "processes in the root of the vm not implemented"
-                )
-            }
+        if !request.hasContainerID {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "processes in the root of the vm not implemented"
+            )
+        }
 
+        do {
             let ctr = try await self.state.get(container: request.containerID)
             try await ctr.kill(execID: request.id, request.signal)
 
@@ -576,14 +590,14 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 "containerID": "\(request.containerID)",
             ])
 
-        do {
-            if !request.hasContainerID {
-                throw ContainerizationError(
-                    .invalidArgument,
-                    message: "processes in the root of the vm not implemented"
-                )
-            }
+        if !request.hasContainerID {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "processes in the root of the vm not implemented"
+            )
+        }
 
+        do {
             let ctr = try await self.state.get(container: request.containerID)
 
             // Are we trying to delete the container itself?
