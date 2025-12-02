@@ -520,7 +520,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                     "containerID": "\(request.containerID)",
                     "error": "\(error)",
                 ])
-            throw GRPCStatus(code: .internalError, message: "createProcess: \(error)")
+            throw GRPCStatus(code: .internalError, message: "createProcess: failed to create process: \(error)")
         }
     }
 
@@ -626,7 +626,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                     "containerID": "\(request.containerID)",
                     "error": "\(error)",
                 ])
-            throw GRPCStatus(code: .internalError, message: "deleteProcess: \(error)")
+            throw GRPCStatus(code: .internalError, message: "deleteProcess: failed to delete process: \(error)")
         }
     }
 
