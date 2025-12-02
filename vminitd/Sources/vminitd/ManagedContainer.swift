@@ -68,7 +68,7 @@ actor ManagedContainer {
 
             if let runtimePath = ociRuntimePath {
                 // Use runc runtime
-                let runc = await ProcessSupervisor.default.getRuncWithReaper(
+                let runc = ProcessSupervisor.default.getRuncWithReaper(
                     Runc(
                         command: runtimePath,
                         root: "/run/runc"
