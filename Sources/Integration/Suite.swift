@@ -315,6 +315,7 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("pod container filesystem isolation", testPodContainerFilesystemIsolation),
             Test("pod container PID namespace isolation", testPodContainerPIDNamespaceIsolation),
             Test("pod container independent resource limits", testPodContainerIndependentResourceLimits),
+            Test("pod shared PID namespace", testPodSharedPIDNamespace),
         ]
 
         let passed: Atomic<Int> = Atomic(0)

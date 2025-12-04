@@ -702,4 +702,48 @@ extension IntegrationSuite {
             throw error
         }
     }
+
+    func testPodSharedPIDNamespace() async throws {
+        let id = "test-pod-shared-pid-namespace"
+
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+            config.shareProcessNamespace = true
+        }
+
+        // First container runs a long-running process
+        try await pod.addContainer("container1", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container1")) { config in
+            config.process.arguments = ["/bin/sleep", "300"]
+        }
+
+        // Second container checks if it can see container1's sleep process
+        let psBuffer = BufferWriter()
+        try await pod.addContainer("container2", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container2")) { config in
+            config.process.arguments = ["/bin/sh", "-c", "ps aux | grep 'sleep 300' | grep -v grep"]
+            config.process.stdout = psBuffer
+        }
+
+        try await pod.create()
+        try await pod.startContainer("container1")
+        try await Task.sleep(for: .milliseconds(100))
+
+        try await pod.startContainer("container2")
+        let status = try await pod.waitContainer("container2")
+
+        try await pod.killContainer("container1", signal: SIGKILL)
+        _ = try await pod.waitContainer("container1")
+        try await pod.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container2 should have found the sleep process (status: \(status))")
+        }
+
+        let output = String(data: psBuffer.data, encoding: .utf8) ?? ""
+        guard output.contains("sleep 300") else {
+            throw IntegrationError.assert(msg: "ps output should contain 'sleep 300', got: '\(output)'")
+        }
+    }
 }

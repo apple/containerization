@@ -50,6 +50,9 @@ public final class LinuxPod: Sendable {
         public var virtualization: Bool = false
         /// Optional file path to store serial boot logs.
         public var bootLog: BootLog?
+        /// Whether containers in the pod should share a PID namespace.
+        /// When enabled, all containers can see each other's processes.
+        public var shareProcessNamespace: Bool = false
 
         public init() {}
     }
@@ -103,6 +106,7 @@ public final class LinuxPod: Sendable {
     private struct State: Sendable {
         var phase: Phase
         var containers: [String: PodContainer]
+        var pauseProcess: LinuxProcess?
     }
 
     private enum Phase: Sendable {
@@ -173,7 +177,7 @@ public final class LinuxPod: Sendable {
         try configuration(&config)
 
         self.config = config
-        self.state = AsyncMutex(State(phase: .initialized, containers: [:]))
+        self.state = AsyncMutex(State(phase: .initialized, containers: [:], pauseProcess: nil))
     }
 
     private static func createDefaultRuntimeSpec(_ containerID: String, podID: String) -> Spec {
@@ -303,8 +307,63 @@ extension LinuxPod {
 
             do {
                 let containers = state.containers
+                let shareProcessNamespace = self.config.shareProcessNamespace
+                let pauseProcessHolder = Mutex<LinuxProcess?>(nil)
+
                 try await vm.withAgent { agent in
                     try await agent.standardSetup()
+
+                    // Create pause container if PID namespace sharing is enabled
+                    if shareProcessNamespace {
+                        let pauseID = "pause-\(self.id)"
+                        let pauseRootfsPath = "/run/container/\(pauseID)/rootfs"
+
+                        // Bind mount /sbin into the pause container rootfs.
+                        // This is where the guest agent lives.
+                        try await agent.mount(
+                            ContainerizationOCI.Mount(
+                                type: "",
+                                source: "/sbin",
+                                destination: "\(pauseRootfsPath)/sbin",
+                                options: ["bind"]
+                            ))
+
+                        var pauseSpec = Self.createDefaultRuntimeSpec(pauseID, podID: self.id)
+                        pauseSpec.process?.args = ["/sbin/vminitd", "pause"]
+                        pauseSpec.hostname = ""
+                        pauseSpec.mounts = LinuxContainer.defaultMounts().map {
+                            ContainerizationOCI.Mount(
+                                type: $0.type,
+                                source: $0.source,
+                                destination: $0.destination,
+                                options: $0.options
+                            )
+                        }
+                        pauseSpec.linux?.namespaces = [
+                            LinuxNamespace(type: .cgroup),
+                            LinuxNamespace(type: .ipc),
+                            LinuxNamespace(type: .mount),
+                            LinuxNamespace(type: .pid),
+                            LinuxNamespace(type: .uts),
+                        ]
+
+                        // Create LinuxProcess for pause container
+                        let process = LinuxProcess(
+                            pauseID,
+                            containerID: pauseID,
+                            spec: pauseSpec,
+                            io: LinuxProcess.Stdio(stdin: nil, stdout: nil, stderr: nil),
+                            ociRuntimePath: nil,
+                            agent: agent,
+                            vm: vm,
+                            logger: self.logger
+                        )
+
+                        try await process.start()
+                        pauseProcessHolder.withLock { $0 = process }
+
+                        self.logger?.debug("Pause container started", metadata: ["pid": "\(process.pid)"])
+                    }
 
                     // Mount all container rootfs
                     for (_, container) in containers {
@@ -353,6 +412,8 @@ extension LinuxPod {
                     }
                 }
 
+                state.pauseProcess = pauseProcessHolder.withLock { $0 }
+
                 // Transition all containers to created state
                 for id in state.containers.keys {
                     state.containers[id]?.state = .created
@@ -393,6 +454,33 @@ extension LinuxPod {
                 // We don't need the rootfs, nor do OCI runtimes want it included.
                 let containerMounts = createdState.vm.mounts[containerID] ?? []
                 spec.mounts = containerMounts.dropFirst().map { $0.to }
+
+                // Configure namespaces for the container
+                var namespaces: [LinuxNamespace] = [
+                    LinuxNamespace(type: .cgroup),
+                    LinuxNamespace(type: .ipc),
+                    LinuxNamespace(type: .mount),
+                    LinuxNamespace(type: .uts),
+                ]
+
+                // Either join pause container's pid ns or create a new one
+                if self.config.shareProcessNamespace, let pausePID = state.pauseProcess?.pid {
+                    let nsPath = "/proc/\(pausePID)/ns/pid"
+
+                    self.logger?.debug(
+                        "Container joining pause PID namespace",
+                        metadata: [
+                            "container": "\(containerID)",
+                            "pausePID": "\(pausePID)",
+                            "nsPath": "\(nsPath)",
+                        ])
+
+                    namespaces.append(LinuxNamespace(type: .pid, path: nsPath))
+                } else {
+                    namespaces.append(LinuxNamespace(type: .pid))
+                }
+
+                spec.linux?.namespaces = namespaces
 
                 let stdio = IOUtil.setup(
                     portAllocator: self.hostVsockPorts,
