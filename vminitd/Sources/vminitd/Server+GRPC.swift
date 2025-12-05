@@ -44,6 +44,26 @@ private let _kill = Glibc.kill
 private let _sync = Glibc.sync
 #endif
 
+extension ContainerizationError {
+    func toGRPCStatus(operation: String) -> GRPCStatus {
+        let message = "\(operation): \(self)"
+        switch self.code {
+        case .invalidArgument:
+            return GRPCStatus(code: .invalidArgument, message: message)
+        case .notFound:
+            return GRPCStatus(code: .notFound, message: message)
+        case .exists:
+            return GRPCStatus(code: .alreadyExists, message: message)
+        case .cancelled:
+            return GRPCStatus(code: .cancelled, message: message)
+        case .unsupported:
+            return GRPCStatus(code: .unimplemented, message: message)
+        default:
+            return GRPCStatus(code: .internalError, message: message)
+        }
+    }
+}
+
 extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvider {
     func setTime(
         request: Com_Apple_Containerization_Sandbox_V3_SetTimeRequest,
@@ -506,12 +526,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                     "containerID": "\(request.containerID)",
                     "error": "\(err)",
                 ])
-            switch err.code {
-            case .invalidArgument:
-                throw GRPCStatus(code: .invalidArgument, message: "createProcess: failed to create process: \(err)")
-            default:
-                throw GRPCStatus(code: .internalError, message: "createProcess: failed to create process: \(err)")
-            }
+            throw err.toGRPCStatus(operation: "createProcess: failed to create process")
         } catch {
             log.error(
                 "createProcess",
@@ -556,12 +571,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                     "containerID": "\(request.containerID)",
                     "error": "\(err)",
                 ])
-            switch err.code {
-            case .notFound:
-                throw GRPCStatus(code: .notFound, message: "killProcess: failed to kill process: \(err)")
-            default:
-                throw GRPCStatus(code: .internalError, message: "killProcess: failed to kill process: \(err)")
-            }
+            throw err.toGRPCStatus(operation: "killProcess: failed to kill process")
         } catch {
             log.error(
                 "killProcess",
@@ -612,12 +622,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                     "containerID": "\(request.containerID)",
                     "error": "\(err)",
                 ])
-            switch err.code {
-            case .notFound:
-                throw GRPCStatus(code: .notFound, message: "deleteProcess: failed to delete process: \(err)")
-            default:
-                throw GRPCStatus(code: .internalError, message: "deleteProcess: failed to delete process: \(err)")
-            }
+            throw err.toGRPCStatus(operation: "deleteProcess: failed to delete process")
         } catch {
             log.error(
                 "deleteProcess",
@@ -662,12 +667,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                     "containerID": "\(request.containerID)",
                     "error": "\(err)",
                 ])
-            switch err.code {
-            case .notFound:
-                throw GRPCStatus(code: .notFound, message: "startProcess: failed to start process: \(err)")
-            default:
-                throw GRPCStatus(code: .internalError, message: "startProcess: failed to start process: \(err)")
-            }
+            throw err.toGRPCStatus(operation: "startProcess: failed to start process")
         } catch {
             log.error(
                 "startProcess",
@@ -715,14 +715,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                     "containerID": "\(request.containerID)",
                     "error": "\(err)",
                 ])
-            switch err.code {
-            case .invalidArgument:
-                throw GRPCStatus(code: .invalidArgument, message: "resizeProcess: failed to resize process: \(err)")
-            case .notFound:
-                throw GRPCStatus(code: .notFound, message: "resizeProcess: failed to resize process: \(err)")
-            default:
-                throw GRPCStatus(code: .internalError, message: "resizeProcess: failed to resize process: \(err)")
-            }
+            throw err.toGRPCStatus(operation: "resizeProcess: failed to resize process")
         } catch {
             log.error(
                 "resizeProcess",
@@ -773,12 +766,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                     "containerID": "\(request.containerID)",
                     "error": "\(err)",
                 ])
-            switch err.code {
-            case .notFound:
-                throw GRPCStatus(code: .notFound, message: "waitProcess: failed to wait on process: \(err)")
-            default:
-                throw GRPCStatus(code: .internalError, message: "waitProcess: failed to wait on process: \(err)")
-            }
+            throw err.toGRPCStatus(operation: "waitProcess: failed to wait on process")
         } catch {
             log.error(
                 "waitProcess",
@@ -825,14 +813,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                     "containerID": "\(request.containerID)",
                     "error": "\(err)",
                 ])
-            switch err.code {
-            case .invalidArgument:
-                throw GRPCStatus(code: .invalidArgument, message: "closeProcessStdin: failed to close process stdin: \(err)")
-            case .notFound:
-                throw GRPCStatus(code: .notFound, message: "closeProcessStdin: failed to close process stdin: \(err)")
-            default:
-                throw GRPCStatus(code: .internalError, message: "closeProcessStdin: failed to close process stdin: \(err)")
-            }
+            throw err.toGRPCStatus(operation: "closeProcessStdin: failed to close process stdin")
         } catch {
             log.error(
                 "closeProcessStdin",
