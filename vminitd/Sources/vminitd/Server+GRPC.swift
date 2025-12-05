@@ -47,20 +47,33 @@ private let _sync = Glibc.sync
 extension ContainerizationError {
     func toGRPCStatus(operation: String) -> GRPCStatus {
         let message = "\(operation): \(self)"
-        switch self.code {
-        case .invalidArgument:
-            return GRPCStatus(code: .invalidArgument, message: message)
-        case .notFound:
-            return GRPCStatus(code: .notFound, message: message)
-        case .exists:
-            return GRPCStatus(code: .alreadyExists, message: message)
-        case .cancelled:
-            return GRPCStatus(code: .cancelled, message: message)
-        case .unsupported:
-            return GRPCStatus(code: .unimplemented, message: message)
-        default:
-            return GRPCStatus(code: .internalError, message: message)
-        }
+        let code: GRPCStatus.Code = {
+            switch self.code {
+            case .invalidArgument:
+                return .invalidArgument
+            case .notFound:
+                return .notFound
+            case .exists:
+                return .alreadyExists
+            case .cancelled:
+                return .cancelled
+            case .unsupported:
+                return .unimplemented
+            case .unknown:
+                return .unknown
+            case .internalError:
+                return .internalError
+            case .interrupted:
+                return .unavailable
+            case .invalidState:
+                return .failedPrecondition
+            case .timeout:
+                return .deadlineExceeded
+            default:
+                return .internalError
+            }
+        }()
+        return GRPCStatus(code: code, message: message, cause: self)
     }
 }
 
