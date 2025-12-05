@@ -36,9 +36,14 @@ struct RunCommand: ParsableCommand {
             LoggingSystem.bootstrap(App.standardError)
             let log = Logger(label: "vmexec")
 
-            let bundle = try ContainerizationOCI.Bundle.load(path: URL(filePath: bundlePath))
-            let ociSpec = try bundle.loadConfig()
-            try execInNamespace(spec: ociSpec, log: log)
+            let spec: ContainerizationOCI.Spec
+            do {
+                let bundle = try ContainerizationOCI.Bundle.load(path: URL(filePath: bundlePath))
+                spec = try bundle.loadConfig()
+            } catch {
+                throw App.Failure(message: "failed to load OCI bundle at \(bundlePath): \(error)")
+            }
+            try execInNamespace(spec: spec, log: log)
         } catch {
             App.writeError(error)
             throw error
@@ -146,12 +151,54 @@ struct RunCommand: ParsableCommand {
         try App.exec(process: process, currentEnv: process.env)
     }
 
+    private func setupNamespaces(namespaces: [ContainerizationOCI.LinuxNamespace]?) throws -> Int32 {
+        var unshareFlags: Int32 = 0
+
+        // Map namespace types to their corresponding CLONE flags
+        let nsTypeToFlag: [ContainerizationOCI.LinuxNamespaceType: Int32] = [
+            .pid: CLONE_NEWPID,
+            .mount: CLONE_NEWNS,
+            .uts: CLONE_NEWUTS,
+            .ipc: CLONE_NEWIPC,
+            .user: CLONE_NEWUSER,
+            .cgroup: CLONE_NEWCGROUP,
+        ]
+
+        guard let namespaces = namespaces else {
+            return CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWUTS
+        }
+
+        for ns in namespaces {
+            guard let flag = nsTypeToFlag[ns.type] else {
+                continue
+            }
+
+            if ns.path.isEmpty {
+                unshareFlags |= flag
+            } else {
+                let fd = open(ns.path, O_RDONLY | O_CLOEXEC)
+                guard fd >= 0 else {
+                    throw App.Errno(stage: "open(\(ns.path))")
+                }
+                defer { close(fd) }
+
+                guard setns(fd, flag) == 0 else {
+                    throw App.Errno(stage: "setns(\(ns.path))")
+                }
+            }
+        }
+
+        return unshareFlags
+    }
+
     private func execInNamespace(spec: ContainerizationOCI.Spec, log: Logger) throws {
         let syncPipe = FileHandle(fileDescriptor: 3)
         let ackPipe = FileHandle(fileDescriptor: 4)
 
-        guard unshare(CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWUTS) == 0 else {
-            throw App.Errno(stage: "unshare(pid|mnt|uts)")
+        let unshareFlags = try setupNamespaces(namespaces: spec.linux?.namespaces)
+
+        guard unshare(unshareFlags) == 0 else {
+            throw App.Errno(stage: "unshare(\(unshareFlags))")
         }
 
         let processID = fork()

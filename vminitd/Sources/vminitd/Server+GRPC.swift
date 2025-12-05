@@ -428,7 +428,6 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 "stdin": "Port: \(request.stdin)",
                 "stdout": "Port: \(request.stdout)",
                 "stderr": "Port: \(request.stderr)",
-                "configuration": "\(request.configuration.count)",
             ])
 
         if !request.hasContainerID {
