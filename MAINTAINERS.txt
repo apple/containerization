@@ -1,0 +1,26 @@
+This file contains a list of maintainers and past maintainers who have made meaningful changes to this repository.
+
+### Maintainers
+
+Aditya Ramani (adityaramani)
+AJ Emory (ajemory)
+Danny Canter (dcantah)
+Dmitry Kovba (dkovba)
+Eric Ernst (egernst)
+John Logan (jglogan)
+Kathryn Baldauf (katiewasnothere)
+Madhu Venugopal (mavenugo)
+Michael Crosby (crosbymichael)
+Raj Aryan Singh (realrajaryan)
+Sidhartha Mani (wlan0)
+Yibo Zhuang (yibozhuang)
+
+
+### Emeritus maintainers
+
+Agam Dua (agamdua)
+Evan Hazlett (ehazlett)
+Gilbert Song (gilbert88)
+Hugh Bussell (hughbussell)
+Tanweer Noor (tanweernoor)
+Ximena Perez Diaz (ximenanperez)
