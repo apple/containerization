@@ -87,7 +87,7 @@ package final class LocalOCILayoutClient: ContentClient {
                     throw ContainerizationError(
                         .internalError,
                         message:
-                            "file \(filePath) exists but contains different content. expected digest: \(expectedDigest.digestString), existing digest: \(existingDigest.digestString)"
+                            "file \(filePath) exists but contains different content, expected digest: \(expectedDigest.digestString), existing digest: \(existingDigest.digestString)"
                     )
                 }
 

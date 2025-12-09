@@ -209,7 +209,7 @@ extension ImageStore {
                     throw ContainerizationError(
                         .internalError,
                         message:
-                            "descriptor \(root.mediaType) with digest \(root.digest) does not list any supported platform or supports more than one platform. Supported platforms = \(supportedPlatforms)"
+                            "descriptor \(root.mediaType) with digest \(root.digest) does not list any supported platform or supports more than one platform, supported platforms: \(supportedPlatforms)"
                     )
                 }
                 let platform = supportedPlatforms.first!

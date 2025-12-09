@@ -188,7 +188,7 @@ public class Reference: CustomStringConvertible {
         tag = fields["tag"] ?? ""
 
         if tag.isEmpty {
-            throw ContainerizationError(.invalidArgument, message: "invalid format for image reference. Missing tag")
+            throw ContainerizationError(.invalidArgument, message: "invalid format for image reference, missing tag")
         }
         return try Reference(path: self.path, domain: self.domain, tag: tag)
     }
@@ -202,7 +202,7 @@ public class Reference: CustomStringConvertible {
         digest = fields["digest"] ?? ""
 
         if digest.isEmpty {
-            throw ContainerizationError(.invalidArgument, message: "invalid format for image reference. Missing digest")
+            throw ContainerizationError(.invalidArgument, message: "invalid format for image reference, missing digest")
         }
         return try Reference(path: self.path, domain: self.domain, digest: digest)
     }
