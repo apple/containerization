@@ -36,7 +36,7 @@ public class ContentWriter {
         let exists = FileManager.default.fileExists(atPath: base.path, isDirectory: &isDirectory)
 
         guard exists && isDirectory.boolValue else {
-            throw ContainerizationError(.internalError, message: "cannot create ContentWriter for path \(base.absolutePath()). Not a directory")
+            throw ContainerizationError(.internalError, message: "cannot create ContentWriter for path \(base.absolutePath()), not a directory")
         }
     }
 

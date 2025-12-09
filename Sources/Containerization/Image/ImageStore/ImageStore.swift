@@ -208,7 +208,7 @@ extension ImageStore {
         do {
             _ = try Reference.parse(new)
         } catch {
-            throw ContainerizationError(.invalidArgument, message: "invalid reference \(new). Error: \(error)")
+            throw ContainerizationError(.invalidArgument, message: "invalid reference \(new), error: \(error)")
         }
         let newDescription = Image.Description(reference: new, descriptor: descriptor)
         return try await self.create(description: newDescription)

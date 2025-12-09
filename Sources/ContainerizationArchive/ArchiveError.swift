@@ -55,13 +55,13 @@ public enum ArchiveError: Error, CustomStringConvertible {
         case .unableToAddFilter(let code, let name):
             return "unable to set the archive filter \(name), code \(code)"
         case .unableToWriteEntryHeader(let code):
-            return "unable to write the entry header to the archive. Error code \(code)"
+            return "unable to write the entry header to the archive, code \(code)"
         case .unableToWriteData(let code):
-            return "unable to write data to the archive. Error code \(code)"
+            return "unable to write data to the archive, code \(code)"
         case .unableToCloseArchive(let code):
-            return "unable to close the archive. Error code \(code)"
+            return "unable to close the archive, code \(code)"
         case .unableToOpenArchive(let code):
-            return "unable to open the archive. Error code \(code)"
+            return "unable to open the archive, code \(code)"
         case .unableToSetOption(_):
             return "unable to set an option on the archive."
         case .failedToSetLocale(let locales):
