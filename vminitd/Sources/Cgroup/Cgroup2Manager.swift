@@ -285,7 +285,44 @@ package struct Cgroup2Manager: Sendable {
         if force {
             try self.kill()
         }
-        try FileManager.default.removeItem(at: self.path)
+
+        // Recursively remove child cgroups first
+        try removeChildCgroups(at: self.path, force: force)
+
+        let result = rmdir(self.path.path)
+        if result != 0 {
+            throw Error.errno(errno: errno, message: "failed to remove cgroup directory \(self.path.path)")
+        }
+    }
+
+    private func removeChildCgroups(at path: URL, force: Bool) throws {
+        let fileManager = FileManager.default
+
+        guard let contents = try? fileManager.contentsOfDirectory(atPath: path.path) else {
+            return
+        }
+
+        // Remove child directories (potential nested cgroups) first
+        for item in contents {
+            let childPath = path.appending(path: item)
+            var isDirectory: ObjCBool = false
+
+            if fileManager.fileExists(atPath: childPath.path, isDirectory: &isDirectory) && isDirectory.boolValue {
+                if force {
+                    try Self.writeValue(
+                        path: childPath,
+                        value: "1",
+                        fileName: Self.killFile
+                    )
+                }
+
+                try removeChildCgroups(at: childPath, force: force)
+                let result = rmdir(childPath.path)
+                if result != 0 {
+                    throw Error.errno(errno: errno, message: "failed to remove child cgroup \(childPath.path)")
+                }
+            }
+        }
     }
 
     package func stats() throws -> Cgroup2Stats {
