@@ -154,7 +154,7 @@ public actor LocalContentStore: ContentStore {
     @discardableResult
     public func completeIngestSession(_ id: String) async throws -> [String] {
         guard await activeIngestSessions.contains(id) else {
-            throw ContainerizationError(.internalError, message: "Invalid session id \(id)")
+            throw ContainerizationError(.internalError, message: "invalid session id \(id)")
         }
         await activeIngestSessions.remove(id)
         let temporaryPath = self._ingestPath.appendingPathComponent(id)

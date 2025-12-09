@@ -208,7 +208,7 @@ extension ImageStore {
         do {
             _ = try Reference.parse(new)
         } catch {
-            throw ContainerizationError(.invalidArgument, message: "Invalid reference \(new). Error: \(error)")
+            throw ContainerizationError(.invalidArgument, message: "invalid reference \(new). Error: \(error)")
         }
         let newDescription = Image.Description(reference: new, descriptor: descriptor)
         return try await self.create(description: newDescription)
@@ -242,7 +242,7 @@ extension ImageStore {
         let ref = try Reference.parse(reference)
         let name = ref.path
         guard let tag = ref.tag ?? ref.digest else {
-            throw ContainerizationError(.invalidArgument, message: "Invalid tag/digest for image reference \(reference)")
+            throw ContainerizationError(.invalidArgument, message: "invalid tag/digest for image reference \(reference)")
         }
 
         let rootDescriptor = try await client.resolve(name: name, tag: tag)
@@ -282,12 +282,12 @@ extension ImageStore {
         let img = try await self.get(reference: reference)
         let allowedMediaTypes = [MediaTypes.dockerManifestList, MediaTypes.index]
         guard allowedMediaTypes.contains(img.mediaType) else {
-            throw ContainerizationError(.internalError, message: "Cannot push image \(reference) with Index media type \(img.mediaType)")
+            throw ContainerizationError(.internalError, message: "cannot push image \(reference) with Index media type \(img.mediaType)")
         }
         let ref = try Reference.parse(reference)
         let name = ref.path
         guard let tag = ref.tag ?? ref.digest else {
-            throw ContainerizationError(.invalidArgument, message: "Invalid tag/digest for image reference \(reference)")
+            throw ContainerizationError(.invalidArgument, message: "invalid tag/digest for image reference \(reference)")
         }
         let client = try RegistryClient(reference: reference, insecure: insecure, auth: auth)
         let operation = ExportOperation(name: name, tag: tag, contentStore: self.contentStore, client: client, progress: progress)

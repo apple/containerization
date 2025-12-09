@@ -24,7 +24,7 @@ public final class LocalContent: Content {
 
     public init(path: URL) throws {
         guard FileManager.default.fileExists(atPath: path.path) else {
-            throw ContainerizationError(.notFound, message: "Content at path \(path.absolutePath())")
+            throw ContainerizationError(.notFound, message: "content at path \(path.absolutePath())")
         }
 
         self.file = try FileHandle(forReadingFrom: path)
@@ -63,7 +63,7 @@ public final class LocalContent: Content {
         if let size = fileAttrs[FileAttributeKey.size] as? UInt64 {
             return size
         }
-        throw ContainerizationError(.internalError, message: "Could not determine file size for \(path.absolutePath())")
+        throw ContainerizationError(.internalError, message: "could not determine file size for \(path.absolutePath())")
     }
 
     public func decode<T>() throws -> T where T: Decodable {

@@ -391,7 +391,7 @@ extension LinuxProcess {
                 }
             }
         } catch {
-            self.logger?.error("Timeout waiting for IO to complete for process \(id): \(error)")
+            self.logger?.error("timeout waiting for IO to complete for process \(id): \(error)")
         }
         self.state.withLock {
             $0.ioTracker = nil

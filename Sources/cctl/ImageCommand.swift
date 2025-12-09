@@ -140,7 +140,7 @@ extension Application {
                     return
                 }
                 guard !FileManager.default.fileExists(atPath: unpackPath) else {
-                    throw ContainerizationError(.exists, message: "Directory already exists at \(unpackPath)")
+                    throw ContainerizationError(.exists, message: "directory already exists at \(unpackPath)")
                 }
                 let unpackUrl = URL(filePath: unpackPath)
                 try FileManager.default.createDirectory(at: unpackUrl, withIntermediateDirectories: true)
@@ -266,7 +266,7 @@ extension Application {
             var authentication: Authentication?
             let ref = try Reference.parse(ref)
             guard let host = ref.resolvedDomain else {
-                throw ContainerizationError(.invalidArgument, message: "No host specified in image reference")
+                throw ContainerizationError(.invalidArgument, message: "no host specified in image reference")
             }
             authentication = Self.authenticationFromEnv(host: host)
             if let authentication {

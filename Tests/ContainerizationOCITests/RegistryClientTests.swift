@@ -91,7 +91,7 @@ struct OCIClientTests: ~Copyable {
             throw error!
         }
         #expect(status == .unauthorized)
-        #expect(reason == "Access denied or wrong credentials")
+        #expect(reason == "access denied or wrong credentials")
     }
 
     @Test(.enabled(if: hasRegistryCredentials))

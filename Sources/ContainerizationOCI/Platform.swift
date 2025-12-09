@@ -105,7 +105,7 @@ public struct Platform: Sendable, Equatable {
     public init(from platform: String) throws {
         let items = platform.split(separator: "/", maxSplits: 1)
         guard let osValue = items.first else {
-            throw ContainerizationError(.invalidArgument, message: "Missing OS in \(platform)")
+            throw ContainerizationError(.invalidArgument, message: "missing OS in \(platform)")
         }
         switch osValue {
         case "linux":
@@ -115,18 +115,18 @@ public struct Platform: Sendable, Equatable {
         case "windows":
             _rawOS = osValue.description
         default:
-            throw ContainerizationError(.invalidArgument, message: "Unknown OS in \(osValue)")
+            throw ContainerizationError(.invalidArgument, message: "unknown OS in \(osValue)")
         }
         guard items.count > 1 else {
-            throw ContainerizationError(.invalidArgument, message: "Missing architecture in \(platform)")
+            throw ContainerizationError(.invalidArgument, message: "missing architecture in \(platform)")
         }
 
         guard let archItems = items.last?.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false) else {
-            throw ContainerizationError(.invalidArgument, message: "Missing architecture in \(platform)")
+            throw ContainerizationError(.invalidArgument, message: "missing architecture in \(platform)")
         }
 
         guard let archName = archItems.first else {
-            throw ContainerizationError(.invalidArgument, message: "Missing architecture in \(platform)")
+            throw ContainerizationError(.invalidArgument, message: "missing architecture in \(platform)")
         }
 
         switch archName {
@@ -144,7 +144,7 @@ public struct Platform: Sendable, Equatable {
 
         if archItems.count == 2 {
             guard let archVariant = archItems.last else {
-                throw ContainerizationError(.invalidArgument, message: "Missing variant in \(platform)")
+                throw ContainerizationError(.invalidArgument, message: "missing variant in \(platform)")
             }
 
             switch archName {
@@ -153,40 +153,40 @@ public struct Platform: Sendable, Equatable {
                 case "v5", "v6", "v7", "v8":
                     variant = archVariant.description
                 default:
-                    throw ContainerizationError(.invalidArgument, message: "Invalid variant \(archVariant)")
+                    throw ContainerizationError(.invalidArgument, message: "invalid variant \(archVariant)")
                 }
             case "armhf":
                 switch archVariant {
                 case "v7":
                     variant = "v7"
                 default:
-                    throw ContainerizationError(.invalidArgument, message: "Invalid variant \(archVariant)")
+                    throw ContainerizationError(.invalidArgument, message: "invalid variant \(archVariant)")
                 }
             case "armel":
                 switch archVariant {
                 case "v6":
                     variant = "v6"
                 default:
-                    throw ContainerizationError(.invalidArgument, message: "Invalid variant \(archVariant)")
+                    throw ContainerizationError(.invalidArgument, message: "invalid variant \(archVariant)")
                 }
             case "aarch64", "arm64":
                 switch archVariant {
                 case "v8", "8":
                     variant = "v8"
                 default:
-                    throw ContainerizationError(.invalidArgument, message: "Invalid variant \(archVariant)")
+                    throw ContainerizationError(.invalidArgument, message: "invalid variant \(archVariant)")
                 }
             case "x86_64", "x86-64", "amd64":
                 switch archVariant {
                 case "v1":
                     variant = nil
                 default:
-                    throw ContainerizationError(.invalidArgument, message: "Invalid variant \(archVariant)")
+                    throw ContainerizationError(.invalidArgument, message: "invalid variant \(archVariant)")
                 }
             case "i386", "386", "ppc64le", "riscv64":
-                throw ContainerizationError(.invalidArgument, message: "Invalid variant \(archVariant)")
+                throw ContainerizationError(.invalidArgument, message: "invalid variant \(archVariant)")
             default:
-                throw ContainerizationError(.invalidArgument, message: "Invalid variant \(archVariant)")
+                throw ContainerizationError(.invalidArgument, message: "invalid variant \(archVariant)")
             }
         }
     }
@@ -302,11 +302,11 @@ extension Platform: Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let architecture = try container.decodeIfPresent(String.self, forKey: .architecture)
         guard let architecture else {
-            throw ContainerizationError(.invalidArgument, message: "Missing architecture")
+            throw ContainerizationError(.invalidArgument, message: "missing architecture")
         }
         let os = try container.decodeIfPresent(String.self, forKey: .os)
         guard let os else {
-            throw ContainerizationError(.invalidArgument, message: "Missing OS")
+            throw ContainerizationError(.invalidArgument, message: "missing OS")
         }
         let variant = try container.decodeIfPresent(String.self, forKey: .variant)
         self.init(arch: architecture, os: os, variant: variant)

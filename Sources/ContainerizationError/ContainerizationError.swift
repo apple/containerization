@@ -106,7 +106,7 @@ extension ContainerizationError {
 
             let match = values[rawValue]
             guard let match else {
-                fatalError("invalid Code Value \(rawValue)")
+                fatalError("invalid code value \(rawValue)")
             }
             self.value = match
         }
