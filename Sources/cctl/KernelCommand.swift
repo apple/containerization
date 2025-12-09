@@ -56,7 +56,7 @@ extension Application {
                 for rawBinary in kernels {
                     let parts = rawBinary.split(separator: ":")
                     guard parts.count == 2 else {
-                        throw "Invalid binary format: \(rawBinary)"
+                        throw "invalid binary format: \(rawBinary)"
                     }
                     let platform: SystemPlatform
                     switch parts[1] {

@@ -70,15 +70,15 @@ public final class RegistryClient: ContentClient {
     ) throws {
         let ref = try Reference.parse(reference)
         guard let domain = ref.resolvedDomain else {
-            throw ContainerizationError(.invalidArgument, message: "Invalid domain for image reference \(reference)")
+            throw ContainerizationError(.invalidArgument, message: "invalid domain for image reference \(reference)")
         }
         let scheme = insecure ? "http" : "https"
         let _url = "\(scheme)://\(domain)"
         guard let url = URL(string: _url) else {
-            throw ContainerizationError(.invalidArgument, message: "Cannot convert \(_url) to URL")
+            throw ContainerizationError(.invalidArgument, message: "cannot convert \(_url) to URL")
         }
         guard let host = url.host else {
-            throw ContainerizationError(.invalidArgument, message: "Invalid host \(domain)")
+            throw ContainerizationError(.invalidArgument, message: "invalid host \(domain)")
         }
         let port = url.port
         self.init(
@@ -142,7 +142,7 @@ public final class RegistryClient: ContentClient {
         closure: (HTTPClientResponse) async throws -> T
     ) async throws -> T {
         guard let path = components.url?.absoluteString else {
-            throw ContainerizationError(.invalidArgument, message: "Invalid url \(components.path)")
+            throw ContainerizationError(.invalidArgument, message: "invalid url \(components.path)")
         }
 
         var request = HTTPClientRequest(url: path)
@@ -187,7 +187,7 @@ public final class RegistryClient: ContentClient {
                     do {
                         let _currentToken = try await fetchToken(request: tokenRequest)
                         guard let token = _currentToken.getToken() else {
-                            throw ContainerizationError(.internalError, message: "Failed to fetch Bearer token")
+                            throw ContainerizationError(.internalError, message: "failed to fetch Bearer token")
                         }
                         currentToken = _currentToken
                         request.headers.replaceOrAdd(name: "Authorization", value: token)
@@ -197,7 +197,7 @@ public final class RegistryClient: ContentClient {
                             throw err
                         }
                         if status == .unauthorized || status == .forbidden {
-                            throw RegistryClient.Error.invalidStatus(url: path, _response.status, reason: "Access denied or wrong credentials")
+                            throw RegistryClient.Error.invalidStatus(url: path, _response.status, reason: "access denied or wrong credentials")
                         }
 
                         throw err
@@ -225,9 +225,9 @@ public final class RegistryClient: ContentClient {
                     if err.errorCode == kDNSServiceErr_NoSuchRecord {
                         let message: String
                         if let proxyURL = self.proxyURL, let proxyHost = proxyURL.host {
-                            message = "Failed to resolve either repository hostname \(host()) or proxy hostname \(proxyHost)"
+                            message = "failed to resolve either repository hostname \(host()) or proxy hostname \(proxyHost)"
                         } else {
-                            message = "Failed to resolve either repository hostname \(host())"
+                            message = "failed to resolve either repository hostname \(host())"
                         }
                         throw ContainerizationError(.internalError, message: message)
                     }
@@ -241,7 +241,7 @@ public final class RegistryClient: ContentClient {
             }
         }
         guard let response else {
-            throw ContainerizationError(.internalError, message: "Invalid response")
+            throw ContainerizationError(.internalError, message: "invalid response")
         }
         return try await closure(response)
     }

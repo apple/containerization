@@ -392,7 +392,7 @@ extension Socket {
                 sysRead(handle.fileDescriptor, baseAddress, bufferSize)
             }
             if bytesRead < 0 {
-                throw Socket.errnoToError(msg: "Error reading from connection")
+                throw Socket.errnoToError(msg: "error reading from connection")
             } else if bytesRead == 0 {
                 throw SocketError.closed
             }

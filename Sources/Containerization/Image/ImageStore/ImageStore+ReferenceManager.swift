@@ -43,7 +43,7 @@ extension ImageStore {
                 let data = try Data(contentsOf: statePath)
                 return try JSONDecoder().decode(State.self, from: data)
             } catch {
-                throw ContainerizationError(.internalError, message: "Failed to load image state \(error.localizedDescription)")
+                throw ContainerizationError(.internalError, message: "failed to load image state \(error.localizedDescription)")
             }
         }
 

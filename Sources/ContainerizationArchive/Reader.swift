@@ -204,7 +204,7 @@ extension ArchiveReader {
             }
         }
         guard foundEntry else {
-            throw ArchiveError.failedToExtractArchive("No entries found in archive")
+            throw ArchiveError.failedToExtractArchive("no entries found in archive")
         }
     }
 
