@@ -157,6 +157,7 @@ public struct Process: Codable, Sendable {
         }()
         self.init(args: args, cwd: cwd, env: env, user: user)
     }
+
     public init(from decoder: Decoder) throws {
         self.init()
 
@@ -194,24 +195,50 @@ public struct Process: Codable, Sendable {
 }
 
 public struct LinuxCapabilities: Codable, Sendable {
-    public var bounding: [String]
-    public var effective: [String]
-    public var inheritable: [String]
-    public var permitted: [String]
-    public var ambient: [String]
+    public var bounding: [String]?
+    public var effective: [String]?
+    public var inheritable: [String]?
+    public var permitted: [String]?
+    public var ambient: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case bounding
+        case effective
+        case inheritable
+        case permitted
+        case ambient
+    }
 
     public init(
-        bounding: [String],
-        effective: [String],
-        inheritable: [String],
-        permitted: [String],
-        ambient: [String]
+        bounding: [String]? = nil,
+        effective: [String]? = nil,
+        inheritable: [String]? = nil,
+        permitted: [String]? = nil,
+        ambient: [String]? = nil
     ) {
         self.bounding = bounding
         self.effective = effective
         self.inheritable = inheritable
         self.permitted = permitted
         self.ambient = ambient
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.bounding = try container.decodeIfPresent([String].self, forKey: .bounding)
+        self.effective = try container.decodeIfPresent([String].self, forKey: .effective)
+        self.inheritable = try container.decodeIfPresent([String].self, forKey: .inheritable)
+        self.permitted = try container.decodeIfPresent([String].self, forKey: .permitted)
+        self.ambient = try container.decodeIfPresent([String].self, forKey: .ambient)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(bounding, forKey: .bounding)
+        try container.encodeIfPresent(effective, forKey: .effective)
+        try container.encodeIfPresent(inheritable, forKey: .inheritable)
+        try container.encodeIfPresent(permitted, forKey: .permitted)
+        try container.encodeIfPresent(ambient, forKey: .ambient)
     }
 }
 

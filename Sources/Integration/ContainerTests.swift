@@ -1237,4 +1237,203 @@ extension IntegrationSuite {
         try await container.stop()
         throw IntegrationError.assert(msg: "container start should have failed")
     }
+
+    // MARK: - Capability Tests
+
+    func testCapabilitiesSysAdmin() async throws {
+        let id = "test-capabilities-sysadmin"
+
+        let bs = try await bootstrap(id)
+
+        // First test: without CAP_SYS_ADMIN (should be denied)
+        let bufferDenied = BufferWriter()
+        let containerWithoutSysAdmin = try LinuxContainer("\(id)-denied", rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.capabilities = LinuxCapabilities()
+            config.process.arguments = ["/bin/sh", "-c", "mount -t tmpfs tmpfs /tmp || echo 'mount failed as expected'"]
+            config.process.stdout = bufferDenied
+            config.bootLog = bs.bootLog
+        }
+
+        try await containerWithoutSysAdmin.create()
+        try await containerWithoutSysAdmin.start()
+
+        var status = try await containerWithoutSysAdmin.wait()
+        try await containerWithoutSysAdmin.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container should have run successfully, got exit code \(status.exitCode)")
+        }
+
+        guard let outputDenied = String(data: bufferDenied.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+        }
+
+        guard outputDenied.contains("mount failed as expected") else {
+            throw IntegrationError.assert(msg: "expected mount failure message, got: \(outputDenied)")
+        }
+
+        // Second test: with CAP_SYS_ADMIN (should succeed)
+        let containerWithSysAdmin = try LinuxContainer("\(id)-allowed", rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.capabilities = LinuxCapabilities(capabilities: [.sysAdmin])
+            config.process.arguments = ["/bin/sh", "-c", "mount -t tmpfs tmpfs /tmp"]
+            config.bootLog = bs.bootLog
+        }
+
+        try await containerWithSysAdmin.create()
+        try await containerWithSysAdmin.start()
+
+        status = try await containerWithSysAdmin.wait()
+        try await containerWithSysAdmin.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container with CAP_SYS_ADMIN should mount successfully, got exit code \(status.exitCode)")
+        }
+    }
+
+    func testCapabilitiesNetAdmin() async throws {
+        let id = "test-capabilities-netadmin"
+
+        let bs = try await bootstrap(id)
+
+        // First test: without CAP_NET_ADMIN (should be denied)
+        let bufferDenied = BufferWriter()
+        let containerWithoutNetAdmin = try LinuxContainer("\(id)-denied", rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.capabilities = LinuxCapabilities()
+            config.process.arguments = ["/bin/sh", "-c", "ip link set lo down 2>/dev/null || echo 'network operation denied as expected'"]
+            config.process.stdout = bufferDenied
+            config.bootLog = bs.bootLog
+        }
+
+        try await containerWithoutNetAdmin.create()
+        try await containerWithoutNetAdmin.start()
+
+        var status = try await containerWithoutNetAdmin.wait()
+        try await containerWithoutNetAdmin.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container should handle network denial gracefully, got exit code \(status.exitCode)")
+        }
+
+        guard let outputDenied = String(data: bufferDenied.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+        }
+
+        guard outputDenied.contains("network operation denied as expected") else {
+            throw IntegrationError.assert(msg: "expected network denial message, got: \(outputDenied)")
+        }
+
+        // Second test: with CAP_NET_ADMIN (should succeed)
+        let bufferAllowed = BufferWriter()
+        let containerWithNetAdmin = try LinuxContainer("\(id)-allowed", rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.capabilities = LinuxCapabilities(capabilities: [.netAdmin])
+            config.process.arguments = ["/bin/sh", "-c", "ip link set lo down && ip link set lo up"]
+            config.process.stdout = bufferAllowed
+            config.bootLog = bs.bootLog
+        }
+
+        try await containerWithNetAdmin.create()
+        try await containerWithNetAdmin.start()
+
+        status = try await containerWithNetAdmin.wait()
+        try await containerWithNetAdmin.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container with CAP_NET_ADMIN should perform network operations, got exit code \(status.exitCode)")
+        }
+    }
+
+    func testCapabilitiesOCIDefault() async throws {
+        let id = "test-capabilities-OCI-default"
+
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            // Use default capability set
+            config.process.capabilities = .defaultOCICapabilities
+            config.process.arguments = ["/bin/sh", "-c", "echo 'Running with OCI default capabilities'"]
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container with OCI default capabilities should run, got exit code \(status.exitCode)")
+        }
+    }
+
+    func testCapabilitiesAllCapabilities() async throws {
+        let id = "test-capabilities-all"
+
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.capabilities = .allCapabilities
+            config.process.arguments = ["/bin/sh", "-c", "mount -t tmpfs tmpfs /tmp && ip link set lo down"]
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container with all capabilities should perform all operations, got exit code \(status.exitCode)")
+        }
+    }
+
+    func testCapabilitiesFileOwnership() async throws {
+        let id = "test-capabilities-chown"
+
+        let bs = try await bootstrap(id)
+
+        // First test: without CAP_CHOWN
+        let bufferDenied = BufferWriter()
+        let containerWithoutChown = try LinuxContainer("\(id)-denied", rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.capabilities = LinuxCapabilities()
+            config.process.arguments = ["/bin/sh", "-c", "touch /tmp/testfile && chown 1000:1000 /tmp/testfile 2>/dev/null || echo 'chown denied as expected'"]
+            config.process.stdout = bufferDenied
+            config.bootLog = bs.bootLog
+        }
+
+        try await containerWithoutChown.create()
+        try await containerWithoutChown.start()
+
+        var status = try await containerWithoutChown.wait()
+        try await containerWithoutChown.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container should handle chown denial gracefully, got exit code \(status.exitCode)")
+        }
+
+        guard let outputDenied = String(data: bufferDenied.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+        }
+
+        guard outputDenied.contains("chown denied as expected") else {
+            throw IntegrationError.assert(msg: "expected chown denial message, got: \(outputDenied)")
+        }
+
+        // Second test: with CAP_CHOWN
+        let bufferAllowed = BufferWriter()
+        let containerWithChown = try LinuxContainer("\(id)-allowed", rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.capabilities = LinuxCapabilities(capabilities: [.chown])
+            config.process.arguments = ["/bin/sh", "-c", "touch /tmp/testfile && chown 1000:1000 /tmp/testfile"]
+            config.process.stdout = bufferAllowed
+            config.bootLog = bs.bootLog
+        }
+
+        try await containerWithChown.create()
+        try await containerWithChown.start()
+
+        status = try await containerWithChown.wait()
+        try await containerWithChown.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container with CAP_CHOWN should succeed, got exit code \(status.exitCode)")
+        }
+    }
 }
