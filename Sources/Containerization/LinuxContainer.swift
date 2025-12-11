@@ -44,6 +44,8 @@ public final class LinuxContainer: Container, Sendable {
         public var cpus: Int = 4
         /// The memory in bytes to give to the container.
         public var memoryInBytes: UInt64 = 1024.mib()
+        /// Requested storage in bytes.
+        public var storageInBytes: UInt64?
         /// The hostname for the container.
         public var hostname: String = ""
         /// The system control options for the container.
@@ -72,6 +74,7 @@ public final class LinuxContainer: Container, Sendable {
             process: LinuxProcessConfiguration,
             cpus: Int = 4,
             memoryInBytes: UInt64 = 1024.mib(),
+            storageInBytes: UInt64? = nil,
             hostname: String = "",
             sysctl: [String: String] = [:],
             interfaces: [any Interface] = [],
@@ -86,6 +89,7 @@ public final class LinuxContainer: Container, Sendable {
             self.process = process
             self.cpus = cpus
             self.memoryInBytes = memoryInBytes
+            self.storageInBytes = storageInBytes
             self.hostname = hostname
             self.sysctl = sysctl
             self.interfaces = interfaces
@@ -397,6 +401,7 @@ extension LinuxContainer {
             let vmConfig = VMConfiguration(
                 cpus: self.cpus,
                 memoryInBytes: self.memoryInBytes,
+                diskStorageBytes: self.config.storageInBytes,  
                 interfaces: self.interfaces,
                 mountsByID: [self.id: [self.rootfs] + self.config.mounts],
                 bootLog: self.config.bootLog,
