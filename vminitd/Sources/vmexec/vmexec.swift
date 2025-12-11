@@ -171,6 +171,51 @@ extension App {
         }
     }
 
+    static func prepareCapabilities(capabilities: ContainerizationOCI.LinuxCapabilities) throws -> ContainerizationOS.LinuxCapabilities? {
+        // Create capabilities instance from OCI config
+        var caps = ContainerizationOS.LinuxCapabilities()
+
+        caps.set(which: [.effective], caps: (capabilities.effective ?? []).compactMap { CapabilityName(rawValue: $0) })
+        caps.set(which: [.permitted], caps: (capabilities.permitted ?? []).compactMap { CapabilityName(rawValue: $0) })
+        caps.set(which: [.inheritable], caps: (capabilities.inheritable ?? []).compactMap { CapabilityName(rawValue: $0) })
+        caps.set(which: [.bounding], caps: (capabilities.bounding ?? []).compactMap { CapabilityName(rawValue: $0) })
+        caps.set(which: [.ambient], caps: (capabilities.ambient ?? []).compactMap { CapabilityName(rawValue: $0) })
+
+        // Apply bounding set BEFORE user change (drop capabilities early)
+        do {
+            try caps.apply(kind: .bounds)
+        } catch {
+            throw App.Failure(message: "failed to apply bounding set capabilities: \(error)")
+        }
+
+        // Set keep caps to preserve capabilities across setuid()
+        do {
+            try LinuxCapabilities.setKeepCaps()
+        } catch {
+            throw App.Failure(message: "failed to set keep caps: \(error)")
+        }
+
+        return caps
+    }
+
+    static func finishCapabilities(_ caps: ContainerizationOS.LinuxCapabilities?) throws {
+        guard let caps = caps else { return }
+
+        do {
+            try LinuxCapabilities.clearKeepCaps()
+        } catch {
+            throw App.Failure(message: "failed to clear keep caps: \(error)")
+        }
+
+        do {
+            try caps.apply(kind: [.caps])
+        } catch {
+            throw App.Failure(message: "failed to apply final capabilities: \(error)")
+        }
+
+        try? caps.apply(kind: [.ambs])
+    }
+
     static func Errno(stage: String, info: String = "") -> ContainerizationError {
         let posix = POSIXError(.init(rawValue: errno)!, userInfo: ["stage": stage])
         return ContainerizationError(.internalError, message: "\(info) \(String(describing: posix))")

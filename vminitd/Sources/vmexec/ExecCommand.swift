@@ -16,6 +16,7 @@
 
 import ArgumentParser
 import ContainerizationOCI
+import ContainerizationOS
 import Foundation
 import LCShim
 import Logging
@@ -133,11 +134,17 @@ struct ExecCommand: ParsableCommand {
             try App.applyCloseExecOnFDs()
             try App.setRLimits(rlimits: process.rlimits)
 
+            // Prepare capabilities (before user change)
+            let preparedCaps = try App.prepareCapabilities(capabilities: process.capabilities ?? ContainerizationOCI.LinuxCapabilities())
+
             // Change stdio to be owned by the requested user.
             try App.fixStdioPerms(user: process.user)
 
             // Set uid, gid, and supplementary groups
             try App.setPermissions(user: process.user)
+
+            // Finish capabilities (after user change)
+            try App.finishCapabilities(preparedCaps)
 
             try App.exec(process: process)
         } else {  // parent process

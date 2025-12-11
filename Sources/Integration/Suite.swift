@@ -300,6 +300,11 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("process delete idempotency", testProcessDeleteIdempotency),
             Test("multiple execs without delete", testMultipleExecsWithoutDelete),
             Test("container bootlog using filehandle", testBootLogFileHandle),
+            Test("container capabilities sys admin", testCapabilitiesSysAdmin),
+            Test("container capabilities net admin", testCapabilitiesNetAdmin),
+            Test("container capabilities OCI default", testCapabilitiesOCIDefault),
+            Test("container capabilities all capabilities", testCapabilitiesAllCapabilities),
+            Test("container capabilities file ownership", testCapabilitiesFileOwnership),
 
             // Pods
             Test("pod single container", testPodSingleContainer),

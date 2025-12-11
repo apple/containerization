@@ -100,6 +100,7 @@ extension Application {
                 config.process.setTerminalIO(terminal: current)
                 config.process.arguments = arguments
                 config.process.workingDirectory = cwd
+                config.process.capabilities = .allCapabilities
 
                 for mount in self.mounts {
                     let paths = mount.split(separator: ":")
