@@ -70,6 +70,8 @@ public struct VMConfiguration: Sendable {
     public var cpus: Int
     /// The memory in bytes to allocate.
     public var memoryInBytes: UInt64
+    /// Storage in bytes to allocate
+    public var diskStorageBytes: UInt64?  
     /// The network interfaces to attach.
     public var interfaces: [any Interface]
     /// Mounts organized by metadata ID (e.g. container ID).
@@ -84,6 +86,7 @@ public struct VMConfiguration: Sendable {
     public init(
         cpus: Int = 4,
         memoryInBytes: UInt64 = 1024 * 1024 * 1024,
+        diskStorageBytes: UInt64? = nil,
         interfaces: [any Interface] = [],
         mountsByID: [String: [Mount]] = [:],
         bootLog: BootLog? = nil,
@@ -91,6 +94,7 @@ public struct VMConfiguration: Sendable {
     ) {
         self.cpus = cpus
         self.memoryInBytes = memoryInBytes
+        self.diskStorageBytes = diskStorageBytes
         self.interfaces = interfaces
         self.mountsByID = mountsByID
         self.bootLog = bootLog
