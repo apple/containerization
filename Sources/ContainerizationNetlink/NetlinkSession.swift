@@ -193,8 +193,8 @@ public struct NetlinkSession {
     /// Adds an IPv4 address to an interface.
     /// - Parameters:
     ///   - interface: The name of the interface.
-    ///   - address: The IPv4 address to add.
-    public func addressAdd(interface: String, address: String) throws {
+    ///   - address: The CIDRv4 address describing the interface IP and subnet prefix length.
+    public func addressAdd(interface: String, address: CIDRv4) throws {
         // ip addr add [addr] dev [interface]
         // ip address {add|change|replace} IFADDR dev IFNAME [ LIFETIME ] [ CONFFLAG-LIST ]
         // IFADDR := PREFIX | ADDR peer PREFIX
@@ -205,9 +205,9 @@ public struct NetlinkSession {
         // CONFFLAG  := [ home | nodad | mngtmpaddr | noprefixroute | autojoin ]
         // LIFETIME := [ valid_lft LFT ] [ preferred_lft LFT ]
         // LFT := forever | SECONDS
-        let parsed = try parseCIDR(cidr: address)
         let interfaceIndex = try getInterfaceIndex(interface)
-        let ipAddressBytes = try IPv4Address(parsed.address).networkBytes
+
+        let ipAddressBytes = address.address.bytes
         let addressAttrSize = RTAttribute.size + MemoryLayout<UInt8>.size * ipAddressBytes.count
         let requestSize = NetlinkMessageHeader.size + AddressInfo.size + 2 * addressAttrSize
         var requestBuffer = [UInt8](repeating: 0, count: requestSize)
@@ -224,7 +224,7 @@ public struct NetlinkSession {
 
         let requestInfo = AddressInfo(
             family: UInt8(AddressFamily.AF_INET),
-            prefixLength: parsed.prefix,
+            prefixLength: address.prefix.length,
             flags: 0,
             scope: NetlinkScope.RT_SCOPE_UNIVERSE,
             index: UInt32(interfaceIndex))
@@ -253,37 +253,22 @@ public struct NetlinkSession {
         }
     }
 
-    private func parseCIDR(cidr: String) throws -> (address: String, prefix: UInt8) {
-        let split = cidr.components(separatedBy: "/")
-        guard split.count == 2 else {
-            throw NetworkAddressError.invalidCIDR(cidr: cidr)
-        }
-        let address = split[0]
-        guard let prefixLength = PrefixLength(split[1]) else {
-            throw NetworkAddressError.invalidCIDR(cidr: cidr)
-        }
-        guard prefixLength >= 0 && prefixLength <= 32 else {
-            throw NetworkAddressError.invalidCIDR(cidr: cidr)
-        }
-        return (address, prefixLength)
-    }
-
     /// Adds a route to an interface.
     /// - Parameters:
     ///   - interface: The name of the interface.
-    ///   - destinationAddress: The destination address to route to.
+    ///   - destinationAddress: The CIDRv4 address describing the gateway IP and subnet prefix length.
     ///   - srcAddr: The source address to route from.
     public func routeAdd(
         interface: String,
-        destinationAddress: String,
-        srcAddr: String
+        dstAddr: CIDRv4,
+        srcAddr: IPv4Address
     ) throws {
         // ip route add [dest-cidr] dev [interface] src [src-addr] proto kernel
-        let parsed = try parseCIDR(cidr: destinationAddress)
         let interfaceIndex = try getInterfaceIndex(interface)
-        let dstAddrBytes = try IPv4Address(parsed.address).networkBytes
+
+        let dstAddrBytes = dstAddr.address.bytes
         let dstAddrAttrSize = RTAttribute.size + dstAddrBytes.count
-        let srcAddrBytes = try IPv4Address(srcAddr).networkBytes
+        let srcAddrBytes = srcAddr.bytes
         let srcAddrAttrSize = RTAttribute.size + srcAddrBytes.count
         let interfaceAttrSize = RTAttribute.size + MemoryLayout<UInt32>.size
         let requestSize =
@@ -301,7 +286,7 @@ public struct NetlinkSession {
 
         let requestInfo = RouteInfo(
             family: UInt8(AddressFamily.AF_INET),
-            dstLen: parsed.prefix,
+            dstLen: dstAddr.prefix.length,
             srcLen: 0,
             tos: 0,
             table: RouteTable.MAIN,
@@ -351,10 +336,10 @@ public struct NetlinkSession {
     ///   - gateway: The gateway address.
     public func routeAddDefault(
         interface: String,
-        gateway: String
+        gateway: IPv4Address
     ) throws {
         // ip route add default via [dst-address] src [src-address]
-        let dstAddrBytes = try IPv4Address(gateway).networkBytes
+        let dstAddrBytes = gateway.bytes
         let dstAddrAttrSize = RTAttribute.size + dstAddrBytes.count
 
         let interfaceAttrSize = RTAttribute.size + MemoryLayout<UInt32>.size

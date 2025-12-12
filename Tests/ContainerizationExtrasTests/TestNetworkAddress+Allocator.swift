@@ -94,7 +94,7 @@ final class TestAddressAllocators {
     @Test
     func testipv4AddressAllocator() throws {
         var allocations = Set<UInt32>()
-        let lower = try IPv4Address("192.168.64.1").prefix(prefixLength: 24).value
+        let lower = try IPv4Address("192.168.64.1").value & Prefix(length: 24)!.prefixMask32
         let allocator = try IPv4Address.allocator(
             lower: lower, size: 3)
         allocations.insert(try allocator.allocate().value)
@@ -117,7 +117,7 @@ final class TestAddressAllocators {
     @Test
     func testHighestIPv4AddressAllocator() throws {
         var allocations = Set<UInt32>()
-        let lower = try IPv4Address("255.255.255.255").prefix(prefixLength: 32).value
+        let lower = try IPv4Address("255.255.255.255").value & Prefix(length: 32)!.prefixMask32
         let allocator = try IPv4Address.allocator(
             lower: lower, size: 1)
         allocations.insert(try allocator.allocate().value)
