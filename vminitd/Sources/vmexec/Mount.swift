@@ -22,15 +22,17 @@ import Musl
 struct ContainerMount {
     private let mounts: [ContainerizationOCI.Mount]
     private let rootfs: String
+    private let sharedFileDirectory: URL
 
-    init(rootfs: String, mounts: [ContainerizationOCI.Mount]) {
+    init(rootfs: String, sharedFileDirectory: URL, mounts: [ContainerizationOCI.Mount]) {
         self.rootfs = rootfs
+        self.sharedFileDirectory = sharedFileDirectory
         self.mounts = mounts
     }
 
     func mountToRootfs() throws {
         for m in self.mounts {
-            let osMount = m.toOSMount()
+            let osMount = m.toOSMount(sharedFileDirectory)
             try osMount.mount(root: self.rootfs)
         }
     }
@@ -55,10 +57,23 @@ struct ContainerMount {
 }
 
 extension ContainerizationOCI.Mount {
-    func toOSMount() -> ContainerizationOS.Mount {
-        ContainerizationOS.Mount(
-            type: self.type,
-            source: self.source,
+    var isSharedFile: Bool {
+        type == "virtiofs" && options.contains("bind")
+    }
+
+    func toOSMount(_ sharedFileDirectory: URL) -> ContainerizationOS.Mount {
+        let type = isSharedFile ? "" : self.type
+        let source = {
+            guard isSharedFile else {
+                return self.source
+            }
+            let name = URL(string: self.source)!.lastPathComponent
+            return sharedFileDirectory.appendingPathComponent(name).path
+        }()
+
+        return ContainerizationOS.Mount(
+            type: type,
+            source: source,
             target: self.destination,
             options: self.options
         )
