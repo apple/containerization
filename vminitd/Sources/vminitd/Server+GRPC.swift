@@ -17,6 +17,7 @@
 import Cgroup
 import Containerization
 import ContainerizationError
+import ContainerizationExtras
 import ContainerizationNetlink
 import ContainerizationOCI
 import ContainerizationOS
@@ -780,7 +781,8 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         do {
             let socket = try DefaultNetlinkSocket()
             let session = NetlinkSession(socket: socket, log: log)
-            try session.addressAdd(interface: request.interface, address: request.address)
+            let address = try CIDRv4(request.address)
+            try session.addressAdd(interface: request.interface, address: address)
         } catch {
             log.error(
                 "ipAddrAdd",
@@ -807,10 +809,12 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         do {
             let socket = try DefaultNetlinkSocket()
             let session = NetlinkSession(socket: socket, log: log)
+            let dstAddr = try CIDRv4(request.address)
+            let srcAddr = try IPv4Address(request.srcAddr)
             try session.routeAdd(
                 interface: request.interface,
-                destinationAddress: request.address,
-                srcAddr: request.srcAddr
+                dstAddr: dstAddr,
+                srcAddr: srcAddr
             )
         } catch {
             log.error(
@@ -838,7 +842,8 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         do {
             let socket = try DefaultNetlinkSocket()
             let session = NetlinkSession(socket: socket, log: log)
-            try session.routeAddDefault(interface: request.interface, gateway: request.gateway)
+            let gateway = try IPv4Address(request.gateway)
+            try session.routeAddDefault(interface: request.interface, gateway: gateway)
         } catch {
             log.error(
                 "ipRouteAddDefault",
