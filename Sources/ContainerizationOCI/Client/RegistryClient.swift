@@ -22,6 +22,7 @@ import Foundation
 import Logging
 import NIO
 import NIOHTTP1
+import NIOSSL
 
 #if os(macOS)
 import Network
@@ -66,7 +67,8 @@ public final class RegistryClient: ContentClient {
         reference: String,
         insecure: Bool = false,
         auth: Authentication? = nil,
-        logger: Logger? = nil
+        tlsConfiguration: TLSConfiguration? = nil,
+        logger: Logger? = nil,
     ) throws {
         let ref = try Reference.parse(reference)
         guard let domain = ref.resolvedDomain else {
@@ -86,7 +88,8 @@ public final class RegistryClient: ContentClient {
             scheme: scheme,
             port: port,
             authentication: auth,
-            retryOptions: Self.defaultRetryOptions
+            retryOptions: Self.defaultRetryOptions,
+            tlsConfiguration: tlsConfiguration,
         )
     }
 
@@ -98,7 +101,8 @@ public final class RegistryClient: ContentClient {
         clientID: String? = nil,
         retryOptions: RetryOptions? = nil,
         bufferSize: Int = Int(4.mib()),
-        logger: Logger? = nil
+        tlsConfiguration: TLSConfiguration? = nil,
+        logger: Logger? = nil,
     ) {
         var components = URLComponents()
         components.scheme = scheme
@@ -117,6 +121,9 @@ public final class RegistryClient: ContentClient {
         if let proxyURL = self.proxyURL, let proxyHost = proxyURL.host {
             let proxyPort = proxyURL.port ?? (proxyURL.scheme == "https" ? 443 : 80)
             httpConfiguration.proxy = HTTPClient.Configuration.Proxy.server(host: proxyHost, port: proxyPort)
+        }
+        if tlsConfiguration != nil {
+            httpConfiguration.tlsConfiguration = tlsConfiguration
         }
 
         if let logger {

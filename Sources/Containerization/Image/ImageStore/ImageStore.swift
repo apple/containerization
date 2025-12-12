@@ -237,7 +237,7 @@ extension ImageStore {
     ) async throws -> Image {
 
         let matcher = createPlatformMatcher(for: platform)
-        let client = try RegistryClient(reference: reference, insecure: insecure, auth: auth)
+        let client = try RegistryClient(reference: reference, insecure: insecure, auth: auth, tlsConfiguration: TLSUtils.makeEnvironmentAwareTLSConfiguration())
 
         let ref = try Reference.parse(reference)
         let name = ref.path
@@ -289,7 +289,7 @@ extension ImageStore {
         guard let tag = ref.tag ?? ref.digest else {
             throw ContainerizationError(.invalidArgument, message: "invalid tag/digest for image reference \(reference)")
         }
-        let client = try RegistryClient(reference: reference, insecure: insecure, auth: auth)
+        let client = try RegistryClient(reference: reference, insecure: insecure, auth: auth, tlsConfiguration: TLSUtils.makeEnvironmentAwareTLSConfiguration())
         let operation = ExportOperation(name: name, tag: tag, contentStore: self.contentStore, client: client, progress: progress)
         try await operation.export(index: img.descriptor, platforms: matcher)
     }
