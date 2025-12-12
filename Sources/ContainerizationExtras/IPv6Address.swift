@@ -12,7 +12,7 @@ public struct IPv6Address: Sendable, Hashable, CustomStringConvertible, Equatabl
     ///
     /// - Parameter address: String representation of an IPv6 address
     /// - Throws: `IPAddressError` if the string is not a valid IPv6 address
-    public init(address: String) throws {
+    public init(_ address: String) throws {
         self = try Self.parse(address)
     }
 

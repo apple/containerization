@@ -1,8 +1,10 @@
 /// Describes an IPv4 CIDR address block.
 @frozen
 public struct CIDRv4: CustomStringConvertible, Equatable, Sendable, Hashable {
+    /// The IP component of this CIDR address.
     public let address: IPv4Address
 
+    /// The prefix length of this CIDR address.
     public let prefix: Prefix
 
     /// Create a CIDR address block.

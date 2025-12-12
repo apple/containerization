@@ -46,24 +46,6 @@ struct TestCIDR {
         let expectedLength: UInt8
     }
 
-    @Test(arguments: [
-        ParsePreservation(
-            input: "192.168.1.100/24",
-            expectedIP: "192.168.1.100",
-            expectedLength: 24
-        ),
-        ParsePreservation(
-            input: "10.1.2.3/16",
-            expectedIP: "10.1.2.3",
-            expectedLength: 16
-        ),
-    ])
-    func testParsePreservesOriginalIP(testCase: ParsePreservation) throws {
-        let (ip, prefix) = try CIDR.parse(testCase.input)
-        #expect(ip.description == testCase.expectedIP)
-        #expect(prefix.length == testCase.expectedLength)
-    }
-
     // MARK: - Bounds Tests
 
     struct Bounds {
@@ -143,7 +125,7 @@ struct TestCIDR {
 
     @Test func testDoesNotContainDifferentIPv6Zone() throws {
         let cidr = try CIDR("fe80::1/64")
-        let ip = try IPv6Address(address: "fe80::2%eth1")
+        let ip = try IPv6Address("fe80::2%eth1")
         #expect(!cidr.contains(.v6(ip)))
     }
 
@@ -189,8 +171,8 @@ struct TestCIDR {
 
     @Test func testRangeConstructorRejectsDifferentZones() throws {
         #expect(throws: CIDR.Error.self) {
-            let lower = IPAddress.v6(try IPv6Address(address: "fe80::1%eth0"))
-            let upper = IPAddress.v6(try IPv6Address(address: "fe80::2%eth1"))
+            let lower = IPAddress.v6(try IPv6Address("fe80::1%eth0"))
+            let upper = IPAddress.v6(try IPv6Address("fe80::2%eth1"))
             _ = try CIDR(lower: lower, upper: upper)
         }
     }
@@ -246,56 +228,56 @@ struct TestCIDR {
     // MARK: - Version-Specific Range Constructors
 
     @Test func testV4RangeConstructor() throws {
-        let lower = try IPv4Address("192.168.1.0")
-        let upper = try IPv4Address("192.168.1.255")
-        let cidr = try CIDR.v4Range(lower: lower, upper: upper)
+        let lower = try IPAddress("192.168.1.0")
+        let upper = try IPAddress("192.168.1.255")
+        let cidr = try CIDR(lower: lower, upper: upper)
         #expect(cidr.prefix.length == 24)
         #expect(cidr.address.description == "192.168.1.0")
     }
 
     @Test func testV4RangeSingleAddress() throws {
-        let addr = try IPv4Address("192.168.1.100")
-        let cidr = try CIDR.v4Range(lower: addr, upper: addr)
+        let addr = try IPAddress("192.168.1.100")
+        let cidr = try CIDR(lower: addr, upper: addr)
         #expect(cidr.prefix.length == 32)
         #expect(cidr.address.description == "192.168.1.100")
     }
 
     @Test func testV6RangeConstructor() throws {
-        let lower = try IPv6Address(address: "2001:db8::")
-        let upper = try IPv6Address(address: "2001:db8::ffff:ffff:ffff:ffff")
-        let cidr = try CIDR.v6Range(lower: lower, upper: upper)
+        let lower = try IPAddress("2001:db8::")
+        let upper = try IPAddress("2001:db8::ffff:ffff:ffff:ffff")
+        let cidr = try CIDR(lower: lower, upper: upper)
         #expect(cidr.prefix.length == 64)
         #expect(cidr.address.description == "2001:db8::")
     }
 
     @Test func testV6RangeSingleAddress() throws {
-        let addr = try IPv6Address(address: "2001:db8::1")
-        let cidr = try CIDR.v6Range(lower: addr, upper: addr)
+        let addr = try IPAddress("2001:db8::1")
+        let cidr = try CIDR(lower: addr, upper: addr)
         #expect(cidr.prefix.length == 128)
         #expect(cidr.address.description == "2001:db8::1")
     }
 
     @Test func testV4RangeRejectsInvalidOrder() throws {
-        let lower = try IPv4Address("192.168.1.255")
-        let upper = try IPv4Address("192.168.1.0")
+        let lower = try IPAddress("192.168.1.255")
+        let upper = try IPAddress("192.168.1.0")
         #expect(throws: CIDR.Error.self) {
-            _ = try CIDR.v4Range(lower: lower, upper: upper)
+            _ = try CIDR(lower: lower, upper: upper)
         }
     }
 
     @Test func testV6RangeRejectsInvalidOrder() throws {
-        let lower = try IPv6Address(address: "2001:db8::ffff")
-        let upper = try IPv6Address(address: "2001:db8::1")
+        let lower = try IPAddress("2001:db8::ffff")
+        let upper = try IPAddress("2001:db8::1")
         #expect(throws: CIDR.Error.self) {
-            _ = try CIDR.v6Range(lower: lower, upper: upper)
+            _ = try CIDR(lower: lower, upper: upper)
         }
     }
 
     @Test func testV6RangeRejectsDifferentZones() throws {
-        let lower = try IPv6Address(address: "fe80::1%eth0")
-        let upper = try IPv6Address(address: "fe80::2%eth1")
+        let lower = try IPAddress("fe80::1%eth0")
+        let upper = try IPAddress("fe80::2%eth1")
         #expect(throws: CIDR.Error.self) {
-            _ = try CIDR.v6Range(lower: lower, upper: upper)
+            _ = try CIDR(lower: lower, upper: upper)
         }
     }
 
@@ -306,8 +288,8 @@ struct TestCIDR {
         #expect(cidr.description == "10.0.0.0/8")
     }
 
-    @Test func testPreservesNormalization() throws {
+    @Test func testPreservesAddress() throws {
         let cidr = try CIDR("192.168.1.100/24")
-        #expect(cidr.description == "192.168.1.0/24")
+        #expect(cidr.description == "192.168.1.100/24")
     }
 }

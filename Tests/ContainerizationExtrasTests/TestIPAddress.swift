@@ -112,9 +112,9 @@ struct IPAddressTests {
 
     @Test("Comparable - IPv6 ordering")
     func testIPv6Ordering() throws {
-        let ip1 = try IPv6Address(address: "2001:db8::1")
-        let ip2 = try IPv6Address(address: "2001:db8::2")
-        let ip3 = try IPv6Address(address: "2001:db9::1")
+        let ip1 = try IPv6Address("2001:db8::1")
+        let ip2 = try IPv6Address("2001:db8::2")
+        let ip3 = try IPv6Address("2001:db9::1")
 
         #expect(ip1 < ip2)
         #expect(ip2 < ip3)
