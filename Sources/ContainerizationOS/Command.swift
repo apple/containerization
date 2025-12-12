@@ -183,7 +183,9 @@ extension Command {
 
         let set = try createFileset()
         defer {
-            try? set.null.close()
+            for nullHandle in set.nullHandles {
+                try? nullHandle.close()
+            }
         }
         var fds = [Int32](repeating: 0, count: set.handles.count)
         for (i, handle) in set.handles.enumerated() {
@@ -248,21 +250,22 @@ extension Command {
     }
 
     /// Create a posix_spawn file actions set of fds to pass to the new process
-    private func createFileset() throws -> (null: FileHandle, handles: [FileHandle]) {
-        // grab dev null incase a handle passed by the user is nil
-        let null = try openDevNull()
+    private func createFileset() throws -> (nullHandles: [FileHandle], handles: [FileHandle]) {
+        // grab dev null handles for different purposes
+        let nullRead = try openDevNull(flags: O_RDONLY)
+        let nullWrite = try openDevNull(flags: O_WRONLY)
         var files = [FileHandle]()
-        files.append(stdin ?? null)
-        files.append(stdout ?? null)
-        files.append(stderr ?? null)
+        files.append(stdin ?? nullRead)
+        files.append(stdout ?? nullWrite)
+        files.append(stderr ?? nullWrite)
         files.append(contentsOf: extraFiles)
-        return (null: null, handles: files)
+        return (nullHandles: [nullRead, nullWrite], handles: files)
     }
 
-    /// Returns a file handle to /dev/null.
-    private func openDevNull() throws -> FileHandle {
-        let fd = open("/dev/null", O_WRONLY, 0)
-        guard fd > 0 else {
+    /// Returns a file handle to /dev/null with the specified flags.
+    private func openDevNull(flags: Int32) throws -> FileHandle {
+        let fd = open("/dev/null", flags, 0)
+        guard fd >= 0 else {
             throw POSIXError(.init(rawValue: errno)!)
         }
         return FileHandle(fileDescriptor: fd, closeOnDealloc: false)
