@@ -29,7 +29,7 @@ extension IPv4Address {
                 }
                 return Int(address.value - lower)
             },
-            indexToAddress: { IPv4Address(fromValue: lower + UInt32($0)) }
+            indexToAddress: { IPv4Address(lower + UInt32($0)) }
         )
     }
 }
