@@ -22,7 +22,6 @@ public enum CIDR: CustomStringConvertible, Equatable, Sendable, Hashable {
     case v6(IPv6Address, Prefix)
 
     /// Create a CIDR address block.
-    ///
     public init(_ cidr: String) throws {
         if let cidrV4 = try? CIDRv4(cidr) {
             self = .v4(cidrV4.address, cidrV4.prefix)
@@ -34,17 +33,16 @@ public enum CIDR: CustomStringConvertible, Equatable, Sendable, Hashable {
     }
 
     /// Create a CIDR address from a member IP and a prefix length.
-    ///
     public init(_ address: IPAddress, prefix: Prefix) throws {
         switch address {
         case .v4(let addr):
             guard prefix.length <= 32 else {
-                throw Self.Error.invalidCIDR(cidr: "\(address)/\(prefix)")
+                throw Error.invalidCIDR(cidr: "\(address)/\(prefix)")
             }
             self = .v4(addr, prefix)
         case .v6(let addr):
             guard prefix.length <= 128 else {
-                throw Self.Error.invalidCIDR(cidr: "\(address)/\(prefix)")
+                throw Error.invalidCIDR(cidr: "\(address)/\(prefix)")
             }
             self = .v6(addr, prefix)
         }
@@ -62,7 +60,7 @@ public enum CIDR: CustomStringConvertible, Equatable, Sendable, Hashable {
             let cidr = try CIDRv6(lower: lowerAddr, upper: upperAddr)
             self = .v6(cidr.address, cidr.prefix)
         default:
-            throw Self.Error.invalidAddressRange(lower: lower.description, upper: upper.description)
+            throw Error.invalidAddressRange(lower: lower.description, upper: upper.description)
         }
     }
 
@@ -117,10 +115,7 @@ public enum CIDR: CustomStringConvertible, Equatable, Sendable, Hashable {
         case (.v4(let network, let prefix), .v4(let ip)):
             return network.value == (ip.value & prefix.prefixMask32)
         case (.v6(let network, let prefix), .v6(let ip)):
-            guard network.zone == ip.zone else {
-                return false
-            }
-            return network.value == (ip.value & prefix.prefixMask128)
+            return (network.zone == ip.zone) && (network.value == (ip.value & prefix.prefixMask128))
         default:
             return false
         }

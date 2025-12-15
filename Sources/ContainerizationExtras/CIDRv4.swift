@@ -24,7 +24,6 @@ public struct CIDRv4: CustomStringConvertible, Equatable, Sendable, Hashable {
     public let prefix: Prefix
 
     /// Create a CIDR address block.
-    ///
     public init(_ cidr: String) throws {
         let split = cidr.split(separator: "/")
         guard split.count == 2 else {
@@ -39,7 +38,6 @@ public struct CIDRv4: CustomStringConvertible, Equatable, Sendable, Hashable {
     }
 
     /// Create a CIDR address from a member IP and a prefix length.
-    ///
     public init(_ address: IPv4Address, prefix: Prefix) throws {
         guard prefix.length <= 32 else {
             throw CIDR.Error.invalidCIDR(cidr: "\(address)/\(prefix)")
@@ -65,7 +63,7 @@ public struct CIDRv4: CustomStringConvertible, Equatable, Sendable, Hashable {
             let mask = prefixLength.prefixMask32
             if (lower.value & mask) != (upper.value & mask) {
                 let prefix = Prefix(unchecked: UInt8(length - 1))
-                let networkAddr: IPv4Address = IPv4Address(lower.value & prefix.prefixMask32)
+                let networkAddr = IPv4Address(lower.value & prefix.prefixMask32)
                 try self.init(networkAddr, prefix: prefix)
                 return
             }

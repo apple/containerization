@@ -47,7 +47,7 @@ public struct IPv4Address: Sendable, Hashable, CustomStringConvertible, Equatabl
         return result
     }
 
-    // TODO: GB/CB: spans?
+    // TODO: spans?
     @available(macOS 26.0, *)
     @usableFromInline
     static func bytes(_ value: UInt32) -> InlineArray<4, UInt8> {

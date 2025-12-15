@@ -25,7 +25,6 @@ public struct CIDRv6: CustomStringConvertible, Equatable, Sendable, Hashable {
     public let prefix: Prefix
 
     /// Create a CIDR address block.
-    ///
     public init(_ cidr: String) throws {
         let split = cidr.split(separator: "/")
         guard split.count == 2 else {
@@ -40,7 +39,6 @@ public struct CIDRv6: CustomStringConvertible, Equatable, Sendable, Hashable {
     }
 
     /// Create a CIDR address from a member IP and a prefix length.
-    ///
     public init(_ address: IPv6Address, prefix: Prefix) throws {
         guard prefix.length <= 128 else {
             throw CIDR.Error.invalidCIDR(cidr: "\(address)/\(prefix)")
@@ -94,10 +92,7 @@ public struct CIDRv6: CustomStringConvertible, Equatable, Sendable, Hashable {
     /// Compares network portion of the given IP address.
     @inlinable
     public func contains(_ ip: IPv6Address) -> Bool {
-        guard address.zone == ip.zone else {
-            return false
-        }
-        return (address.value & prefix.prefixMask128) == (ip.value & prefix.prefixMask128)
+        return (address.zone == ip.zone) && ((address.value & prefix.prefixMask128) == (ip.value & prefix.prefixMask128))
     }
 
     /// Retrieve the text representation of the CIDR block.
