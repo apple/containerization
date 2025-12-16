@@ -1,0 +1,5 @@
+version: 1
+builder:
+  configs:
+    - documentation_targets: [Containerization, ContainerizationEXT4, ContainerizationOS, ContainerizationOCI, ContainerizationNetlink, ContainerizationIO, ContainerizationExtras, ContainerizationArchive, SendableProperty]
+      swift_version: '6.2'

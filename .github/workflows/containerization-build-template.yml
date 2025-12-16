@@ -1,0 +1,125 @@
+name: Build containerization template
+
+permissions:
+  contents: read
+
+on: 
+  workflow_call:
+    inputs:
+      release:
+        type: boolean
+        description: "Create a release"
+        default: false
+      version: 
+        type: string
+        description: Version of containerization 
+        default: test
+
+jobs: 
+  buildAndTest: 
+    name: Build and Test repo
+    if: github.repository == 'apple/containerization'
+    timeout-minutes: 60
+    runs-on: [self-hosted, macos, sequoia, ARM64]
+    permissions:
+      contents: read
+      packages: write
+    env:
+      DEVELOPER_DIR: "/Applications/Xcode-latest.app/Contents/Developer"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6 
+        with:
+          fetch-depth: 0
+
+      - name: Activate Swiftly
+        run: |
+          source /opt/swiftly/env.sh
+          cat /opt/swiftly/env.sh
+
+      - name: Check formatting
+        run: | 
+          ./scripts/install-hawkeye.sh
+          make fmt
+          git diff
+          if ! git diff --quiet ; then echo the following files require formatting or license headers: ; git diff --name-only ; false ; fi
+
+      - name: Check protobufs
+        run: | 
+          make protos
+          if ! git diff --quiet ; then echo the following files require formatting or license headers: ; git diff --name-only ; false ; fi
+
+      - name: Make containerization and docs
+        run: | 
+          make clean containerization docs
+          tar cfz _site.tgz _site
+
+      - name: Make vminitd image
+        run: | 
+          source /opt/swiftly/env.sh
+          make -C vminitd swift linux-sdk
+          make init
+
+      - name: Test containerization
+        run: | 
+          make fetch-default-kernel
+          make test integration
+        env:
+          REGISTRY_TOKEN: ${{ github.token }}
+          REGISTRY_USERNAME: ${{ github.actor }}
+
+      - name: Push vminitd image
+        if: ${{ inputs.release }}
+        run: |
+          bin/cctl images tag vminit:latest ghcr.io/apple/containerization/vminit:${{ inputs.version }}
+          bin/cctl images push ghcr.io/apple/containerization/vminit:${{ inputs.version }}
+        env:
+          REGISTRY_TOKEN: ${{ github.token }}
+          REGISTRY_USERNAME: ${{ github.actor }}
+          REGISTRY_HOST: ghcr.io
+
+      - name: Create image tar 
+        if: ${{ !inputs.release }}
+        run: |
+          bin/cctl images save vminit:latest -o vminit.tar
+
+      - name: Save vminit artifact
+        if: ${{ !inputs.release }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6
+        with:
+          name: vminit
+          path: vminit.tar
+
+      - name: Save documentation artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6
+        with:
+          name: api-docs
+          path: "./_site.tgz"
+          retention-days: 14
+
+  uploadPages:
+    # Separate upload step required because upload-pages-artifact needs
+    # gtar which is not on the macOS runner.
+    name: Upload artifact for GitHub Pages
+    needs: buildAndTest
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Download a single artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7
+        with:
+          name: api-docs
+
+      - name: Add API docs to documentation
+        run: |
+          tar xfz _site.tgz
+
+      - name: Upload Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "./_site"
