@@ -193,8 +193,8 @@ public struct NetlinkSession {
     /// Adds an IPv4 address to an interface.
     /// - Parameters:
     ///   - interface: The name of the interface.
-    ///   - address: The CIDRv4 address describing the interface IP and subnet prefix length.
-    public func addressAdd(interface: String, address: CIDRv4) throws {
+    ///   - ipv4Address: The CIDRv4 address describing the interface IP and subnet prefix length.
+    public func addressAdd(interface: String, ipv4Address: CIDRv4) throws {
         // ip addr add [addr] dev [interface]
         // ip address {add|change|replace} IFADDR dev IFNAME [ LIFETIME ] [ CONFFLAG-LIST ]
         // IFADDR := PREFIX | ADDR peer PREFIX
@@ -207,7 +207,7 @@ public struct NetlinkSession {
         // LFT := forever | SECONDS
         let interfaceIndex = try getInterfaceIndex(interface)
 
-        let ipAddressBytes = address.address.bytes
+        let ipAddressBytes = ipv4Address.address.bytes
         let addressAttrSize = RTAttribute.size + MemoryLayout<UInt8>.size * ipAddressBytes.count
         let requestSize = NetlinkMessageHeader.size + AddressInfo.size + 2 * addressAttrSize
         var requestBuffer = [UInt8](repeating: 0, count: requestSize)
@@ -224,7 +224,7 @@ public struct NetlinkSession {
 
         let requestInfo = AddressInfo(
             family: UInt8(AddressFamily.AF_INET),
-            prefixLength: address.prefix.length,
+            prefixLength: ipv4Address.prefix.length,
             flags: 0,
             scope: NetlinkScope.RT_SCOPE_UNIVERSE,
             index: UInt32(interfaceIndex))
@@ -253,22 +253,22 @@ public struct NetlinkSession {
         }
     }
 
-    /// Adds a route to an interface.
+    /// Adds an IPv4 route to an interface.
     /// - Parameters:
     ///   - interface: The name of the interface.
-    ///   - destinationAddress: The CIDRv4 address describing the gateway IP and subnet prefix length.
-    ///   - srcAddr: The source address to route from.
+    ///   - dstIpv4Addr: The CIDRv4 address describing the gateway IP and subnet prefix length.
+    ///   - srcIpv4Addr: The source IPv4 address to route from.
     public func routeAdd(
         interface: String,
-        dstAddr: CIDRv4,
-        srcAddr: IPv4Address
+        dstIpv4Addr: CIDRv4,
+        srcIpv4Addr: IPv4Address
     ) throws {
         // ip route add [dest-cidr] dev [interface] src [src-addr] proto kernel
         let interfaceIndex = try getInterfaceIndex(interface)
 
-        let dstAddrBytes = dstAddr.address.bytes
+        let dstAddrBytes = dstIpv4Addr.address.bytes
         let dstAddrAttrSize = RTAttribute.size + dstAddrBytes.count
-        let srcAddrBytes = srcAddr.bytes
+        let srcAddrBytes = srcIpv4Addr.bytes
         let srcAddrAttrSize = RTAttribute.size + srcAddrBytes.count
         let interfaceAttrSize = RTAttribute.size + MemoryLayout<UInt32>.size
         let requestSize =
@@ -286,7 +286,7 @@ public struct NetlinkSession {
 
         let requestInfo = RouteInfo(
             family: UInt8(AddressFamily.AF_INET),
-            dstLen: dstAddr.prefix.length,
+            dstLen: dstIpv4Addr.prefix.length,
             srcLen: 0,
             tos: 0,
             table: RouteTable.MAIN,
@@ -330,16 +330,16 @@ public struct NetlinkSession {
         }
     }
 
-    /// Adds a default route to an interface.
+    /// Adds a default IPv4 route to an interface.
     /// - Parameters:
     ///   - interface: The name of the interface.
-    ///   - gateway: The gateway address.
+    ///   - ipv4Gateway: The gateway address.
     public func routeAddDefault(
         interface: String,
-        gateway: IPv4Address
+        ipv4Gateway: IPv4Address
     ) throws {
         // ip route add default via [dst-address] src [src-address]
-        let dstAddrBytes = gateway.bytes
+        let dstAddrBytes = ipv4Gateway.bytes
         let dstAddrAttrSize = RTAttribute.size + dstAddrBytes.count
 
         let interfaceAttrSize = RTAttribute.size + MemoryLayout<UInt32>.size

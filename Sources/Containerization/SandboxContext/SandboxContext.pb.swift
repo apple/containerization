@@ -798,7 +798,7 @@ public struct Com_Apple_Containerization_Sandbox_V3_IpAddrAddRequest: Sendable {
 
   public var interface: String = String()
 
-  public var address: String = String()
+  public var ipv4Address: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -822,9 +822,9 @@ public struct Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest: Senda
 
   public var interface: String = String()
 
-  public var address: String = String()
+  public var dstIpv4Addr: String = String()
 
-  public var srcAddr: String = String()
+  public var srcIpv4Addr: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -848,7 +848,7 @@ public struct Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRequest: Se
 
   public var interface: String = String()
 
-  public var gateway: String = String()
+  public var ipv4Gateway: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -2636,7 +2636,7 @@ extension Com_Apple_Containerization_Sandbox_V3_IpAddrAddRequest: SwiftProtobuf.
   public static let protoMessageName: String = _protobuf_package + ".IpAddrAddRequest"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
     1: .same(proto: "interface"),
-    2: .same(proto: "address"),
+    2: .same(proto: "ipv4Address"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -2646,7 +2646,7 @@ extension Com_Apple_Containerization_Sandbox_V3_IpAddrAddRequest: SwiftProtobuf.
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.interface) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.address) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.ipv4Address) }()
       default: break
       }
     }
@@ -2656,15 +2656,15 @@ extension Com_Apple_Containerization_Sandbox_V3_IpAddrAddRequest: SwiftProtobuf.
     if !self.interface.isEmpty {
       try visitor.visitSingularStringField(value: self.interface, fieldNumber: 1)
     }
-    if !self.address.isEmpty {
-      try visitor.visitSingularStringField(value: self.address, fieldNumber: 2)
+    if !self.ipv4Address.isEmpty {
+      try visitor.visitSingularStringField(value: self.ipv4Address, fieldNumber: 2)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_IpAddrAddRequest, rhs: Com_Apple_Containerization_Sandbox_V3_IpAddrAddRequest) -> Bool {
     if lhs.interface != rhs.interface {return false}
-    if lhs.address != rhs.address {return false}
+    if lhs.ipv4Address != rhs.ipv4Address {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -2693,8 +2693,8 @@ extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest: SwiftProt
   public static let protoMessageName: String = _protobuf_package + ".IpRouteAddLinkRequest"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
     1: .same(proto: "interface"),
-    2: .same(proto: "address"),
-    3: .same(proto: "srcAddr"),
+    2: .same(proto: "dstIpv4Addr"),
+    3: .same(proto: "srcIpv4Addr"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -2704,8 +2704,8 @@ extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest: SwiftProt
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.interface) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.address) }()
-      case 3: try { try decoder.decodeSingularStringField(value: &self.srcAddr) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.dstIpv4Addr) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.srcIpv4Addr) }()
       default: break
       }
     }
@@ -2715,19 +2715,19 @@ extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest: SwiftProt
     if !self.interface.isEmpty {
       try visitor.visitSingularStringField(value: self.interface, fieldNumber: 1)
     }
-    if !self.address.isEmpty {
-      try visitor.visitSingularStringField(value: self.address, fieldNumber: 2)
+    if !self.dstIpv4Addr.isEmpty {
+      try visitor.visitSingularStringField(value: self.dstIpv4Addr, fieldNumber: 2)
     }
-    if !self.srcAddr.isEmpty {
-      try visitor.visitSingularStringField(value: self.srcAddr, fieldNumber: 3)
+    if !self.srcIpv4Addr.isEmpty {
+      try visitor.visitSingularStringField(value: self.srcIpv4Addr, fieldNumber: 3)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest, rhs: Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest) -> Bool {
     if lhs.interface != rhs.interface {return false}
-    if lhs.address != rhs.address {return false}
-    if lhs.srcAddr != rhs.srcAddr {return false}
+    if lhs.dstIpv4Addr != rhs.dstIpv4Addr {return false}
+    if lhs.srcIpv4Addr != rhs.srcIpv4Addr {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -2756,7 +2756,7 @@ extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRequest: SwiftP
   public static let protoMessageName: String = _protobuf_package + ".IpRouteAddDefaultRequest"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
     1: .same(proto: "interface"),
-    2: .same(proto: "gateway"),
+    2: .same(proto: "ipv4Gateway"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -2766,7 +2766,7 @@ extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRequest: SwiftP
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.interface) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.gateway) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.ipv4Gateway) }()
       default: break
       }
     }
@@ -2776,15 +2776,15 @@ extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRequest: SwiftP
     if !self.interface.isEmpty {
       try visitor.visitSingularStringField(value: self.interface, fieldNumber: 1)
     }
-    if !self.gateway.isEmpty {
-      try visitor.visitSingularStringField(value: self.gateway, fieldNumber: 2)
+    if !self.ipv4Gateway.isEmpty {
+      try visitor.visitSingularStringField(value: self.ipv4Gateway, fieldNumber: 2)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRequest, rhs: Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRequest) -> Bool {
     if lhs.interface != rhs.interface {return false}
-    if lhs.gateway != rhs.gateway {return false}
+    if lhs.ipv4Gateway != rhs.ipv4Gateway {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

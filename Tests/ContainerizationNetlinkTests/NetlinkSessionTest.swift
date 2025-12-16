@@ -275,7 +275,7 @@ struct NetlinkSessionTest {
         )
 
         let session = NetlinkSession(socket: mockSocket)
-        try session.addressAdd(interface: "eth0", address: try CIDRv4("192.168.64.250/24"))
+        try session.addressAdd(interface: "eth0", ipv4Address: try CIDRv4("192.168.64.250/24"))
 
         #expect(mockSocket.requests.count == 2)
         #expect(mockSocket.responseIndex == 2)
@@ -322,8 +322,8 @@ struct NetlinkSessionTest {
         let session = NetlinkSession(socket: mockSocket)
         try session.routeAdd(
             interface: "eth0",
-            dstAddr: try CIDRv4("192.168.64.0/24"),
-            srcAddr: try IPv4Address("192.168.64.3")
+            dstIpv4Addr: try CIDRv4("192.168.64.0/24"),
+            srcIpv4Addr: try IPv4Address("192.168.64.3")
         )
 
         #expect(mockSocket.requests.count == 2)

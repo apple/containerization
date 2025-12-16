@@ -51,8 +51,8 @@ public struct ContainerManager: Sendable {
         /// The IPv4 subnet of this network.
         public let subnet: CIDRv4
 
-        /// The gateway address of this network.
-        public var gateway: IPv4Address {
+        /// The IPv4 gateway address of this network.
+        public var ipv4Gateway: IPv4Address {
             subnet.gateway
         }
 
@@ -91,8 +91,8 @@ public struct ContainerManager: Sendable {
 
         /// A network interface supporting the vmnet_network_ref.
         public struct Interface: Containerization.Interface, VZInterface, Sendable {
-            public let address: CIDRv4
-            public let gateway: IPv4Address?
+            public let ipv4Address: CIDRv4
+            public let ipv4Gateway: IPv4Address?
             public let macAddress: String?
 
             // `reference` isn't used concurrently.
@@ -100,12 +100,12 @@ public struct ContainerManager: Sendable {
 
             public init(
                 reference: vmnet_network_ref,
-                address: CIDRv4,
-                gateway: IPv4Address,
+                ipv4Address: CIDRv4,
+                ipv4Gateway: IPv4Address,
                 macAddress: String? = nil
             ) {
-                self.address = address
-                self.gateway = gateway
+                self.ipv4Address = ipv4Address
+                self.ipv4Gateway = ipv4Gateway
                 self.macAddress = macAddress
                 self.reference = reference
             }
@@ -152,11 +152,11 @@ public struct ContainerManager: Sendable {
         /// Returns a new interface for use with a container.
         /// - Parameter id: The container ID.
         public mutating func create(_ id: String) throws -> Containerization.Interface? {
-            let address = try allocator.allocate(id)
+            let ipv4Address = try allocator.allocate(id)
             return Self.Interface(
                 reference: self.reference,
-                address: address,
-                gateway: self.gateway,
+                ipv4Address: ipv4Address,
+                ipv4Gateway: self.ipv4Gateway,
             )
         }
 
@@ -415,7 +415,8 @@ public struct ContainerManager: Sendable {
             }
             if let interface = try self.network?.create(id) {
                 config.interfaces = [interface]
-                config.dns = .init(nameservers: [interface.gateway!.description])
+                // FIXME: throw instead of crash here if we can't unwrap?
+                config.dns = .init(nameservers: [interface.ipv4Gateway!.description])
             }
             config.bootLog = BootLog.file(path: self.containerRoot.appendingPathComponent(id).appendingPathComponent("bootlog.log"))
             try configuration(&config)

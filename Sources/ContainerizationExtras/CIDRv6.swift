@@ -92,7 +92,7 @@ public struct CIDRv6: CustomStringConvertible, Equatable, Sendable, Hashable {
     /// Compares network portion of the given IP address.
     @inlinable
     public func contains(_ ip: IPv6Address) -> Bool {
-        return (address.zone == ip.zone) && ((address.value & prefix.prefixMask128) == (ip.value & prefix.prefixMask128))
+        (address.zone == ip.zone) && ((address.value & prefix.prefixMask128) == (ip.value & prefix.prefixMask128))
     }
 
     /// Retrieve the text representation of the CIDR block.

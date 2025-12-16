@@ -125,9 +125,9 @@ extension Application {
                     guard let gateway else {
                         throw ContainerizationError(.invalidArgument, message: "gateway must be specified")
                     }
-                    let address = try CIDRv4(ip)
-                    let gatewayIp = try IPv4Address(gateway)
-                    config.interfaces.append(NATInterface(address: address, gateway: gatewayIp))
+                    let ipv4Address = try CIDRv4(ip)
+                    let ipv4Gateway = try IPv4Address(gateway)
+                    config.interfaces.append(NATInterface(ipv4Address: ipv4Address, ipv4Gateway: ipv4Gateway))
                     config.dns = .init(nameservers: [gateway])
                     if nameservers.count > 0 {
                         config.dns = .init(nameservers: nameservers)
