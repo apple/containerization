@@ -14,14 +14,16 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import ContainerizationExtras
+
 public struct NATInterface: Interface {
-    public var address: String
-    public var gateway: String?
+    public var ipv4Address: CIDRv4
+    public var ipv4Gateway: IPv4Address?
     public var macAddress: String?
 
-    public init(address: String, gateway: String?, macAddress: String? = nil) {
-        self.address = address
-        self.gateway = gateway
+    public init(ipv4Address: CIDRv4, ipv4Gateway: IPv4Address?, macAddress: String? = nil) {
+        self.ipv4Address = ipv4Address
+        self.ipv4Gateway = ipv4Gateway
         self.macAddress = macAddress
     }
 }

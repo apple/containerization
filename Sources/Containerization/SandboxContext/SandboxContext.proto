@@ -235,22 +235,22 @@ message IpLinkSetResponse {}
 
 message IpAddrAddRequest {
   string interface = 1;
-  string address = 2;
+  string ipv4Address = 2;
 }
 
 message IpAddrAddResponse {}
 
 message IpRouteAddLinkRequest {
   string interface = 1;
-  string address = 2;
-  string srcAddr = 3;
+  string dstIpv4Addr = 2;
+  string srcIpv4Addr = 3;
 }
 
 message IpRouteAddLinkResponse {}
 
 message IpRouteAddDefaultRequest {
   string interface = 1;
-  string gateway = 2;
+  string ipv4Gateway = 2;
 }
 
 message IpRouteAddDefaultResponse {}

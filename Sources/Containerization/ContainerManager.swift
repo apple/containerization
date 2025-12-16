@@ -49,19 +49,19 @@ public struct ContainerManager: Sendable {
         nonisolated(unsafe) private let reference: vmnet_network_ref
 
         /// The IPv4 subnet of this network.
-        public let subnet: CIDRAddress
+        public let subnet: CIDRv4
 
-        /// The gateway address of this network.
-        public var gateway: IPv4Address {
+        /// The IPv4 gateway address of this network.
+        public var ipv4Gateway: IPv4Address {
             subnet.gateway
         }
 
         struct Allocator: Sendable {
             private let addressAllocator: any AddressAllocator<UInt32>
-            private let cidr: CIDRAddress
+            private let cidr: CIDRv4
             private var allocations: [String: UInt32]
 
-            init(cidr: CIDRAddress) throws {
+            init(cidr: CIDRv4) throws {
                 self.cidr = cidr
                 self.allocations = .init()
                 let size = Int(cidr.upper.value - cidr.lower.value - 3)
@@ -71,14 +71,14 @@ public struct ContainerManager: Sendable {
                 )
             }
 
-            mutating func allocate(_ id: String) throws -> String {
+            mutating func allocate(_ id: String) throws -> CIDRv4 {
                 if allocations[id] != nil {
                     throw ContainerizationError(.exists, message: "allocation with id \(id) already exists")
                 }
                 let index = try addressAllocator.allocate()
                 allocations[id] = index
-                let ip = IPv4Address(fromValue: index)
-                return try CIDRAddress(ip, prefixLength: cidr.prefixLength).description
+                let ip = IPv4Address(index)
+                return try CIDRv4(ip, prefix: cidr.prefix)
             }
 
             mutating func release(_ id: String) throws {
@@ -91,8 +91,8 @@ public struct ContainerManager: Sendable {
 
         /// A network interface supporting the vmnet_network_ref.
         public struct Interface: Containerization.Interface, VZInterface, Sendable {
-            public let address: String
-            public let gateway: String?
+            public let ipv4Address: CIDRv4
+            public let ipv4Gateway: IPv4Address?
             public let macAddress: String?
 
             // `reference` isn't used concurrently.
@@ -100,12 +100,12 @@ public struct ContainerManager: Sendable {
 
             public init(
                 reference: vmnet_network_ref,
-                address: String,
-                gateway: String,
+                ipv4Address: CIDRv4,
+                ipv4Gateway: IPv4Address,
                 macAddress: String? = nil
             ) {
-                self.address = address
-                self.gateway = gateway
+                self.ipv4Address = ipv4Address
+                self.ipv4Gateway = ipv4Gateway
                 self.macAddress = macAddress
                 self.reference = reference
             }
@@ -126,7 +126,7 @@ public struct ContainerManager: Sendable {
 
         /// Creates a new network.
         /// - Parameter subnet: The subnet to use for this network.
-        public init(subnet: String? = nil) throws {
+        public init(subnet: CIDRv4? = nil) throws {
             var status: vmnet_return_t = .VMNET_FAILURE
             guard let config = vmnet_network_configuration_create(.VMNET_SHARED_MODE, &status) else {
                 throw ContainerizationError(.unsupported, message: "failed to create vmnet config with status \(status)")
@@ -135,7 +135,7 @@ public struct ContainerManager: Sendable {
             vmnet_network_configuration_disable_dhcp(config)
 
             if let subnet {
-                try Self.configureSubnet(config, subnet: try CIDRAddress(subnet))
+                try Self.configureSubnet(config, subnet: subnet)
             }
 
             guard let ref = vmnet_network_create(config, &status), status == .VMNET_SUCCESS else {
@@ -152,11 +152,11 @@ public struct ContainerManager: Sendable {
         /// Returns a new interface for use with a container.
         /// - Parameter id: The container ID.
         public mutating func create(_ id: String) throws -> Containerization.Interface? {
-            let address = try allocator.allocate(id)
+            let ipv4Address = try allocator.allocate(id)
             return Self.Interface(
                 reference: self.reference,
-                address: address,
-                gateway: self.gateway.description,
+                ipv4Address: ipv4Address,
+                ipv4Gateway: self.ipv4Gateway,
             )
         }
 
@@ -166,7 +166,7 @@ public struct ContainerManager: Sendable {
             try allocator.release(id)
         }
 
-        private static func getSubnet(_ ref: vmnet_network_ref) throws -> CIDRAddress {
+        private static func getSubnet(_ ref: vmnet_network_ref) throws -> CIDRv4 {
             var subnet = in_addr()
             var mask = in_addr()
             vmnet_network_get_ipv4_subnet(ref, &subnet, &mask)
@@ -174,19 +174,19 @@ public struct ContainerManager: Sendable {
             let sa = UInt32(bigEndian: subnet.s_addr)
             let mv = UInt32(bigEndian: mask.s_addr)
 
-            let lower = IPv4Address(fromValue: sa & mv)
-            let upper = IPv4Address(fromValue: lower.value + ~mv)
+            let lower = IPv4Address(sa & mv)
+            let upper = IPv4Address(lower.value + ~mv)
 
-            return try CIDRAddress(lower: lower, upper: upper)
+            return try CIDRv4(lower: lower, upper: upper)
         }
 
-        private static func configureSubnet(_ config: vmnet_network_configuration_ref, subnet: CIDRAddress) throws {
+        private static func configureSubnet(_ config: vmnet_network_configuration_ref, subnet: CIDRv4) throws {
             let gateway = subnet.gateway
 
             var ga = in_addr()
             inet_pton(AF_INET, gateway.description, &ga)
 
-            let mask = IPv4Address(fromValue: subnet.prefixLength.prefixMask32)
+            let mask = IPv4Address(subnet.prefix.prefixMask32)
             var ma = in_addr()
             inet_pton(AF_INET, mask.description, &ma)
 
@@ -415,7 +415,8 @@ public struct ContainerManager: Sendable {
             }
             if let interface = try self.network?.create(id) {
                 config.interfaces = [interface]
-                config.dns = .init(nameservers: [interface.gateway!])
+                // FIXME: throw instead of crash here if we can't unwrap?
+                config.dns = .init(nameservers: [interface.ipv4Gateway!.description])
             }
             config.bootLog = BootLog.file(path: self.containerRoot.appendingPathComponent(id).appendingPathComponent("bootlog.log"))
             try configuration(&config)
@@ -454,10 +455,10 @@ public struct ContainerManager: Sendable {
     }
 }
 
-extension CIDRAddress {
+extension CIDRv4 {
     /// The gateway address of the network.
     public var gateway: IPv4Address {
-        IPv4Address(fromValue: self.lower.value + 1)
+        IPv4Address(self.lower.value + 1)
     }
 }
 

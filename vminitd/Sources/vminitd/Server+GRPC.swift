@@ -17,6 +17,7 @@
 import Cgroup
 import Containerization
 import ContainerizationError
+import ContainerizationExtras
 import ContainerizationNetlink
 import ContainerizationOCI
 import ContainerizationOS
@@ -774,13 +775,14 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             "ipAddrAdd",
             metadata: [
                 "interface": "\(request.interface)",
-                "address": "\(request.address)",
+                "ipv4Address": "\(request.ipv4Address)",
             ])
 
         do {
             let socket = try DefaultNetlinkSocket()
             let session = NetlinkSession(socket: socket, log: log)
-            try session.addressAdd(interface: request.interface, address: request.address)
+            let ipv4Address = try CIDRv4(request.ipv4Address)
+            try session.addressAdd(interface: request.interface, ipv4Address: ipv4Address)
         } catch {
             log.error(
                 "ipAddrAdd",
@@ -800,17 +802,19 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             "ipRouteAddLink",
             metadata: [
                 "interface": "\(request.interface)",
-                "address": "\(request.address)",
-                "srcAddr": "\(request.srcAddr)",
+                "dstIpv4Addr": "\(request.dstIpv4Addr)",
+                "srcIpv4Addr": "\(request.srcIpv4Addr)",
             ])
 
         do {
             let socket = try DefaultNetlinkSocket()
             let session = NetlinkSession(socket: socket, log: log)
+            let dstIpv4Addr = try CIDRv4(request.dstIpv4Addr)
+            let srcIpv4Addr = try IPv4Address(request.srcIpv4Addr)
             try session.routeAdd(
                 interface: request.interface,
-                destinationAddress: request.address,
-                srcAddr: request.srcAddr
+                dstIpv4Addr: dstIpv4Addr,
+                srcIpv4Addr: srcIpv4Addr
             )
         } catch {
             log.error(
@@ -832,13 +836,14 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             "ipRouteAddDefault",
             metadata: [
                 "interface": "\(request.interface)",
-                "gateway": "\(request.gateway)",
+                "ipv4Gateway": "\(request.ipv4Gateway)",
             ])
 
         do {
             let socket = try DefaultNetlinkSocket()
             let session = NetlinkSession(socket: socket, log: log)
-            try session.routeAddDefault(interface: request.interface, gateway: request.gateway)
+            let ipv4Gateway = try IPv4Address(request.ipv4Gateway)
+            try session.routeAddDefault(interface: request.interface, ipv4Gateway: ipv4Gateway)
         } catch {
             log.error(
                 "ipRouteAddDefault",

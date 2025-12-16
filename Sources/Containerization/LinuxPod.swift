@@ -393,10 +393,10 @@ extension LinuxPod {
                     // 3. If a gateway IP address is present, add the default route.
                     for (index, i) in self.interfaces.enumerated() {
                         let name = "eth\(index)"
-                        try await agent.addressAdd(name: name, address: i.address)
+                        try await agent.addressAdd(name: name, ipv4Address: i.ipv4Address)
                         try await agent.up(name: name, mtu: 1280)
-                        if let gateway = i.gateway {
-                            try await agent.routeAddDefault(name: name, gateway: gateway)
+                        if let ipv4Gateway = i.ipv4Gateway {
+                            try await agent.routeAddDefault(name: name, ipv4Gateway: ipv4Gateway)
                         }
                     }
 
