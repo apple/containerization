@@ -15,7 +15,7 @@
 //===----------------------------------------------------------------------===//
 
 /// Represents an IPv6 network address conforming to RFC 5952 and RFC 4291.
-public struct IPv6Address: Sendable, Hashable, CustomStringConvertible, Equatable, Comparable {
+public struct IPv6Address: Sendable, Hashable, CustomStringConvertible, Equatable, Comparable, Codable {
     @usableFromInline
     internal let value: UInt128
 

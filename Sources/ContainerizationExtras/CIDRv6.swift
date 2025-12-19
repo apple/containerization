@@ -16,7 +16,7 @@
 
 /// Describes an IPv4 or IPv6 CIDR address block.
 @frozen
-public struct CIDRv6: CustomStringConvertible, Equatable, Sendable, Hashable {
+public struct CIDRv6: CustomStringConvertible, Equatable, Sendable, Hashable, Codable {
 
     /// The IP component of this CIDR address.
     public let address: IPv6Address
