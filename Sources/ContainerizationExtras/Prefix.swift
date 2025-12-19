@@ -16,7 +16,7 @@
 
 /// CIDR prefix length (e.g., `/24` for a 24-bit network mask).
 @frozen
-public struct Prefix: Sendable, CustomStringConvertible, Hashable {
+public struct Prefix: Sendable, CustomStringConvertible, Hashable, Codable {
     public let length: UInt8
 
     /// Create a prefix (0-128). Use `ipv4(_:)` or `ipv6(_:)` for version-specific validation.

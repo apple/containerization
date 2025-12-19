@@ -15,7 +15,7 @@
 //===----------------------------------------------------------------------===//
 
 @frozen
-public struct IPv4Address: Sendable, Hashable, CustomStringConvertible, Equatable, Comparable {
+public struct IPv4Address: Sendable, Hashable, CustomStringConvertible, Equatable, Comparable, Codable {
     public let value: UInt32
 
     @inlinable
