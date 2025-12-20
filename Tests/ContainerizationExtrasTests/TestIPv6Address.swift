@@ -240,4 +240,35 @@ struct IPv6AddressTests {
             "Address \(addressString) (\(description)) should\(expected ? "" : " not") be documentation"
         )
     }
+
+    @Test(
+        "Codable encodes to string representation",
+        arguments: [
+            ("::1", "::1"),
+            ("2001:db8::1", "2001:db8::1"),
+            ("::", "::"),
+            ("fe80::1", "fe80::1"),
+        ]
+    )
+    func testCodableEncode(input: String, expected: String) throws {
+        let original = try IPv6Address(input)
+        let encoded = try JSONEncoder().encode(original)
+        #expect(String(data: encoded, encoding: .utf8) == "\"\(expected)\"")
+    }
+
+    @Test(
+        "Codable decodes from string representation",
+        arguments: [
+            "::1",
+            "2001:db8::1",
+            "::",
+            "fe80::1",
+        ]
+    )
+    func testCodableDecode(address: String) throws {
+        let json = Data("\"\(address)\"".utf8)
+        let decoded = try JSONDecoder().decode(IPv6Address.self, from: json)
+        let expected = try IPv6Address(address)
+        #expect(decoded == expected)
+    }
 }

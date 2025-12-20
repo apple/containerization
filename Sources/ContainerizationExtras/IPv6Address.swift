@@ -15,7 +15,7 @@
 //===----------------------------------------------------------------------===//
 
 /// Represents an IPv6 network address conforming to RFC 5952 and RFC 4291.
-public struct IPv6Address: Sendable, Hashable, CustomStringConvertible, Equatable, Comparable, Codable {
+public struct IPv6Address: Sendable, Hashable, CustomStringConvertible, Equatable, Comparable {
     public let value: UInt128
 
     public let zone: String?
@@ -250,5 +250,18 @@ public struct IPv6Address: Sendable, Hashable, CustomStringConvertible, Equatabl
         }
         // Same value, compare zones lexicographically
         return (lhs.zone ?? "") < (rhs.zone ?? "")
+    }
+}
+
+extension IPv6Address: Codable {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let string = try container.decode(String.self)
+        try self.init(string)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(description)
     }
 }

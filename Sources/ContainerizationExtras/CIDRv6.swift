@@ -16,7 +16,7 @@
 
 /// Describes an IPv4 or IPv6 CIDR address block.
 @frozen
-public struct CIDRv6: CustomStringConvertible, Equatable, Sendable, Hashable, Codable {
+public struct CIDRv6: CustomStringConvertible, Equatable, Sendable, Hashable {
 
     /// The IP component of this CIDR address.
     public let address: IPv6Address
@@ -98,5 +98,18 @@ public struct CIDRv6: CustomStringConvertible, Equatable, Sendable, Hashable, Co
     /// Retrieve the text representation of the CIDR block.
     public var description: String {
         "\(address)/\(prefix)"
+    }
+}
+
+extension CIDRv6: Codable {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let string = try container.decode(String.self)
+        try self.init(string)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(description)
     }
 }
