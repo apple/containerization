@@ -15,7 +15,7 @@
 //===----------------------------------------------------------------------===//
 
 @frozen
-public struct IPv4Address: Sendable, Hashable, CustomStringConvertible, Equatable, Comparable, Codable {
+public struct IPv4Address: Sendable, Hashable, CustomStringConvertible, Equatable, Comparable {
     public let value: UInt32
 
     @inlinable
@@ -213,5 +213,18 @@ public struct IPv4Address: Sendable, Hashable, CustomStringConvertible, Equatabl
     @inlinable
     public static func < (lhs: IPv4Address, rhs: IPv4Address) -> Bool {
         lhs.value < rhs.value
+    }
+}
+
+extension IPv4Address: Codable {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let string = try container.decode(String.self)
+        try self.init(string)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(description)
     }
 }

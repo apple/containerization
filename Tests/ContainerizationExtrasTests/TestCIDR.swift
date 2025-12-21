@@ -14,6 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import Foundation
 import Testing
 
 @testable import ContainerizationExtras
@@ -307,5 +308,67 @@ struct TestCIDR {
     @Test func testPreservesAddress() throws {
         let cidr = try CIDR("192.168.1.100/24")
         #expect(cidr.description == "192.168.1.100/24")
+    }
+
+    @Test(
+        "CIDRv4 Codable encodes to string representation",
+        arguments: [
+            "192.168.1.0/24",
+            "10.0.0.0/8",
+            "172.16.0.0/12",
+        ]
+    )
+    func testCIDRv4CodableEncode(cidr: String) throws {
+        let original = try CIDRv4(cidr)
+        let encoded = try JSONEncoder().encode(original)
+        let jsonString = String(data: encoded, encoding: .utf8)!
+        #expect(jsonString.contains(original.address.description))
+        #expect(jsonString.contains("\(original.prefix.length)"))
+    }
+
+    @Test(
+        "CIDRv4 Codable decodes from string representation",
+        arguments: [
+            "192.168.1.0/24",
+            "10.0.0.0/8",
+            "172.16.0.0/12",
+        ]
+    )
+    func testCIDRv4CodableDecode(cidr: String) throws {
+        let json = Data("\"\(cidr)\"".utf8)
+        let decoded = try JSONDecoder().decode(CIDRv4.self, from: json)
+        let expected = try CIDRv4(cidr)
+        #expect(decoded == expected)
+    }
+
+    @Test(
+        "CIDRv6 Codable encodes to string representation",
+        arguments: [
+            ("2001:db8::/32", "2001:db8::", 32),
+            ("fe80::/10", "fe80::", 10),
+            ("::1/128", "::1", 128),
+        ]
+    )
+    func testCIDRv6CodableEncode(cidr: String, expectedAddr: String, expectedPrefix: UInt8) throws {
+        let original = try CIDRv6(cidr)
+        let encoded = try JSONEncoder().encode(original)
+        let jsonString = String(data: encoded, encoding: .utf8)!
+        #expect(jsonString.contains(expectedAddr))
+        #expect(jsonString.contains("\(expectedPrefix)"))
+    }
+
+    @Test(
+        "CIDRv6 Codable decodes from string representation",
+        arguments: [
+            "2001:db8::/32",
+            "fe80::/10",
+            "::1/128",
+        ]
+    )
+    func testCIDRv6CodableDecode(cidr: String) throws {
+        let json = Data("\"\(cidr)\"".utf8)
+        let decoded = try JSONDecoder().decode(CIDRv6.self, from: json)
+        let expected = try CIDRv6(cidr)
+        #expect(decoded == expected)
     }
 }

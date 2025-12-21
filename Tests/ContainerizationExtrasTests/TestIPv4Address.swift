@@ -427,5 +427,36 @@ struct IPv4AddressTests {
                 #expect(Bool(false), "Should have thrown IPAddressError, got: \(error)")
             }
         }
+
+        @Test(
+            "Codable encodes to string representation",
+            arguments: [
+                "127.0.0.1",
+                "192.168.1.1",
+                "0.0.0.0",
+                "255.255.255.255",
+            ]
+        )
+        func testCodableEncode(address: String) throws {
+            let original = try IPv4Address(address)
+            let encoded = try JSONEncoder().encode(original)
+            #expect(String(data: encoded, encoding: .utf8) == "\"\(address)\"")
+        }
+
+        @Test(
+            "Codable decodes from string representation",
+            arguments: [
+                "127.0.0.1",
+                "192.168.1.1",
+                "0.0.0.0",
+                "255.255.255.255",
+            ]
+        )
+        func testCodableDecode(address: String) throws {
+            let json = Data("\"\(address)\"".utf8)
+            let decoded = try JSONDecoder().decode(IPv4Address.self, from: json)
+            let expected = try IPv4Address(address)
+            #expect(decoded == expected)
+        }
     }
 }
