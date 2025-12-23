@@ -157,11 +157,12 @@ struct NetlinkSessionTest {
         mockSocket.responses.append(
             [UInt8](
                 hex:
-                    "3c000000100000000000000078563412"  // Netlink header (16 B)
+                    "48000000100000000000000078563412"  // Netlink header (16 B)
                     + "00000100020000004300010000000000"  // struct ifinfomsg (16 B)
                     + "090003006574683000000000"  // IFLA_IFNAME (“eth0”) attr (12 B)
                     + "08000d00e8030000"  // IFLA_MTU = 1000 attr (8 B)
                     + "0500100006000000"  // attr type 0x0010 (8 B)
+                    + "0a000100825524c244030000"  // IFLA_ADDRESS = 82:55:24:c2:44:03 (12 B)
             )
         )
 
@@ -175,7 +176,12 @@ struct NetlinkSessionTest {
         try #require(links.count == 1)
 
         #expect(links[0].interfaceIndex == 2)
-        try #require(links[0].attrDatas.count == 3)
+        #expect(links[0].interfaceFlags == 0x0001_0043)
+        #expect(links[0].interfaceType == 1)
+        #expect(links[0].isEthernet)
+        #expect(!links[0].isLoopback)
+        #expect(links[0].address == [0x82, 0x55, 0x24, 0xc2, 0x44, 0x03])
+        try #require(links[0].attrDatas.count == 4)
         #expect(links[0].attrDatas[0].attribute.type == 0x0003)
         #expect(links[0].attrDatas[0].attribute.len == 0x0009)
         #expect(links[0].attrDatas[0].data == [0x65, 0x74, 0x68, 0x30, 0x00])
@@ -292,7 +298,7 @@ struct NetlinkSessionTest {
         let expectedLookupRequest =
             "3400000012000100000000000cc00cc0"  // Netlink header (16 B)
             + "110000000000000001000000ffffffff"  // struct ifinfomsg (16 B)
-            + "08001d00090000000c0003006574683000000000"  // RT attrs: IFLA_EXT_MASK + IFLA_IFNAME (“eth0”)
+            + "08001d00090000000c0003006574683000000000"  // RT attrs: IFLA_EXT_MASK + IFLA_IFNAME ("eth0")
         mockSocket.responses.append(
             [UInt8](
                 hex:
@@ -332,6 +338,85 @@ struct NetlinkSessionTest {
         #expect(expectedLookupRequest == mockSocket.requests[0].hexEncodedString())
         mockSocket.requests[1][8..<12] = [0, 0, 0, 0]
         #expect(expectedAddRequest == mockSocket.requests[1].hexEncodedString())
+    }
+
+    @Test func testNetworkLinkGetMultipleMessagesInSingleBuffer() throws {
+        let mockSocket = try MockNetlinkSocket()
+        mockSocket.pid = 0x8765_4321
+
+        // Lookup all interfaces, with multiple messages packed into a single buffer.
+        // This tests the fix for parsing multiple netlink messages that arrive in one recv() call.
+        let expectedLookupRequest =
+            "28000000120001030000000021436587"  // Netlink header (16 B)
+            + "110000000000000001000000ffffffff"  // struct ifinfomsg (16 B)
+            + "08001d0009000000"  // RT attr: IFLA_EXT_MASK (8 B)
+
+        // Pack three messages into a single response buffer:
+        // Message 1: loopback interface with one attribute
+        let msg1 =
+            "28000000100002000000000021436587"  // Netlink header (16 B), len=40
+            + "00000403010000004900010000000000"  // struct ifinfomsg (16 B)
+            + "070003006c6f0000"  // IFLA_IFNAME "lo" (8 B, padded)
+
+        // Message 2: tunl0 interface with one attribute
+        let msg2 =
+            "2c000000100002000000000021436587"  // Netlink header (16 B), len=44
+            + "00000003040000008000000000000000"  // struct ifinfomsg (16 B)
+            + "0a00030074756e6c30000000"  // IFLA_IFNAME "tunl0" attr (12 B, padded)
+
+        // Message 3: eth0 interface with two attributes
+        let msg3 =
+            "34000000100002000000000021436587"  // Netlink header (16 B), len=52
+            + "00000100020000004300010000000000"  // struct ifinfomsg (16 B)
+            + "090003006574683000000000"  // IFLA_IFNAME "eth0" attr (12 B)
+            + "08000d00e8030000"  // IFLA_MTU = 1000 attr (8 B)
+
+        // Combine all three messages into a single buffer
+        mockSocket.responses.append([UInt8](hex: msg1 + msg2 + msg3))
+
+        // Final NLMSG_DONE message in separate buffer
+        mockSocket.responses.append(
+            [UInt8](
+                hex:
+                    "14000000030002000000000021436587"  // Netlink header (16 B) – NLMSG_DONE
+                    + "00000000"  // 4-byte payload
+            )
+        )
+
+        let session = NetlinkSession(socket: mockSocket)
+        let links = try session.linkGet()
+
+        #expect(mockSocket.requests.count == 1)
+        #expect(mockSocket.responseIndex == 2)
+        mockSocket.requests[0][8..<12] = [0, 0, 0, 0]
+        #expect(expectedLookupRequest == mockSocket.requests[0].hexEncodedString())
+
+        // Verify we got all three interfaces
+        try #require(links.count == 3)
+
+        // Verify loopback interface
+        #expect(links[0].interfaceIndex == 1)
+        try #require(links[0].attrDatas.count == 1)
+        #expect(links[0].attrDatas[0].attribute.type == 0x0003)
+        #expect(links[0].attrDatas[0].attribute.len == 0x0007)
+        #expect(links[0].attrDatas[0].data == [0x6c, 0x6f, 0x00])
+
+        // Verify tunl0 interface
+        #expect(links[1].interfaceIndex == 4)
+        try #require(links[1].attrDatas.count == 1)
+        #expect(links[1].attrDatas[0].attribute.type == 0x0003)
+        #expect(links[1].attrDatas[0].attribute.len == 0x000a)
+        #expect(links[1].attrDatas[0].data == [0x74, 0x75, 0x6e, 0x6c, 0x30, 0x00])
+
+        // Verify eth0 interface
+        #expect(links[2].interfaceIndex == 2)
+        try #require(links[2].attrDatas.count == 2)
+        #expect(links[2].attrDatas[0].attribute.type == 0x0003)
+        #expect(links[2].attrDatas[0].attribute.len == 0x0009)
+        #expect(links[2].attrDatas[0].data == [0x65, 0x74, 0x68, 0x30, 0x00])
+        #expect(links[2].attrDatas[1].attribute.type == 0x000d)
+        #expect(links[2].attrDatas[1].attribute.len == 0x0008)
+        #expect(links[2].attrDatas[1].data == [0xe8, 0x03, 0x00, 0x00])
     }
 }
 

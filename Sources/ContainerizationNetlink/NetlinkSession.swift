@@ -127,7 +127,7 @@ public struct NetlinkSession {
             len: UInt16(RTAttribute.size + MemoryLayout<UInt32>.size), type: LinkAttributeType.IFLA_EXT_MASK)
         let interfaceName = try interface.map { try getInterfaceName($0) }
         let interfaceNameAttr = interfaceName.map {
-            RTAttribute(len: UInt16(RTAttribute.size + $0.count), type: LinkAttributeType.IFLA_EXT_IFNAME)
+            RTAttribute(len: UInt16(RTAttribute.size + $0.count), type: LinkAttributeType.IFLA_IFNAME)
         }
         let requestSize =
             NetlinkMessageHeader.size + InterfaceInfo.size + maskAttr.paddedLen + (interfaceNameAttr?.paddedLen ?? 0)
@@ -184,7 +184,13 @@ public struct NetlinkSession {
         let (infos, attrDataLists) = try parseResponse(infoType: NetlinkType.RTM_NEWLINK) { InterfaceInfo() }
         var linkResponses: [LinkResponse] = []
         for i in 0..<infos.count {
-            linkResponses.append(LinkResponse(interfaceIndex: infos[i].index, attrDatas: attrDataLists[i]))
+            linkResponses.append(
+                LinkResponse(
+                    interfaceIndex: infos[i].index,
+                    interfaceFlags: infos[i].flags,
+                    interfaceType: infos[i].type,
+                    attrDatas: attrDataLists[i])
+            )
         }
 
         return linkResponses
@@ -446,38 +452,50 @@ public struct NetlinkSession {
         var moreResponses = false
         repeat {
             var (buffer, size) = try receiveResponse()
-            let header: NetlinkMessageHeader
             var offset = 0
 
-            (header, offset) = try parseHeader(buffer: &buffer, offset: offset)
-            if let infoType {
-                if header.type == infoType {
-                    log.trace(
-                        "RECV-INFO-DUMP:  dump = \(buffer[offset..<offset + InterfaceInfo.size].hexEncodedString())")
-                    var info = infoProvider()
-                    offset = try info.bindBuffer(&buffer, offset: offset)
-                    log.trace("RECV-INFO: \(info)")
+            // A single buffer may contain multiple netlink messages
+            while offset < size {
+                let messageStart = offset
+                let header: NetlinkMessageHeader
+                (header, offset) = try parseHeader(buffer: &buffer, offset: offset)
 
-                    let attrDatas: [RTAttributeData]
-                    (attrDatas, offset) = try parseAttributes(
-                        buffer: &buffer,
-                        offset: offset,
-                        residualCount: size - offset)
+                if let infoType {
+                    if header.type == infoType {
+                        log.trace(
+                            "RECV-INFO-DUMP:  dump = \(buffer[offset..<offset + InterfaceInfo.size].hexEncodedString())")
+                        var info = infoProvider()
+                        offset = try info.bindBuffer(&buffer, offset: offset)
+                        log.trace("RECV-INFO: \(info)")
 
-                    infos.append(info)
-                    attrDataLists.append(attrDatas)
+                        // Calculate the number of bytes remaining in THIS message
+                        let messageEnd = messageStart + Int(header.len)
+                        let attributeBytes = messageEnd - offset
+
+                        let attrDatas: [RTAttributeData]
+                        (attrDatas, offset) = try parseAttributes(
+                            buffer: &buffer,
+                            offset: offset,
+                            residualCount: attributeBytes)
+
+                        infos.append(info)
+                        attrDataLists.append(attrDatas)
+                    } else {
+                        // Skip this message - advance offset to the end of the message
+                        offset = messageStart + Int(header.len)
+                    }
+                } else if header.type != NetlinkType.NLMSG_DONE && header.type != NetlinkType.NLMSG_ERROR
+                    && header.type != NetlinkType.NLMSG_NOOP
+                {
+                    throw Error.unexpectedInfo(type: header.type)
                 }
-            } else if header.type != NetlinkType.NLMSG_DONE && header.type != NetlinkType.NLMSG_ERROR
-                && header.type != NetlinkType.NLMSG_NOOP
-            {
-                throw Error.unexpectedInfo(type: header.type)
+
+                moreResponses = header.moreResponses
             }
 
             guard offset == size else {
                 throw Error.unexpectedOffset(offset: offset, size: size)
             }
-
-            moreResponses = header.moreResponses
         } while moreResponses
 
         return (infos, attrDataLists)

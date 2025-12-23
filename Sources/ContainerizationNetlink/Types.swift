@@ -29,6 +29,10 @@ struct AddressFamily {
     static let AF_PACKET: UInt16 = 17
 }
 
+struct ArpHardware {
+    static let ARPHRD_ETHER: UInt16 = 1
+}
+
 struct NetlinkProtocol {
     static let NETLINK_ROUTE: Int32 = 0
 }
@@ -72,11 +76,15 @@ struct NetlinkScope {
 
 struct InterfaceFlags {
     static let IFF_UP: UInt32 = 1 << 0
+    static let IFF_LOOPBACK: UInt32 = 1 << 3
+    static let IFF_POINTOPOINT: UInt32 = 1 << 4
     static let DEFAULT_CHANGE: UInt32 = 0xffff_ffff
 }
 
 struct LinkAttributeType {
-    static let IFLA_EXT_IFNAME: UInt16 = 3
+    static let IFLA_ADDRESS: UInt16 = 1
+    static let IFLA_BROADCAST: UInt16 = 2
+    static let IFLA_IFNAME: UInt16 = 3
     static let IFLA_MTU: UInt16 = 4
     static let IFLA_STATS64: UInt16 = 23
     static let IFLA_EXT_MASK: UInt16 = 29
@@ -568,7 +576,25 @@ public struct RTAttributeData {
 /// A response from the get link command.
 public struct LinkResponse {
     public let interfaceIndex: Int32
+    public let interfaceFlags: UInt32
+    public let interfaceType: UInt16
     public let attrDatas: [RTAttributeData]
+
+    public var isLoopback: Bool {
+        (interfaceFlags & InterfaceFlags.IFF_LOOPBACK) != 0
+    }
+
+    public var isEthernet: Bool {
+        interfaceType == ArpHardware.ARPHRD_ETHER
+            && (interfaceFlags & (InterfaceFlags.IFF_LOOPBACK | InterfaceFlags.IFF_POINTOPOINT)) == 0
+    }
+
+    public var address: [UInt8]? {
+        attrDatas
+            .filter { $0.attribute.type == LinkAttributeType.IFLA_ADDRESS }
+            .first
+            .map { $0.data }
+    }
 
     /// Extract network interface statistics from the response attributes
     public func getStatistics() throws -> LinkStatistics64? {
