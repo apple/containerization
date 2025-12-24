@@ -115,6 +115,10 @@ extension Mount {
         return false
     }
 
+    public var isSharedFile: Bool {
+        type == "" && self.options.contains("bind")
+    }
+
     /// Mount the mount relative to `root` with the current set of data in the object.
     /// Optionally provide `createWithPerms` to set the permissions for the directory that
     /// it will be mounted at.
@@ -146,12 +150,25 @@ extension Mount {
         // Ensure propagation type change flags aren't included in other calls.
         let originalFlags = opts.flags & ~(propagationTypes)
 
-        let targetURL = URL(fileURLWithPath: self.target)
+        // TODO: What are lines 153, 154 for?
+        // let targetURL = URL(fileURLWithPath: self.target)
+        // let targetParent = targetURL.deletingLastPathComponent().path
+        // if let perms = createWithPerms {
+        //     try mkdirAll(targetParent, perms)
+        // }
+
+        let targetURL = URL(fileURLWithPath: target)
         let targetParent = targetURL.deletingLastPathComponent().path
         if let perms = createWithPerms {
             try mkdirAll(targetParent, perms)
         }
-        try mkdirAll(target, 0o755)
+
+        if self.isSharedFile {
+            try mkdirAll(targetParent, 0o755)
+            createFile(target)
+        } else {
+            try mkdirAll(target, 0o755)
+        }
 
         if opts.flags & Int32(MS_REMOUNT) == 0 || !dataString.isEmpty {
             guard _mount(self.source, target, self.type, UInt(originalFlags), dataString) == 0 else {
@@ -183,6 +200,14 @@ extension Mount {
             atPath: name,
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: perm]
+        )
+    }
+
+    private func createFile(_ name: String) {
+        _ = FileManager.default.createFile(
+            atPath: name,
+            contents: nil,
+            attributes: nil
         )
     }
 
