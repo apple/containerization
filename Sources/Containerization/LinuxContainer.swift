@@ -235,25 +235,22 @@ public final class LinuxContainer: Container, Sendable {
     ///   - vmm: The virtual machine manager that will handle launching the VM for the container.
     ///   - logger: Optional logger for container operations.
     ///   - configuration: A closure that configures the container by modifying the Configuration instance.
-    public init(
+    public convenience init(
         _ id: String,
         rootfs: Mount,
         vmm: VirtualMachineManager,
         logger: Logger? = nil,
         configuration: (inout Configuration) throws -> Void
     ) throws {
-        self.id = id
-        self.vmm = vmm
-        self.hostVsockPorts = Atomic<UInt32>(0x1000_0000)
-        self.guestVsockPorts = Atomic<UInt32>(0x1000_0000)
-        self.rootfs = rootfs
-        self.logger = logger
-
         var config = Configuration()
         try configuration(&config)
-
-        self.config = config
-        self.state = AsyncMutex(.initialized)
+        self.init(
+            id,
+            rootfs: rootfs,
+            vmm: vmm,
+            configuration: config,
+            logger: logger
+        )
     }
 
     /// Create a new `LinuxContainer`.
@@ -275,11 +272,10 @@ public final class LinuxContainer: Container, Sendable {
         self.vmm = vmm
         self.hostVsockPorts = Atomic<UInt32>(0x1000_0000)
         self.guestVsockPorts = Atomic<UInt32>(0x1000_0000)
-        self.rootfs = rootfs
         self.logger = logger
-
         self.config = configuration
         self.state = AsyncMutex(.initialized)
+        self.rootfs = rootfs
     }
 
     private static func createDefaultRuntimeSpec(_ id: String) -> Spec {
@@ -308,6 +304,10 @@ public final class LinuxContainer: Container, Sendable {
 
         // Linux toggles.
         spec.linux?.sysctl = config.sysctl
+
+        // If the rootfs was requested as read-only, set it in the OCI spec.
+        // We let the OCI runtime remount as ro, instead of doing it originally.
+        spec.root?.readonly = self.rootfs.options.contains("ro")
 
         // Resource limits.
         // CPU: quota/period model where period is 100ms (100,000µs) and quota is cpus * period
@@ -394,11 +394,21 @@ extension LinuxContainer {
         try await self.state.withLock { state in
             try state.validateForCreate()
 
+            // This is a bit of an annoyance, but because the type we use for the rootfs is simply
+            // the same Mount type we use for non-rootfs mounts, it's possible someone passed 'ro'
+            // in the options (which should be perfectly valid). However, the problem is when we go to
+            // setup /etc/hosts and /etc/resolv.conf, as we'd get EROFS if they did supply 'ro'.
+            // To remedy this, remove any "ro" options before passing to VZ. Having the OCI runtime
+            // remount "ro" (which is what we do later in the guest) is truthfully the right thing,
+            // but this bit here is just a tad awkward.
+            var modifiedRootfs = self.rootfs
+            modifiedRootfs.options.removeAll(where: { $0 == "ro" })
+
             let vmConfig = VMConfiguration(
                 cpus: self.cpus,
                 memoryInBytes: self.memoryInBytes,
                 interfaces: self.interfaces,
-                mountsByID: [self.id: [self.rootfs] + self.config.mounts],
+                mountsByID: [self.id: [modifiedRootfs] + self.config.mounts],
                 bootLog: self.config.bootLog,
                 nestedVirtualization: self.config.virtualization
             )

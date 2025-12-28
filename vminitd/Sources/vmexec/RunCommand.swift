@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -58,7 +58,32 @@ struct RunCommand: ParsableCommand {
         try setDevSymlinks(rootfs: rootfs.path)
 
         try pivotRoot(rootfs: rootfs.path)
+
+        // Remount ro if requested.
+        if rootfs.readonly {
+            try self.remountRootfsReadOnly()
+        }
+
         try reOpenDevNull()
+    }
+
+    private func remountRootfsReadOnly() throws {
+        var flags = UInt(MS_BIND | MS_REMOUNT | MS_RDONLY)
+
+        let ret = mount("", "/", "", flags, "")
+        if ret == 0 {
+            return
+        }
+
+        var s = statfs()
+        guard statfs("/", &s) == 0 else {
+            throw App.Errno(stage: "statfs(/)")
+        }
+        flags |= s.f_flags
+
+        guard mount("", "/", "", flags, "") == 0 else {
+            throw App.Errno(stage: "mount rootfs ro")
+        }
     }
 
     private func childSetup(
