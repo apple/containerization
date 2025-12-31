@@ -1135,7 +1135,7 @@ extension EXT4 {
                     let offset = i * extentsPerBlock * EXT4.MaxBlocksPerExtent
                     fillExtents(
                         node: &leafNode, numExtents: extentsInBlock, numBlocks: dataBlocks,
-                        start: blocks.start, //Fixed: removed '+ offset' to prevent double-counting
+                        start: blocks.start,
                         offset: offset)
                     try withUnsafeLittleEndianBytes(of: leafNode.header) { bytes in
                         try self.handle.write(contentsOf: bytes)
