@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -829,6 +829,59 @@ extension LinuxContainer {
 
         try await relayManager.start(port: port, socket: socket)
         try await relayAgent.relaySocket(port: port, configuration: socket)
+    }
+
+    /// Default chunk size for file transfers (1MiB).
+    public static let defaultCopyChunkSize = 1024 * 1024
+
+    /// Copy a file from the host into the container.
+    public func copyIn(
+        from source: URL,
+        to destination: URL,
+        mode: UInt32 = 0o644,
+        createParents: Bool = true,
+        chunkSize: Int = defaultCopyChunkSize,
+        progress: ProgressHandler? = nil
+    ) async throws {
+        try await self.state.withLock {
+            let state = try $0.startedState("copyIn")
+
+            let guestPath = URL(filePath: self.root).appending(path: destination.path)
+            try await state.vm.withAgent { agent in
+                try await agent.copyIn(
+                    from: source,
+                    to: guestPath,
+                    mode: mode,
+                    createParents: createParents,
+                    chunkSize: chunkSize,
+                    progress: progress
+                )
+            }
+        }
+    }
+
+    /// Copy a file from the container to the host.
+    public func copyOut(
+        from source: URL,
+        to destination: URL,
+        createParents: Bool = true,
+        chunkSize: Int = defaultCopyChunkSize,
+        progress: ProgressHandler? = nil
+    ) async throws {
+        try await self.state.withLock {
+            let state = try $0.startedState("copyOut")
+
+            let guestPath = URL(filePath: self.root).appending(path: source.path)
+            try await state.vm.withAgent { agent in
+                try await agent.copyOut(
+                    from: guestPath,
+                    to: destination,
+                    createParents: createParents,
+                    chunkSize: chunkSize,
+                    progress: progress
+                )
+            }
+        }
     }
 }
 
