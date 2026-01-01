@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright © 2025 Apple Inc. and the Containerization project authors.
+# Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 
 # Script to scan the VM boot logs from the integration tests for kernel panics.
 # Looks for common kernel panic messages like "attempted to kill init" or "Kernel panic".

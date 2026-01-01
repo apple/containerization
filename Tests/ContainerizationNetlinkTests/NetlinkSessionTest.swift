@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -352,6 +352,7 @@ struct NetlinkSessionTest {
             + "08001d0009000000"  // RT attr: IFLA_EXT_MASK (8 B)
 
         // Pack three messages into a single response buffer:
+        //
         // Message 1: loopback interface with one attribute
         let msg1 =
             "28000000100002000000000021436587"  // Netlink header (16 B), len=40
