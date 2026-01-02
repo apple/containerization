@@ -51,15 +51,19 @@ jobs:
           if ! git diff --quiet ; then echo the following files require formatting or license headers: ; git diff --name-only ; false ; fi
 
       - name: Make containerization and docs
-        run: | 
+        run: |
           make clean containerization docs
           tar cfz _site.tgz _site
+        env:
+          BUILD_CONFIGURATION: ${{ inputs.release && 'release' || 'debug' }}
 
       - name: Make vminitd image
-        run: | 
+        run: |
           source /opt/swiftly/env.sh
           make -C vminitd swift linux-sdk
           make init
+        env:
+          BUILD_CONFIGURATION: ${{ inputs.release && 'release' || 'debug' }}
 
       - name: Test containerization
         run: | 
