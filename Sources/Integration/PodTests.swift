@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -744,6 +744,73 @@ extension IntegrationSuite {
         let output = String(data: psBuffer.data, encoding: .utf8) ?? ""
         guard output.contains("sleep 300") else {
             throw IntegrationError.assert(msg: "ps output should contain 'sleep 300', got: '\(output)'")
+        }
+    }
+
+    func testPodReadOnlyRootfs() async throws {
+        let id = "test-pod-readonly-rootfs"
+
+        let bs = try await bootstrap(id)
+        var rootfs = bs.rootfs
+        rootfs.options.append("ro")
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        try await pod.addContainer("container1", rootfs: rootfs) { config in
+            config.process.arguments = ["touch", "/testfile"]
+        }
+
+        try await pod.create()
+        try await pod.startContainer("container1")
+
+        let status = try await pod.waitContainer("container1")
+        try await pod.stop()
+
+        // touch should fail on a read-only rootfs
+        guard status.exitCode != 0 else {
+            throw IntegrationError.assert(msg: "touch should have failed on read-only rootfs")
+        }
+    }
+
+    func testPodReadOnlyRootfsDNSConfigured() async throws {
+        let id = "test-pod-readonly-rootfs-dns"
+
+        let bs = try await bootstrap(id)
+        var rootfs = bs.rootfs
+        rootfs.options.append("ro")
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+            config.dns = DNS(nameservers: ["8.8.8.8", "8.8.4.4"])
+        }
+
+        let buffer = BufferWriter()
+        try await pod.addContainer("container1", rootfs: rootfs) { config in
+            // Verify /etc/resolv.conf was written before rootfs was remounted read-only
+            config.process.arguments = ["cat", "/etc/resolv.conf"]
+            config.process.stdout = buffer
+        }
+
+        try await pod.create()
+        try await pod.startContainer("container1")
+
+        let status = try await pod.waitContainer("container1")
+        try await pod.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "cat /etc/resolv.conf failed with status \(status)")
+        }
+
+        guard let output = String(data: buffer.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+        }
+
+        guard output.contains("8.8.8.8") && output.contains("8.8.4.4") else {
+            throw IntegrationError.assert(msg: "expected /etc/resolv.conf to contain DNS servers, got: \(output)")
         }
     }
 }

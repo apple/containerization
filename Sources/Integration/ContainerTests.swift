@@ -1613,4 +1613,96 @@ extension IntegrationSuite {
             throw error
         }
     }
+
+    func testReadOnlyRootfs() async throws {
+        let id = "test-readonly-rootfs"
+
+        let bs = try await bootstrap(id)
+        var rootfs = bs.rootfs
+        rootfs.options.append("ro")
+        let container = try LinuxContainer(id, rootfs: rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["touch", "/testfile"]
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        // touch should fail on a read-only rootfs
+        guard status.exitCode != 0 else {
+            throw IntegrationError.assert(msg: "touch should have failed on read-only rootfs")
+        }
+    }
+
+    func testReadOnlyRootfsHostsFileWritten() async throws {
+        let id = "test-readonly-rootfs-hosts"
+
+        let bs = try await bootstrap(id)
+        var rootfs = bs.rootfs
+        rootfs.options.append("ro")
+        let buffer = BufferWriter()
+        let entry = Hosts.Entry.localHostIPV4(comment: "ReadOnlyTest")
+        let container = try LinuxContainer(id, rootfs: rootfs, vmm: bs.vmm) { config in
+            // Verify /etc/hosts was written before rootfs was remounted read-only
+            config.process.arguments = ["cat", "/etc/hosts"]
+            config.process.stdout = buffer
+            config.hosts = Hosts(entries: [entry])
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "cat /etc/hosts failed with status \(status)")
+        }
+
+        guard let output = String(data: buffer.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+        }
+
+        guard output.contains("ReadOnlyTest") else {
+            throw IntegrationError.assert(msg: "expected /etc/hosts to contain our entry, got: \(output)")
+        }
+    }
+
+    func testReadOnlyRootfsDNSConfigured() async throws {
+        let id = "test-readonly-rootfs-dns"
+
+        let bs = try await bootstrap(id)
+        var rootfs = bs.rootfs
+        rootfs.options.append("ro")
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: rootfs, vmm: bs.vmm) { config in
+            // Verify /etc/resolv.conf was written before rootfs was remounted read-only
+            config.process.arguments = ["cat", "/etc/resolv.conf"]
+            config.process.stdout = buffer
+            config.dns = DNS(nameservers: ["8.8.8.8", "8.8.4.4"])
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "cat /etc/resolv.conf failed with status \(status)")
+        }
+
+        guard let output = String(data: buffer.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+        }
+
+        guard output.contains("8.8.8.8") && output.contains("8.8.4.4") else {
+            throw IntegrationError.assert(msg: "expected /etc/resolv.conf to contain DNS servers, got: \(output)")
+        }
+    }
 }

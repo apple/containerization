@@ -308,6 +308,9 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("container copy in", testCopyIn),
             Test("container copy out", testCopyOut),
             Test("container copy large file", testCopyLargeFile),
+            Test("container read-only rootfs", testReadOnlyRootfs),
+            Test("container read-only rootfs hosts file", testReadOnlyRootfsHostsFileWritten),
+            Test("container read-only rootfs DNS", testReadOnlyRootfsDNSConfigured),
 
             // Pods
             Test("pod single container", testPodSingleContainer),
@@ -324,6 +327,8 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("pod container PID namespace isolation", testPodContainerPIDNamespaceIsolation),
             Test("pod container independent resource limits", testPodContainerIndependentResourceLimits),
             Test("pod shared PID namespace", testPodSharedPIDNamespace),
+            Test("pod read-only rootfs", testPodReadOnlyRootfs),
+            Test("pod read-only rootfs DNS", testPodReadOnlyRootfsDNSConfigured),
         ]
 
         let passed: Atomic<Int> = Atomic(0)

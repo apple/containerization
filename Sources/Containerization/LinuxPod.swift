@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -195,7 +195,7 @@ public final class LinuxPod: Sendable {
         )
     }
 
-    private func generateRuntimeSpec(containerID: String, config: ContainerConfiguration) -> Spec {
+    private func generateRuntimeSpec(containerID: String, config: ContainerConfiguration, rootfs: Mount) -> Spec {
         var spec = Self.createDefaultRuntimeSpec(containerID, podID: self.id)
 
         // Process configuration
@@ -206,6 +206,10 @@ public final class LinuxPod: Sendable {
 
         // Linux toggles
         spec.linux?.sysctl = config.sysctl
+
+        // If the rootfs was requested as read-only, set it in the OCI spec.
+        // We let the OCI runtime remount as ro, instead of doing it originally.
+        spec.root?.readonly = rootfs.options.contains("ro")
 
         // Resource limits (if specified)
         if let cpus = config.cpus, cpus > 0 {
@@ -287,9 +291,13 @@ extension LinuxPod {
             try state.phase.validateForCreate()
 
             // Build mountsByID for all containers.
+            // Strip "ro" from rootfs options - we handle readonly via the OCI spec's
+            // root.readonly field and remount in vmexec after setup is complete.
             var mountsByID: [String: [Mount]] = [:]
             for (id, container) in state.containers {
-                mountsByID[id] = [container.rootfs] + container.config.mounts
+                var modifiedRootfs = container.rootfs
+                modifiedRootfs.options.removeAll(where: { $0 == "ro" })
+                mountsByID[id] = [modifiedRootfs] + container.config.mounts
             }
 
             let vmConfig = VMConfiguration(
@@ -450,7 +458,7 @@ extension LinuxPod {
 
             let agent = try await createdState.vm.dialAgent()
             do {
-                var spec = self.generateRuntimeSpec(containerID: containerID, config: container.config)
+                var spec = self.generateRuntimeSpec(containerID: containerID, config: container.config, rootfs: container.rootfs)
                 // We don't need the rootfs, nor do OCI runtimes want it included.
                 let containerMounts = createdState.vm.mounts[containerID] ?? []
                 spec.mounts = containerMounts.dropFirst().map { $0.to }
@@ -685,7 +693,7 @@ extension LinuxPod {
                 )
             }
 
-            var spec = self.generateRuntimeSpec(containerID: containerID, config: container.config)
+            var spec = self.generateRuntimeSpec(containerID: containerID, config: container.config, rootfs: container.rootfs)
             var config = LinuxProcessConfiguration()
             try configuration(&config)
             spec.process = config.toOCI()
