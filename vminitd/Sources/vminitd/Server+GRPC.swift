@@ -44,6 +44,39 @@ private let _kill = Glibc.kill
 private let _sync = Glibc.sync
 #endif
 
+extension ContainerizationError {
+    func toGRPCStatus(operation: String) -> GRPCStatus {
+        let message = "\(operation): \(self)"
+        let code: GRPCStatus.Code = {
+            switch self.code {
+            case .invalidArgument:
+                return .invalidArgument
+            case .notFound:
+                return .notFound
+            case .exists:
+                return .alreadyExists
+            case .cancelled:
+                return .cancelled
+            case .unsupported:
+                return .unimplemented
+            case .unknown:
+                return .unknown
+            case .internalError:
+                return .internalError
+            case .interrupted:
+                return .unavailable
+            case .invalidState:
+                return .failedPrecondition
+            case .timeout:
+                return .deadlineExceeded
+            default:
+                return .internalError
+            }
+        }()
+        return GRPCStatus(code: code, message: message, cause: self)
+    }
+}
+
 extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvider {
     func setTime(
         request: Com_Apple_Containerization_Sandbox_V3_SetTimeRequest,
@@ -579,14 +612,14 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 "stderr": "Port: \(request.stderr)",
             ])
 
-        if !request.hasContainerID {
-            throw ContainerizationError(
-                .invalidArgument,
-                message: "processes in the root of the vm not implemented"
-            )
-        }
-
         do {
+            if !request.hasContainerID {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "processes in the root of the vm not implemented"
+                )
+            }
+
             var ociSpec = try JSONDecoder().decode(
                 ContainerizationOCI.Spec.self,
                 from: request.configuration
@@ -646,6 +679,15 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             }
 
             return .init()
+        } catch let err as ContainerizationError {
+            log.error(
+                "createProcess",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(err)",
+                ])
+            throw err.toGRPCStatus(operation: "createProcess: failed to create process")
         } catch {
             log.error(
                 "createProcess",
@@ -654,10 +696,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                     "containerID": "\(request.containerID)",
                     "error": "\(error)",
                 ])
-            if error is GRPCStatus {
-                throw error
-            }
-            throw GRPCStatus(code: .internalError, message: "createProcess: \(error)")
+            throw GRPCStatus(code: .internalError, message: "createProcess: failed to create process: \(error)")
         }
     }
 
@@ -673,17 +712,37 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 "signal": "\(request.signal)",
             ])
 
-        if !request.hasContainerID {
-            throw ContainerizationError(
-                .invalidArgument,
-                message: "processes in the root of the vm not implemented"
-            )
+        do {
+            if !request.hasContainerID {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "processes in the root of the vm not implemented"
+                )
+            }
+
+            let ctr = try await self.state.get(container: request.containerID)
+            try await ctr.kill(execID: request.id, request.signal)
+
+            return .init()
+        } catch let err as ContainerizationError {
+            log.error(
+                "killProcess",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(err)",
+                ])
+            throw err.toGRPCStatus(operation: "killProcess: failed to kill process")
+        } catch {
+            log.error(
+                "killProcess",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(error)",
+                ])
+            throw GRPCStatus(code: .internalError, message: "killProcess: failed to kill process: \(error)")
         }
-
-        let ctr = try await self.state.get(container: request.containerID)
-        try await ctr.kill(execID: request.id, request.signal)
-
-        return .init()
     }
 
     func deleteProcess(
@@ -696,14 +755,14 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 "containerID": "\(request.containerID)",
             ])
 
-        if !request.hasContainerID {
-            throw ContainerizationError(
-                .invalidArgument,
-                message: "processes in the root of the vm not implemented"
-            )
-        }
-
         do {
+            if !request.hasContainerID {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "processes in the root of the vm not implemented"
+                )
+            }
+
             let ctr = try await self.state.get(container: request.containerID)
 
             // Are we trying to delete the container itself?
@@ -716,6 +775,15 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             }
 
             return .init()
+        } catch let err as ContainerizationError {
+            log.error(
+                "deleteProcess",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(err)",
+                ])
+            throw err.toGRPCStatus(operation: "deleteProcess: failed to delete process")
         } catch {
             log.error(
                 "deleteProcess",
@@ -724,10 +792,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                     "containerID": "\(request.containerID)",
                     "error": "\(error)",
                 ])
-            throw GRPCStatus(
-                code: .internalError,
-                message: "deleteProcess: \(error)"
-            )
+            throw GRPCStatus(code: .internalError, message: "deleteProcess: failed to delete process: \(error)")
         }
     }
 
@@ -741,20 +806,29 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 "containerID": "\(request.containerID)",
             ])
 
-        if !request.hasContainerID {
-            throw ContainerizationError(
-                .invalidArgument,
-                message: "processes in the root of the vm not implemented"
-            )
-        }
-
         do {
+            if !request.hasContainerID {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "processes in the root of the vm not implemented"
+                )
+            }
+
             let ctr = try await self.state.get(container: request.containerID)
             let pid = try await ctr.start(execID: request.id)
 
             return .with {
                 $0.pid = pid
             }
+        } catch let err as ContainerizationError {
+            log.error(
+                "startProcess",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(err)",
+                ])
+            throw err.toGRPCStatus(operation: "startProcess: failed to start process")
         } catch {
             log.error(
                 "startProcess",
@@ -780,20 +854,29 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 "containerID": "\(request.containerID)",
             ])
 
-        if !request.hasContainerID {
-            throw ContainerizationError(
-                .invalidArgument,
-                message: "processes in the root of the vm not implemented"
-            )
-        }
-
         do {
+            if !request.hasContainerID {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "processes in the root of the vm not implemented"
+                )
+            }
+
             let ctr = try await self.state.get(container: request.containerID)
             let size = Terminal.Size(
                 width: UInt16(request.columns),
                 height: UInt16(request.rows)
             )
             try await ctr.resize(execID: request.id, size: size)
+        } catch let err as ContainerizationError {
+            log.error(
+                "resizeProcess",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(err)",
+                ])
+            throw err.toGRPCStatus(operation: "resizeProcess: failed to resize process")
         } catch {
             log.error(
                 "resizeProcess",
@@ -821,14 +904,14 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 "containerID": "\(request.containerID)",
             ])
 
-        if !request.hasContainerID {
-            throw ContainerizationError(
-                .invalidArgument,
-                message: "processes in the root of the vm not implemented"
-            )
-        }
-
         do {
+            if !request.hasContainerID {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "processes in the root of the vm not implemented"
+                )
+            }
+
             let ctr = try await self.state.get(container: request.containerID)
             let exitStatus = try await ctr.wait(execID: request.id)
 
@@ -836,6 +919,15 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 $0.exitCode = exitStatus.exitCode
                 $0.exitedAt = Google_Protobuf_Timestamp(date: exitStatus.exitedAt)
             }
+        } catch let err as ContainerizationError {
+            log.error(
+                "waitProcess",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(err)",
+                ])
+            throw err.toGRPCStatus(operation: "waitProcess: failed to wait on process")
         } catch {
             log.error(
                 "waitProcess",
@@ -861,19 +953,28 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 "containerID": "\(request.containerID)",
             ])
 
-        if !request.hasContainerID {
-            throw ContainerizationError(
-                .invalidArgument,
-                message: "processes in the root of the vm not implemented"
-            )
-        }
-
         do {
+            if !request.hasContainerID {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "processes in the root of the vm not implemented"
+                )
+            }
+
             let ctr = try await self.state.get(container: request.containerID)
 
             try await ctr.closeStdin(execID: request.id)
 
             return .init()
+        } catch let err as ContainerizationError {
+            log.error(
+                "closeProcessStdin",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(err)",
+                ])
+            throw err.toGRPCStatus(operation: "closeProcessStdin: failed to close process stdin")
         } catch {
             log.error(
                 "closeProcessStdin",
@@ -937,7 +1038,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 metadata: [
                     "error": "\(error)"
                 ])
-            throw GRPCStatus(code: .internalError, message: "ip-addr-add: \(error)")
+            throw GRPCStatus(code: .internalError, message: "failed to set IP address on interface \(request.interface): \(error)")
         }
 
         return .init()
@@ -998,7 +1099,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 metadata: [
                     "error": "\(error)"
                 ])
-            throw GRPCStatus(code: .internalError, message: "ip-route-add-default: \(error)")
+            throw GRPCStatus(code: .internalError, message: "failed to set default gateway on interface \(request.interface): \(error)")
         }
 
         return .init()
@@ -1039,7 +1140,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 metadata: [
                     "error": "\(error)"
                 ])
-            throw GRPCStatus(code: .internalError, message: "configure-dns: \(error)")
+            throw GRPCStatus(code: .internalError, message: "failed to configure DNS at location \(request.location): \(error)")
         }
 
         return .init()
