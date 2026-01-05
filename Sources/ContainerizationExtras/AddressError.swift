@@ -14,7 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-public struct IPAddressError: Error, Equatable, Hashable, CustomStringConvertible {
+public struct AddressError: Error, Equatable, Hashable, CustomStringConvertible {
     public var description: String {
         String(describing: self.base)
     }

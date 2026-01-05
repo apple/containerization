@@ -27,7 +27,7 @@ public enum IPAddress: Sendable, Hashable, CustomStringConvertible, Equatable {
     ///
     /// - Parameter string: IP address string to parse
     /// - Returns: An `IPAddress` containing either an IPv4 or IPv6 address
-    /// - Throws: `IPAddressError.unableToParse` if invalid
+    /// - Throws: `AddressError.unableToParse` if invalid
     public init(_ string: String) throws {
         let utf8 = string.utf8
         var hasColon = false
@@ -50,7 +50,7 @@ public enum IPAddress: Sendable, Hashable, CustomStringConvertible, Equatable {
             let ipv4 = try IPv4Address(string)
             self = .v4(ipv4)
         } else {
-            throw IPAddressError.unableToParse
+            throw AddressError.unableToParse
         }
     }
 

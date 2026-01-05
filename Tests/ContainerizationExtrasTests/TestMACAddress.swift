@@ -80,7 +80,7 @@ struct MACAddressTests {
             ]
         )
         func testStringInitializerInvalid(invalidAddress: String) {
-            #expect(throws: IPAddressError.self) {
+            #expect(throws: AddressError.self) {
                 try MACAddress(invalidAddress)
             }
         }
@@ -365,10 +365,10 @@ struct MACAddressTests {
             do {
                 _ = try MACAddress(invalidInput)
                 #expect(Bool(false), "Should have thrown for input: \(invalidInput)")
-            } catch let error as IPAddressError {
-                #expect(error == IPAddressError.unableToParse)
+            } catch let error as AddressError {
+                #expect(error == AddressError.unableToParse)
             } catch {
-                #expect(Bool(false), "Should have thrown IPAddressError, got: \(error)")
+                #expect(Bool(false), "Should have thrown AddressError, got: \(error)")
             }
         }
 

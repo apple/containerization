@@ -81,7 +81,7 @@ struct IPv4AddressTests {
             ]
         )
         func testStringInitializerInvalid(invalidAddress: String) {
-            #expect(throws: IPAddressError.self) {
+            #expect(throws: AddressError.self) {
                 try IPv4Address(invalidAddress)
             }
         }
@@ -278,7 +278,7 @@ struct IPv4AddressTests {
             ]
         )
         func testLeadingZeroValidationInvalid(invalidAddress: String) {
-            #expect(throws: IPAddressError.self) {
+            #expect(throws: AddressError.self) {
                 try IPv4Address(invalidAddress)
             }
         }
@@ -298,7 +298,7 @@ struct IPv4AddressTests {
             ]
         )
         func testStringLengthValidationTooShort(shortString: String) {
-            #expect(throws: IPAddressError.self) {
+            #expect(throws: AddressError.self) {
                 try IPv4Address(shortString)
             }
         }
@@ -314,7 +314,7 @@ struct IPv4AddressTests {
             ]
         )
         func testStringLengthValidationTooLong(longString: String) {
-            #expect(throws: IPAddressError.self) {
+            #expect(throws: AddressError.self) {
                 try IPv4Address(longString)
             }
         }
@@ -452,10 +452,10 @@ struct IPv4AddressTests {
             do {
                 _ = try IPv4Address(invalidInput)
                 #expect(Bool(false), "Should have thrown for input: \(invalidInput)")
-            } catch let error as IPAddressError {
-                #expect(error == IPAddressError.unableToParse)
+            } catch let error as AddressError {
+                #expect(error == AddressError.unableToParse)
             } catch {
-                #expect(Bool(false), "Should have thrown IPAddressError, got: \(error)")
+                #expect(Bool(false), "Should have thrown AddressError, got: \(error)")
             }
         }
     }

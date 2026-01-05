@@ -32,8 +32,8 @@ public struct MACAddress: Sendable, Hashable, CustomStringConvertible, Equatable
 
     /// Creates an MACAddress from a string representation.
     ///
-    /// - Parameter string: The IPv4 address string in dotted decimal notation (e.g., "192.168.1.1")
-    /// - Throws: `IPAddressError.unableToParse` if the string is not a valid IPv4 address
+    /// - Parameter string: The MAC address string with colon or dash delimiters.
+    /// - Throws: `AddressError.unableToParse` if the string is not a valid MAC address
     @inlinable
     public init(_ string: String) throws {
         self.value = try Self.parse(string)
@@ -85,10 +85,10 @@ public struct MACAddress: Sendable, Hashable, CustomStringConvertible, Equatable
     ///
     /// ## Examples
     /// ```swift
-    /// MACAddress.parse("01:23:45:67:89:ab") // Returns: 0x00000123456789ab
-    /// MACAddress.parse("01-23-45-67-89-AB") // Returns: 0x00000123456789ab
-    /// MACAddress.parse("00:00:00:00:00:00") // Returns: 0x0000000000000000
-    /// MACAddress.parse("ff:ff:ff:ff:ff:ff") // Returns: 0xffffffffffffffff
+    /// MACAddress.parse("01:23:45:67:89:ab") // Returns: 0x0000_0123_4567_89ab
+    /// MACAddress.parse("01-23-45-67-89-AB") // Returns: 0x0000_0123_4567_89ab
+    /// MACAddress.parse("00:00:00:00:00:00") // Returns: 0x0000_0000_0000_0000
+    /// MACAddress.parse("ff:ff:ff:ff:ff:ff") // Returns: 0x0000_ffff_ffff_ffff
     ///
     /// // Invalid examples:
     /// MACAddress.parse("01:23:45:67:89")    // Wrong number of octets
@@ -104,7 +104,7 @@ public struct MACAddress: Sendable, Hashable, CustomStringConvertible, Equatable
     @usableFromInline
     internal static func parse(_ s: String) throws -> UInt64 {
         guard !s.isEmpty, s.count == 17 else {
-            throw IPAddressError.unableToParse
+            throw AddressError.unableToParse
         }
 
         // MAC addresses should only contain ASCII hex digits and dots
@@ -112,7 +112,7 @@ public struct MACAddress: Sendable, Hashable, CustomStringConvertible, Equatable
         for byte in utf8 {
             // ASCII whitespace: space(32), tab(9), newline(10), return(13)
             if byte == 32 || byte == 9 || byte == 10 || byte == 13 {
-                throw IPAddressError.unableToParse
+                throw AddressError.unableToParse
             }
         }
 
@@ -133,13 +133,13 @@ public struct MACAddress: Sendable, Hashable, CustomStringConvertible, Equatable
             if byte == 0x3a || byte == 0x2d {  // ASCII ':'
                 // Ensure separator is consistent
                 guard separator == nil || byte == separator else {
-                    throw IPAddressError.unableToParse
+                    throw AddressError.unableToParse
                 }
                 separator = byte
 
                 // Validate octet before processing
                 guard octetCount < 5, digitCount == 2 else {
-                    throw IPAddressError.unableToParse
+                    throw AddressError.unableToParse
                 }
 
                 // Shift result and add current octet
@@ -158,7 +158,7 @@ public struct MACAddress: Sendable, Hashable, CustomStringConvertible, Equatable
 
                 // Early termination if octet becomes too large
                 guard digitCount <= 2 else {
-                    throw IPAddressError.unableToParse
+                    throw AddressError.unableToParse
                 }
 
             } else if byte >= 0x41 && byte <= 0x46 {  // ASCII 'A'-'F'
@@ -169,7 +169,7 @@ public struct MACAddress: Sendable, Hashable, CustomStringConvertible, Equatable
 
                 // Early termination if octet becomes too large
                 guard digitCount <= 2 else {
-                    throw IPAddressError.unableToParse
+                    throw AddressError.unableToParse
                 }
 
             } else if byte >= 0x61 && byte <= 0x66 {  // ASCII 'A'-'F'
@@ -180,17 +180,17 @@ public struct MACAddress: Sendable, Hashable, CustomStringConvertible, Equatable
 
                 // Early termination if octet becomes too large
                 guard digitCount <= 2 else {
-                    throw IPAddressError.unableToParse
+                    throw AddressError.unableToParse
                 }
 
             } else {
-                throw IPAddressError.unableToParse
+                throw AddressError.unableToParse
             }
         }
 
         // Validate final octet
         guard octetCount == 5, digitCount == 2 else {
-            throw IPAddressError.unableToParse
+            throw AddressError.unableToParse
         }
 
         return (result << 8) | UInt64(currentOctet)

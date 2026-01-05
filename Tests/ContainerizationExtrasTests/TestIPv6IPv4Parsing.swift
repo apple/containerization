@@ -60,7 +60,7 @@ struct IPv6IPv4ParsingTests {
         ]
     )
     func testInvalidIPv4Throws(invalid: String) {
-        #expect(throws: IPAddressError.self) {
+        #expect(throws: AddressError.self) {
             _ = try IPv6Address.extractIPv4Suffix(from: invalid)
         }
     }

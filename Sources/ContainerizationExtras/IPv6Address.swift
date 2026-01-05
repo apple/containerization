@@ -25,7 +25,7 @@ public struct IPv6Address: Sendable, Hashable, CustomStringConvertible, Equatabl
     /// Supports standard IPv6 formats including compressed notation (::), mixed IPv4 notation, and zone identifiers.
     ///
     /// - Parameter address: String representation of an IPv6 address
-    /// - Throws: `IPAddressError` if the string is not a valid IPv6 address
+    /// - Throws: `AddressError` if the string is not a valid IPv6 address
     public init(_ address: String) throws {
         self = try Self.parse(address)
     }

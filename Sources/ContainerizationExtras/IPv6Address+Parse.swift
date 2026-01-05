@@ -115,7 +115,7 @@ extension IPv6Address {
 
         // Validate complete consumption of input
         guard currentPosition >= utf8.endIndex else {
-            throw IPAddressError.malformedAddress
+            throw AddressError.malformedAddress
         }
 
         // Apply ellipsis expansion for the IPv6 portion
@@ -138,7 +138,7 @@ extension IPv6Address {
     ///
     /// - Parameter input: The IPv6 address string to check
     /// - Returns: Optional tuple of (IPv6 part without IPv4, IPv4 bytes array) if IPv4 found, nil otherwise
-    /// - Throws: `IPAddressError.invalidIPv4Suffix` for invalid IPv4 addresses
+    /// - Throws: `AddressError.invalidIPv4Suffix` for invalid IPv4 addresses
     internal static func extractIPv4Suffix(from input: String) throws -> (String, [UInt8])? {
         // must contain a dot to be IPv4
         guard input.utf8.contains(46) else {  // ASCII '.'
@@ -158,7 +158,7 @@ extension IPv6Address {
 
         let possibleIPv4 = String(input[afterColon...])
         guard let ipv4Value = try? IPv4Address.parse(possibleIPv4) else {
-            throw IPAddressError.invalidIPv4SuffixInIPv6Address
+            throw AddressError.invalidIPv4SuffixInIPv6Address
         }
 
         // Check if lastColonIndex is the second ':' of '::'. If so, ensure to include it.
@@ -171,7 +171,7 @@ extension IPv6Address {
     ///
     /// - Parameter input: The full IPv6 address string with potential zone identifier
     /// - Returns: Tuple of (address part, optional zone identifier)
-    /// - Throws: `IPAddressError.invalidZoneIdentifier` for malformed zone identifiers
+    /// - Throws: `AddressError.invalidZoneIdentifier` for malformed zone identifiers
     private static func extractZoneIdentifier(from input: String) throws -> (String, String?) {
         guard let percentIndex = input.lastIndex(of: "%") else {
             return (input, nil)
@@ -179,7 +179,7 @@ extension IPv6Address {
 
         let zoneStartIndex = input.index(after: percentIndex)
         guard zoneStartIndex < input.endIndex else {
-            throw IPAddressError.invalidZoneIdentifier
+            throw AddressError.invalidZoneIdentifier
         }
 
         let addressPart = String(input[..<percentIndex])
@@ -194,7 +194,7 @@ extension IPv6Address {
     ///   - utf8: The UTF-8 view to parse from
     ///   - startIndex: Starting position in the UTF-8 view
     /// - Returns: Tuple of (parsed hex value as UInt16, next position after parsed digits)
-    /// - Throws: `IPAddressError.invalidHexGroup` if no valid hex digits are found
+    /// - Throws: `AddressError.invalidHexGroup` if no valid hex digits are found
     ///
     /// ## Example
     /// ```swift
@@ -233,7 +233,7 @@ extension IPv6Address {
 
         guard digitCount > 0 else {
             // No hex digits found
-            throw IPAddressError.invalidHexGroup
+            throw AddressError.invalidHexGroup
         }
         return (accumulator, currentIndex)
     }
@@ -266,20 +266,20 @@ extension IPv6Address {
     ) throws -> String.UTF8View.Index {
         // Expect colon separator
         guard group[position] == 58 else {  // ASCII ':'
-            throw IPAddressError.malformedAddress
+            throw AddressError.malformedAddress
         }
 
         let afterFirstColon = group.index(after: position)
         guard afterFirstColon < group.endIndex else {
             // Trailing colon not allowed
-            throw IPAddressError.malformedAddress
+            throw AddressError.malformedAddress
         }
 
         // Check for double colon, return position after that
         if group[afterFirstColon] == 58 {  // ASCII ':'
             guard ellipsisPosition == nil else {
                 // Multiple :: not allowed
-                throw IPAddressError.multipleEllipsis
+                throw AddressError.multipleEllipsis
             }
             ellipsisPosition = currentByteIndex
             let afterSecondColon = group.index(after: afterFirstColon)
@@ -295,7 +295,7 @@ extension IPv6Address {
     ///   - parsedBytes: Number of bytes already parsed for IPv6 groups
     ///   - ellipsisPosition: Optional position where ellipsis was found
     ///   - byteLimit: Maximum bytes available for IPv6 (16 for pure IPv6, 12 if IPv4 suffix present)
-    /// - Throws: `IPAddressError.incompleteAddress` for invalid address lengths
+    /// - Throws: `AddressError.incompleteAddress` for invalid address lengths
     private static func expandEllipsis(
         in ipBytes: inout [UInt8],
         parsedBytes: Int,
@@ -305,7 +305,7 @@ extension IPv6Address {
         guard let ellipsisPosition = ellipsisPosition else {
             // No ellipsis - validate we have exactly filled the available bytes
             guard parsedBytes == byteLimit else {
-                throw IPAddressError.incompleteAddress  // Incomplete address without ellipsis
+                throw AddressError.incompleteAddress  // Incomplete address without ellipsis
             }
             return
         }
@@ -313,7 +313,7 @@ extension IPv6Address {
         // Calculate expansion within the byte limit
         let bytesToExpand = byteLimit - parsedBytes
         guard bytesToExpand > 0 else {
-            throw IPAddressError.malformedAddress  // No room for ellipsis expansion
+            throw AddressError.malformedAddress  // No room for ellipsis expansion
         }
 
         let suffixBytes = Array(ipBytes[ellipsisPosition..<parsedBytes])

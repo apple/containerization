@@ -26,7 +26,7 @@ public struct IPv4Address: Sendable, Hashable, CustomStringConvertible, Equatabl
     /// Creates an IPv4Address from a string representation.
     ///
     /// - Parameter string: The IPv4 address string in dotted decimal notation (e.g., "192.168.1.1")
-    /// - Throws: `IPAddressError.unableToParse` if the string is not a valid IPv4 address
+    /// - Throws: `AddressError.unableToParse` if the string is not a valid IPv4 address
     @inlinable
     public init(_ string: String) throws {
         self.value = try Self.parse(string)
@@ -94,7 +94,7 @@ public struct IPv4Address: Sendable, Hashable, CustomStringConvertible, Equatabl
     @usableFromInline
     internal static func parse(_ s: String) throws -> UInt32 {
         guard !s.isEmpty, s.count >= 7, s.count <= 15 else {
-            throw IPAddressError.unableToParse
+            throw AddressError.unableToParse
         }
 
         // IP addresses should only contain ASCII digits and dots
@@ -102,7 +102,7 @@ public struct IPv4Address: Sendable, Hashable, CustomStringConvertible, Equatabl
         for byte in utf8 {
             // ASCII whitespace: space(32), tab(9), newline(10), return(13)
             if byte == 32 || byte == 9 || byte == 10 || byte == 13 {
-                throw IPAddressError.unableToParse
+                throw AddressError.unableToParse
             }
         }
 
@@ -120,7 +120,7 @@ public struct IPv4Address: Sendable, Hashable, CustomStringConvertible, Equatabl
             if byte == 46 {  // ASCII '.'
                 // Validate octet before processing
                 guard octetCount < 3, digitCount > 0, digitCount <= 3, currentOctet <= 255 else {
-                    throw IPAddressError.unableToParse
+                    throw AddressError.unableToParse
                 }
 
                 // Shift result and add current octet
@@ -143,7 +143,7 @@ public struct IPv4Address: Sendable, Hashable, CustomStringConvertible, Equatabl
                     currentOctet = 0
                 } else if digitCount > 1 && currentOctet == 0 {
                     // We had a leading zero and now have more digits - invalid
-                    throw IPAddressError.unableToParse
+                    throw AddressError.unableToParse
                 } else {
                     // Normal case: build the octet value
                     currentOctet = currentOctet * 10 + digit
@@ -151,17 +151,17 @@ public struct IPv4Address: Sendable, Hashable, CustomStringConvertible, Equatabl
 
                 // Early termination if octet becomes too large
                 guard currentOctet <= 255, digitCount <= 3 else {
-                    throw IPAddressError.unableToParse
+                    throw AddressError.unableToParse
                 }
 
             } else {
-                throw IPAddressError.unableToParse
+                throw AddressError.unableToParse
             }
         }
 
         // Validate final octet
         guard octetCount == 3, digitCount > 0, digitCount <= 3, currentOctet <= 255 else {
-            throw IPAddressError.unableToParse
+            throw AddressError.unableToParse
         }
 
         return (result << 8) | UInt32(currentOctet)
