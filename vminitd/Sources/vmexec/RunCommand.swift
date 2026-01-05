@@ -34,9 +34,6 @@ struct RunCommand: ParsableCommand {
 
     mutating func run() throws {
         do {
-            LoggingSystem.bootstrap(App.standardError)
-            let log = Logger(label: "vmexec")
-
             let spec: ContainerizationOCI.Spec
             do {
                 let bundle = try ContainerizationOCI.Bundle.load(path: URL(filePath: bundlePath))
@@ -44,14 +41,14 @@ struct RunCommand: ParsableCommand {
             } catch {
                 throw App.Failure(message: "failed to load OCI bundle at \(bundlePath): \(error)")
             }
-            try execInNamespace(spec: spec, log: log)
+            try execInNamespace(spec: spec)
         } catch {
             App.writeError(error)
             throw error
         }
     }
 
-    private func childRootSetup(rootfs: ContainerizationOCI.Root, mounts: [ContainerizationOCI.Mount], log: Logger) throws {
+    private func childRootSetup(rootfs: ContainerizationOCI.Root, mounts: [ContainerizationOCI.Mount]) throws {
         // setup rootfs
         try prepareRoot(rootfs: rootfs.path)
         try mountRootfs(rootfs: rootfs.path, mounts: mounts)
@@ -90,7 +87,6 @@ struct RunCommand: ParsableCommand {
         spec: ContainerizationOCI.Spec,
         ackPipe: FileHandle,
         syncPipe: FileHandle,
-        log: Logger
     ) throws {
         guard let process = spec.process else {
             throw App.Failure(message: "no process configuration found in runtime spec")
@@ -119,7 +115,7 @@ struct RunCommand: ParsableCommand {
             throw App.Errno(stage: "setsid()")
         }
 
-        try childRootSetup(rootfs: root, mounts: spec.mounts, log: log)
+        try childRootSetup(rootfs: root, mounts: spec.mounts)
 
         if process.terminal {
             let pty = try Console()
@@ -223,7 +219,7 @@ struct RunCommand: ParsableCommand {
         return unshareFlags
     }
 
-    private func execInNamespace(spec: ContainerizationOCI.Spec, log: Logger) throws {
+    private func execInNamespace(spec: ContainerizationOCI.Spec) throws {
         let syncPipe = FileHandle(fileDescriptor: 3)
         let ackPipe = FileHandle(fileDescriptor: 4)
 
@@ -241,7 +237,7 @@ struct RunCommand: ParsableCommand {
         }
 
         if processID == 0 {  // child
-            try childSetup(spec: spec, ackPipe: ackPipe, syncPipe: syncPipe, log: log)
+            try childSetup(spec: spec, ackPipe: ackPipe, syncPipe: syncPipe)
         } else {  // parent process
             // Setup cgroup before child enters cgroup namespace
             if let linux = spec.linux {

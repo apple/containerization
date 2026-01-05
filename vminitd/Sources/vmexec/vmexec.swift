@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -41,15 +41,6 @@ struct App: ParsableCommand {
             RunCommand.self,
         ]
     )
-
-    static let standardErrorLock = NSLock()
-
-    @Sendable
-    static func standardError(label: String) -> StreamLogHandler {
-        standardErrorLock.withLock {
-            StreamLogHandler.standardError(label: label)
-        }
-    }
 }
 
 extension App {
