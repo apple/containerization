@@ -41,15 +41,6 @@ struct App: ParsableCommand {
             RunCommand.self,
         ]
     )
-
-    static let standardErrorLock = NSLock()
-
-    @Sendable
-    static func standardError(label: String) -> StreamLogHandler {
-        standardErrorLock.withLock {
-            StreamLogHandler.standardError(label: label)
-        }
-    }
 }
 
 extension App {

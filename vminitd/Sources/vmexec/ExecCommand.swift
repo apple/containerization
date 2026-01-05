@@ -36,16 +36,13 @@ struct ExecCommand: ParsableCommand {
 
     func run() throws {
         do {
-            LoggingSystem.bootstrap(App.standardError)
-            let log = Logger(label: "vmexec")
-
             let src = URL(fileURLWithPath: processPath)
             let processBytes = try Data(contentsOf: src)
             let process = try JSONDecoder().decode(
                 ContainerizationOCI.Process.self,
                 from: processBytes
             )
-            try execInNamespaces(process: process, log: log)
+            try execInNamespaces(process: process)
         } catch {
             App.writeError(error)
             throw error
@@ -58,10 +55,7 @@ struct ExecCommand: ParsableCommand {
         }
     }
 
-    private func execInNamespaces(
-        process: ContainerizationOCI.Process,
-        log: Logger
-    ) throws {
+    private func execInNamespaces(process: ContainerizationOCI.Process) throws {
         let syncPipe = FileHandle(fileDescriptor: 3)
         let ackPipe = FileHandle(fileDescriptor: 4)
 
