@@ -93,7 +93,7 @@ public struct ContainerManager: Sendable {
         public struct Interface: Containerization.Interface, VZInterface, Sendable {
             public let ipv4Address: CIDRv4
             public let ipv4Gateway: IPv4Address?
-            public let macAddress: String?
+            public let macAddress: MACAddress?
 
             // `reference` isn't used concurrently.
             nonisolated(unsafe) private let reference: vmnet_network_ref
@@ -102,7 +102,7 @@ public struct ContainerManager: Sendable {
                 reference: vmnet_network_ref,
                 ipv4Address: CIDRv4,
                 ipv4Gateway: IPv4Address,
-                macAddress: String? = nil
+                macAddress: MACAddress? = nil
             ) {
                 self.ipv4Address = ipv4Address
                 self.ipv4Gateway = ipv4Gateway
@@ -114,7 +114,7 @@ public struct ContainerManager: Sendable {
             public func device() throws -> VZVirtioNetworkDeviceConfiguration {
                 let config = VZVirtioNetworkDeviceConfiguration()
                 if let macAddress = self.macAddress {
-                    guard let mac = VZMACAddress(string: macAddress) else {
+                    guard let mac = VZMACAddress(string: macAddress.description) else {
                         throw ContainerizationError(.invalidArgument, message: "invalid mac address \(macAddress)")
                     }
                     config.macAddress = mac

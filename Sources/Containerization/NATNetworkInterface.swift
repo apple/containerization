@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -29,7 +29,7 @@ import Synchronization
 public final class NATNetworkInterface: Interface, Sendable {
     public let ipv4Address: CIDRv4
     public let ipv4Gateway: IPv4Address?
-    public let macAddress: String?
+    public let macAddress: MACAddress?
 
     @available(macOS 26, *)
     // `reference` isn't used concurrently.
@@ -40,7 +40,7 @@ public final class NATNetworkInterface: Interface, Sendable {
         ipv4Address: CIDRv4,
         ipv4Gateway: IPv4Address?,
         reference: sending vmnet_network_ref,
-        macAddress: String? = nil
+        macAddress: MACAddress? = nil
     ) {
         self.ipv4Address = ipv4Address
         self.ipv4Gateway = ipv4Gateway
@@ -52,7 +52,7 @@ public final class NATNetworkInterface: Interface, Sendable {
     public init(
         ipv4Address: CIDRv4,
         ipv4Gateway: IPv4Address?,
-        macAddress: String? = nil
+        macAddress: MACAddress? = nil
     ) {
         self.ipv4Address = ipv4Address
         self.ipv4Gateway = ipv4Gateway
@@ -66,7 +66,7 @@ extension NATNetworkInterface: VZInterface {
     public func device() throws -> VZVirtioNetworkDeviceConfiguration {
         let config = VZVirtioNetworkDeviceConfiguration()
         if let macAddress = self.macAddress {
-            guard let mac = VZMACAddress(string: macAddress) else {
+            guard let mac = VZMACAddress(string: macAddress.description) else {
                 throw ContainerizationError(.invalidArgument, message: "invalid mac address \(macAddress)")
             }
             config.macAddress = mac

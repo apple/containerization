@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -465,7 +465,7 @@ extension NATInterface: VZInterface {
     public func device() throws -> VZVirtioNetworkDeviceConfiguration {
         let config = VZVirtioNetworkDeviceConfiguration()
         if let macAddress = self.macAddress {
-            guard let mac = VZMACAddress(string: macAddress) else {
+            guard let mac = VZMACAddress(string: macAddress.description) else {
                 throw ContainerizationError(.invalidArgument, message: "invalid mac address \(macAddress)")
             }
             config.macAddress = mac

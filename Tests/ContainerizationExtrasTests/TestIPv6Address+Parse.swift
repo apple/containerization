@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -96,7 +96,7 @@ struct IPv6AddressParseTests {
         ]
     )
     func testParseInvalidHexadecimalGroup(invalidInput: String) {
-        #expect(throws: IPAddressError.self) {
+        #expect(throws: AddressError.self) {
             let utf8 = invalidInput.utf8
             _ = try IPv6Address.parseHexadecimal(
                 from: utf8,
@@ -222,7 +222,7 @@ struct IPv6AddressParseTests {
                 #expect(actualBytes != parsedValidAddress, "\(testCase) should not match valid prefix")
             } catch {
                 // If parsing fails, that's also acceptable for invalid representations
-                #expect(error is IPAddressError, "\(testCase) should throw IPAddressError if it fails to parse")
+                #expect(error is AddressError, "\(testCase) should throw IPAddressError if it fails to parse")
             }
         }
     }
@@ -372,7 +372,7 @@ struct IPv6AddressParseTests {
         ]
     )
     func testRFC4291Section22MultipleDoubleColonsShouldFail(invalid: String) {
-        #expect(throws: IPAddressError.self, "Multiple '::' should fail: \(invalid)") {
+        #expect(throws: AddressError.self, "Multiple '::' should fail: \(invalid)") {
             _ = try IPv6Address.parse(invalid)
         }
     }
@@ -428,7 +428,7 @@ struct IPv6AddressParseTests {
         ]
     )
     func testRFC4291Section22InvalidFormatsShouldFail(invalid: String) {
-        #expect(throws: IPAddressError.self, "Invalid format should fail: \(invalid)") {
+        #expect(throws: AddressError.self, "Invalid format should fail: \(invalid)") {
             _ = try IPv6Address.parse(invalid)
         }
     }
@@ -633,7 +633,7 @@ struct IPv6AddressParseTests {
         ]
     )
     func testRFC4291Section22IPv4MixedNotationInvalid(invalid: String) {
-        #expect(throws: IPAddressError.self, "Invalid IPv4 mixed notation should fail: \(invalid)") {
+        #expect(throws: AddressError.self, "Invalid IPv4 mixed notation should fail: \(invalid)") {
             _ = try IPv6Address.parse(invalid)
         }
     }
