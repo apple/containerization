@@ -23,10 +23,11 @@ import ArgumentParser
 import ContainerizationError
 import ContainerizationOCI
 import ContainerizationOS
-import Foundation
+import FoundationEssentials
 import LCShim
 import Logging
 import Musl
+import SystemPackage
 
 @main
 struct App: ParsableCommand {
@@ -233,7 +234,7 @@ extension App {
     }
 
     static func writeError(_ error: Error) {
-        let errorPipe = FileHandle(fileDescriptor: 5)
+        let errorPipe = FileDescriptor(rawValue: 5)
 
         let errorMessage: String
         if let czError = error as? ContainerizationError {
@@ -242,8 +243,9 @@ extension App {
             errorMessage = String(describing: error)
         }
 
-        if let data = errorMessage.data(using: .utf8) {
-            try? errorPipe.write(contentsOf: data)
+        let bytes = Array(errorMessage.utf8)
+        _ = try? bytes.withUnsafeBytes { buffer in
+            try errorPipe.write(buffer)
         }
         try? errorPipe.close()
     }

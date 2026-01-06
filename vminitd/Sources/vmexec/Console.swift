@@ -14,7 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-import Foundation
+import FoundationEssentials
 import Musl
 
 class Console {

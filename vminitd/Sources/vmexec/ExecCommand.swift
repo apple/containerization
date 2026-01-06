@@ -17,10 +17,11 @@
 import ArgumentParser
 import ContainerizationOCI
 import ContainerizationOS
-import Foundation
+import FoundationEssentials
 import LCShim
 import Logging
 import Musl
+import SystemPackage
 
 struct ExecCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
@@ -56,8 +57,8 @@ struct ExecCommand: ParsableCommand {
     }
 
     private func execInNamespaces(process: ContainerizationOCI.Process) throws {
-        let syncPipe = FileHandle(fileDescriptor: 3)
-        let ackPipe = FileHandle(fileDescriptor: 4)
+        let syncPipe = FileDescriptor(rawValue: 3)
+        let ackPipe = FileDescriptor(rawValue: 4)
 
         let pidFd = CZ_pidfd_open(Int32(parentPid), 0)
         guard pidFd > 0 else {
@@ -79,12 +80,14 @@ struct ExecCommand: ParsableCommand {
 
         if processID == 0 {  // child
             // Wait for the grandparent to tell us that they acked our pid.
-            guard let data = try ackPipe.read(upToCount: App.ackPid.count) else {
+            var pidAckBuffer = [UInt8](repeating: 0, count: App.ackPid.count)
+            let pidAckBytesRead = try pidAckBuffer.withUnsafeMutableBytes { buffer in
+                try ackPipe.read(into: buffer)
+            }
+            guard pidAckBytesRead > 0 else {
                 throw App.Failure(message: "read ack pipe")
             }
-            guard let pidAckStr = String(data: data, encoding: .utf8) else {
-                throw App.Failure(message: "convert ack pipe data to string")
-            }
+            let pidAckStr = String(decoding: pidAckBuffer[..<pidAckBytesRead], as: UTF8.self)
 
             guard pidAckStr == App.ackPid else {
                 throw App.Failure(message: "received invalid acknowledgement string: \(pidAckStr)")
@@ -99,17 +102,19 @@ struct ExecCommand: ParsableCommand {
                 try pty.configureStdIO()
                 var masterFD = pty.master
 
-                let data = Data(bytes: &masterFD, count: MemoryLayout.size(ofValue: masterFD))
-                try syncPipe.write(contentsOf: data)
+                try withUnsafeBytes(of: &masterFD) { bytes in
+                    _ = try syncPipe.write(bytes)
+                }
 
                 // Wait for the grandparent to tell us that they acked our console.
-                guard let data = try ackPipe.read(upToCount: App.ackConsole.count) else {
+                var consoleAckBuffer = [UInt8](repeating: 0, count: App.ackConsole.count)
+                let consoleAckBytesRead = try consoleAckBuffer.withUnsafeMutableBytes { buffer in
+                    try ackPipe.read(into: buffer)
+                }
+                guard consoleAckBytesRead > 0 else {
                     throw App.Failure(message: "read ack pipe")
                 }
-
-                guard let consoleAckStr = String(data: data, encoding: .utf8) else {
-                    throw App.Failure(message: "convert ack pipe data to string")
-                }
+                let consoleAckStr = String(decoding: consoleAckBuffer[..<consoleAckBytesRead], as: UTF8.self)
 
                 guard consoleAckStr == App.ackConsole else {
                     throw App.Failure(message: "received invalid acknowledgement string: \(consoleAckStr)")
@@ -144,9 +149,9 @@ struct ExecCommand: ParsableCommand {
         } else {  // parent process
             // Send our child's pid to our parent before we exit.
             var childPid = processID
-            let data = Data(bytes: &childPid, count: MemoryLayout.size(ofValue: childPid))
-
-            try syncPipe.write(contentsOf: data)
+            try withUnsafeBytes(of: &childPid) { bytes in
+                _ = try syncPipe.write(bytes)
+            }
         }
     }
 }
