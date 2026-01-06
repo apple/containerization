@@ -43,6 +43,8 @@ struct VZVirtualMachineInstance: Sendable {
         public var cpus: Int
         /// Amount of memory in bytes allocated.
         public var memoryInBytes: UInt64
+        /// Amount of storage in bytes allocated.
+        public var diskStorageBytes: UInt64?
         /// Toggle rosetta's x86_64 emulation support.
         public var rosetta: Bool
         /// Toggle nested virtualization support.
@@ -61,6 +63,7 @@ struct VZVirtualMachineInstance: Sendable {
         init() {
             self.cpus = 4
             self.memoryInBytes = 1024.mib()
+            self.diskStorageBytes = nil
             self.rosetta = false
             self.nestedVirtualization = false
             self.mountsByID = [:]
@@ -368,6 +371,26 @@ extension VZVirtualMachineInstance.Configuration {
 
         guard let initialFilesystem = self.initialFilesystem else {
             throw ContainerizationError(.invalidArgument, message: "rootfs cannot be nil")
+        }
+
+        if let diskBytes = self.diskStorageBytes, initialFilesystem.isBlock {
+            let fileURL = URL(fileURLWithPath: initialFilesystem.source)
+            
+            if !FileManager.default.fileExists(atPath: fileURL.path) {
+                FileManager.default.createFile(atPath: fileURL.path, contents: nil)
+            }
+            
+            do {
+                let handle = try FileHandle(forWritingTo: fileURL)
+                defer { try? handle.close() }
+                try handle.truncate(atOffset: diskBytes)
+            } catch {
+                throw ContainerizationError(
+                    .internalError,
+                    message: "failed to resize rootfs to \(diskBytes) bytes",
+                    cause: error
+                )
+            }
         }
 
         let loader = VZLinuxBootLoader(kernelURL: kernel.path)

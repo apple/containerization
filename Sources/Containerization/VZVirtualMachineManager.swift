@@ -58,6 +58,7 @@ public struct VZVirtualMachineManager: VirtualMachineManager {
             with: { instanceConfig in
                 instanceConfig.cpus = vmConfig.cpus
                 instanceConfig.memoryInBytes = vmConfig.memoryInBytes
+                instanceConfig.diskStorageBytes = vmConfig.diskStorageBytes
 
                 instanceConfig.kernel = self.kernel
                 instanceConfig.initialFilesystem = self.initialFilesystem
