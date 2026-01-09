@@ -797,6 +797,20 @@ extension LinuxContainer {
         }
     }
 
+    /// Get memory events for the container.
+    ///
+    /// Returns the current values of the cgroup memory.events file, which
+    /// includes counts of OOM kills, memory pressure events, etc.
+    public func memoryEvents() async throws -> MemoryEvent {
+        try await self.state.withLock {
+            let state = try $0.startedState("memoryEvents")
+
+            return try await state.vm.withAgent { agent in
+                try await agent.memoryEvents(containerID: self.id)
+            }
+        }
+    }
+
     /// Relay a unix socket from in the container to the host, or from the host
     /// to inside the container.
     public func relayUnixSocket(socket: UnixSocketConfiguration) async throws {

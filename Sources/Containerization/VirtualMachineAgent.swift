@@ -25,6 +25,28 @@ public struct WriteFileFlags {
     public var create = false
 }
 
+/// Memory event counters from cgroup2's memory.events file.
+public struct MemoryEvent: Sendable {
+    /// Number of times the cgroup was reclaimed due to low memory.
+    public var low: UInt64
+    /// Number of times the cgroup exceeded its high memory limit.
+    public var high: UInt64
+    /// Number of times the cgroup hit its max memory limit.
+    public var max: UInt64
+    /// Number of times the cgroup triggered OOM.
+    public var oom: UInt64
+    /// Number of processes killed by OOM killer.
+    public var oomKill: UInt64
+
+    public init(low: UInt64, high: UInt64, max: UInt64, oom: UInt64, oomKill: UInt64) {
+        self.low = low
+        self.high = high
+        self.max = max
+        self.oom = oom
+        self.oomKill = oomKill
+    }
+}
+
 /// A protocol for the agent running inside a virtual machine. If an operation isn't
 /// supported the implementation MUST return a ContainerizationError with a code of
 /// `.unsupported`.
@@ -95,6 +117,9 @@ public protocol VirtualMachineAgent: Sendable {
 
     // Container statistics
     func containerStatistics(containerIDs: [String]) async throws -> [ContainerStatistics]
+
+    // Memory events
+    func memoryEvents(containerID: String) async throws -> MemoryEvent
 }
 
 extension VirtualMachineAgent {
@@ -137,5 +162,9 @@ extension VirtualMachineAgent {
         progress: ProgressHandler?
     ) async throws {
         throw ContainerizationError(.unsupported, message: "copyOut")
+    }
+
+    public func memoryEvents(containerID: String) async throws -> MemoryEvent {
+        throw ContainerizationError(.unsupported, message: "memoryEvents")
     }
 }

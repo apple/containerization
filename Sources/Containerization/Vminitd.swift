@@ -140,6 +140,27 @@ extension Vminitd: VirtualMachineAgent {
         }
     }
 
+    /// Get memory event counters for a container.
+    ///
+    /// Returns the current values of the cgroup memory.events file, which
+    /// includes counts of OOM kills, memory pressure events, etc.
+    ///
+    /// - Parameter containerID: The ID of the container to query.
+    /// - Returns: The current memory event counters.
+    public func memoryEvents(containerID: String) async throws -> MemoryEvent {
+        let response = try await client.getMemoryEvents(
+            .with {
+                $0.containerID = containerID
+            })
+        return MemoryEvent(
+            low: response.low,
+            high: response.high,
+            max: response.max,
+            oom: response.oom,
+            oomKill: response.oomKill
+        )
+    }
+
     /// Mount a filesystem in the sandbox's environment.
     public func mount(_ mount: ContainerizationOCI.Mount) async throws {
         _ = try await client.mount(

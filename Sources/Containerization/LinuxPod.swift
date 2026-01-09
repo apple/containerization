@@ -741,6 +741,20 @@ extension LinuxPod {
         return stats
     }
 
+    /// Get memory events for a container.
+    ///
+    /// Returns the current values of the cgroup memory.events file, which
+    /// includes counts of OOM kills, memory pressure events, etc.
+    public func memoryEvents(containerID: String) async throws -> MemoryEvent {
+        let createdState = try await self.state.withLock { state in
+            try state.phase.createdState("memoryEvents")
+        }
+
+        return try await createdState.vm.withAgent { agent in
+            try await agent.memoryEvents(containerID: containerID)
+        }
+    }
+
     /// Dial a vsock port in the pod's VM.
     public func dialVsock(port: UInt32) async throws -> FileHandle {
         try await self.state.withLock { state in

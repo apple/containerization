@@ -1142,6 +1142,38 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         }
     }
 
+    func getMemoryEvents(
+        request: Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsRequest,
+        context: GRPC.GRPCAsyncServerCallContext
+    ) async throws -> Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsResponse {
+        log.debug(
+            "getMemoryEvents",
+            metadata: [
+                "containerID": "\(request.containerID)"
+            ])
+
+        do {
+            let container = try await state.get(container: request.containerID)
+            let events = try await container.getMemoryEvents()
+
+            return .with {
+                $0.low = events.low
+                $0.high = events.high
+                $0.max = events.max
+                $0.oom = events.oom
+                $0.oomKill = events.oomKill
+            }
+        } catch {
+            log.error(
+                "getMemoryEvents",
+                metadata: [
+                    "containerID": "\(request.containerID)",
+                    "error": "\(error)",
+                ])
+            throw GRPCStatus(code: .internalError, message: "getMemoryEvents: \(error)")
+        }
+    }
+
     private func swiftErrno(_ msg: Logger.Message) -> POSIXError {
         let error = POSIXError(.init(rawValue: errno)!)
         log.error(
