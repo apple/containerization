@@ -778,12 +778,12 @@ extension LinuxContainer {
     }
 
     /// Get statistics for the container.
-    public func statistics() async throws -> ContainerStatistics {
+    public func statistics(categories: StatCategory = .all) async throws -> ContainerStatistics {
         try await self.state.withLock {
             let state = try $0.startedState("statistics")
 
             let stats = try await state.vm.withAgent { agent in
-                let allStats = try await agent.containerStatistics(containerIDs: [self.id])
+                let allStats = try await agent.containerStatistics(containerIDs: [self.id], categories: categories)
                 guard let containerStats = allStats.first else {
                     throw ContainerizationError(
                         .notFound,

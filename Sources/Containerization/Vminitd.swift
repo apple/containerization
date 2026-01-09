@@ -80,62 +80,76 @@ extension Vminitd: VirtualMachineAgent {
     }
 
     /// Get statistics for containers. If `containerIDs` is empty returns stats for all containers
-    /// in the guest.
-    public func containerStatistics(containerIDs: [String]) async throws -> [ContainerStatistics] {
+    /// in the guest. If `categories` is empty, all categories are returned.
+    public func containerStatistics(containerIDs: [String], categories: StatCategory) async throws -> [ContainerStatistics] {
         let response = try await client.containerStatistics(
             .with {
                 $0.containerIds = containerIDs
+                $0.categories = categories.toProtoCategories()
             })
 
         return response.containers.map { protoStats in
             ContainerStatistics(
                 id: protoStats.containerID,
-                process: .init(
-                    current: protoStats.process.current,
-                    limit: protoStats.process.limit
-                ),
-                memory: .init(
-                    usageBytes: protoStats.memory.usageBytes,
-                    limitBytes: protoStats.memory.limitBytes,
-                    swapUsageBytes: protoStats.memory.swapUsageBytes,
-                    swapLimitBytes: protoStats.memory.swapLimitBytes,
-                    cacheBytes: protoStats.memory.cacheBytes,
-                    kernelStackBytes: protoStats.memory.kernelStackBytes,
-                    slabBytes: protoStats.memory.slabBytes,
-                    pageFaults: protoStats.memory.pageFaults,
-                    majorPageFaults: protoStats.memory.majorPageFaults
-                ),
-                cpu: .init(
-                    usageUsec: protoStats.cpu.usageUsec,
-                    userUsec: protoStats.cpu.userUsec,
-                    systemUsec: protoStats.cpu.systemUsec,
-                    throttlingPeriods: protoStats.cpu.throttlingPeriods,
-                    throttledPeriods: protoStats.cpu.throttledPeriods,
-                    throttledTimeUsec: protoStats.cpu.throttledTimeUsec
-                ),
-                blockIO: .init(
-                    devices: protoStats.blockIo.devices.map { device in
-                        .init(
-                            major: device.major,
-                            minor: device.minor,
-                            readBytes: device.readBytes,
-                            writeBytes: device.writeBytes,
-                            readOperations: device.readOperations,
-                            writeOperations: device.writeOperations
+                process: categories.contains(.process) && protoStats.hasProcess
+                    ? .init(
+                        current: protoStats.process.current,
+                        limit: protoStats.process.limit
+                    ) : nil,
+                memory: categories.contains(.memory) && protoStats.hasMemory
+                    ? .init(
+                        usageBytes: protoStats.memory.usageBytes,
+                        limitBytes: protoStats.memory.limitBytes,
+                        swapUsageBytes: protoStats.memory.swapUsageBytes,
+                        swapLimitBytes: protoStats.memory.swapLimitBytes,
+                        cacheBytes: protoStats.memory.cacheBytes,
+                        kernelStackBytes: protoStats.memory.kernelStackBytes,
+                        slabBytes: protoStats.memory.slabBytes,
+                        pageFaults: protoStats.memory.pageFaults,
+                        majorPageFaults: protoStats.memory.majorPageFaults
+                    ) : nil,
+                cpu: categories.contains(.cpu) && protoStats.hasCpu
+                    ? .init(
+                        usageUsec: protoStats.cpu.usageUsec,
+                        userUsec: protoStats.cpu.userUsec,
+                        systemUsec: protoStats.cpu.systemUsec,
+                        throttlingPeriods: protoStats.cpu.throttlingPeriods,
+                        throttledPeriods: protoStats.cpu.throttledPeriods,
+                        throttledTimeUsec: protoStats.cpu.throttledTimeUsec
+                    ) : nil,
+                blockIO: categories.contains(.blockIO) && protoStats.hasBlockIo
+                    ? .init(
+                        devices: protoStats.blockIo.devices.map { device in
+                            .init(
+                                major: device.major,
+                                minor: device.minor,
+                                readBytes: device.readBytes,
+                                writeBytes: device.writeBytes,
+                                readOperations: device.readOperations,
+                                writeOperations: device.writeOperations
+                            )
+                        }
+                    ) : nil,
+                networks: categories.contains(.network)
+                    ? protoStats.networks.map { network in
+                        ContainerStatistics.NetworkStatistics(
+                            interface: network.interface,
+                            receivedPackets: network.receivedPackets,
+                            transmittedPackets: network.transmittedPackets,
+                            receivedBytes: network.receivedBytes,
+                            transmittedBytes: network.transmittedBytes,
+                            receivedErrors: network.receivedErrors,
+                            transmittedErrors: network.transmittedErrors
                         )
-                    }
-                ),
-                networks: protoStats.networks.map { network in
-                    ContainerStatistics.NetworkStatistics(
-                        interface: network.interface,
-                        receivedPackets: network.receivedPackets,
-                        transmittedPackets: network.transmittedPackets,
-                        receivedBytes: network.receivedBytes,
-                        transmittedBytes: network.transmittedBytes,
-                        receivedErrors: network.receivedErrors,
-                        transmittedErrors: network.transmittedErrors
-                    )
-                }
+                    } : nil,
+                memoryEvents: categories.contains(.memoryEvents) && protoStats.hasMemoryEvents
+                    ? .init(
+                        low: protoStats.memoryEvents.low,
+                        high: protoStats.memoryEvents.high,
+                        max: protoStats.memoryEvents.max,
+                        oom: protoStats.memoryEvents.oom,
+                        oomKill: protoStats.memoryEvents.oomKill
+                    ) : nil
             )
         }
     }
@@ -535,5 +549,31 @@ extension Vminitd.Client {
 
     public func close() async throws {
         try await self.channel.close().get()
+    }
+}
+
+extension StatCategory {
+    /// Convert StatCategory to proto enum values.
+    func toProtoCategories() -> [Com_Apple_Containerization_Sandbox_V3_StatCategory] {
+        var categories: [Com_Apple_Containerization_Sandbox_V3_StatCategory] = []
+        if contains(.process) {
+            categories.append(.process)
+        }
+        if contains(.memory) {
+            categories.append(.memory)
+        }
+        if contains(.cpu) {
+            categories.append(.cpu)
+        }
+        if contains(.blockIO) {
+            categories.append(.blockIo)
+        }
+        if contains(.network) {
+            categories.append(.network)
+        }
+        if contains(.memoryEvents) {
+            categories.append(.memoryEvents)
+        }
+        return categories
     }
 }
