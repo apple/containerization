@@ -48,6 +48,9 @@ service SandboxContext {
   // Get statistics for containers.
   rpc ContainerStatistics(ContainerStatisticsRequest) returns (ContainerStatisticsResponse);
 
+  // Get memory events for a container (OOM kills, memory pressure, etc.).
+  rpc GetMemoryEvents(GetMemoryEventsRequest) returns (GetMemoryEventsResponse);
+
   // Proxy a vsock port to a unix domain socket in the guest, or vice versa.
   rpc ProxyVsock(ProxyVsockRequest) returns (ProxyVsockResponse);
   // Stop a vsock proxy to a unix domain socket.
@@ -395,4 +398,23 @@ message NetworkStats {
   uint64 transmittedBytes = 5;
   uint64 receivedErrors = 6;
   uint64 transmittedErrors = 7;
+}
+
+message GetMemoryEventsRequest {
+  string container_id = 1;
+}
+
+message GetMemoryEventsResponse {
+  // Number of times the cgroup was reclaimed due to low memory.
+  uint64 low = 1;
+  // Number of times the cgroup exceeded its high memory limit.
+  uint64 high = 2;
+  // Number of times the cgroup hit its max memory limit.
+  uint64 max = 3;
+  // Number of times the cgroup triggered OOM.
+  uint64 oom = 4;
+  // Number of processes killed by OOM killer.
+  uint64 oom_kill = 5;
+  // Number of times charge for memory failed because of limit.
+  uint64 oom_group_kill = 6;
 }

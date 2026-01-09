@@ -903,6 +903,58 @@ extension IntegrationSuite {
         }
     }
 
+    func testMemoryEventsOOMKill() async throws {
+        let id = "test-memory-events-oom-kill"
+
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "infinity"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Run a process that will exceed the memory limit and get OOM-killed
+            let exec = try await container.exec("oom-trigger") { config in
+                // First set a 2MB memory limit on the container's cgroup, then allocate more
+                config.arguments = [
+                    "sh",
+                    "-c",
+                    "echo 2097152 > /sys/fs/cgroup/memory.max && dd if=/dev/zero of=/dev/null bs=100M",
+                ]
+            }
+
+            try await exec.start()
+            let status = try await exec.wait()
+            if status.exitCode == 0 {
+                throw IntegrationError.assert(msg: "expected exit code > 0")
+            }
+            try await exec.delete()
+
+            let events = try await container.memoryEvents()
+
+            print("Memory events for container \(id):")
+            print("  low: \(events.low)")
+            print("  high: \(events.high)")
+            print("  max: \(events.max)")
+            print("  oom: \(events.oom)")
+            print("  oomKill: \(events.oomKill)")
+
+            guard events.oomKill > 0 else {
+                throw IntegrationError.assert(msg: "expected oomKill > 0, got \(events.oomKill)")
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
     func testNoSerialConsole() async throws {
         let id = "test-no-serial-console"
 

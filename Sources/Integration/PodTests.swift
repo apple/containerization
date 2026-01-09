@@ -356,6 +356,61 @@ extension IntegrationSuite {
         }
     }
 
+    func testPodMemoryEventsOOMKill() async throws {
+        let id = "test-pod-memory-events-oom-kill"
+
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
+            config.process.arguments = ["/bin/sleep", "infinity"]
+        }
+
+        do {
+            try await pod.create()
+            try await pod.startContainer("container1")
+
+            let exec = try await pod.execInContainer("container1", processID: "oom-trigger") { config in
+                config.arguments = [
+                    "sh",
+                    "-c",
+                    "echo 2097152 > /sys/fs/cgroup/memory.max && dd if=/dev/zero of=/dev/null bs=100M",
+                ]
+            }
+
+            try await exec.start()
+            let status = try await exec.wait()
+            if status.exitCode == 0 {
+                throw IntegrationError.assert(msg: "expected exit code > 0")
+            }
+            try await exec.delete()
+
+            let events = try await pod.memoryEvents(containerID: "container1")
+
+            print("Memory events for pod container container1:")
+            print("  low: \(events.low)")
+            print("  high: \(events.high)")
+            print("  max: \(events.max)")
+            print("  oom: \(events.oom)")
+            print("  oomKill: \(events.oomKill)")
+
+            guard events.oomKill > 0 else {
+                throw IntegrationError.assert(msg: "expected oomKill > 0, got \(events.oomKill)")
+            }
+
+            try await pod.killContainer("container1", signal: SIGKILL)
+            try await pod.waitContainer("container1")
+            try await pod.stop()
+        } catch {
+            try? await pod.stop()
+            throw error
+        }
+    }
+
     func testPodContainerResourceLimits() async throws {
         let id = "test-pod-container-resource-limits"
 

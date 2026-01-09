@@ -129,6 +129,11 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtoc
     callOptions: CallOptions?
   ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest, Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsResponse>
 
+  func getMemoryEvents(
+    _ request: Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsRequest,
+    callOptions: CallOptions?
+  ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsRequest, Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsResponse>
+
   func proxyVsock(
     _ request: Com_Apple_Containerization_Sandbox_V3_ProxyVsockRequest,
     callOptions: CallOptions?
@@ -531,6 +536,24 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtocol {
     )
   }
 
+  /// Get memory events for a container (OOM kills, memory pressure, etc.).
+  ///
+  /// - Parameters:
+  ///   - request: Request to send to GetMemoryEvents.
+  ///   - callOptions: Call options.
+  /// - Returns: A `UnaryCall` with futures for the metadata, status and response.
+  public func getMemoryEvents(
+    _ request: Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsRequest,
+    callOptions: CallOptions? = nil
+  ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsRequest, Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsResponse> {
+    return self.makeUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.getMemoryEvents.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeGetMemoryEventsInterceptors() ?? []
+    )
+  }
+
   /// Proxy a vsock port to a unix domain socket in the guest, or vice versa.
   ///
   /// - Parameters:
@@ -869,6 +892,11 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientP
     callOptions: CallOptions?
   ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest, Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsResponse>
 
+  func makeGetMemoryEventsCall(
+    _ request: Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsRequest,
+    callOptions: CallOptions?
+  ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsRequest, Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsResponse>
+
   func makeProxyVsockCall(
     _ request: Com_Apple_Containerization_Sandbox_V3_ProxyVsockRequest,
     callOptions: CallOptions?
@@ -1153,6 +1181,18 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientProtoco
       request: request,
       callOptions: callOptions ?? self.defaultCallOptions,
       interceptors: self.interceptors?.makeContainerStatisticsInterceptors() ?? []
+    )
+  }
+
+  public func makeGetMemoryEventsCall(
+    _ request: Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsRequest,
+    callOptions: CallOptions? = nil
+  ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsRequest, Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsResponse> {
+    return self.makeAsyncUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.getMemoryEvents.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeGetMemoryEventsInterceptors() ?? []
     )
   }
 
@@ -1519,6 +1559,18 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientProtoco
     )
   }
 
+  public func getMemoryEvents(
+    _ request: Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsRequest,
+    callOptions: CallOptions? = nil
+  ) async throws -> Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsResponse {
+    return try await self.performAsyncUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.getMemoryEvents.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeGetMemoryEventsInterceptors() ?? []
+    )
+  }
+
   public func proxyVsock(
     _ request: Com_Apple_Containerization_Sandbox_V3_ProxyVsockRequest,
     callOptions: CallOptions? = nil
@@ -1716,6 +1768,9 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextClientInterc
   /// - Returns: Interceptors to use when invoking 'containerStatistics'.
   func makeContainerStatisticsInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest, Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsResponse>]
 
+  /// - Returns: Interceptors to use when invoking 'getMemoryEvents'.
+  func makeGetMemoryEventsInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsRequest, Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsResponse>]
+
   /// - Returns: Interceptors to use when invoking 'proxyVsock'.
   func makeProxyVsockInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_ProxyVsockRequest, Com_Apple_Containerization_Sandbox_V3_ProxyVsockResponse>]
 
@@ -1771,6 +1826,7 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.resizeProcess,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.closeProcessStdin,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.containerStatistics,
+      Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.getMemoryEvents,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.proxyVsock,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.stopVsockProxy,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.ipLinkSet,
@@ -1899,6 +1955,12 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
       type: GRPCCallType.unary
     )
 
+    public static let getMemoryEvents = GRPCMethodDescriptor(
+      name: "GetMemoryEvents",
+      path: "/com.apple.containerization.sandbox.v3.SandboxContext/GetMemoryEvents",
+      type: GRPCCallType.unary
+    )
+
     public static let proxyVsock = GRPCMethodDescriptor(
       name: "ProxyVsock",
       path: "/com.apple.containerization.sandbox.v3.SandboxContext/ProxyVsock",
@@ -2024,6 +2086,9 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider: Ca
 
   /// Get statistics for containers.
   func containerStatistics(request: Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsResponse>
+
+  /// Get memory events for a container (OOM kills, memory pressure, etc.).
+  func getMemoryEvents(request: Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsResponse>
 
   /// Proxy a vsock port to a unix domain socket in the guest, or vice versa.
   func proxyVsock(request: Com_Apple_Containerization_Sandbox_V3_ProxyVsockRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_ProxyVsockResponse>
@@ -2237,6 +2302,15 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider {
         responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsResponse>(),
         interceptors: self.interceptors?.makeContainerStatisticsInterceptors() ?? [],
         userFunction: self.containerStatistics(request:context:)
+      )
+
+    case "GetMemoryEvents":
+      return UnaryServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsRequest>(),
+        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsResponse>(),
+        interceptors: self.interceptors?.makeGetMemoryEventsInterceptors() ?? [],
+        userFunction: self.getMemoryEvents(request:context:)
       )
 
     case "ProxyVsock":
@@ -2458,6 +2532,12 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvide
     request: Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest,
     context: GRPCAsyncServerCallContext
   ) async throws -> Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsResponse
+
+  /// Get memory events for a container (OOM kills, memory pressure, etc.).
+  func getMemoryEvents(
+    request: Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsRequest,
+    context: GRPCAsyncServerCallContext
+  ) async throws -> Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsResponse
 
   /// Proxy a vsock port to a unix domain socket in the guest, or vice versa.
   func proxyVsock(
@@ -2710,6 +2790,15 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvider {
         wrapping: { try await self.containerStatistics(request: $0, context: $1) }
       )
 
+    case "GetMemoryEvents":
+      return GRPCAsyncServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsRequest>(),
+        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsResponse>(),
+        interceptors: self.interceptors?.makeGetMemoryEventsInterceptors() ?? [],
+        wrapping: { try await self.getMemoryEvents(request: $0, context: $1) }
+      )
+
     case "ProxyVsock":
       return GRPCAsyncServerHandler(
         context: context,
@@ -2884,6 +2973,10 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextServerInterc
   ///   Defaults to calling `self.makeInterceptors()`.
   func makeContainerStatisticsInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest, Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsResponse>]
 
+  /// - Returns: Interceptors to use when handling 'getMemoryEvents'.
+  ///   Defaults to calling `self.makeInterceptors()`.
+  func makeGetMemoryEventsInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsRequest, Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsResponse>]
+
   /// - Returns: Interceptors to use when handling 'proxyVsock'.
   ///   Defaults to calling `self.makeInterceptors()`.
   func makeProxyVsockInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_ProxyVsockRequest, Com_Apple_Containerization_Sandbox_V3_ProxyVsockResponse>]
@@ -2949,6 +3042,7 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.resizeProcess,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.closeProcessStdin,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.containerStatistics,
+      Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.getMemoryEvents,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.proxyVsock,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.stopVsockProxy,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.ipLinkSet,
@@ -3074,6 +3168,12 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
     public static let containerStatistics = GRPCMethodDescriptor(
       name: "ContainerStatistics",
       path: "/com.apple.containerization.sandbox.v3.SandboxContext/ContainerStatistics",
+      type: GRPCCallType.unary
+    )
+
+    public static let getMemoryEvents = GRPCMethodDescriptor(
+      name: "GetMemoryEvents",
+      path: "/com.apple.containerization.sandbox.v3.SandboxContext/GetMemoryEvents",
       type: GRPCCallType.unary
     )
 

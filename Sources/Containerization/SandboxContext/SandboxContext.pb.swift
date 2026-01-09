@@ -1347,6 +1347,46 @@ public struct Com_Apple_Containerization_Sandbox_V3_NetworkStats: Sendable {
   public init() {}
 }
 
+public struct Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var containerID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public struct Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// Number of times the cgroup was reclaimed due to low memory.
+  public var low: UInt64 = 0
+
+  /// Number of times the cgroup exceeded its high memory limit.
+  public var high: UInt64 = 0
+
+  /// Number of times the cgroup hit its max memory limit.
+  public var max: UInt64 = 0
+
+  /// Number of times the cgroup triggered OOM.
+  public var oom: UInt64 = 0
+
+  /// Number of processes killed by OOM killer.
+  public var oomKill: UInt64 = 0
+
+  /// Number of times charge for memory failed because of limit.
+  public var oomGroupKill: UInt64 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
 fileprivate let _protobuf_package = "com.apple.containerization.sandbox.v3"
@@ -4012,6 +4052,100 @@ extension Com_Apple_Containerization_Sandbox_V3_NetworkStats: SwiftProtobuf.Mess
     if lhs.transmittedBytes != rhs.transmittedBytes {return false}
     if lhs.receivedErrors != rhs.receivedErrors {return false}
     if lhs.transmittedErrors != rhs.transmittedErrors {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GetMemoryEventsRequest"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .standard(proto: "container_id"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.containerID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.containerID.isEmpty {
+      try visitor.visitSingularStringField(value: self.containerID, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsRequest, rhs: Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsRequest) -> Bool {
+    if lhs.containerID != rhs.containerID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GetMemoryEventsResponse"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "low"),
+    2: .same(proto: "high"),
+    3: .same(proto: "max"),
+    4: .same(proto: "oom"),
+    5: .standard(proto: "oom_kill"),
+    6: .standard(proto: "oom_group_kill"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt64Field(value: &self.low) }()
+      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.high) }()
+      case 3: try { try decoder.decodeSingularUInt64Field(value: &self.max) }()
+      case 4: try { try decoder.decodeSingularUInt64Field(value: &self.oom) }()
+      case 5: try { try decoder.decodeSingularUInt64Field(value: &self.oomKill) }()
+      case 6: try { try decoder.decodeSingularUInt64Field(value: &self.oomGroupKill) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.low != 0 {
+      try visitor.visitSingularUInt64Field(value: self.low, fieldNumber: 1)
+    }
+    if self.high != 0 {
+      try visitor.visitSingularUInt64Field(value: self.high, fieldNumber: 2)
+    }
+    if self.max != 0 {
+      try visitor.visitSingularUInt64Field(value: self.max, fieldNumber: 3)
+    }
+    if self.oom != 0 {
+      try visitor.visitSingularUInt64Field(value: self.oom, fieldNumber: 4)
+    }
+    if self.oomKill != 0 {
+      try visitor.visitSingularUInt64Field(value: self.oomKill, fieldNumber: 5)
+    }
+    if self.oomGroupKill != 0 {
+      try visitor.visitSingularUInt64Field(value: self.oomGroupKill, fieldNumber: 6)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsResponse, rhs: Com_Apple_Containerization_Sandbox_V3_GetMemoryEventsResponse) -> Bool {
+    if lhs.low != rhs.low {return false}
+    if lhs.high != rhs.high {return false}
+    if lhs.max != rhs.max {return false}
+    if lhs.oom != rhs.oom {return false}
+    if lhs.oomKill != rhs.oomKill {return false}
+    if lhs.oomGroupKill != rhs.oomGroupKill {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
