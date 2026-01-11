@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,8 +18,8 @@ import ContainerizationExtras
 import ContainerizationOS
 import Logging
 
-/// `NetlinkSession` facilitates interacting with netlink via a provided `NetlinkSocket`. This is the
-/// core high-level type offered to perform actions to the netlink surface in the kernel.
+/// `NetlinkSession` facilitates interacting with netlink via a provided `NetlinkSocket`. This is
+/// the core high-level type offered to perform actions to the netlink surface in the kernel.
 public struct NetlinkSession {
     private static let receiveDataLength = 65536
     private static let mtu: UInt32 = 1280

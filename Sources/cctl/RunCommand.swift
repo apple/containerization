@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -62,6 +62,9 @@ extension Application {
         @Option(name: .long, help: "Path to OCI runtime to use for spawning the container")
         var ociRuntimePath: String?
 
+        @Flag(name: .long, help: "Make rootfs readonly")
+        var readOnly: Bool = false
+
         @Option(
             name: [.customLong("kernel"), .customShort("k")], help: "Kernel binary path", completion: .file(),
             transform: { str in
@@ -94,7 +97,8 @@ extension Application {
             let container = try await manager.create(
                 id,
                 reference: imageReference,
-                rootfsSizeInBytes: fsSizeInMB.mib()
+                rootfsSizeInBytes: fsSizeInMB.mib(),
+                readOnly: readOnly
             ) { config in
                 config.cpus = cpus
                 config.memoryInBytes = memory.mib()

@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-public struct IPAddressError: Error, Equatable, Hashable, CustomStringConvertible {
+public struct AddressError: Error, Equatable, Hashable, CustomStringConvertible {
     public var description: String {
         String(describing: self.base)
     }

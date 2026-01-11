@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -93,7 +93,7 @@ public struct ContainerManager: Sendable {
         public struct Interface: Containerization.Interface, VZInterface, Sendable {
             public let ipv4Address: CIDRv4
             public let ipv4Gateway: IPv4Address?
-            public let macAddress: String?
+            public let macAddress: MACAddress?
 
             // `reference` isn't used concurrently.
             nonisolated(unsafe) private let reference: vmnet_network_ref
@@ -102,7 +102,7 @@ public struct ContainerManager: Sendable {
                 reference: vmnet_network_ref,
                 ipv4Address: CIDRv4,
                 ipv4Gateway: IPv4Address,
-                macAddress: String? = nil
+                macAddress: MACAddress? = nil
             ) {
                 self.ipv4Address = ipv4Address
                 self.ipv4Gateway = ipv4Gateway
@@ -114,7 +114,7 @@ public struct ContainerManager: Sendable {
             public func device() throws -> VZVirtioNetworkDeviceConfiguration {
                 let config = VZVirtioNetworkDeviceConfiguration()
                 if let macAddress = self.macAddress {
-                    guard let mac = VZMACAddress(string: macAddress) else {
+                    guard let mac = VZMACAddress(string: macAddress.description) else {
                         throw ContainerizationError(.invalidArgument, message: "invalid mac address \(macAddress)")
                     }
                     config.macAddress = mac
@@ -352,10 +352,12 @@ public struct ContainerManager: Sendable {
     ///   - id: The container ID.
     ///   - reference: The image reference.
     ///   - rootfsSizeInBytes: The size of the root filesystem in bytes. Defaults to 8 GiB.
+    ///   - readOnly: Whether to mount the root filesystem as read-only.
     public mutating func create(
         _ id: String,
         reference: String,
         rootfsSizeInBytes: UInt64 = 8.gib(),
+        readOnly: Bool = false,
         configuration: (inout LinuxContainer.Configuration) throws -> Void
     ) async throws -> LinuxContainer {
         let image = try await imageStore.get(reference: reference, pull: true)
@@ -363,6 +365,7 @@ public struct ContainerManager: Sendable {
             id,
             image: image,
             rootfsSizeInBytes: rootfsSizeInBytes,
+            readOnly: readOnly,
             configuration: configuration
         )
     }
@@ -372,19 +375,24 @@ public struct ContainerManager: Sendable {
     ///   - id: The container ID.
     ///   - image: The image.
     ///   - rootfsSizeInBytes: The size of the root filesystem in bytes. Defaults to 8 GiB.
+    ///   - readOnly: Whether to mount the root filesystem as read-only.
     public mutating func create(
         _ id: String,
         image: Image,
         rootfsSizeInBytes: UInt64 = 8.gib(),
+        readOnly: Bool = false,
         configuration: (inout LinuxContainer.Configuration) throws -> Void
     ) async throws -> LinuxContainer {
         let path = try createContainerRoot(id)
 
-        let rootfs = try await unpack(
+        var rootfs = try await unpack(
             image: image,
             destination: path.appendingPathComponent("rootfs.ext4"),
             size: rootfsSizeInBytes
         )
+        if readOnly {
+            rootfs.options.append("ro")
+        }
         return try await create(
             id,
             image: image,

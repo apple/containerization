@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -305,6 +305,12 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("container capabilities OCI default", testCapabilitiesOCIDefault),
             Test("container capabilities all capabilities", testCapabilitiesAllCapabilities),
             Test("container capabilities file ownership", testCapabilitiesFileOwnership),
+            Test("container copy in", testCopyIn),
+            Test("container copy out", testCopyOut),
+            Test("container copy large file", testCopyLargeFile),
+            Test("container read-only rootfs", testReadOnlyRootfs),
+            Test("container read-only rootfs hosts file", testReadOnlyRootfsHostsFileWritten),
+            Test("container read-only rootfs DNS", testReadOnlyRootfsDNSConfigured),
 
             // Pods
             Test("pod single container", testPodSingleContainer),
@@ -321,6 +327,8 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("pod container PID namespace isolation", testPodContainerPIDNamespaceIsolation),
             Test("pod container independent resource limits", testPodContainerIndependentResourceLimits),
             Test("pod shared PID namespace", testPodSharedPIDNamespace),
+            Test("pod read-only rootfs", testPodReadOnlyRootfs),
+            Test("pod read-only rootfs DNS", testPodReadOnlyRootfsDNSConfigured),
         ]
 
         let passed: Atomic<Int> = Atomic(0)

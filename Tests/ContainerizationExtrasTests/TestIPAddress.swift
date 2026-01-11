@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -171,5 +171,67 @@ struct IPAddressTests {
         #expect(dict[ip1] == "IPv4")
         #expect(dict[ip2] == "IPv6")
         #expect(dict.count == 2)
+    }
+
+    @Test(
+        "Codable encodes to string representation",
+        arguments: [
+            "127.0.0.1",
+            "192.168.1.1",
+            "0.0.0.0",
+            "255.255.255.255",
+        ]
+    )
+    func testCodableEncodeIPv4(address: String) throws {
+        let original = try IPAddress(address)
+        let encoded = try JSONEncoder().encode(original)
+        #expect(String(data: encoded, encoding: .utf8) == "\"\(address)\"")
+    }
+
+    @Test(
+        "Codable decodes from string representation",
+        arguments: [
+            "127.0.0.1",
+            "192.168.1.1",
+            "0.0.0.0",
+            "255.255.255.255",
+        ]
+    )
+    func testCodableDecodeIPv4(address: String) throws {
+        let json = Data("\"\(address)\"".utf8)
+        let decoded = try JSONDecoder().decode(IPAddress.self, from: json)
+        let expected = try IPAddress(address)
+        #expect(decoded == expected)
+    }
+
+    @Test(
+        "Codable encodes to string representation",
+        arguments: [
+            ("::1", "::1"),
+            ("2001:db8::1", "2001:db8::1"),
+            ("::", "::"),
+            ("fe80::1", "fe80::1"),
+        ]
+    )
+    func testCodableEncodeIPv6(input: String, expected: String) throws {
+        let original = try IPAddress(input)
+        let encoded = try JSONEncoder().encode(original)
+        #expect(String(data: encoded, encoding: .utf8) == "\"\(expected)\"")
+    }
+
+    @Test(
+        "Codable decodes from string representation",
+        arguments: [
+            "::1",
+            "2001:db8::1",
+            "::",
+            "fe80::1",
+        ]
+    )
+    func testCodableDecodeIPv6(address: String) throws {
+        let json = Data("\"\(address)\"".utf8)
+        let decoded = try JSONDecoder().decode(IPAddress.self, from: json)
+        let expected = try IPAddress(address)
+        #expect(decoded == expected)
     }
 }

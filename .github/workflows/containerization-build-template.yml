@@ -29,7 +29,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6 
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6
         with:
           fetch-depth: 0
 
@@ -51,15 +51,19 @@ jobs:
           if ! git diff --quiet ; then echo the following files require formatting or license headers: ; git diff --name-only ; false ; fi
 
       - name: Make containerization and docs
-        run: | 
+        run: |
           make clean containerization docs
           tar cfz _site.tgz _site
+        env:
+          BUILD_CONFIGURATION: ${{ inputs.release && 'release' || 'debug' }}
 
       - name: Make vminitd image
-        run: | 
+        run: |
           source /opt/swiftly/env.sh
           make -C vminitd swift linux-sdk
           make init
+        env:
+          BUILD_CONFIGURATION: ${{ inputs.release && 'release' || 'debug' }}
 
       - name: Test containerization
         run: | 

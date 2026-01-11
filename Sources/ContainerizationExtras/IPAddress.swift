@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ public enum IPAddress: Sendable, Hashable, CustomStringConvertible, Equatable {
     ///
     /// - Parameter string: IP address string to parse
     /// - Returns: An `IPAddress` containing either an IPv4 or IPv6 address
-    /// - Throws: `IPAddressError.unableToParse` if invalid
+    /// - Throws: `AddressError.unableToParse` if invalid
     public init(_ string: String) throws {
         let utf8 = string.utf8
         var hasColon = false
@@ -50,7 +50,7 @@ public enum IPAddress: Sendable, Hashable, CustomStringConvertible, Equatable {
             let ipv4 = try IPv4Address(string)
             self = .v4(ipv4)
         } else {
-            throw IPAddressError.unableToParse
+            throw AddressError.unableToParse
         }
     }
 
@@ -131,5 +131,18 @@ public enum IPAddress: Sendable, Hashable, CustomStringConvertible, Equatable {
         case .v6(let addr):
             return addr.isUnspecified
         }
+    }
+}
+
+extension IPAddress: Codable {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let string = try container.decode(String.self)
+        try self.init(string)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(description)
     }
 }

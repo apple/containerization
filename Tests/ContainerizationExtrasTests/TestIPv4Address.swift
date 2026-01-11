@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -81,7 +81,7 @@ struct IPv4AddressTests {
             ]
         )
         func testStringInitializerInvalid(invalidAddress: String) {
-            #expect(throws: IPAddressError.self) {
+            #expect(throws: AddressError.self) {
                 try IPv4Address(invalidAddress)
             }
         }
@@ -196,6 +196,37 @@ struct IPv4AddressTests {
                 #expect(taskAddress.value == 0x7F00_0001)
             }
         }
+
+        @Test(
+            "Codable encodes to string representation",
+            arguments: [
+                "127.0.0.1",
+                "192.168.1.1",
+                "0.0.0.0",
+                "255.255.255.255",
+            ]
+        )
+        func testCodableEncode(address: String) throws {
+            let original = try IPv4Address(address)
+            let encoded = try JSONEncoder().encode(original)
+            #expect(String(data: encoded, encoding: .utf8) == "\"\(address)\"")
+        }
+
+        @Test(
+            "Codable decodes from string representation",
+            arguments: [
+                "127.0.0.1",
+                "192.168.1.1",
+                "0.0.0.0",
+                "255.255.255.255",
+            ]
+        )
+        func testCodableDecode(address: String) throws {
+            let json = Data("\"\(address)\"".utf8)
+            let decoded = try JSONDecoder().decode(IPv4Address.self, from: json)
+            let expected = try IPv4Address(address)
+            #expect(decoded == expected)
+        }
     }
 
     // MARK: - Edge Cases and Error Conditions
@@ -247,7 +278,7 @@ struct IPv4AddressTests {
             ]
         )
         func testLeadingZeroValidationInvalid(invalidAddress: String) {
-            #expect(throws: IPAddressError.self) {
+            #expect(throws: AddressError.self) {
                 try IPv4Address(invalidAddress)
             }
         }
@@ -267,7 +298,7 @@ struct IPv4AddressTests {
             ]
         )
         func testStringLengthValidationTooShort(shortString: String) {
-            #expect(throws: IPAddressError.self) {
+            #expect(throws: AddressError.self) {
                 try IPv4Address(shortString)
             }
         }
@@ -283,7 +314,7 @@ struct IPv4AddressTests {
             ]
         )
         func testStringLengthValidationTooLong(longString: String) {
-            #expect(throws: IPAddressError.self) {
+            #expect(throws: AddressError.self) {
                 try IPv4Address(longString)
             }
         }
@@ -421,42 +452,11 @@ struct IPv4AddressTests {
             do {
                 _ = try IPv4Address(invalidInput)
                 #expect(Bool(false), "Should have thrown for input: \(invalidInput)")
-            } catch let error as IPAddressError {
-                #expect(error == IPAddressError.unableToParse)
+            } catch let error as AddressError {
+                #expect(error == AddressError.unableToParse)
             } catch {
-                #expect(Bool(false), "Should have thrown IPAddressError, got: \(error)")
+                #expect(Bool(false), "Should have thrown AddressError, got: \(error)")
             }
-        }
-
-        @Test(
-            "Codable encodes to string representation",
-            arguments: [
-                "127.0.0.1",
-                "192.168.1.1",
-                "0.0.0.0",
-                "255.255.255.255",
-            ]
-        )
-        func testCodableEncode(address: String) throws {
-            let original = try IPv4Address(address)
-            let encoded = try JSONEncoder().encode(original)
-            #expect(String(data: encoded, encoding: .utf8) == "\"\(address)\"")
-        }
-
-        @Test(
-            "Codable decodes from string representation",
-            arguments: [
-                "127.0.0.1",
-                "192.168.1.1",
-                "0.0.0.0",
-                "255.255.255.255",
-            ]
-        )
-        func testCodableDecode(address: String) throws {
-            let json = Data("\"\(address)\"".utf8)
-            let decoded = try JSONDecoder().decode(IPv4Address.self, from: json)
-            let expected = try IPv4Address(address)
-            #expect(decoded == expected)
         }
     }
 }

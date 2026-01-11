@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -34,9 +34,6 @@ struct RunCommand: ParsableCommand {
 
     mutating func run() throws {
         do {
-            LoggingSystem.bootstrap(App.standardError)
-            let log = Logger(label: "vmexec")
-
             let spec: ContainerizationOCI.Spec
             do {
                 let bundle = try ContainerizationOCI.Bundle.load(path: URL(filePath: bundlePath))
@@ -44,28 +41,52 @@ struct RunCommand: ParsableCommand {
             } catch {
                 throw App.Failure(message: "failed to load OCI bundle at \(bundlePath): \(error)")
             }
-            try execInNamespace(spec: spec, log: log)
+            try execInNamespace(spec: spec)
         } catch {
             App.writeError(error)
             throw error
         }
     }
 
-    private func childRootSetup(rootfs: ContainerizationOCI.Root, mounts: [ContainerizationOCI.Mount], log: Logger) throws {
+    private func childRootSetup(rootfs: ContainerizationOCI.Root, mounts: [ContainerizationOCI.Mount]) throws {
         // setup rootfs
         try prepareRoot(rootfs: rootfs.path)
         try mountRootfs(rootfs: rootfs.path, mounts: mounts)
         try setDevSymlinks(rootfs: rootfs.path)
 
         try pivotRoot(rootfs: rootfs.path)
+
+        // Remount ro if requested.
+        if rootfs.readonly {
+            try self.remountRootfsReadOnly()
+        }
+
         try reOpenDevNull()
+    }
+
+    private func remountRootfsReadOnly() throws {
+        var flags = UInt(MS_BIND | MS_REMOUNT | MS_RDONLY)
+
+        let ret = mount("", "/", "", flags, "")
+        if ret == 0 {
+            return
+        }
+
+        var s = statfs()
+        guard statfs("/", &s) == 0 else {
+            throw App.Errno(stage: "statfs(/)")
+        }
+        flags |= s.f_flags
+
+        guard mount("", "/", "", flags, "") == 0 else {
+            throw App.Errno(stage: "mount rootfs ro")
+        }
     }
 
     private func childSetup(
         spec: ContainerizationOCI.Spec,
         ackPipe: FileHandle,
         syncPipe: FileHandle,
-        log: Logger
     ) throws {
         guard let process = spec.process else {
             throw App.Failure(message: "no process configuration found in runtime spec")
@@ -94,7 +115,7 @@ struct RunCommand: ParsableCommand {
             throw App.Errno(stage: "setsid()")
         }
 
-        try childRootSetup(rootfs: root, mounts: spec.mounts, log: log)
+        try childRootSetup(rootfs: root, mounts: spec.mounts)
 
         if process.terminal {
             let pty = try Console()
@@ -198,7 +219,7 @@ struct RunCommand: ParsableCommand {
         return unshareFlags
     }
 
-    private func execInNamespace(spec: ContainerizationOCI.Spec, log: Logger) throws {
+    private func execInNamespace(spec: ContainerizationOCI.Spec) throws {
         let syncPipe = FileHandle(fileDescriptor: 3)
         let ackPipe = FileHandle(fileDescriptor: 4)
 
@@ -216,7 +237,7 @@ struct RunCommand: ParsableCommand {
         }
 
         if processID == 0 {  // child
-            try childSetup(spec: spec, ackPipe: ackPipe, syncPipe: syncPipe, log: log)
+            try childSetup(spec: spec, ackPipe: ackPipe, syncPipe: syncPipe)
         } else {  // parent process
             // Setup cgroup before child enters cgroup namespace
             if let linux = spec.linux {

@@ -24,6 +24,10 @@ service SandboxContext {
   rpc SetupEmulator(SetupEmulatorRequest) returns (SetupEmulatorResponse);
   // Write data to an existing or new file.
   rpc WriteFile(WriteFileRequest) returns (WriteFileResponse);
+  // Copy a file from the host into the guest.
+  rpc CopyIn(stream CopyInChunk) returns (CopyInResponse);
+  // Copy a file from the guest to the host.
+  rpc CopyOut(CopyOutRequest) returns (stream CopyOutChunk);
 
   // Create a new process inside the container.
   rpc CreateProcess(CreateProcessRequest) returns (CreateProcessResponse);
@@ -224,6 +228,45 @@ message WriteFileRequest {
 }
 
 message WriteFileResponse {}
+
+message CopyInChunk {
+  oneof content {
+    // Initialization message (must be first).
+    CopyInInit init = 1;
+    // File data chunk.
+    bytes data = 2;
+  }
+}
+
+message CopyInInit {
+  // Destination path in the guest.
+  string path = 1;
+  // File mode (defaults to 0644 if not set).
+  uint32 mode = 2;
+  // Create parent directories if they don't exist.
+  bool create_parents = 3;
+}
+
+message CopyInResponse {}
+
+message CopyOutRequest {
+  // Source path in the guest.
+  string path = 1;
+}
+
+message CopyOutChunk {
+  oneof content {
+    // Initialization message with metadata (first chunk).
+    CopyOutInit init = 1;
+    // File data chunk.
+    bytes data = 2;
+  }
+}
+
+message CopyOutInit {
+  // Total file size in bytes.
+  uint64 total_size = 1;
+}
 
 message IpLinkSetRequest {
   string interface = 1;

@@ -1,6 +1,6 @@
 // swift-tools-version: 6.2
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -29,7 +29,6 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.0.0"),
-        .package(url: "https://github.com/apple/swift-nio", from: "2.80.0"),
         .package(name: "containerization", path: "../"),
     ],
     targets: [
@@ -48,7 +47,6 @@ let package = Package(
             name: "vminitd",
             dependencies: [
                 .product(name: "Logging", package: "swift-log"),
-                .product(name: "_NIOFileSystem", package: "swift-nio"),
                 .product(name: "Containerization", package: "containerization"),
                 .product(name: "ContainerizationNetlink", package: "containerization"),
                 .product(name: "ContainerizationIO", package: "containerization"),
