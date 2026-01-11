@@ -51,6 +51,7 @@ let package = Package(
                 .product(name: "ContainerizationNetlink", package: "containerization"),
                 .product(name: "ContainerizationIO", package: "containerization"),
                 .product(name: "ContainerizationOS", package: "containerization"),
+                .product(name: "_ContainerizationTar", package: "containerization"),
                 "LCShim",
                 "Cgroup",
             ]
