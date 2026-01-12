@@ -68,20 +68,33 @@ extension App {
             throw App.Errno(stage: "exec", info: "process args cannot be empty")
         }
 
-        // lookup executable
-        let path = Path.findPath(currentEnv) ?? Path.getCurrentPath()
-        guard let resolvedExecutable = Path.lookPath(process.args[0], path: path) else {
-            throw App.Failure(message: "failed to find target executable \(process.args[0])")
+        let executableArg = process.args[0]
+        let resolvedExecutable: URL
+
+        if executableArg.contains("/") {
+            if executableArg.hasPrefix("/") {
+                resolvedExecutable = URL(fileURLWithPath: executableArg)
+            } else {
+                resolvedExecutable = URL(fileURLWithPath: process.cwd).appendingPathComponent(executableArg).standardized
+            }
+
+            guard FileManager.default.fileExists(atPath: resolvedExecutable.path) else {
+                throw App.Failure(message: "failed to find target executable \(executableArg)")
+            }
+        } else {
+            let path = Path.findPath(currentEnv) ?? Path.getCurrentPath()
+            guard let found = Path.lookPath(executableArg, path: path) else {
+                throw App.Failure(message: "failed to find target executable \(executableArg)")
+            }
+            resolvedExecutable = found
         }
 
-        let executable = strdup(resolvedExecutable.path())
+        let executable = strdup(resolvedExecutable.path)
         var argv = process.args.map { strdup($0) }
         argv += [nil]
-
         let env = process.env.map { strdup($0) } + [nil]
         let cwd = process.cwd
 
-        // switch cwd
         guard chdir(cwd) == 0 else {
             throw App.Errno(stage: "chdir(cwd)", info: "failed to change directory to '\(cwd)'")
         }
