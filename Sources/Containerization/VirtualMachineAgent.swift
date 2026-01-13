@@ -94,7 +94,7 @@ public protocol VirtualMachineAgent: Sendable {
     func configureHosts(config: Hosts, location: String) async throws
 
     // Container statistics
-    func containerStatistics(containerIDs: [String]) async throws -> [ContainerStatistics]
+    func containerStatistics(containerIDs: [String], categories: StatCategory) async throws -> [ContainerStatistics]
 }
 
 extension VirtualMachineAgent {
@@ -110,7 +110,7 @@ extension VirtualMachineAgent {
         throw ContainerizationError(.unsupported, message: "writeFile")
     }
 
-    public func containerStatistics(containerIDs: [String]) async throws -> [ContainerStatistics] {
+    public func containerStatistics(containerIDs: [String], categories: StatCategory) async throws -> [ContainerStatistics] {
         throw ContainerizationError(.unsupported, message: "containerStatistics")
     }
 

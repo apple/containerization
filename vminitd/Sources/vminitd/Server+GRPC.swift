@@ -1084,12 +1084,23 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         log.debug(
             "containerStatistics",
             metadata: [
-                "container_ids": "\(request.containerIds)"
+                "container_ids": "\(request.containerIds)",
+                "categories": "\(request.categories)",
             ])
 
         do {
-            // Get all network interfaces (skip loopback)
-            let interfaces = try getNetworkInterfaces()
+            // Parse requested categories (empty = all)
+            let categories = Set(request.categories)
+            let wantAll = categories.isEmpty
+            let wantProcess = wantAll || categories.contains(.process)
+            let wantMemory = wantAll || categories.contains(.memory)
+            let wantCPU = wantAll || categories.contains(.cpu)
+            let wantBlockIO = wantAll || categories.contains(.blockIo)
+            let wantNetwork = wantAll || categories.contains(.network)
+            let wantMemoryEvents = wantAll || categories.contains(.memoryEvents)
+
+            // Get all network interfaces (skip loopback) only if needed
+            let interfaces = wantNetwork ? try getNetworkInterfaces() : []
 
             // Get containers to query
             let containerIDs: [String]
@@ -1103,30 +1114,57 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
 
             for containerID in containerIDs {
                 let container = try await state.get(container: containerID)
-                let cgStats = try await container.stats()
 
-                // Get network stats for all interfaces
-                let socket = try DefaultNetlinkSocket()
-                let session = NetlinkSession(socket: socket, log: log)
+                // Only fetch cgroup stats if needed
+                let cgStats: Cgroup2Stats?
+                if wantProcess || wantMemory || wantCPU || wantBlockIO {
+                    cgStats = try await container.stats()
+                } else {
+                    cgStats = nil
+                }
+
+                // Get network stats only if requested
                 var networkStats: [Com_Apple_Containerization_Sandbox_V3_NetworkStats] = []
-
-                for interface in interfaces {
-                    let responses = try session.linkGet(interface: interface, includeStats: true)
-                    if responses.count == 1, let stats = try responses[0].getStatistics() {
-                        networkStats.append(
-                            .with {
-                                $0.interface = interface
-                                $0.receivedPackets = stats.rxPackets
-                                $0.transmittedPackets = stats.txPackets
-                                $0.receivedBytes = stats.rxBytes
-                                $0.transmittedBytes = stats.txBytes
-                                $0.receivedErrors = stats.rxErrors
-                                $0.transmittedErrors = stats.txErrors
-                            })
+                if wantNetwork {
+                    let socket = try DefaultNetlinkSocket()
+                    let session = NetlinkSession(socket: socket, log: log)
+                    for interface in interfaces {
+                        let responses = try session.linkGet(interface: interface, includeStats: true)
+                        if responses.count == 1, let stats = try responses[0].getStatistics() {
+                            networkStats.append(
+                                .with {
+                                    $0.interface = interface
+                                    $0.receivedPackets = stats.rxPackets
+                                    $0.transmittedPackets = stats.txPackets
+                                    $0.receivedBytes = stats.rxBytes
+                                    $0.transmittedBytes = stats.txBytes
+                                    $0.receivedErrors = stats.rxErrors
+                                    $0.transmittedErrors = stats.txErrors
+                                })
+                        }
                     }
                 }
 
-                containerStats.append(mapStatsToProto(containerID: containerID, cgStats: cgStats, networkStats: networkStats))
+                // Get memory events only if requested
+                var memoryEvents: MemoryEvents?
+                if wantMemoryEvents {
+                    memoryEvents = try await container.getMemoryEvents()
+                }
+
+                containerStats.append(
+                    mapStatsToProto(
+                        containerID: containerID,
+                        cgStats: cgStats,
+                        networkStats: networkStats,
+                        memoryEvents: memoryEvents,
+                        wantProcess: wantProcess,
+                        wantMemory: wantMemory,
+                        wantCPU: wantCPU,
+                        wantBlockIO: wantBlockIO,
+                        wantNetwork: wantNetwork,
+                        wantMemoryEvents: wantMemoryEvents
+                    )
+                )
             }
 
             return .with {
@@ -1171,41 +1209,54 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
 
     private func mapStatsToProto(
         containerID: String,
-        cgStats: Cgroup2Stats,
-        networkStats: [Com_Apple_Containerization_Sandbox_V3_NetworkStats]
+        cgStats: Cgroup2Stats?,
+        networkStats: [Com_Apple_Containerization_Sandbox_V3_NetworkStats],
+        memoryEvents: MemoryEvents?,
+        wantProcess: Bool,
+        wantMemory: Bool,
+        wantCPU: Bool,
+        wantBlockIO: Bool,
+        wantNetwork: Bool,
+        wantMemoryEvents: Bool
     ) -> Com_Apple_Containerization_Sandbox_V3_ContainerStats {
         .with {
             $0.containerID = containerID
 
-            $0.process = .with {
-                $0.current = cgStats.pids?.current ?? 0
-                $0.limit = cgStats.pids?.max ?? 0
+            if wantProcess, let pids = cgStats?.pids {
+                $0.process = .with {
+                    $0.current = pids.current
+                    $0.limit = pids.max ?? 0
+                }
             }
 
-            $0.memory = .with {
-                $0.usageBytes = cgStats.memory?.usage ?? 0
-                $0.limitBytes = cgStats.memory?.usageLimit ?? 0
-                $0.swapUsageBytes = cgStats.memory?.swapUsage ?? 0
-                $0.swapLimitBytes = cgStats.memory?.swapLimit ?? 0
-                $0.cacheBytes = cgStats.memory?.file ?? 0
-                $0.kernelStackBytes = cgStats.memory?.kernelStack ?? 0
-                $0.slabBytes = cgStats.memory?.slab ?? 0
-                $0.pageFaults = cgStats.memory?.pgfault ?? 0
-                $0.majorPageFaults = cgStats.memory?.pgmajfault ?? 0
+            if wantMemory, let memory = cgStats?.memory {
+                $0.memory = .with {
+                    $0.usageBytes = memory.usage
+                    $0.limitBytes = memory.usageLimit ?? 0
+                    $0.swapUsageBytes = memory.swapUsage ?? 0
+                    $0.swapLimitBytes = memory.swapLimit ?? 0
+                    $0.cacheBytes = memory.file
+                    $0.kernelStackBytes = memory.kernelStack
+                    $0.slabBytes = memory.slab
+                    $0.pageFaults = memory.pgfault
+                    $0.majorPageFaults = memory.pgmajfault
+                }
             }
 
-            $0.cpu = .with {
-                $0.usageUsec = cgStats.cpu?.usageUsec ?? 0
-                $0.userUsec = cgStats.cpu?.userUsec ?? 0
-                $0.systemUsec = cgStats.cpu?.systemUsec ?? 0
-                $0.throttlingPeriods = cgStats.cpu?.nrPeriods ?? 0
-                $0.throttledPeriods = cgStats.cpu?.nrThrottled ?? 0
-                $0.throttledTimeUsec = cgStats.cpu?.throttledUsec ?? 0
+            if wantCPU, let cpu = cgStats?.cpu {
+                $0.cpu = .with {
+                    $0.usageUsec = cpu.usageUsec
+                    $0.userUsec = cpu.userUsec
+                    $0.systemUsec = cpu.systemUsec
+                    $0.throttlingPeriods = cpu.nrPeriods
+                    $0.throttledPeriods = cpu.nrThrottled
+                    $0.throttledTimeUsec = cpu.throttledUsec
+                }
             }
 
-            $0.blockIo = .with {
-                $0.devices =
-                    cgStats.io?.entries.map { entry in
+            if wantBlockIO, let io = cgStats?.io {
+                $0.blockIo = .with {
+                    $0.devices = io.entries.map { entry in
                         .with {
                             $0.major = entry.major
                             $0.minor = entry.minor
@@ -1214,10 +1265,23 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                             $0.readOperations = entry.rios
                             $0.writeOperations = entry.wios
                         }
-                    } ?? []
+                    }
+                }
             }
 
-            $0.networks = networkStats
+            if wantNetwork {
+                $0.networks = networkStats
+            }
+
+            if wantMemoryEvents, let events = memoryEvents {
+                $0.memoryEvents = .with {
+                    $0.low = events.low
+                    $0.high = events.high
+                    $0.max = events.max
+                    $0.oom = events.oom
+                    $0.oomKill = events.oomKill
+                }
+            }
         }
     }
 

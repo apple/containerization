@@ -37,6 +37,61 @@ fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAP
   typealias Version = _2
 }
 
+/// Categories of statistics that can be requested.
+public enum Com_Apple_Containerization_Sandbox_V3_StatCategory: SwiftProtobuf.Enum, Swift.CaseIterable {
+  public typealias RawValue = Int
+  case unspecified // = 0
+  case process // = 1
+  case memory // = 2
+  case cpu // = 3
+  case blockIo // = 4
+  case network // = 5
+  case memoryEvents // = 6
+  case UNRECOGNIZED(Int)
+
+  public init() {
+    self = .unspecified
+  }
+
+  public init?(rawValue: Int) {
+    switch rawValue {
+    case 0: self = .unspecified
+    case 1: self = .process
+    case 2: self = .memory
+    case 3: self = .cpu
+    case 4: self = .blockIo
+    case 5: self = .network
+    case 6: self = .memoryEvents
+    default: self = .UNRECOGNIZED(rawValue)
+    }
+  }
+
+  public var rawValue: Int {
+    switch self {
+    case .unspecified: return 0
+    case .process: return 1
+    case .memory: return 2
+    case .cpu: return 3
+    case .blockIo: return 4
+    case .network: return 5
+    case .memoryEvents: return 6
+    case .UNRECOGNIZED(let i): return i
+    }
+  }
+
+  // The compiler won't synthesize support with the UNRECOGNIZED case.
+  public static let allCases: [Com_Apple_Containerization_Sandbox_V3_StatCategory] = [
+    .unspecified,
+    .process,
+    .memory,
+    .cpu,
+    .blockIo,
+    .network,
+    .memoryEvents,
+  ]
+
+}
+
 public struct Com_Apple_Containerization_Sandbox_V3_Stdio: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1149,6 +1204,9 @@ public struct Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest: 
   /// Empty = all containers
   public var containerIds: [String] = []
 
+  /// Empty = all categories
+  public var categories: [Com_Apple_Containerization_Sandbox_V3_StatCategory] = []
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -1216,6 +1274,15 @@ public struct Com_Apple_Containerization_Sandbox_V3_ContainerStats: @unchecked S
     get {return _storage._networks}
     set {_uniqueStorage()._networks = newValue}
   }
+
+  public var memoryEvents: Com_Apple_Containerization_Sandbox_V3_MemoryEventStats {
+    get {return _storage._memoryEvents ?? Com_Apple_Containerization_Sandbox_V3_MemoryEventStats()}
+    set {_uniqueStorage()._memoryEvents = newValue}
+  }
+  /// Returns true if `memoryEvents` has been explicitly set.
+  public var hasMemoryEvents: Bool {return _storage._memoryEvents != nil}
+  /// Clears the value of `memoryEvents`. Subsequent reads from it will return its default value.
+  public mutating func clearMemoryEvents() {_uniqueStorage()._memoryEvents = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -1347,9 +1414,50 @@ public struct Com_Apple_Containerization_Sandbox_V3_NetworkStats: Sendable {
   public init() {}
 }
 
+/// Memory event counters from cgroup2's memory.events file.
+public struct Com_Apple_Containerization_Sandbox_V3_MemoryEventStats: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// Number of times the cgroup was reclaimed due to low memory.
+  public var low: UInt64 = 0
+
+  /// Number of times the cgroup exceeded its high memory limit.
+  public var high: UInt64 = 0
+
+  /// Number of times the cgroup hit its max memory limit.
+  public var max: UInt64 = 0
+
+  /// Number of times the cgroup triggered OOM.
+  public var oom: UInt64 = 0
+
+  /// Number of processes killed by OOM killer.
+  public var oomKill: UInt64 = 0
+
+  /// Number of times charge for memory failed because of limit.
+  public var oomGroupKill: UInt64 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
 fileprivate let _protobuf_package = "com.apple.containerization.sandbox.v3"
+
+extension Com_Apple_Containerization_Sandbox_V3_StatCategory: SwiftProtobuf._ProtoNameProviding {
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    0: .same(proto: "STAT_CATEGORY_UNSPECIFIED"),
+    1: .same(proto: "STAT_CATEGORY_PROCESS"),
+    2: .same(proto: "STAT_CATEGORY_MEMORY"),
+    3: .same(proto: "STAT_CATEGORY_CPU"),
+    4: .same(proto: "STAT_CATEGORY_BLOCK_IO"),
+    5: .same(proto: "STAT_CATEGORY_NETWORK"),
+    6: .same(proto: "STAT_CATEGORY_MEMORY_EVENTS"),
+  ]
+}
 
 extension Com_Apple_Containerization_Sandbox_V3_Stdio: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Stdio"
@@ -3503,6 +3611,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest: Swif
   public static let protoMessageName: String = _protobuf_package + ".ContainerStatisticsRequest"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
     1: .standard(proto: "container_ids"),
+    2: .same(proto: "categories"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -3512,6 +3621,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest: Swif
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeRepeatedStringField(value: &self.containerIds) }()
+      case 2: try { try decoder.decodeRepeatedEnumField(value: &self.categories) }()
       default: break
       }
     }
@@ -3521,11 +3631,15 @@ extension Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest: Swif
     if !self.containerIds.isEmpty {
       try visitor.visitRepeatedStringField(value: self.containerIds, fieldNumber: 1)
     }
+    if !self.categories.isEmpty {
+      try visitor.visitPackedEnumField(value: self.categories, fieldNumber: 2)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest, rhs: Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest) -> Bool {
     if lhs.containerIds != rhs.containerIds {return false}
+    if lhs.categories != rhs.categories {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -3572,6 +3686,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ContainerStats: SwiftProtobuf.Me
     4: .same(proto: "cpu"),
     5: .standard(proto: "block_io"),
     6: .same(proto: "networks"),
+    7: .standard(proto: "memory_events"),
   ]
 
   fileprivate class _StorageClass {
@@ -3581,6 +3696,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ContainerStats: SwiftProtobuf.Me
     var _cpu: Com_Apple_Containerization_Sandbox_V3_CPUStats? = nil
     var _blockIo: Com_Apple_Containerization_Sandbox_V3_BlockIOStats? = nil
     var _networks: [Com_Apple_Containerization_Sandbox_V3_NetworkStats] = []
+    var _memoryEvents: Com_Apple_Containerization_Sandbox_V3_MemoryEventStats? = nil
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -3597,6 +3713,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ContainerStats: SwiftProtobuf.Me
       _cpu = source._cpu
       _blockIo = source._blockIo
       _networks = source._networks
+      _memoryEvents = source._memoryEvents
     }
   }
 
@@ -3621,6 +3738,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ContainerStats: SwiftProtobuf.Me
         case 4: try { try decoder.decodeSingularMessageField(value: &_storage._cpu) }()
         case 5: try { try decoder.decodeSingularMessageField(value: &_storage._blockIo) }()
         case 6: try { try decoder.decodeRepeatedMessageField(value: &_storage._networks) }()
+        case 7: try { try decoder.decodeSingularMessageField(value: &_storage._memoryEvents) }()
         default: break
         }
       }
@@ -3651,6 +3769,9 @@ extension Com_Apple_Containerization_Sandbox_V3_ContainerStats: SwiftProtobuf.Me
       if !_storage._networks.isEmpty {
         try visitor.visitRepeatedMessageField(value: _storage._networks, fieldNumber: 6)
       }
+      try { if let v = _storage._memoryEvents {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 7)
+      } }()
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -3666,6 +3787,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ContainerStats: SwiftProtobuf.Me
         if _storage._cpu != rhs_storage._cpu {return false}
         if _storage._blockIo != rhs_storage._blockIo {return false}
         if _storage._networks != rhs_storage._networks {return false}
+        if _storage._memoryEvents != rhs_storage._memoryEvents {return false}
         return true
       }
       if !storagesAreEqual {return false}
@@ -4012,6 +4134,68 @@ extension Com_Apple_Containerization_Sandbox_V3_NetworkStats: SwiftProtobuf.Mess
     if lhs.transmittedBytes != rhs.transmittedBytes {return false}
     if lhs.receivedErrors != rhs.receivedErrors {return false}
     if lhs.transmittedErrors != rhs.transmittedErrors {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Com_Apple_Containerization_Sandbox_V3_MemoryEventStats: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".MemoryEventStats"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "low"),
+    2: .same(proto: "high"),
+    3: .same(proto: "max"),
+    4: .same(proto: "oom"),
+    5: .standard(proto: "oom_kill"),
+    6: .standard(proto: "oom_group_kill"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt64Field(value: &self.low) }()
+      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.high) }()
+      case 3: try { try decoder.decodeSingularUInt64Field(value: &self.max) }()
+      case 4: try { try decoder.decodeSingularUInt64Field(value: &self.oom) }()
+      case 5: try { try decoder.decodeSingularUInt64Field(value: &self.oomKill) }()
+      case 6: try { try decoder.decodeSingularUInt64Field(value: &self.oomGroupKill) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.low != 0 {
+      try visitor.visitSingularUInt64Field(value: self.low, fieldNumber: 1)
+    }
+    if self.high != 0 {
+      try visitor.visitSingularUInt64Field(value: self.high, fieldNumber: 2)
+    }
+    if self.max != 0 {
+      try visitor.visitSingularUInt64Field(value: self.max, fieldNumber: 3)
+    }
+    if self.oom != 0 {
+      try visitor.visitSingularUInt64Field(value: self.oom, fieldNumber: 4)
+    }
+    if self.oomKill != 0 {
+      try visitor.visitSingularUInt64Field(value: self.oomKill, fieldNumber: 5)
+    }
+    if self.oomGroupKill != 0 {
+      try visitor.visitSingularUInt64Field(value: self.oomGroupKill, fieldNumber: 6)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_MemoryEventStats, rhs: Com_Apple_Containerization_Sandbox_V3_MemoryEventStats) -> Bool {
+    if lhs.low != rhs.low {return false}
+    if lhs.high != rhs.high {return false}
+    if lhs.max != rhs.max {return false}
+    if lhs.oom != rhs.oom {return false}
+    if lhs.oomKill != rhs.oomKill {return false}
+    if lhs.oomGroupKill != rhs.oomGroupKill {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

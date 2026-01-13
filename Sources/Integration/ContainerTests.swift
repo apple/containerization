@@ -783,23 +783,23 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "stats container ID '\(stats.id)' != '\(id)'")
             }
 
-            guard stats.process.current > 0 else {
-                throw IntegrationError.assert(msg: "process count should be > 0, got \(stats.process.current)")
+            guard let process = stats.process, process.current > 0 else {
+                throw IntegrationError.assert(msg: "process count should be > 0, got \(stats.process?.current ?? 0)")
             }
 
-            guard stats.memory.usageBytes > 0 else {
-                throw IntegrationError.assert(msg: "memory usage should be > 0, got \(stats.memory.usageBytes)")
+            guard let memory = stats.memory, memory.usageBytes > 0 else {
+                throw IntegrationError.assert(msg: "memory usage should be > 0, got \(stats.memory?.usageBytes ?? 0)")
             }
 
-            guard stats.cpu.usageUsec > 0 else {
-                throw IntegrationError.assert(msg: "CPU usage should be > 0, got \(stats.cpu.usageUsec)")
+            guard let cpu = stats.cpu, cpu.usageUsec > 0 else {
+                throw IntegrationError.assert(msg: "CPU usage should be > 0, got \(stats.cpu?.usageUsec ?? 0)")
             }
 
             print("Container statistics:")
-            print("  Processes: \(stats.process.current)")
-            print("  Memory: \(stats.memory.usageBytes) bytes")
-            print("  CPU: \(stats.cpu.usageUsec) usec")
-            print("  Networks: \(stats.networks.count) interfaces")
+            print("  Processes: \(process.current)")
+            print("  Memory: \(memory.usageBytes) bytes")
+            print("  CPU: \(cpu.usageUsec) usec")
+            print("  Networks: \(stats.networks?.count ?? 0) interfaces")
 
             try await container.stop()
         } catch {
@@ -893,6 +893,62 @@ extension IntegrationSuite {
             }
 
             try await sleepExec.delete()
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testMemoryEventsOOMKill() async throws {
+        let id = "test-memory-events-oom-kill"
+
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "infinity"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Run a process that will exceed the memory limit and get OOM-killed
+            let exec = try await container.exec("oom-trigger") { config in
+                // First set a 2MB memory limit on the container's cgroup, then allocate more
+                config.arguments = [
+                    "sh",
+                    "-c",
+                    "echo 2097152 > /sys/fs/cgroup/memory.max && dd if=/dev/zero of=/dev/null bs=100M",
+                ]
+            }
+
+            try await exec.start()
+            let status = try await exec.wait()
+            if status.exitCode == 0 {
+                throw IntegrationError.assert(msg: "expected exit code > 0")
+            }
+            try await exec.delete()
+
+            let stats = try await container.statistics(categories: .memoryEvents)
+
+            guard let events = stats.memoryEvents else {
+                throw IntegrationError.assert(msg: "expected memoryEvents to be present")
+            }
+
+            print("Memory events for container \(id):")
+            print("  low: \(events.low)")
+            print("  high: \(events.high)")
+            print("  max: \(events.max)")
+            print("  oom: \(events.oom)")
+            print("  oomKill: \(events.oomKill)")
+
+            guard events.oomKill > 0 else {
+                throw IntegrationError.assert(msg: "expected oomKill > 0, got \(events.oomKill)")
+            }
 
             try await container.kill(SIGKILL)
             try await container.wait()
