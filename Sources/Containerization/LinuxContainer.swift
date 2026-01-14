@@ -404,9 +404,22 @@ extension LinuxContainer {
             var modifiedRootfs = self.rootfs
             modifiedRootfs.options.removeAll(where: { $0 == "ro" })
 
+            // Calculate VM memory with overhead for the guest agent.
+            // The container cgroup limit stays at the requested memory, but the VM
+            // gets an additional 50MB for the guest agent (could be higher, could be lower
+            // but this is a decent baseline for now).
+            //
+            // Clamp to system RAM if the total would exceed it as Virtualization.framework
+            // bounds us to this.
+            let guestAgentOverhead: UInt64 = 50.mib()
+            let vmMemory = min(
+                self.memoryInBytes + guestAgentOverhead,
+                ProcessInfo.processInfo.physicalMemory
+            )
+
             let vmConfig = VMConfiguration(
                 cpus: self.cpus,
-                memoryInBytes: self.memoryInBytes,
+                memoryInBytes: vmMemory,
                 interfaces: self.interfaces,
                 mountsByID: [self.id: [modifiedRootfs] + self.config.mounts],
                 bootLog: self.config.bootLog,
