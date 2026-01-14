@@ -33,6 +33,7 @@ let package = Package(
         .library(name: "ContainerizationOS", targets: ["ContainerizationOS"]),
         .library(name: "ContainerizationExtras", targets: ["ContainerizationExtras"]),
         .library(name: "ContainerizationArchive", targets: ["ContainerizationArchive"]),
+        .library(name: "_ContainerizationTar", targets: ["_ContainerizationTar"]),
         .executable(name: "cctl", targets: ["cctl"]),
     ],
     dependencies: [
@@ -42,7 +43,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
         .package(url: "https://github.com/grpc/grpc-swift.git", from: "1.26.0"),
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.29.0"),
-        .package(url: "https://github.com/apple/swift-nio.git", from: "2.80.0"),
+        .package(url: "https://github.com/apple/swift-nio.git", from: "2.92.2"),
         .package(url: "https://github.com/swift-server/async-http-client.git", from: "1.20.1"),
         .package(url: "https://github.com/apple/swift-system.git", from: "1.4.0"),
         .package(url: "https://github.com/swiftlang/swift-docc-plugin", from: "1.1.0"),
@@ -245,6 +246,24 @@ let package = Package(
         ),
         .target(
             name: "CShim"
+        ),
+        .target(
+            name: "_ContainerizationTar",
+            dependencies: [
+                .product(name: "SystemPackage", package: "swift-system"),
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "_NIOFileSystem", package: "swift-nio"),
+            ],
+            path: "Sources/ContainerizationTar"
+        ),
+        .testTarget(
+            name: "ContainerizationTarTests",
+            dependencies: [
+                "_ContainerizationTar",
+                .product(name: "SystemPackage", package: "swift-system"),
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "_NIOFileSystem", package: "swift-nio"),
+            ]
         ),
     ]
 )
