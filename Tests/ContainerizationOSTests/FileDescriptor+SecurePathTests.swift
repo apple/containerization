@@ -254,7 +254,7 @@ struct FileDescriptorPathSecureTests {
 
         #expect(throws: SecurePathError.invalidRelativePath.self) {
             try rootFd.mkdirSecure(FilePath(path), makeIntermediates: true)
-        } 
+        }
     }
 
     @Test(
