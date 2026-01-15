@@ -252,10 +252,13 @@ extension Application {
                 defer {
                     try? FileManager.default.removeItem(at: tempDir)
                 }
-                try reader.extractContents(to: tempDir)
+                let rejectedPaths = try reader.extractContents(to: tempDir)
                 let imported = try await store.load(from: tempDir)
                 for image in imported {
                     print("imported \(image.reference)")
+                }
+                for rejectedPath in rejectedPaths {
+                    print("warning: skipped image archive member \(rejectedPath)")
                 }
             }
         }

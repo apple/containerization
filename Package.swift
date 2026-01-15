@@ -130,9 +130,10 @@ let package = Package(
         .target(
             name: "ContainerizationArchive",
             dependencies: [
-                "CArchive",
                 .product(name: "SystemPackage", package: "swift-system"),
+                "CArchive",
                 "ContainerizationExtras",
+                "ContainerizationOS",
             ],
             exclude: [
                 "CArchive"
@@ -203,6 +204,7 @@ let package = Package(
             name: "ContainerizationOS",
             dependencies: [
                 .product(name: "Logging", package: "swift-log"),
+                .product(name: "SystemPackage", package: "swift-system"),
                 "CShim",
                 "ContainerizationError",
             ],
@@ -213,6 +215,7 @@ let package = Package(
         .testTarget(
             name: "ContainerizationOSTests",
             dependencies: [
+                .product(name: "SystemPackage", package: "swift-system"),
                 "ContainerizationOS",
                 "ContainerizationExtras",
             ]

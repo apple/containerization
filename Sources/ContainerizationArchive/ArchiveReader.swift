@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
+// Copyright © 2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,7 +15,9 @@
 //===----------------------------------------------------------------------===//
 
 import CArchive
+import ContainerizationOS
 import Foundation
+import SystemPackage
 
 /// A protocol for reading data in chunks, compatible with both `InputStream` and zero-allocation archive readers.
 public protocol ReadableStream {
@@ -45,6 +47,8 @@ public struct ArchiveEntryReader: ReadableStream {
 
 /// A class responsible for reading entries from an archive file.
 public final class ArchiveReader {
+    private static let blockSize = 65536
+
     /// A pointer to the underlying `archive` C structure.
     var underlying: OpaquePointer?
     /// The file handle associated with the archive file being read.
@@ -176,36 +180,44 @@ extension ArchiveReader {
     }
 
     /// Extracts the contents of an archive to the provided directory.
-    /// Currently only handles regular files and directories present in the archive.
-    public func extractContents(to directory: URL) throws {
+    /// Rejects member paths that escape the root directory or traverse
+    /// symbolic links, and uses a "last entry wins" replacement policy
+    /// for an existing file at a path to be extracted.
+    public func extractContents(to directory: URL) throws -> [String] {
+        // Create the root directory with standard permissions
+        // and create a FileDescriptor for secure path traveral.
         let fm = FileManager.default
+        let rootFilePath = FilePath(directory.path)
+        try fm.createDirectory(atPath: directory.path, withIntermediateDirectories: true)
+        let rootFileDescriptor = try FileDescriptor.open(rootFilePath, .readOnly)
+        defer { try? rootFileDescriptor.close() }
+
+        // Iterate and extract archive entries, collecting rejected paths.
         var foundEntry = false
-        for (entry, data) in self {
-            guard let p = entry.path else { continue }
-            foundEntry = true
-            let type = entry.fileType
-            let target = directory.appending(path: p)
-            switch type {
-            case .regular:
-                try data.write(to: target, options: .atomic)
-            case .directory:
-                try fm.createDirectory(at: target, withIntermediateDirectories: true)
-            case .symbolicLink:
-                guard let symlinkTarget = entry.symlinkTarget, let linkTargetURL = URL(string: symlinkTarget, relativeTo: target) else {
-                    continue
-                }
-                try fm.createSymbolicLink(at: target, withDestinationURL: linkTargetURL)
-            default:
+        var rejectedPaths = [String]()
+        for (entry, dataReader) in self.makeStreamingIterator() {
+            guard let memberPath = (entry.path.map { FilePath($0) }) else {
                 continue
             }
-            chmod(target.path(), entry.permissions)
-            if let owner = entry.owner, let group = entry.group {
-                chown(target.path(), owner, group)
+            foundEntry = true
+
+            // Try to extract the entry, catching path validation errors
+            let extracted = try extractEntry(
+                entry: entry,
+                dataReader: dataReader,
+                memberPath: memberPath,
+                rootFileDescriptor: rootFileDescriptor
+            )
+
+            if !extracted {
+                rejectedPaths.append(memberPath.string)
             }
         }
         guard foundEntry else {
             throw ArchiveError.failedToExtractArchive("no entries found in archive")
         }
+
+        return rejectedPaths
     }
 
     /// This method extracts a given file from the archive.
@@ -225,5 +237,103 @@ extension ArchiveReader {
             return (entry, data)
         }
         throw ArchiveError.failedToExtractArchive(" \(path) not found in archive")
+    }
+
+    /// Extracts a single archive entry.
+    /// Returns false if the entry was rejected due to path validation errors.
+    /// Throws on system errors.
+    private func extractEntry(
+        entry: WriteEntry,
+        dataReader: ArchiveEntryReader,
+        memberPath: FilePath,
+        rootFileDescriptor: FileDescriptor
+    ) throws -> Bool {
+        guard let lastComponent = memberPath.lastComponent else {
+            return false
+        }
+        let relativePath = memberPath.removingLastComponent()
+        let type = entry.fileType
+
+        do {
+            switch type {
+            case .regular:
+                try rootFileDescriptor.mkdirSecure(relativePath, makeIntermediates: true) { fd in
+                    // Remove existing entry if present (mimics containerd's "last entry wins" behavior)
+                    try? fd.unlinkRecursiveSecure(filename: lastComponent)
+
+                    // Open file for writing using openat with O_NOFOLLOW to prevent TOC-TOU attacks
+                    let fileMode = entry.permissions & 0o777  // Mask to permission bits only
+                    let fileFd = openat(fd.rawValue, lastComponent.string, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, fileMode)
+                    guard fileFd >= 0 else {
+                        throw ArchiveError.failedToExtractArchive("failed to create file: \(memberPath)")
+                    }
+                    defer { close(fileFd) }
+
+                    try Self.copyDataReaderToFd(dataReader: dataReader, fileFd: fileFd, memberPath: memberPath)
+                    setFileAttributes(fd: fileFd, entry: entry)
+                }
+            case .directory:
+                try rootFileDescriptor.mkdirSecure(memberPath, makeIntermediates: true) { fd in
+                    setFileAttributes(fd: fd.rawValue, entry: entry)
+                }
+            case .symbolicLink:
+                guard let targetPath = (entry.symlinkTarget.map { FilePath($0) }) else {
+                    return false
+                }
+                var symlinkCreated = false
+                try rootFileDescriptor.mkdirSecure(relativePath, makeIntermediates: true) { fd in
+                    // Remove existing entry if present (mimics containerd's "last entry wins" behavior)
+                    try? fd.unlinkRecursiveSecure(filename: lastComponent)
+
+                    guard symlinkat(targetPath.string, fd.rawValue, lastComponent.string) == 0 else {
+                        throw ArchiveError.failedToExtractArchive("failed to create symlink: \(targetPath) <- \(memberPath)")
+                    }
+                    symlinkCreated = true
+                }
+                return symlinkCreated
+            default:
+                return false
+            }
+
+            return true
+        } catch let error as SecurePathError {
+            // Just reject path validation errors, don't fail the extraction
+            switch error {
+            case .systemError:
+                // Fail for system errors
+                throw error
+            case .invalidRelativePath, .invalidPathComponent, .cannotFollowSymlink:
+                return false
+            }
+        }
+    }
+
+    private func setFileAttributes(fd: Int32, entry: WriteEntry) {
+        fchmod(fd, entry.permissions)
+        if let owner = entry.owner, let group = entry.group {
+            fchown(fd, owner, group)
+        }
+    }
+
+    private static func copyDataReaderToFd(dataReader: ArchiveEntryReader, fileFd: Int32, memberPath: FilePath) throws {
+        var buffer = [UInt8](repeating: 0, count: ArchiveReader.blockSize)
+        while true {
+            let bytesRead = buffer.withUnsafeMutableBufferPointer { bufferPtr in
+                guard let baseAddress = bufferPtr.baseAddress else { return 0 }
+                return dataReader.read(baseAddress, maxLength: bufferPtr.count)
+            }
+
+            if bytesRead < 0 {
+                throw ArchiveError.failedToExtractArchive("failed to read data for: \(memberPath)")
+            }
+            if bytesRead == 0 {
+                break  // EOF
+            }
+
+            let bytesWritten = write(fileFd, buffer, bytesRead)
+            guard bytesWritten == bytesRead else {
+                throw ArchiveError.failedToExtractArchive("failed to write data for: \(memberPath)")
+            }
+        }
     }
 }
