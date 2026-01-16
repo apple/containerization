@@ -16,7 +16,7 @@
 
 import ContainerizationOCI
 import ContainerizationOS
-import Foundation
+import FoundationEssentials
 import Musl
 
 struct ContainerMount {
@@ -36,21 +36,13 @@ struct ContainerMount {
     }
 
     func configureConsole() throws {
-        let ptmx = self.rootfs.standardizingPath.appendingPathComponent("dev/ptmx")
+        let ptmx = rootfs + "/dev/ptmx"
         guard remove(ptmx) == 0 else {
             throw App.Errno(stage: "remove(ptmx)")
         }
         guard symlink("pts/ptmx", ptmx) == 0 else {
             throw App.Errno(stage: "symlink(pts/ptmx)")
         }
-    }
-
-    private func mkdirAll(_ name: String, _ perm: Int16) throws {
-        try FileManager.default.createDirectory(
-            atPath: name,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: perm]
-        )
     }
 }
 
