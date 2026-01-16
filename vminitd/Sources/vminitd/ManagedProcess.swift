@@ -327,9 +327,8 @@ extension ManagedProcess {
     }
 
     func closeStdin() throws {
-        try self.state.withLock {
-            try $0.io.closeStdin()
-        }
+        let io = self.state.withLock { $0.io }
+        try io.closeStdin()
     }
 
     func delete() async throws {

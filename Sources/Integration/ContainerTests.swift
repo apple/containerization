@@ -107,6 +107,32 @@ extension IntegrationSuite {
         }
     }
 
+    final class ChunkedStdinBuffer: ReaderStream {
+        let chunks: [Data]
+        let delayMs: Int
+
+        init(chunks: [Data], delayMs: Int = 0) {
+            self.chunks = chunks
+            self.delayMs = delayMs
+        }
+
+        func stream() -> AsyncStream<Data> {
+            let chunks = self.chunks
+            let delayMs = self.delayMs
+            return AsyncStream { cont in
+                Task {
+                    for chunk in chunks {
+                        if delayMs > 0 {
+                            try? await Task.sleep(for: .milliseconds(delayMs))
+                        }
+                        cont.yield(chunk)
+                    }
+                    cont.finish()
+                }
+            }
+        }
+    }
+
     func testProcessEchoHi() async throws {
         let id = "test-process-echo-hi"
         let bs = try await bootstrap(id)
@@ -1759,6 +1785,247 @@ extension IntegrationSuite {
 
         guard output.contains("8.8.8.8") && output.contains("8.8.4.4") else {
             throw IntegrationError.assert(msg: "expected /etc/resolv.conf to contain DNS servers, got: \(output)")
+        }
+    }
+
+    func testLargeStdinInput() async throws {
+        let id = "test-large-stdin-input"
+
+        let bs = try await bootstrap(id)
+
+        let inputSize = 128 * 1024
+        let inputData = Data(repeating: 0x41, count: inputSize)  // 'A' repeated
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["cat"]
+            config.process.stdin = StdinBuffer(data: inputData)
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let status = try await container.wait()
+            try await container.stop()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "process status \(status) != 0")
+            }
+
+            guard buffer.data.count == inputSize else {
+                throw IntegrationError.assert(
+                    msg: "output size \(buffer.data.count) != input size \(inputSize)")
+            }
+
+            guard buffer.data == inputData else {
+                throw IntegrationError.assert(msg: "output data does not match input data")
+            }
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testExecLargeStdinInput() async throws {
+        let id = "test-exec-large-stdin-input"
+        let bs = try await bootstrap(id)
+
+        let inputSize = 128 * 1024
+        let inputData = Data(repeating: 0x42, count: inputSize)
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let buffer = BufferWriter()
+            let exec = try await container.exec("large-stdin-exec") { config in
+                config.arguments = ["cat"]
+                config.stdin = StdinBuffer(data: inputData)
+                config.stdout = buffer
+            }
+
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "exec status \(status) != 0")
+            }
+
+            guard buffer.data.count == inputSize else {
+                throw IntegrationError.assert(msg: "output size \(buffer.data.count) != \(inputSize)")
+            }
+
+            guard buffer.data == inputData else {
+                throw IntegrationError.assert(msg: "output data mismatch")
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testStdinExplicitClose() async throws {
+        let id = "test-stdin-explicit-close"
+        let bs = try await bootstrap(id)
+
+        let inputData = "explicit close test\n".data(using: .utf8)!
+        let buffer = BufferWriter()
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let exec = try await container.exec("stdin-close-exec") { config in
+                config.arguments = ["head", "-n", "1"]
+                config.stdin = StdinBuffer(data: inputData)
+                config.stdout = buffer
+            }
+
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "exec status \(status) != 0")
+            }
+
+            guard buffer.data == inputData else {
+                throw IntegrationError.assert(msg: "output mismatch")
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testStdinBinaryData() async throws {
+        let id = "test-stdin-binary-data"
+        let bs = try await bootstrap(id)
+
+        var inputData = Data()
+        for i: UInt8 in 0...255 {
+            inputData.append(contentsOf: [UInt8](repeating: i, count: 256))
+        }
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["cat"]
+            config.process.stdin = StdinBuffer(data: inputData)
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let status = try await container.wait()
+            try await container.stop()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "process status \(status) != 0")
+            }
+
+            guard buffer.data == inputData else {
+                throw IntegrationError.assert(msg: "binary data mismatch")
+            }
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testStdinMultipleChunks() async throws {
+        let id = "test-stdin-multiple-chunks"
+        let bs = try await bootstrap(id)
+
+        let chunks = (0..<10).map { i in
+            Data(repeating: UInt8(0x30 + i), count: 10 * 1024)
+        }
+        let expectedData = chunks.reduce(Data()) { $0 + $1 }
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["cat"]
+            config.process.stdin = ChunkedStdinBuffer(chunks: chunks, delayMs: 10)
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let status = try await container.wait()
+            try await container.stop()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "process status \(status) != 0")
+            }
+
+            guard buffer.data == expectedData else {
+                throw IntegrationError.assert(msg: "chunked data mismatch")
+            }
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testStdinVeryLarge() async throws {
+        let id = "test-stdin-very-large"
+        let bs = try await bootstrap(id)
+
+        let inputSize = 10 * 1024 * 1024
+        let inputData = Data(repeating: 0x58, count: inputSize)
+
+        let stdout = DiscardingWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["wc", "-c"]
+            config.process.stdin = StdinBuffer(data: inputData)
+            config.process.stdout = stdout
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let status = try await container.wait()
+            try await container.stop()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "process status \(status) != 0")
+            }
+
+            guard stdout.count > 0 else {
+                throw IntegrationError.assert(msg: "no output from wc")
+            }
+        } catch {
+            try? await container.stop()
+            throw error
         }
     }
 }
