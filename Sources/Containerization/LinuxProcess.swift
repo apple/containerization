@@ -146,44 +146,9 @@ extension LinuxProcess {
             }
         }
 
-        if let stdin = self.ioSetup.stdin {
-            if let handle = handles[0] {
-                self.state.withLock {
-                    $0.stdinRelay = Task {
-                        for await data in stdin.reader.stream() {
-                            do {
-                                try handle.write(contentsOf: data)
-                            } catch {
-                                self.logger?.error("failed to write to stdin: \(error)")
-                                break
-                            }
-                        }
-
-                        do {
-                            self.logger?.debug("stdin relay finished, closing")
-
-                            // There's two ways we can wind up here:
-                            //
-                            // 1. The stream finished on its own (e.g. we wrote all the
-                            // data) and we will close the underlying stdin in the guest below.
-                            //
-                            // 2. The client explicitly called closeStdin() themselves
-                            // which will cancel this relay task AFTER actually closing
-                            // the fds. If the client did that, then this task will be
-                            // cancelled, and the fds are already gone so there's nothing
-                            // for us to do.
-                            if Task.isCancelled {
-                                return
-                            }
-
-                            try await self._closeStdin()
-                        } catch {
-                            self.logger?.error("failed to close stdin: \(error)")
-                        }
-                    }
-                }
-            }
-        }
+        // Note: stdin relay is started separately via startStdinRelay() after
+        // the process has started, to avoid a deadlock where closeStdin is
+        // called before the process is consuming from the pipe.
 
         var configuredStreams = 0
         let (stream, cc) = AsyncStream<Void>.makeStream()
@@ -231,6 +196,45 @@ extension LinuxProcess {
         return handles
     }
 
+    func startStdinRelay(handle: FileHandle) {
+        guard let stdin = self.ioSetup.stdin else { return }
+
+        self.state.withLock {
+            $0.stdinRelay = Task {
+                for await data in stdin.reader.stream() {
+                    do {
+                        try handle.write(contentsOf: data)
+                    } catch {
+                        self.logger?.error("failed to write to stdin: \(error)")
+                        break
+                    }
+                }
+
+                do {
+                    self.logger?.debug("stdin relay finished, closing")
+
+                    // There's two ways we can wind up here:
+                    //
+                    // 1. The stream finished on its own (e.g. we wrote all the
+                    // data) and we will close the underlying stdin in the guest below.
+                    //
+                    // 2. The client explicitly called closeStdin() themselves
+                    // which will cancel this relay task AFTER actually closing
+                    // the fds. If the client did that, then this task will be
+                    // cancelled, and the fds are already gone so there's nothing
+                    // for us to do.
+                    if Task.isCancelled {
+                        return
+                    }
+
+                    try await self._closeStdin()
+                } catch {
+                    self.logger?.error("failed to close stdin: \(error)")
+                }
+            }
+        }
+    }
+
     /// Start the process.
     public func start() async throws {
         do {
@@ -272,6 +276,12 @@ extension LinuxProcess {
                 id: self.id,
                 containerID: self.owningContainer
             )
+
+            // Start stdin relay after process launch to avoid filling the pipe
+            // buffer before the process is even running.
+            if let stdinHandle = result[0] {
+                self.startStdinRelay(handle: stdinHandle)
+            }
 
             self.state.withLock {
                 $0.stdio = StdioHandles(

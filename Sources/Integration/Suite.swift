@@ -312,6 +312,12 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("container read-only rootfs", testReadOnlyRootfs),
             Test("container read-only rootfs hosts file", testReadOnlyRootfsHostsFileWritten),
             Test("container read-only rootfs DNS", testReadOnlyRootfsDNSConfigured),
+            Test("large stdin input", testLargeStdinInput),
+            Test("exec large stdin input", testExecLargeStdinInput),
+            Test("stdin explicit close", testStdinExplicitClose),
+            Test("stdin binary data", testStdinBinaryData),
+            Test("stdin multiple chunks", testStdinMultipleChunks),
+            Test("stdin very large", testStdinVeryLarge),
 
             // Pods
             Test("pod single container", testPodSingleContainer),
