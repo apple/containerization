@@ -154,6 +154,9 @@ struct IntegrationSuite: AsyncParsableCommand {
     @Option(name: .shortAndLong, help: "Maximum number of concurrent tests")
     var maxConcurrency: Int = 4
 
+    @Option(name: .shortAndLong, help: "Only run tests whose names contain this string")
+    var filter: String?
+
     static func binPath(name: String) -> URL {
         URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent("bin")
@@ -339,11 +342,19 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("pod read-only rootfs DNS", testPodReadOnlyRootfsDNSConfigured),
         ]
 
+        let filteredTests: [Test]
+        if let filter {
+            filteredTests = tests.filter { $0.name.contains(filter) }
+            log.info("filter '\(filter)' matched \(filteredTests.count)/\(tests.count) tests")
+        } else {
+            filteredTests = tests
+        }
+
         let passed: Atomic<Int> = Atomic(0)
         let skipped: Atomic<Int> = Atomic(0)
 
         await withTaskGroup(of: Void.self) { group in
-            let jobQueue = JobQueue(tests)
+            let jobQueue = JobQueue(filteredTests)
             for _ in 0..<maxConcurrency {
                 group.addTask { @Sendable in
                     while let job = jobQueue.pop() {
@@ -372,16 +383,16 @@ struct IntegrationSuite: AsyncParsableCommand {
         let skippedCount = skipped.load(ordering: .acquiring)
 
         let ended = CFAbsoluteTimeGetCurrent() - suiteStarted
-        var finishingText = "\n\nIntegration suite completed in \(ended)s with \(passedCount)/\(tests.count) passed"
+        var finishingText = "\n\nIntegration suite completed in \(ended)s with \(passedCount)/\(filteredTests.count) passed"
         if skipped.load(ordering: .acquiring) > 0 {
-            finishingText += " and \(skippedCount)/\(tests.count) skipped"
+            finishingText += " and \(skippedCount)/\(filteredTests.count) skipped"
         }
         finishingText += "!"
 
         log.info("\(finishingText)")
 
         try? FileManager.default.removeItem(at: Self.testDir)
-        if passedCount + skippedCount < tests.count {
+        if passedCount + skippedCount < filteredTests.count {
             log.error("❌")
             throw ExitCode(1)
         }
