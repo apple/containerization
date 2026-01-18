@@ -14,6 +14,13 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+package protocol Bindable {
+    static var size: Int { get }
+    func appendBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int
+    mutating func bindBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int
+}
+
+
 extension ArraySlice<UInt8> {
     package func hexEncodedString() -> String {
         self.map { String(format: "%02hhx", $0) }.joined()
@@ -35,7 +42,7 @@ extension [UInt8] {
 
     package mutating func copyIn<T>(as type: T.Type, value: T, offset: Int = 0, size: Int? = nil) -> Int? {
         let size = size ?? MemoryLayout<T>.size
-        guard self.count >= size - offset else {
+        guard self.count >= size + offset else {
             return nil
         }
 
@@ -46,7 +53,7 @@ extension [UInt8] {
     }
 
     package mutating func copyOut<T>(as type: T.Type, offset: Int = 0, size: Int? = nil) -> (Int, T)? {
-        guard self.count >= (size ?? MemoryLayout<T>.size) - offset else {
+        guard self.count >= (size ?? MemoryLayout<T>.size) + offset else {
             return nil
         }
 
