@@ -135,13 +135,7 @@ struct RouteAttributeType {
     static let PREFSRC: UInt16 = 7
 }
 
-protocol Bindable: Equatable {
-    static var size: Int { get }
-    func appendBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int
-    mutating func bindBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int
-}
-
-struct SockaddrNetlink: Bindable {
+struct SockaddrNetlink: Bindable, Equatable {
     static let size = 12
 
     var family: UInt16
@@ -189,7 +183,7 @@ struct SockaddrNetlink: Bindable {
     }
 }
 
-struct NetlinkMessageHeader: Bindable {
+struct NetlinkMessageHeader: Bindable, Equatable {
     static let size = 16
 
     var len: UInt32
@@ -262,7 +256,7 @@ struct NetlinkMessageHeader: Bindable {
     }
 }
 
-struct InterfaceInfo: Bindable {
+struct InterfaceInfo: Bindable, Equatable {
     static let size = 16
 
     var family: UInt8
@@ -341,7 +335,7 @@ struct InterfaceInfo: Bindable {
     }
 }
 
-struct AddressInfo: Bindable {
+struct AddressInfo: Bindable, Equatable {
     static let size = 8
 
     var family: UInt8
@@ -411,7 +405,7 @@ struct AddressInfo: Bindable {
     }
 }
 
-struct RouteInfo: Bindable {
+struct RouteInfo: Bindable, Equatable {
     static let size = 12
 
     var family: UInt8
@@ -529,8 +523,8 @@ struct RouteInfo: Bindable {
 }
 
 /// A route information.
-public struct RTAttribute: Bindable {
-    static let size = 4
+public struct RTAttribute: Bindable, Equatable {
+    package static let size = 4
 
     public var len: UInt16
     public var type: UInt16
@@ -541,7 +535,7 @@ public struct RTAttribute: Bindable {
         self.type = type
     }
 
-    func appendBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
+    package func appendBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
         guard let offset = buffer.copyIn(as: UInt16.self, value: len, offset: offset) else {
             throw NetlinkDataError.sendMarshalFailure
         }
@@ -552,7 +546,7 @@ public struct RTAttribute: Bindable {
         return offset
     }
 
-    mutating func bindBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
+    package mutating func bindBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
         guard let (offset, value) = buffer.copyOut(as: UInt16.self, offset: offset) else {
             throw NetlinkDataError.sendMarshalFailure
         }
@@ -612,8 +606,8 @@ public struct LinkResponse {
 }
 
 /// Network interface statistics (64-bit version)
-public struct LinkStatistics64: Bindable {
-    static let size = 23 * 8
+public struct LinkStatistics64: Bindable, Equatable {
+    package static let size = 23 * 8
 
     public var rxPackets: UInt64
     public var txPackets: UInt64
@@ -665,7 +659,7 @@ public struct LinkStatistics64: Bindable {
         self.txCompressed = 0
     }
 
-    func appendBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
+    package func appendBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
         guard let offset = buffer.copyIn(as: UInt64.self, value: rxPackets, offset: offset) else {
             throw NetlinkDataError.sendMarshalFailure
         }
@@ -739,7 +733,7 @@ public struct LinkStatistics64: Bindable {
         return offset
     }
 
-    mutating func bindBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
+    package mutating func bindBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
         guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
             throw NetlinkDataError.recvUnmarshalFailure
         }
