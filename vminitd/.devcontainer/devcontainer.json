@@ -1,0 +1,22 @@
+{
+    "build": {
+        "dockerfile": "Dockerfile"
+    },
+    "features": {},
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "redhat.vscode-yaml",
+                "swiftlang.swift-vscode",
+                "llvm-vs-code-extensions.lldb-dap",
+                "vadimcn.vscode-lldb"
+            ],
+            "settings": {
+                "swift.debugger.path": "/usr/bin/lldb-dap",
+                "swift.path": "/usr/bin"
+            }
+        }
+    },
+    "runArgs": [],
+    "mounts": []
+}

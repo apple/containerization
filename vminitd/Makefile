@@ -26,9 +26,12 @@ SWIFTLY_FILENAME := $(notdir $(SWIFTLY_URL))
 SWIFTLY_BIN_DIR ?= ~/.swiftly/bin
 BUILD_BIN_DIR := $(shell swift build -c $(BUILD_CONFIGURATION) $(SWIFT_CONFIGURATION) --show-bin-path)
 
+SYSTEM_TYPE := $(shell uname -s)
+ifeq ($(SYSTEM_TYPE),Darwin)
 MACOS_VERSION := $(shell sw_vers -productVersion)
 MACOS_MAJOR := $(shell echo $(MACOS_VERSION) | cut -d. -f1)
 MACOS_RELEASE_TYPE := $(shell sw_vers | grep ReleaseType)
+endif
 
 .DEFAULT_GOAL := all
 
