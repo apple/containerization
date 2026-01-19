@@ -33,11 +33,14 @@ public struct IPv6Address: Sendable, Hashable, CustomStringConvertible, Equatabl
     /// Creates an IPv6Address from 16 bytes.
     ///
     /// - Parameters:
-    ///   - bytes: 16-byte array representing the IPv6 address
+    ///   - bytes: 16-byte array in network byte order representing the IPv6 address
     ///   - zone: Optional zone identifier (e.g., "eth0")
+    /// - Throws: `AddressError.unableToParse` if the byte array length is not 16
     @inlinable
-    public init(_ bytes: [UInt8], zone: String? = nil) {
-        precondition(bytes.count == 16, "IPv6 address must be exactly 16 bytes")
+    public init(_ bytes: [UInt8], zone: String? = nil) throws {
+        guard bytes.count == 16 else {
+            throw AddressError.unableToParse
+        }
 
         // Build UInt128 value in chunks to avoid compiler complexity
         let hh =

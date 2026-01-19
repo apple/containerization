@@ -237,7 +237,7 @@ struct BufferTest {
     // MARK: - copyOut<T> Tests
 
     @Test func testCopyOutUInt8() {
-        var buffer: [UInt8] = [0x00, 0x11, 0x22, 0x33]
+        let buffer: [UInt8] = [0x00, 0x11, 0x22, 0x33]
 
         guard let (offset, value) = buffer.copyOut(as: UInt8.self, offset: 2) else {
             #expect(Bool(false), "could not copy out UInt8")
@@ -249,7 +249,7 @@ struct BufferTest {
     }
 
     @Test func testCopyOutUInt16() {
-        var buffer: [UInt8] = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55]
+        let buffer: [UInt8] = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55]
 
         guard let (offset, value) = buffer.copyOut(as: UInt16.self, offset: 2) else {
             #expect(Bool(false), "could not copy out UInt16")
@@ -261,7 +261,7 @@ struct BufferTest {
     }
 
     @Test func testCopyOutUInt32() {
-        var buffer: [UInt8] = [0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0]
+        let buffer: [UInt8] = [0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0]
 
         guard let (offset, value) = buffer.copyOut(as: UInt32.self, offset: 0) else {
             #expect(Bool(false), "could not copy out UInt32")
@@ -273,7 +273,7 @@ struct BufferTest {
     }
 
     @Test func testCopyOutUInt64() {
-        var buffer: [UInt8] = [
+        let buffer: [UInt8] = [
             0x00, 0x00, 0x00, 0x00,
             0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
             0xFF, 0xFF
@@ -289,14 +289,14 @@ struct BufferTest {
     }
 
     @Test func testCopyOutRangeError() {
-        var buffer: [UInt8] = [0x00, 0x11, 0x22, 0x33]
+        let buffer: [UInt8] = [0x00, 0x11, 0x22, 0x33]
 
         // Trying to read UInt64 from offset 0 with only 4 bytes
         #expect(buffer.copyOut(as: UInt64.self, offset: 0) == nil)
     }
 
     @Test func testCopyOutExactBoundary() {
-        var buffer: [UInt8] = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]
+        let buffer: [UInt8] = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]
 
         guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: 0) else {
             #expect(Bool(false), "could not copy out at exact boundary")
@@ -308,7 +308,7 @@ struct BufferTest {
     }
 
     @Test func testCopyOutWithCustomSize() {
-        var buffer: [UInt8] = [0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0xFF, 0xFF, 0xFF, 0xFF]
+        let buffer: [UInt8] = [0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0xFF, 0xFF, 0xFF, 0xFF]
 
         guard let (offset, value) = buffer.copyOut(as: UInt32.self, offset: 2, size: 8) else {
             #expect(Bool(false), "could not copy out with custom size")
@@ -320,7 +320,7 @@ struct BufferTest {
     }
 
     @Test func testCopyOutWithCustomSizeRangeError() {
-        var buffer: [UInt8] = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55]
+        let buffer: [UInt8] = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55]
 
         // Request size 8 at offset 2 would require 10 bytes total, but buffer only has 6
         #expect(buffer.copyOut(as: UInt32.self, offset: 2, size: 8) == nil)
@@ -412,7 +412,7 @@ struct BufferTest {
     }
 
     @Test func testBufferCopyOutZeroOffset() {
-        var buffer: [UInt8] = [0x11, 0x22, 0x33, 0x44, 0x55]
+        let buffer: [UInt8] = [0x11, 0x22, 0x33, 0x44, 0x55]
         var outputBuffer = [UInt8](repeating: 0, count: 3)
 
         guard let offset = buffer.copyOut(buffer: &outputBuffer, offset: 0) else {
@@ -427,7 +427,7 @@ struct BufferTest {
     }
 
     @Test func testBufferCopyOutEmptyBuffer() {
-        var buffer: [UInt8] = [0x11, 0x22, 0x33]
+        let buffer: [UInt8] = [0x11, 0x22, 0x33]
         var outputBuffer: [UInt8] = []
 
         guard let offset = buffer.copyOut(buffer: &outputBuffer, offset: 1) else {
@@ -439,7 +439,7 @@ struct BufferTest {
     }
 
     @Test func testBufferCopyOutExactFit() {
-        var buffer: [UInt8] = [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]
+        let buffer: [UInt8] = [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]
         var outputBuffer = [UInt8](repeating: 0, count: 3)
 
         guard let offset = buffer.copyOut(buffer: &outputBuffer, offset: 3) else {
