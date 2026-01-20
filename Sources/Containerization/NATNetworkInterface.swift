@@ -41,7 +41,7 @@ public final class NATNetworkInterface: Interface, Sendable {
         ipv4Gateway: IPv4Address?,
         reference: sending vmnet_network_ref,
         macAddress: MACAddress? = nil,
-        mtu: UInt32 = 1500
+        mtu: UInt32 = InterfaceDefaultMTU,
     ) {
         self.ipv4Address = ipv4Address
         self.ipv4Gateway = ipv4Gateway
@@ -55,7 +55,7 @@ public final class NATNetworkInterface: Interface, Sendable {
         ipv4Address: CIDRv4,
         ipv4Gateway: IPv4Address?,
         macAddress: MACAddress? = nil,
-        mtu: UInt32 = 1500
+        mtu: UInt32 = InterfaceDefaultMTU,
     ) {
         self.ipv4Address = ipv4Address
         self.ipv4Gateway = ipv4Gateway

@@ -123,10 +123,11 @@ endif
 .PHONY: init
 init: containerization vminitd
 	@echo Creating init.ext4...
-	@rm -f bin/init.rootfs.tar.gz bin/init.block
+	@rm -f bin/init.rootfs.tar.gz bin/init.block bin/initfs.ext4
 	@./bin/cctl rootfs create \
 		--vminitd vminitd/bin/vminitd \
 		--vmexec vminitd/bin/vmexec \
+		--ext4 ./bin/initfs.ext4 \
 		--label org.opencontainers.image.source=https://github.com/apple/containerization \
 		--image vminit:latest \
 		bin/init.rootfs.tar.gz

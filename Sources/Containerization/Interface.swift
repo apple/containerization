@@ -16,6 +16,7 @@
 
 import ContainerizationExtras
 
+public let InterfaceDefaultMTU: UInt32 = 1280
 /// A network interface.
 public protocol Interface: Sendable {
     /// The interface IPv4 address and subnet prefix length, as a CIDR address.
@@ -30,8 +31,4 @@ public protocol Interface: Sendable {
 
     /// The interface MTU (Maximum Transmission Unit).
     var mtu: UInt32 { get }
-}
-
-extension Interface {
-    public var mtu: UInt32 { 1500 }
 }
