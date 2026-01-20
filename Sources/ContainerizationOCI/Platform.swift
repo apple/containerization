@@ -194,20 +194,18 @@ public struct Platform: Sendable, Equatable {
 }
 
 extension Platform: Hashable {
-    /**
-      `~=` compares two platforms to check if **lhs** platform images are compatible with **rhs** platform
-      This operator can be used to check if an image of **lhs** platform can run on **rhs**:
-      - `true`:  when **rhs**=`arm/v8`, **lhs** is any of `arm/v8`, `arm/v7`, `arm/v6` and `arm/v5`
-      - `true`:  when **rhs**=`arm/v7`, **lhs** is any of `arm/v7`, `arm/v6` and `arm/v5`
-      - `true`:  when **rhs**=`arm/v6`, **lhs** is any of `arm/v6` and `arm/v5`
-      - `true`:  when **rhs**=`amd64`, **lhs** is any of `amd64` and `386`
-      - `true`:  when **rhs**=**lhs**
-      - `false`:  otherwise
-      - Parameters:
-         - lhs: platform whose compatibility is being checked
-         - rhs: platform against which compatibility is being checked
-      - Returns: `true | false`
-     */
+    ///  `~=` compares two platforms to check if **lhs** platform images are compatible with **rhs** platform
+    ///  This operator can be used to check if an image of **lhs** platform can run on **rhs**:
+    ///  - `true`:  when **rhs**=`arm/v8`, **lhs** is any of `arm/v8`, `arm/v7`, `arm/v6` and `arm/v5`
+    ///  - `true`:  when **rhs**=`arm/v7`, **lhs** is any of `arm/v7`, `arm/v6` and `arm/v5`
+    ///  - `true`:  when **rhs**=`arm/v6`, **lhs** is any of `arm/v6` and `arm/v5`
+    ///  - `true`:  when **rhs**=`amd64`, **lhs** is any of `amd64` and `386`
+    ///  - `true`:  when **rhs**=**lhs**
+    ///  - `false`:  otherwise
+    ///  - Parameters:
+    ///     - lhs: platform whose compatibility is being checked
+    ///     - rhs: platform against which compatibility is being checked
+    ///  - Returns: `true | false`
     public static func ~= (lhs: Platform, rhs: Platform) -> Bool {
         if lhs.os == rhs.os {
             if lhs._rawArch == rhs._rawArch {
