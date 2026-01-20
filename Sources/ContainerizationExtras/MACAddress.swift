@@ -40,7 +40,8 @@ public struct MACAddress: Sendable, Hashable, CustomStringConvertible, Equatable
         guard bytes.count == 6 else {
             throw AddressError.unableToParse
         }
-        self.value = (UInt64(bytes[0]) << 40)
+        self.value =
+            (UInt64(bytes[0]) << 40)
             | (UInt64(bytes[1]) << 32)
             | (UInt64(bytes[2]) << 24)
             | (UInt64(bytes[3]) << 16)

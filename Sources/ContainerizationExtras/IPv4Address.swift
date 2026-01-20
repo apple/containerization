@@ -36,7 +36,8 @@ public struct IPv4Address: Sendable, Hashable, CustomStringConvertible, Equatabl
         guard bytes.count == 4 else {
             throw AddressError.unableToParse
         }
-        self.value = (UInt32(bytes[0]) << 24)
+        self.value =
+            (UInt32(bytes[0]) << 24)
             | (UInt32(bytes[1]) << 16)
             | (UInt32(bytes[2]) << 16)
             | UInt32(bytes[3])

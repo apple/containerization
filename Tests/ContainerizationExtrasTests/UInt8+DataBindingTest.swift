@@ -15,6 +15,7 @@
 //===----------------------------------------------------------------------===//
 
 import Testing
+
 @testable import ContainerizationExtras
 
 struct BufferTest {
@@ -78,7 +79,7 @@ struct BufferTest {
     }
 
     @Test func testBufferBindZeroOffset() {
-        let expectedValue: UInt32 = 0x12345678
+        let expectedValue: UInt32 = 0x1234_5678
         var buffer = [UInt8](repeating: 0, count: 8)
         guard let ptr = buffer.bind(as: UInt32.self, offset: 0) else {
             #expect(Bool(false), "could not bind value to buffer at offset 0")
@@ -111,7 +112,7 @@ struct BufferTest {
             return
         }
 
-        ptr.pointee = 0xAABBCCDD
+        ptr.pointee = 0xAABB_CCDD
         #expect(buffer[4] == 0xDD)
         #expect(buffer[5] == 0xCC)
         #expect(buffer[6] == 0xBB)
@@ -155,7 +156,7 @@ struct BufferTest {
 
     @Test func testCopyInUInt32() {
         var buffer = [UInt8](repeating: 0, count: 8)
-        let value: UInt32 = 0x12345678
+        let value: UInt32 = 0x1234_5678
 
         guard let offset = buffer.copyIn(as: UInt32.self, value: value, offset: 0) else {
             #expect(Bool(false), "could not copy UInt32 to buffer")
@@ -171,7 +172,7 @@ struct BufferTest {
 
     @Test func testCopyInUInt64() {
         var buffer = [UInt8](repeating: 0, count: 16)
-        let value: UInt64 = 0x0102030405060708
+        let value: UInt64 = 0x0102_0304_0506_0708
 
         guard let offset = buffer.copyIn(as: UInt64.self, value: value, offset: 4) else {
             #expect(Bool(false), "could not copy UInt64 to buffer")
@@ -191,7 +192,7 @@ struct BufferTest {
 
     @Test func testCopyInRangeError() {
         var buffer = [UInt8](repeating: 0, count: 8)
-        let value: UInt64 = 0x1234567890ABCDEF
+        let value: UInt64 = 0x1234_5678_90AB_CDEF
 
         // Offset 4 + size 8 = 12, but buffer only has 8 bytes
         #expect(buffer.copyIn(as: UInt64.self, value: value, offset: 4) == nil)
@@ -199,7 +200,7 @@ struct BufferTest {
 
     @Test func testCopyInExactBoundary() {
         var buffer = [UInt8](repeating: 0, count: 8)
-        let value: UInt64 = 0xFEDCBA9876543210
+        let value: UInt64 = 0xFEDC_BA98_7654_3210
 
         guard let offset = buffer.copyIn(as: UInt64.self, value: value, offset: 0) else {
             #expect(Bool(false), "could not copy UInt64 at exact boundary")
@@ -211,7 +212,7 @@ struct BufferTest {
 
     @Test func testCopyInWithCustomSize() {
         var buffer = [UInt8](repeating: 0, count: 16)
-        let value: UInt32 = 0xAABBCCDD
+        let value: UInt32 = 0xAABB_CCDD
 
         // Copy with custom size of 8 (larger than UInt32's 4 bytes)
         guard let offset = buffer.copyIn(as: UInt32.self, value: value, offset: 2, size: 8) else {
@@ -228,7 +229,7 @@ struct BufferTest {
 
     @Test func testCopyInWithCustomSizeRangeError() {
         var buffer = [UInt8](repeating: 0, count: 8)
-        let value: UInt32 = 0x12345678
+        let value: UInt32 = 0x1234_5678
 
         // Request size 8 at offset 2 would require 10 bytes total
         #expect(buffer.copyIn(as: UInt32.self, value: value, offset: 2, size: 8) == nil)
@@ -269,14 +270,14 @@ struct BufferTest {
         }
 
         #expect(offset == 4)
-        #expect(value == 0x78563412)
+        #expect(value == 0x7856_3412)
     }
 
     @Test func testCopyOutUInt64() {
         let buffer: [UInt8] = [
             0x00, 0x00, 0x00, 0x00,
             0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
-            0xFF, 0xFF
+            0xFF, 0xFF,
         ]
 
         guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: 4) else {
@@ -285,7 +286,7 @@ struct BufferTest {
         }
 
         #expect(offset == 12)
-        #expect(value == 0x8877665544332211)
+        #expect(value == 0x8877_6655_4433_2211)
     }
 
     @Test func testCopyOutRangeError() {
@@ -304,7 +305,7 @@ struct BufferTest {
         }
 
         #expect(offset == 8)
-        #expect(value == 0x0807060504030201)
+        #expect(value == 0x0807_0605_0403_0201)
     }
 
     @Test func testCopyOutWithCustomSize() {
@@ -316,7 +317,7 @@ struct BufferTest {
         }
 
         #expect(offset == 6)  // offset + MemoryLayout<UInt32>.size
-        #expect(value == 0x44332211)
+        #expect(value == 0x4433_2211)
     }
 
     @Test func testCopyOutWithCustomSizeRangeError() {
