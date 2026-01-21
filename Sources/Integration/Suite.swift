@@ -258,6 +258,15 @@ struct IntegrationSuite: AsyncParsableCommand {
         }
     }
 
+    private func macOS26Tests() -> [Test] {
+        if #available(macOS 26.0, *) {
+            return [
+                Test("container interface custom MTU", testInterfaceMTU)
+            ]
+        }
+        return []
+    }
+
     // Why does this exist?
     //
     // We need the virtualization entitlement to execute these tests.
@@ -274,73 +283,74 @@ struct IntegrationSuite: AsyncParsableCommand {
         let suiteStarted = CFAbsoluteTimeGetCurrent()
         log.info("starting integration suite\n")
 
-        let tests: [Test] = [
-            // Containers
-            Test("process true", testProcessTrue),
-            Test("process false", testProcessFalse),
-            Test("process echo hi", testProcessEchoHi),
-            Test("process user", testProcessUser),
-            Test("process stdin", testProcessStdin),
-            Test("process home envvar", testProcessHomeEnvvar),
-            Test("process custom home envvar", testProcessCustomHomeEnvvar),
-            Test("process tty ensure TERM", testProcessTtyEnvvar),
-            Test("multiple concurrent processes", testMultipleConcurrentProcesses),
-            Test("multiple concurrent processes with output stress", testMultipleConcurrentProcessesOutputStress),
-            Test("container hostname", testHostname),
-            Test("container hosts", testHostsFile),
-            Test("container mount", testMounts),
-            Test("container stop idempotency", testContainerStopIdempotency),
-            Test("nested virt", testNestedVirtualizationEnabled),
-            Test("container manager", testContainerManagerCreate),
-            Test("container reuse", testContainerReuse),
-            Test("container /dev/console", testContainerDevConsole),
-            Test("container statistics", testContainerStatistics),
-            Test("container cgroup limits", testCgroupLimits),
-            Test("container memory events OOM kill", testMemoryEventsOOMKill),
-            Test("container no serial console", testNoSerialConsole),
-            Test("unix socket into guest", testUnixSocketIntoGuest),
-            Test("container non-closure constructor", testNonClosureConstructor),
-            Test("container test large stdio ingest", testLargeStdioOutput),
-            Test("process delete idempotency", testProcessDeleteIdempotency),
-            Test("multiple execs without delete", testMultipleExecsWithoutDelete),
-            Test("container bootlog using filehandle", testBootLogFileHandle),
-            Test("container capabilities sys admin", testCapabilitiesSysAdmin),
-            Test("container capabilities net admin", testCapabilitiesNetAdmin),
-            Test("container capabilities OCI default", testCapabilitiesOCIDefault),
-            Test("container capabilities all capabilities", testCapabilitiesAllCapabilities),
-            Test("container capabilities file ownership", testCapabilitiesFileOwnership),
-            Test("container copy in", testCopyIn),
-            Test("container copy out", testCopyOut),
-            Test("container copy large file", testCopyLargeFile),
-            Test("container read-only rootfs", testReadOnlyRootfs),
-            Test("container read-only rootfs hosts file", testReadOnlyRootfsHostsFileWritten),
-            Test("container read-only rootfs DNS", testReadOnlyRootfsDNSConfigured),
-            Test("large stdin input", testLargeStdinInput),
-            Test("exec large stdin input", testExecLargeStdinInput),
-            Test("stdin explicit close", testStdinExplicitClose),
-            Test("stdin binary data", testStdinBinaryData),
-            Test("stdin multiple chunks", testStdinMultipleChunks),
-            Test("stdin very large", testStdinVeryLarge),
+        let tests: [Test] =
+            [
+                // Containers
+                Test("process true", testProcessTrue),
+                Test("process false", testProcessFalse),
+                Test("process echo hi", testProcessEchoHi),
+                Test("process user", testProcessUser),
+                Test("process stdin", testProcessStdin),
+                Test("process home envvar", testProcessHomeEnvvar),
+                Test("process custom home envvar", testProcessCustomHomeEnvvar),
+                Test("process tty ensure TERM", testProcessTtyEnvvar),
+                Test("multiple concurrent processes", testMultipleConcurrentProcesses),
+                Test("multiple concurrent processes with output stress", testMultipleConcurrentProcessesOutputStress),
+                Test("container hostname", testHostname),
+                Test("container hosts", testHostsFile),
+                Test("container mount", testMounts),
+                Test("container stop idempotency", testContainerStopIdempotency),
+                Test("nested virt", testNestedVirtualizationEnabled),
+                Test("container manager", testContainerManagerCreate),
+                Test("container reuse", testContainerReuse),
+                Test("container /dev/console", testContainerDevConsole),
+                Test("container statistics", testContainerStatistics),
+                Test("container cgroup limits", testCgroupLimits),
+                Test("container memory events OOM kill", testMemoryEventsOOMKill),
+                Test("container no serial console", testNoSerialConsole),
+                Test("unix socket into guest", testUnixSocketIntoGuest),
+                Test("container non-closure constructor", testNonClosureConstructor),
+                Test("container test large stdio ingest", testLargeStdioOutput),
+                Test("process delete idempotency", testProcessDeleteIdempotency),
+                Test("multiple execs without delete", testMultipleExecsWithoutDelete),
+                Test("container bootlog using filehandle", testBootLogFileHandle),
+                Test("container capabilities sys admin", testCapabilitiesSysAdmin),
+                Test("container capabilities net admin", testCapabilitiesNetAdmin),
+                Test("container capabilities OCI default", testCapabilitiesOCIDefault),
+                Test("container capabilities all capabilities", testCapabilitiesAllCapabilities),
+                Test("container capabilities file ownership", testCapabilitiesFileOwnership),
+                Test("container copy in", testCopyIn),
+                Test("container copy out", testCopyOut),
+                Test("container copy large file", testCopyLargeFile),
+                Test("container read-only rootfs", testReadOnlyRootfs),
+                Test("container read-only rootfs hosts file", testReadOnlyRootfsHostsFileWritten),
+                Test("container read-only rootfs DNS", testReadOnlyRootfsDNSConfigured),
+                Test("large stdin input", testLargeStdinInput),
+                Test("exec large stdin input", testExecLargeStdinInput),
+                Test("stdin explicit close", testStdinExplicitClose),
+                Test("stdin binary data", testStdinBinaryData),
+                Test("stdin multiple chunks", testStdinMultipleChunks),
+                Test("stdin very large", testStdinVeryLarge),
 
-            // Pods
-            Test("pod single container", testPodSingleContainer),
-            Test("pod multiple containers", testPodMultipleContainers),
-            Test("pod container output", testPodContainerOutput),
-            Test("pod concurrent containers", testPodConcurrentContainers),
-            Test("pod exec in container", testPodExecInContainer),
-            Test("pod container hostname", testPodContainerHostname),
-            Test("pod stop container idempotency", testPodStopContainerIdempotency),
-            Test("pod list containers", testPodListContainers),
-            Test("pod container statistics", testPodContainerStatistics),
-            Test("pod memory events OOM kill", testPodMemoryEventsOOMKill),
-            Test("pod container resource limits", testPodContainerResourceLimits),
-            Test("pod container filesystem isolation", testPodContainerFilesystemIsolation),
-            Test("pod container PID namespace isolation", testPodContainerPIDNamespaceIsolation),
-            Test("pod container independent resource limits", testPodContainerIndependentResourceLimits),
-            Test("pod shared PID namespace", testPodSharedPIDNamespace),
-            Test("pod read-only rootfs", testPodReadOnlyRootfs),
-            Test("pod read-only rootfs DNS", testPodReadOnlyRootfsDNSConfigured),
-        ]
+                // Pods
+                Test("pod single container", testPodSingleContainer),
+                Test("pod multiple containers", testPodMultipleContainers),
+                Test("pod container output", testPodContainerOutput),
+                Test("pod concurrent containers", testPodConcurrentContainers),
+                Test("pod exec in container", testPodExecInContainer),
+                Test("pod container hostname", testPodContainerHostname),
+                Test("pod stop container idempotency", testPodStopContainerIdempotency),
+                Test("pod list containers", testPodListContainers),
+                Test("pod container statistics", testPodContainerStatistics),
+                Test("pod memory events OOM kill", testPodMemoryEventsOOMKill),
+                Test("pod container resource limits", testPodContainerResourceLimits),
+                Test("pod container filesystem isolation", testPodContainerFilesystemIsolation),
+                Test("pod container PID namespace isolation", testPodContainerPIDNamespaceIsolation),
+                Test("pod container independent resource limits", testPodContainerIndependentResourceLimits),
+                Test("pod shared PID namespace", testPodSharedPIDNamespace),
+                Test("pod read-only rootfs", testPodReadOnlyRootfs),
+                Test("pod read-only rootfs DNS", testPodReadOnlyRootfsDNSConfigured),
+            ] + macOS26Tests()
 
         let filteredTests: [Test]
         if let filter {

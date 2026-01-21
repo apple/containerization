@@ -30,6 +30,7 @@ public final class NATNetworkInterface: Interface, Sendable {
     public let ipv4Address: CIDRv4
     public let ipv4Gateway: IPv4Address?
     public let macAddress: MACAddress?
+    public let mtu: UInt32
 
     @available(macOS 26, *)
     // `reference` isn't used concurrently.
@@ -40,11 +41,13 @@ public final class NATNetworkInterface: Interface, Sendable {
         ipv4Address: CIDRv4,
         ipv4Gateway: IPv4Address?,
         reference: sending vmnet_network_ref,
-        macAddress: MACAddress? = nil
+        macAddress: MACAddress? = nil,
+        mtu: UInt32 = 1500
     ) {
         self.ipv4Address = ipv4Address
         self.ipv4Gateway = ipv4Gateway
         self.macAddress = macAddress
+        self.mtu = mtu
         self.reference = reference
     }
 
@@ -52,11 +55,13 @@ public final class NATNetworkInterface: Interface, Sendable {
     public init(
         ipv4Address: CIDRv4,
         ipv4Gateway: IPv4Address?,
-        macAddress: MACAddress? = nil
+        macAddress: MACAddress? = nil,
+        mtu: UInt32 = 1500
     ) {
         self.ipv4Address = ipv4Address
         self.ipv4Gateway = ipv4Gateway
         self.macAddress = macAddress
+        self.mtu = mtu
         self.reference = nil
     }
 }

@@ -458,7 +458,7 @@ extension LinuxContainer {
                     for (index, i) in self.interfaces.enumerated() {
                         let name = "eth\(index)"
                         try await agent.addressAdd(name: name, ipv4Address: i.ipv4Address)
-                        try await agent.up(name: name, mtu: 1280)
+                        try await agent.up(name: name, mtu: i.mtu)
                         if let ipv4Gateway = i.ipv4Gateway {
                             try await agent.routeAddDefault(name: name, ipv4Gateway: ipv4Gateway)
                         }

@@ -17,6 +17,7 @@
 import ArgumentParser
 import Containerization
 import ContainerizationError
+import ContainerizationExtras
 import ContainerizationOCI
 import ContainerizationOS
 import Crypto
@@ -2023,6 +2024,65 @@ extension IntegrationSuite {
             guard stdout.count > 0 else {
                 throw IntegrationError.assert(msg: "no output from wc")
             }
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    @available(macOS 26.0, *)
+    func testInterfaceMTU() async throws {
+        let id = "test-interface-mtu"
+        let bs = try await bootstrap(id)
+
+        let customMTU: UInt32 = 1400
+        var network = try ContainerManager.VmnetNetwork()
+        defer {
+            try? network.release(id)
+        }
+
+        guard let interface = try network.create(id, mtu: customMTU) else {
+            throw IntegrationError.assert(msg: "failed to create network interface")
+        }
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.interfaces = [interface]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Check the MTU of eth0
+            let exec = try await container.exec("check-mtu") { config in
+                config.arguments = ["ip", "link", "show", "eth0"]
+                config.stdout = buffer
+            }
+
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ip link show failed with status \(status)")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert output to UTF8")
+            }
+
+            // Output should contain "mtu 1400"
+            guard output.contains("mtu \(customMTU)") else {
+                throw IntegrationError.assert(
+                    msg: "expected MTU \(customMTU) in output, got: \(output)")
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
         } catch {
             try? await container.stop()
             throw error
