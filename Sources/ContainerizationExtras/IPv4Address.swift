@@ -18,9 +18,29 @@
 public struct IPv4Address: Sendable, Hashable, CustomStringConvertible, Equatable, Comparable {
     public let value: UInt32
 
+    /// Creates an IPv4Address from an unsigned integer.
+    ///
+    /// - Parameter string: The integer representation of the address.
     @inlinable
     public init(_ value: UInt32) {
         self.value = value
+    }
+
+    /// Creates an IPv4Address from 4 bytes.
+    ///
+    /// - Parameters:
+    ///   - bytes: 4-byte array in network byte order representing the IPv4 address
+    /// - Throws: `AddressError.unableToParse` if the byte array length is not 4
+    @inlinable
+    public init(_ bytes: [UInt8]) throws {
+        guard bytes.count == 4 else {
+            throw AddressError.unableToParse
+        }
+        self.value =
+            (UInt32(bytes[0]) << 24)
+            | (UInt32(bytes[1]) << 16)
+            | (UInt32(bytes[2]) << 16)
+            | UInt32(bytes[3])
     }
 
     /// Creates an IPv4Address from a string representation.

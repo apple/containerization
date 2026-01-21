@@ -30,6 +30,25 @@ public struct MACAddress: Sendable, Hashable, CustomStringConvertible, Equatable
         self.value = value & 0x0000_ffff_ffff_ffff
     }
 
+    /// Creates an IPv4Address from 6 bytes.
+    ///
+    /// - Parameters:
+    ///   - bytes: 6-byte array in network byte order representing the IPv4 address
+    /// - Throws: `AddressError.unableToParse` if the byte array length is not 6
+    @inlinable
+    public init(_ bytes: [UInt8]) throws {
+        guard bytes.count == 6 else {
+            throw AddressError.unableToParse
+        }
+        self.value =
+            (UInt64(bytes[0]) << 40)
+            | (UInt64(bytes[1]) << 32)
+            | (UInt64(bytes[2]) << 24)
+            | (UInt64(bytes[3]) << 16)
+            | (UInt64(bytes[4]) << 8)
+            | UInt64(bytes[5])
+    }
+
     /// Creates an MACAddress from a string representation.
     ///
     /// - Parameter string: The MAC address string with colon or dash delimiters.
@@ -225,9 +244,9 @@ public struct MACAddress: Sendable, Hashable, CustomStringConvertible, Equatable
     /// - Parameter network: The IPv6 address to use for the network prefix
     /// - Returns: The link local IP address for the MAC address
     @inlinable
-    public func ipv6Address(network: IPv6Address) -> IPv6Address {
+    public func ipv6Address(network: IPv6Address) throws -> IPv6Address {
         let prefixBytes = network.bytes
-        return IPv6Address([
+        return try IPv6Address([
             prefixBytes[0], prefixBytes[1], prefixBytes[2], prefixBytes[3],
             prefixBytes[4], prefixBytes[5], prefixBytes[6], prefixBytes[7],
             bytes[0] ^ 0x02, bytes[1], bytes[2], 0xff,

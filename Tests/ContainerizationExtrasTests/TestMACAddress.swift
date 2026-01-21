@@ -182,10 +182,11 @@ struct MACAddressTests {
                 (0x5e3b_68d7_e510, 0xfd97_7b15_d62e_75ac_5c3b_68ff_fed7_e510),
             ]
         )
-        func testLinkLocalAddress(mac: UInt64, ipv6: UInt128) {
+        func testLinkLocalAddress(mac: UInt64, ipv6: UInt128) throws {
             let mac = MACAddress(mac)
             let ipv6Prefix = IPv6Address(ipv6 & 0xffff_ffff_ffff_ffff_0000_0000_0000_0000)
-            #expect(mac.ipv6Address(network: ipv6Prefix) == IPv6Address(ipv6))
+            let ipv6Address = try mac.ipv6Address(network: ipv6Prefix)
+            #expect(ipv6Address == IPv6Address(ipv6))
         }
     }
 

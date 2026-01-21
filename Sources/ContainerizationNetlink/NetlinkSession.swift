@@ -102,7 +102,7 @@ public struct NetlinkSession {
                 let newRequestOffset =
                     requestBuffer.copyIn(as: UInt32.self, value: m, offset: requestOffset)
             else {
-                throw NetlinkDataError.sendMarshalFailure
+                throw BindError.sendMarshalFailure(type: "RTAttribute", field: "IFLA_MTU")
             }
             requestOffset = newRequestOffset
         }
@@ -162,7 +162,7 @@ public struct NetlinkSession {
                 value: filters,
                 offset: requestOffset)
         else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "RTAttribute", field: "IFLA_EXT_MASK")
         }
 
         if let interfaceNameAttr {
@@ -170,7 +170,7 @@ public struct NetlinkSession {
                 requestOffset = try interfaceNameAttr.appendBuffer(&requestBuffer, offset: requestOffset)
                 guard let updatedRequestOffset = requestBuffer.copyIn(buffer: interfaceName, offset: requestOffset)
                 else {
-                    throw NetlinkDataError.sendMarshalFailure
+                    throw BindError.sendMarshalFailure(type: "RTAttribute", field: "IFLA_IFNAME")
                 }
                 requestOffset = updatedRequestOffset
             }
@@ -239,13 +239,13 @@ public struct NetlinkSession {
         let ipLocalAttr = RTAttribute(len: UInt16(addressAttrSize), type: AddressAttributeType.IFA_LOCAL)
         requestOffset = try ipLocalAttr.appendBuffer(&requestBuffer, offset: requestOffset)
         guard var requestOffset = requestBuffer.copyIn(buffer: ipAddressBytes, offset: requestOffset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "RTAttribute", field: "IFA_LOCAL")
         }
 
         let ipAddressAttr = RTAttribute(len: UInt16(addressAttrSize), type: AddressAttributeType.IFA_ADDRESS)
         requestOffset = try ipAddressAttr.appendBuffer(&requestBuffer, offset: requestOffset)
         guard let requestOffset = requestBuffer.copyIn(buffer: ipAddressBytes, offset: requestOffset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "RTAttribute", field: "IFA_ADDRESS")
         }
 
         guard requestOffset == requestSize else {
@@ -305,13 +305,13 @@ public struct NetlinkSession {
         let dstAddrAttr = RTAttribute(len: UInt16(dstAddrAttrSize), type: RouteAttributeType.DST)
         requestOffset = try dstAddrAttr.appendBuffer(&requestBuffer, offset: requestOffset)
         guard var requestOffset = requestBuffer.copyIn(buffer: dstAddrBytes, offset: requestOffset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "RTAttribute", field: "RTA_DST")
         }
 
         let srcAddrAttr = RTAttribute(len: UInt16(dstAddrAttrSize), type: RouteAttributeType.PREFSRC)
         requestOffset = try srcAddrAttr.appendBuffer(&requestBuffer, offset: requestOffset)
         guard var requestOffset = requestBuffer.copyIn(buffer: srcAddrBytes, offset: requestOffset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "RTAttribute", field: "RTA_PREFSRC")
         }
 
         let interfaceAttr = RTAttribute(len: UInt16(interfaceAttrSize), type: RouteAttributeType.OIF)
@@ -322,7 +322,7 @@ public struct NetlinkSession {
                 value: UInt32(interfaceIndex),
                 offset: requestOffset)
         else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "RTAttribute", field: "RTA_OIF")
         }
 
         guard requestOffset == requestSize else {
@@ -378,7 +378,7 @@ public struct NetlinkSession {
         let dstAddrAttr = RTAttribute(len: UInt16(dstAddrAttrSize), type: RouteAttributeType.GATEWAY)
         requestOffset = try dstAddrAttr.appendBuffer(&requestBuffer, offset: requestOffset)
         guard var requestOffset = requestBuffer.copyIn(buffer: dstAddrBytes, offset: requestOffset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "RTAttribute", field: "RTA_GATEWAY")
         }
         let interfaceAttr = RTAttribute(len: UInt16(interfaceAttrSize), type: RouteAttributeType.OIF)
         requestOffset = try interfaceAttr.appendBuffer(&requestBuffer, offset: requestOffset)
@@ -388,7 +388,7 @@ public struct NetlinkSession {
                 value: UInt32(interfaceIndex),
                 offset: requestOffset)
         else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "RTAttribute", field: "RTA_OIF")
         }
 
         guard requestOffset == requestSize else {
@@ -404,7 +404,7 @@ public struct NetlinkSession {
 
     private func getInterfaceName(_ interface: String) throws -> [UInt8] {
         guard let interfaceNameData = interface.data(using: .utf8) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "String", field: "interface")
         }
 
         var interfaceName = [UInt8](interfaceNameData)
@@ -503,7 +503,7 @@ public struct NetlinkSession {
 
     private func parseErrorCode(buffer: inout [UInt8], offset: Int) throws -> (Int32, Int) {
         guard let errorPtr = buffer.bind(as: Int32.self, offset: offset) else {
-            throw NetlinkDataError.recvUnmarshalFailure
+            throw BindError.recvMarshalFailure(type: "NetlinkErrorMessage", field: "error")
         }
 
         let rc = errorPtr.pointee

@@ -71,12 +71,12 @@ extension IPv6Address {
             if remainingAddress.isEmpty {
                 // If we have IPv4 suffix, ipBytes already has the IPv4 data, just return
                 if hasIPv4Suffix {
-                    return Self(ipBytes, zone: zone)
+                    return try Self(ipBytes, zone: zone)
                 }
 
                 // Pure "::" - Return the unspecified address, handling zone identifiers
                 if let zone = zone, !zone.isEmpty {
-                    return Self(ipBytes, zone: zone)
+                    return try Self(ipBytes, zone: zone)
                 }
                 return .unspecified
             }
