@@ -145,6 +145,10 @@ make protos
 
 If you'd like to build your own kernel please see the instructions in the [kernel directory](./kernel/README.md).
 
+## Pre-commit hook
+
+Run `make pre-commit` to install a pre-commit hook that ensures that your changes have correct formatting and license headers when you run `git commit`.
+
 ## Documentation
 
 Generate the API documentation for local viewing with:
