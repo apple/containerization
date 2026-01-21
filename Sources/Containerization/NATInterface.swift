@@ -20,10 +20,12 @@ public struct NATInterface: Interface {
     public var ipv4Address: CIDRv4
     public var ipv4Gateway: IPv4Address?
     public var macAddress: MACAddress?
+    public var mtu: UInt32
 
-    public init(ipv4Address: CIDRv4, ipv4Gateway: IPv4Address?, macAddress: MACAddress? = nil) {
+    public init(ipv4Address: CIDRv4, ipv4Gateway: IPv4Address?, macAddress: MACAddress? = nil, mtu: UInt32 = 1500) {
         self.ipv4Address = ipv4Address
         self.ipv4Gateway = ipv4Gateway
         self.macAddress = macAddress
+        self.mtu = mtu
     }
 }

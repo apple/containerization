@@ -94,6 +94,7 @@ public struct ContainerManager: Sendable {
             public let ipv4Address: CIDRv4
             public let ipv4Gateway: IPv4Address?
             public let macAddress: MACAddress?
+            public let mtu: UInt32
 
             // `reference` isn't used concurrently.
             nonisolated(unsafe) private let reference: vmnet_network_ref
@@ -102,11 +103,13 @@ public struct ContainerManager: Sendable {
                 reference: vmnet_network_ref,
                 ipv4Address: CIDRv4,
                 ipv4Gateway: IPv4Address,
-                macAddress: MACAddress? = nil
+                macAddress: MACAddress? = nil,
+                mtu: UInt32 = 1500
             ) {
                 self.ipv4Address = ipv4Address
                 self.ipv4Gateway = ipv4Gateway
                 self.macAddress = macAddress
+                self.mtu = mtu
                 self.reference = reference
             }
 
@@ -157,6 +160,20 @@ public struct ContainerManager: Sendable {
                 reference: self.reference,
                 ipv4Address: ipv4Address,
                 ipv4Gateway: self.ipv4Gateway,
+            )
+        }
+
+        /// Returns a new interface for use with a container with a custom MTU.
+        /// - Parameters:
+        ///   - id: The container ID.
+        ///   - mtu: The MTU for the interface.
+        public mutating func create(_ id: String, mtu: UInt32) throws -> Containerization.Interface? {
+            let ipv4Address = try allocator.allocate(id)
+            return Self.Interface(
+                reference: self.reference,
+                ipv4Address: ipv4Address,
+                ipv4Gateway: self.ipv4Gateway,
+                mtu: mtu
             )
         }
 

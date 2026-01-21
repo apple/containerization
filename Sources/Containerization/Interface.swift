@@ -27,4 +27,11 @@ public protocol Interface: Sendable {
 
     /// The interface MAC address, or nil to auto-configure the address.
     var macAddress: MACAddress? { get }
+
+    /// The interface MTU (Maximum Transmission Unit).
+    var mtu: UInt32 { get }
+}
+
+extension Interface {
+    public var mtu: UInt32 { 1500 }
 }
