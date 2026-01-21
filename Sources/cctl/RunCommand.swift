@@ -50,12 +50,6 @@ extension Application {
         @Option(name: .customLong("mount"), help: "Directory to share into the container (Example: /foo:/bar)")
         var mounts: [String] = []
 
-        @Option(name: .long, help: "IP address with subnet")
-        var ip: String?
-
-        @Option(name: .long, help: "Gateway address")
-        var gateway: String?
-
         @Option(name: .customLong("ns"), help: "Nameserver addresses")
         var nameservers: [String] = []
 
@@ -83,9 +77,19 @@ extension Application {
                 path: URL(fileURLWithPath: kernel),
                 platform: .linuxArm
             )
+
+            // Choose network implementation based on macOS version
+            let network: ContainerManager.Network?
+            if #available(macOS 26, *) {
+                network = try ContainerManager.VmnetNetwork()
+            } else {
+                network = nil
+            }
+
             var manager = try await ContainerManager(
                 kernel: kernel,
                 initfsReference: "vminit:latest",
+                network: network,
                 rosetta: rosetta
             )
             let sigwinchStream = AsyncSignalHandler.create(notify: [SIGWINCH])
@@ -125,23 +129,24 @@ extension Application {
                 }
 
                 var hosts = Hosts.default
-                if let ip {
-                    guard let gateway else {
-                        throw ContainerizationError(.invalidArgument, message: "gateway must be specified")
+                if !nameservers.isEmpty {
+                    if #available(macOS 26, *) {
+                        config.dns = DNS(nameservers: nameservers)
+                    } else {
+                        print("Warning: Networking not supported on macOS < 26, ignoring DNS configuration")
                     }
-                    let ipv4Address = try CIDRv4(ip)
-                    let ipv4Gateway = try IPv4Address(gateway)
-                    config.interfaces.append(NATInterface(ipv4Address: ipv4Address, ipv4Gateway: ipv4Gateway))
-                    config.dns = .init(nameservers: [gateway])
-                    if nameservers.count > 0 {
-                        config.dns = .init(nameservers: nameservers)
-                    }
+                }
+
+                // Add host entry for the container using just the IP (not CIDR)
+                if #available(macOS 26, *), !config.interfaces.isEmpty {
+                    let interface = config.interfaces[0]
                     hosts.entries.append(
                         Hosts.Entry(
-                            ipAddress: ip,
+                            ipAddress: interface.ipv4Address.address.description,
                             hostnames: [id]
                         ))
                 }
+
                 config.hosts = hosts
                 if let ociRuntimePath {
                     config.ociRuntimePath = ociRuntimePath
