@@ -958,7 +958,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             let socket = try DefaultNetlinkSocket()
             let session = NetlinkSession(socket: socket, log: log)
             let dstIpv4Addr = try CIDRv4(request.dstIpv4Addr)
-            let srcIpv4Addr = try IPv4Address(request.srcIpv4Addr)
+            let srcIpv4Addr = request.srcIpv4Addr.isEmpty ? nil : try IPv4Address(request.srcIpv4Addr)
             try session.routeAdd(
                 interface: request.interface,
                 dstIpv4Addr: dstIpv4Addr,
