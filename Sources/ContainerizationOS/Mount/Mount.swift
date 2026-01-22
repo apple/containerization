@@ -146,12 +146,34 @@ extension Mount {
         // Ensure propagation type change flags aren't included in other calls.
         let originalFlags = opts.flags & ~(propagationTypes)
 
-        let targetURL = URL(fileURLWithPath: self.target)
+        let targetURL = URL(fileURLWithPath: target)
         let targetParent = targetURL.deletingLastPathComponent().path
         if let perms = createWithPerms {
             try mkdirAll(targetParent, perms)
         }
-        try mkdirAll(target, 0o755)
+
+        // For bind mounts, check if the source is a file and create the target accordingly.
+        let isBindMount = (originalFlags & Int32(MS_BIND)) != 0
+        if isBindMount {
+            var sourceIsFile = false
+            var sourceStat = stat()
+            if stat(self.source, &sourceStat) == 0 {
+                sourceIsFile = (sourceStat.st_mode & S_IFMT) == S_IFREG
+            }
+
+            if sourceIsFile {
+                // Create parent directories and touch the target file
+                try mkdirAll(targetParent, 0o755)
+                let fd = open(target, O_WRONLY | O_CREAT, 0o644)
+                if fd >= 0 {
+                    close(fd)
+                }
+            } else {
+                try mkdirAll(target, 0o755)
+            }
+        } else {
+            try mkdirAll(target, 0o755)
+        }
 
         if opts.flags & Int32(MS_REMOUNT) == 0 || !dataString.isEmpty {
             guard _mount(self.source, target, self.type, UInt(originalFlags), dataString) == 0 else {
