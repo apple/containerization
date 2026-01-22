@@ -9,7 +9,7 @@ Very basic example of launching a Linux container using Containerization.
 Before building, ensure you have the required dependencies:
 
 - **macOS**: macOS 26.0 or later (preferably the latest available release)
-- **Xcode**: Xcode 26 beta or later  
+- **Xcode**: Xcode 26.0 or later (preferably the latest available release)
 - **Swift**: Apple Swift version 6.2 or later
 - **Hardware**: Mac with Apple silicon
 
