@@ -331,6 +331,10 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("stdin binary data", testStdinBinaryData),
                 Test("stdin multiple chunks", testStdinMultipleChunks),
                 Test("stdin very large", testStdinVeryLarge),
+                Test("container single file mount", testSingleFileMount),
+                Test("container single file mount read-only", testSingleFileMountReadOnly),
+                Test("container single file mount write-back", testSingleFileMountWriteBack),
+                Test("container single file mount symlink", testSingleFileMountSymlink),
 
                 // Pods
                 Test("pod single container", testPodSingleContainer),
@@ -350,6 +354,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("pod shared PID namespace", testPodSharedPIDNamespace),
                 Test("pod read-only rootfs", testPodReadOnlyRootfs),
                 Test("pod read-only rootfs DNS", testPodReadOnlyRootfsDNSConfigured),
+                Test("pod single file mount", testPodSingleFileMount),
             ] + macOS26Tests()
 
         let filteredTests: [Test]

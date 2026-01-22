@@ -872,4 +872,54 @@ extension IntegrationSuite {
             throw IntegrationError.assert(msg: "expected /etc/resolv.conf to contain DNS servers, got: \(output)")
         }
     }
+
+    func testPodSingleFileMount() async throws {
+        let id = "test-pod-single-file-mount"
+
+        let bs = try await bootstrap(id)
+
+        // Create a temp file with known content
+        let testContent = "Hello from pod single file mount!"
+        let hostFile = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("pod-config.txt")
+        try testContent.write(to: hostFile, atomically: true, encoding: .utf8)
+
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        let buffer = BufferWriter()
+        try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
+            config.process.arguments = ["cat", "/etc/myconfig.txt"]
+            // Mount a single file using virtiofs share
+            config.mounts.append(.share(source: hostFile.path, destination: "/etc/myconfig.txt"))
+            config.process.stdout = buffer
+        }
+
+        do {
+            try await pod.create()
+            try await pod.startContainer("container1")
+
+            let status = try await pod.waitContainer("container1")
+            try await pod.stop()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "process status \(status) != 0")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert output to UTF8")
+            }
+
+            guard output == testContent else {
+                throw IntegrationError.assert(
+                    msg: "expected '\(testContent)', got '\(output)'")
+            }
+        } catch {
+            try? await pod.stop()
+            throw error
+        }
+    }
 }

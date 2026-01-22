@@ -83,6 +83,7 @@ public final class LinuxPod: Sendable {
         let config: ContainerConfiguration
         var state: ContainerState
         var process: LinuxProcess?
+        var fileMountContext: FileMountContext
 
         enum ContainerState: Sendable {
             case registered
@@ -273,12 +274,16 @@ extension LinuxPod {
             var config = ContainerConfiguration()
             try configuration(&config)
 
+            // Prepare file mounts - transforms single-file mounts into directory shares.
+            let fileMountContext = try FileMountContext.prepare(mounts: config.mounts)
+
             state.containers[id] = PodContainer(
                 id: id,
                 rootfs: rootfs,
                 config: config,
                 state: .registered,
-                process: nil
+                process: nil,
+                fileMountContext: fileMountContext
             )
         }
     }
@@ -293,11 +298,12 @@ extension LinuxPod {
             // Build mountsByID for all containers.
             // Strip "ro" from rootfs options - we handle readonly via the OCI spec's
             // root.readonly field and remount in vmexec after setup is complete.
+            // Use transformedMounts from fileMountContext (file mounts become directory shares).
             var mountsByID: [String: [Mount]] = [:]
             for (id, container) in state.containers {
                 var modifiedRootfs = container.rootfs
                 modifiedRootfs.options.removeAll(where: { $0 == "ro" })
-                mountsByID[id] = [modifiedRootfs] + container.config.mounts
+                mountsByID[id] = [modifiedRootfs] + container.fileMountContext.transformedMounts
             }
 
             let vmConfig = VMConfiguration(
@@ -317,6 +323,7 @@ extension LinuxPod {
                 let containers = state.containers
                 let shareProcessNamespace = self.config.shareProcessNamespace
                 let pauseProcessHolder = Mutex<LinuxProcess?>(nil)
+                let fileMountContextUpdates = Mutex<[String: FileMountContext]>([:])
 
                 try await vm.withAgent { agent in
                     try await agent.standardSetup()
@@ -383,6 +390,19 @@ extension LinuxPod {
                         try await agent.mount(rootfs)
                     }
 
+                    // Mount file mount holding directories under /run for each container.
+                    for (id, container) in containers {
+                        if container.fileMountContext.hasFileMounts {
+                            var ctx = container.fileMountContext
+                            let containerMounts = vm.mounts[id] ?? []
+                            try await ctx.mountHoldingDirectories(
+                                vmMounts: containerMounts,
+                                agent: agent
+                            )
+                            fileMountContextUpdates.withLock { $0[id] = ctx }
+                        }
+                    }
+
                     // Start up unix socket relays for each container
                     for (_, container) in containers {
                         for socket in container.config.sockets {
@@ -422,6 +442,12 @@ extension LinuxPod {
 
                 state.pauseProcess = pauseProcessHolder.withLock { $0 }
 
+                // Apply file mount context updates.
+                let updates = fileMountContextUpdates.withLock { $0 }
+                for (id, ctx) in updates {
+                    state.containers[id]?.fileMountContext = ctx
+                }
+
                 // Transition all containers to created state
                 for id in state.containers.keys {
                     state.containers[id]?.state = .created
@@ -460,8 +486,14 @@ extension LinuxPod {
             do {
                 var spec = self.generateRuntimeSpec(containerID: containerID, config: container.config, rootfs: container.rootfs)
                 // We don't need the rootfs, nor do OCI runtimes want it included.
+                // Also filter out file mount holding directories - we mount those separately under /run.
                 let containerMounts = createdState.vm.mounts[containerID] ?? []
-                spec.mounts = containerMounts.dropFirst().map { $0.to }
+                let holdingTags = container.fileMountContext.holdingDirectoryTags
+                spec.mounts =
+                    containerMounts.dropFirst()
+                    .filter { !holdingTags.contains($0.source) }
+                    .map { $0.to }
+                    + container.fileMountContext.ociBindMounts()
 
                 // Configure namespaces for the container
                 var namespaces: [LinuxNamespace] = [
@@ -615,6 +647,10 @@ extension LinuxPod {
                         try? await process.delete()
                         container.process = nil
                         container.state = .stopped
+
+                        // Clean up file mount temporary directories.
+                        container.fileMountContext.cleanup()
+
                         state.containers[containerID] = container
                     }
                 }
