@@ -267,15 +267,20 @@ public struct NetlinkSession {
     public func routeAdd(
         interface: String,
         dstIpv4Addr: CIDRv4,
-        srcIpv4Addr: IPv4Address
+        srcIpv4Addr: IPv4Address?
     ) throws {
-        // ip route add [dest-cidr] dev [interface] src [src-addr] proto kernel
+        // ip route add [dest-cidr] dev [interface] [src [src-addr]] proto kernel
         let interfaceIndex = try getInterfaceIndex(interface)
 
         let dstAddrBytes = dstIpv4Addr.address.bytes
         let dstAddrAttrSize = RTAttribute.size + dstAddrBytes.count
-        let srcAddrBytes = srcIpv4Addr.bytes
-        let srcAddrAttrSize = RTAttribute.size + srcAddrBytes.count
+        let srcAddrAttrSize: Int
+        if let srcIpv4Addr {
+            let srcAddrBytes = srcIpv4Addr.bytes
+            srcAddrAttrSize = RTAttribute.size + srcAddrBytes.count
+        } else {
+            srcAddrAttrSize = 0
+        }
         let interfaceAttrSize = RTAttribute.size + MemoryLayout<UInt32>.size
         let requestSize =
             NetlinkMessageHeader.size + RouteInfo.size + dstAddrAttrSize + srcAddrAttrSize + interfaceAttrSize
@@ -308,10 +313,14 @@ public struct NetlinkSession {
             throw BindError.sendMarshalFailure(type: "RTAttribute", field: "RTA_DST")
         }
 
-        let srcAddrAttr = RTAttribute(len: UInt16(dstAddrAttrSize), type: RouteAttributeType.PREFSRC)
-        requestOffset = try srcAddrAttr.appendBuffer(&requestBuffer, offset: requestOffset)
-        guard var requestOffset = requestBuffer.copyIn(buffer: srcAddrBytes, offset: requestOffset) else {
-            throw BindError.sendMarshalFailure(type: "RTAttribute", field: "RTA_PREFSRC")
+        if let srcIpv4Addr {
+            let srcAddrBytes = srcIpv4Addr.bytes
+            let srcAddrAttr = RTAttribute(len: UInt16(srcAddrAttrSize), type: RouteAttributeType.PREFSRC)
+            requestOffset = try srcAddrAttr.appendBuffer(&requestBuffer, offset: requestOffset)
+            guard let newOffset = requestBuffer.copyIn(buffer: srcAddrBytes, offset: requestOffset) else {
+                throw BindError.sendMarshalFailure(type: "RTAttribute", field: "RTA_PREFSRC")
+            }
+            requestOffset = newOffset
         }
 
         let interfaceAttr = RTAttribute(len: UInt16(interfaceAttrSize), type: RouteAttributeType.OIF)
