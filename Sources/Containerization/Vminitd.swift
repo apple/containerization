@@ -382,6 +382,19 @@ extension Vminitd {
             })
     }
 
+    /// Add a route in the sandbox's environment.
+    public func routeAddLink(name: String, dstIPv4Addr: IPv4Address, srcIPv4Addr: IPv4Address? = nil) async throws {
+        let dstCIDR = "\(dstIPv4Addr.description)/32"
+        _ = try await client.ipRouteAddLink(
+            .with {
+                $0.interface = name
+                $0.dstIpv4Addr = dstCIDR
+                if let srcIPv4Addr {
+                    $0.srcIpv4Addr = srcIPv4Addr.description
+                }
+            })
+    }
+
     /// Set the default route in the sandbox's environment.
     public func routeAddDefault(name: String, ipv4Gateway: IPv4Address) async throws {
         _ = try await client.ipRouteAddDefault(
