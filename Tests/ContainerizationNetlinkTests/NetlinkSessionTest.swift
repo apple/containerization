@@ -311,8 +311,8 @@ struct NetlinkSessionTest {
         let expectedAddRequest =
             "3400000018000506000000000cc00cc0"  // Netlink header (16 B)
             + "02180000fe02fd0100000000"  // struct rtmsg (12 B): AF_INET, dst/24,
-            //   table=RT_TABLE_MAIN (0xfe), proto=RTPROT_BOOT (0x02),
-            //   scope=RT_SCOPE_UNIVERSE (0xfd), type=RTN_UNICAST (0x01)
+            //   table=RT_TABLE_MAIN (0xfe), proto=RTPROT_KERNEL (0x02),
+            //   scope=RT_SCOPE_LINK (0xfd), type=RTN_UNICAST (0x01)
             + "08000100c0a84000"  // RTA_DST     192.168.64.0
             + "08000700c0a84003"  // RTA_PREFSRC 192.168.64.3
             + "0800040002000000"  // RTA_OIF     ifindex 2 (eth0)
@@ -330,6 +330,55 @@ struct NetlinkSessionTest {
             interface: "eth0",
             dstIpv4Addr: try CIDRv4("192.168.64.0/24"),
             srcIpv4Addr: try IPv4Address("192.168.64.3")
+        )
+
+        #expect(mockSocket.requests.count == 2)
+        #expect(mockSocket.responseIndex == 2)
+        mockSocket.requests[0][8..<12] = [0, 0, 0, 0]
+        #expect(expectedLookupRequest == mockSocket.requests[0].hexEncodedString())
+        mockSocket.requests[1][8..<12] = [0, 0, 0, 0]
+        #expect(expectedAddRequest == mockSocket.requests[1].hexEncodedString())
+    }
+
+    @Test func testNetworkRouteAddIpLinkWithoutSrc() throws {
+        let mockSocket = try MockNetlinkSocket()
+        mockSocket.pid = 0xc00c_c00c
+
+        // Lookup interface by name, truncated response with no attributes (not needed at present).
+        let expectedLookupRequest =
+            "3400000012000100000000000cc00cc0"  // Netlink header (16 B)
+            + "110000000000000001000000ffffffff"  // struct ifinfomsg (16 B)
+            + "08001d00090000000c0003006574683000000000"  // RT attrs: IFLA_EXT_MASK + IFLA_IFNAME ("eth0")
+        mockSocket.responses.append(
+            [UInt8](
+                hex:
+                    "2000000010000000000000000cc00cc0"  // Netlink header (16 B)
+                    + "00000100020000004310010000000000"  // struct ifinfomsg (16 B) – no attributes
+            )
+        )
+
+        // Add link route without RTA_PREFSRC.
+        let expectedAddRequest =
+            "2c00000018000506000000000cc00cc0"  // Netlink header (16 B)
+            + "02180000fe02fd0100000000"  // struct rtmsg (12 B): AF_INET, dst/24,
+            //   table=RT_TABLE_MAIN (0xfe), proto=RTPROT_KERNEL (0x02),
+            //   scope=RT_SCOPE_LINK (0xfd), type=RTN_UNICAST (0x01)
+            + "08000100c0a84000"  // RTA_DST     192.168.64.0
+            + "0800040002000000"  // RTA_OIF     ifindex 2 (eth0)
+        mockSocket.responses.append(
+            [UInt8](
+                hex:
+                    "2400000002000001000000000cc00cc0"  // Netlink header (16 B)
+                    + "00000000280000001400050600000000"  // nlmsg_err payload (16 B)
+                    + "1f000000"  // first 4 B of echoed offending header
+            )
+        )
+
+        let session = NetlinkSession(socket: mockSocket)
+        try session.routeAdd(
+            interface: "eth0",
+            dstIpv4Addr: try CIDRv4("192.168.64.0/24"),
+            srcIpv4Addr: nil
         )
 
         #expect(mockSocket.requests.count == 2)
