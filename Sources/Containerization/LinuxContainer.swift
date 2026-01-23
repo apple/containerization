@@ -126,6 +126,7 @@ public final class LinuxContainer: Container, Sendable {
         struct CreatedState: Sendable {
             let vm: any VirtualMachineInstance
             let relayManager: UnixSocketRelayManager
+            var fileMountContext: FileMountContext
         }
 
         struct StartedState: Sendable {
@@ -133,12 +134,14 @@ public final class LinuxContainer: Container, Sendable {
             let process: LinuxProcess
             let relayManager: UnixSocketRelayManager
             var vendedProcesses: [String: LinuxProcess]
+            let fileMountContext: FileMountContext
 
             init(_ state: CreatedState, process: LinuxProcess) {
                 self.vm = state.vm
                 self.relayManager = state.relayManager
                 self.process = process
                 self.vendedProcesses = [:]
+                self.fileMountContext = state.fileMountContext
             }
 
             init(_ state: PausedState) {
@@ -146,6 +149,7 @@ public final class LinuxContainer: Container, Sendable {
                 self.relayManager = state.relayManager
                 self.process = state.process
                 self.vendedProcesses = state.vendedProcesses
+                self.fileMountContext = state.fileMountContext
             }
         }
 
@@ -154,12 +158,14 @@ public final class LinuxContainer: Container, Sendable {
             let relayManager: UnixSocketRelayManager
             let process: LinuxProcess
             var vendedProcesses: [String: LinuxProcess]
+            let fileMountContext: FileMountContext
 
             init(_ state: StartedState) {
                 self.vm = state.vm
                 self.relayManager = state.relayManager
                 self.process = state.process
                 self.vendedProcesses = state.vendedProcesses
+                self.fileMountContext = state.fileMountContext
             }
         }
 
@@ -417,11 +423,16 @@ extension LinuxContainer {
                 ProcessInfo.processInfo.physicalMemory
             )
 
+            // Prepare file mounts. This transforms single-file mounts into directory shares.
+            let fileMountContext = try FileMountContext.prepare(mounts: self.config.mounts)
+            // This is dumb, but alas.
+            let fileMountContextHolder = Mutex<FileMountContext>(fileMountContext)
+
             let vmConfig = VMConfiguration(
                 cpus: self.cpus,
                 memoryInBytes: vmMemory,
                 interfaces: self.interfaces,
-                mountsByID: [self.id: [modifiedRootfs] + self.config.mounts],
+                mountsByID: [self.id: [modifiedRootfs] + fileMountContext.transformedMounts],
                 bootLog: self.config.bootLog,
                 nestedVirtualization: self.config.virtualization
             )
@@ -441,6 +452,17 @@ extension LinuxContainer {
                     var rootfs = rootfsAttachment.to
                     rootfs.destination = Self.guestRootfsPath(self.id)
                     try await agent.mount(rootfs)
+
+                    // Mount file mount holding directories under /run.
+                    if fileMountContext.hasFileMounts {
+                        let containerMounts = vm.mounts[self.id] ?? []
+                        var ctx = fileMountContextHolder.withLock { $0 }
+                        try await ctx.mountHoldingDirectories(
+                            vmMounts: containerMounts,
+                            agent: agent
+                        )
+                        fileMountContextHolder.withLock { $0 = ctx }
+                    }
 
                     // Start up our friendly unix socket relays.
                     for socket in self.config.sockets {
@@ -478,7 +500,7 @@ extension LinuxContainer {
                     }
 
                 }
-                state = .created(.init(vm: vm, relayManager: relayManager))
+                state = .created(.init(vm: vm, relayManager: relayManager, fileMountContext: fileMountContextHolder.withLock { $0 }))
             } catch {
                 try? await relayManager.stopAll()
                 try? await vm.stop()
@@ -497,8 +519,14 @@ extension LinuxContainer {
             do {
                 var spec = self.generateRuntimeSpec()
                 // We don't need the rootfs, nor do OCI runtimes want it included.
+                // Also filter out file mount holding directories. We'll mount those separately under /run.
                 let containerMounts = createdState.vm.mounts[self.id] ?? []
-                spec.mounts = containerMounts.dropFirst().map { $0.to }
+                let holdingTags = createdState.fileMountContext.holdingDirectoryTags
+                spec.mounts =
+                    containerMounts.dropFirst()
+                    .filter { !holdingTags.contains($0.source) }
+                    .map { $0.to }
+                    + createdState.fileMountContext.ociBindMounts()
 
                 let stdio = IOUtil.setup(
                     portAllocator: self.hostVsockPorts,
@@ -645,6 +673,9 @@ extension LinuxContainer {
                 self.logger?.error("failed to delete init process: \(error)")
                 firstError = firstError ?? error
             }
+
+            // Clean up file mount temporary directories.
+            startedState.fileMountContext.cleanup()
 
             do {
                 try await vm.stop()

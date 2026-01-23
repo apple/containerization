@@ -2088,4 +2088,233 @@ extension IntegrationSuite {
             throw error
         }
     }
+
+    func testSingleFileMount() async throws {
+        let id = "test-single-file-mount"
+
+        let bs = try await bootstrap(id)
+
+        // Create a temp file with known content
+        let testContent = "Hello from single file mount!"
+        let hostFile = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("config.txt")
+        try testContent.write(to: hostFile, atomically: true, encoding: .utf8)
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["cat", "/etc/myconfig.txt"]
+            // Mount a single file using virtiofs share
+            config.mounts.append(.share(source: hostFile.path, destination: "/etc/myconfig.txt"))
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let status = try await container.wait()
+            try await container.stop()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "process status \(status) != 0")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert output to UTF8")
+            }
+
+            guard output == testContent else {
+                throw IntegrationError.assert(
+                    msg: "expected '\(testContent)', got '\(output)'")
+            }
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testSingleFileMountReadOnly() async throws {
+        let id = "test-single-file-mount-readonly"
+
+        let bs = try await bootstrap(id)
+
+        // Create a temp file with known content
+        let testContent = "Read-only file content"
+        let hostFile = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("readonly.txt")
+        try testContent.write(to: hostFile, atomically: true, encoding: .utf8)
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            // Mount a single file as read-only
+            config.mounts.append(.share(source: hostFile.path, destination: "/etc/readonly.txt", options: ["ro"]))
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // First verify we can read the file
+            let readBuffer = BufferWriter()
+            let readExec = try await container.exec("read-file") { config in
+                config.arguments = ["cat", "/etc/readonly.txt"]
+                config.stdout = readBuffer
+            }
+            try await readExec.start()
+            var status = try await readExec.wait()
+            try await readExec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "read status \(status) != 0")
+            }
+
+            guard String(data: readBuffer.data, encoding: .utf8) == testContent else {
+                throw IntegrationError.assert(msg: "file content mismatch")
+            }
+
+            // Now try to write to the file - should fail
+            let writeExec = try await container.exec("write-file") { config in
+                config.arguments = ["sh", "-c", "echo 'modified' > /etc/readonly.txt"]
+            }
+            try await writeExec.start()
+            status = try await writeExec.wait()
+            try await writeExec.delete()
+
+            // Write should fail on a read-only mount
+            guard status.exitCode != 0 else {
+                throw IntegrationError.assert(msg: "write should have failed on read-only mount")
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testSingleFileMountWriteBack() async throws {
+        let id = "test-single-file-mount-write-back"
+
+        let bs = try await bootstrap(id)
+
+        // Create a temp file with initial content
+        let initialContent = "initial content"
+        let hostFile = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("writeable.txt")
+        try initialContent.write(to: hostFile, atomically: true, encoding: .utf8)
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            // Mount a single file (writable by default)
+            config.mounts.append(.share(source: hostFile.path, destination: "/etc/writeable.txt"))
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Write new content from inside the container
+            let newContent = "modified from container"
+            let writeExec = try await container.exec("write-file") { config in
+                config.arguments = ["sh", "-c", "echo -n '\(newContent)' > /etc/writeable.txt"]
+            }
+            try await writeExec.start()
+            let status = try await writeExec.wait()
+            try await writeExec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "write status \(status) != 0")
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+
+            let hostContent = try String(contentsOf: hostFile, encoding: .utf8)
+            guard hostContent == newContent else {
+                throw IntegrationError.assert(
+                    msg: "expected '\(newContent)' on host, got '\(hostContent)'")
+            }
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testSingleFileMountSymlink() async throws {
+        let id = "test-single-file-mount-symlink"
+
+        let bs = try await bootstrap(id)
+
+        // Create a temp directory with a real file and a symlink to it
+        let tempDir = FileManager.default.uniqueTemporaryDirectory(create: true)
+        let realFile = tempDir.appendingPathComponent("realfile.txt")
+        let symlinkFile = tempDir.appendingPathComponent("symlink.txt")
+
+        let initialContent = "content via symlink"
+        try initialContent.write(to: realFile, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(at: symlinkFile, withDestinationURL: realFile)
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            // Mount the symlink (should resolve to real file)
+            config.mounts.append(.share(source: symlinkFile.path, destination: "/etc/config.txt"))
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Read the file to verify content
+            let readBuffer = BufferWriter()
+            let readExec = try await container.exec("read-file") { config in
+                config.arguments = ["cat", "/etc/config.txt"]
+                config.stdout = readBuffer
+            }
+            try await readExec.start()
+            var status = try await readExec.wait()
+            try await readExec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "read status \(status) != 0")
+            }
+
+            guard String(data: readBuffer.data, encoding: .utf8) == initialContent else {
+                throw IntegrationError.assert(msg: "content mismatch on read")
+            }
+
+            // Write new content from container
+            let newContent = "modified via symlink mount"
+            let writeExec = try await container.exec("write-file") { config in
+                config.arguments = ["sh", "-c", "echo -n '\(newContent)' > /etc/config.txt"]
+            }
+            try await writeExec.start()
+            status = try await writeExec.wait()
+            try await writeExec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "write status \(status) != 0")
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+
+            // Verify the REAL file (not symlink) was modified on the host
+            let hostContent = try String(contentsOf: realFile, encoding: .utf8)
+            guard hostContent == newContent else {
+                throw IntegrationError.assert(
+                    msg: "expected '\(newContent)' in real file, got '\(hostContent)'")
+            }
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
 }
