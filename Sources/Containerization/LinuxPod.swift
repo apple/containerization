@@ -498,7 +498,7 @@ extension LinuxPod {
                     containerMounts.dropFirst()
                     .filter { !holdingTags.contains($0.source) }
                     .map { $0.to }
-                    + container.fileMountContext.ociBindMounts()
+                    + (try container.fileMountContext.ociBindMounts())
 
                 // Configure namespaces for the container
                 var namespaces: [LinuxNamespace] = [

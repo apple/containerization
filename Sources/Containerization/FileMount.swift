@@ -118,7 +118,7 @@ extension FileMountContext {
             let directoryShare = Mount.share(
                 source: prepared.tempDirectory.path,
                 destination: "/.file-mount-holding",
-                options: mount.options.filter { $0 != "bind" },
+                options: [],
                 runtimeOptions: runtimeOpts
             )
             transformed.append(directoryShare)
@@ -197,12 +197,14 @@ extension FileMountContext {
 
             let guestPath = "/run/file-mounts/\(prepared.tag)"
             try await agent.mkdir(path: guestPath, all: true, perms: 0o755)
+
+            let virtiofsMountOptions = prepared.options.filter { $0 != "bind" }
             try await agent.mount(
                 ContainerizationOCI.Mount(
                     type: "virtiofs",
                     source: attached.source,
                     destination: guestPath,
-                    options: []
+                    options: virtiofsMountOptions
                 ))
 
             preparedMounts[i].guestHoldingPath = guestPath
@@ -212,10 +214,27 @@ extension FileMountContext {
 
 extension FileMountContext {
     /// Get the bind mounts to append to the OCI spec.
-    func ociBindMounts() -> [ContainerizationOCI.Mount] {
-        preparedMounts.compactMap { prepared in
+    /// - Throws: If temp files have been cleaned up before the container starts
+    func ociBindMounts() throws -> [ContainerizationOCI.Mount] {
+        try preparedMounts.map { prepared in
             guard let guestPath = prepared.guestHoldingPath else {
-                return nil
+                // This should never happen if mountHoldingDirectories was called.
+                throw ContainerizationError(
+                    .internalError,
+                    message: "guestHoldingPath not set for file mount \(prepared.hostFilePath)"
+                )
+            }
+
+            // Verify the temp directory and file still exist on the host.
+            // If they've been cleaned up (e.g., by system temp cleanup), the virtiofs
+            // share will be empty and the bind mount will fail.
+            let fileInTempDir = prepared.tempDirectory.appendingPathComponent(prepared.filename)
+            guard FileManager.default.fileExists(atPath: fileInTempDir.path) else {
+                throw ContainerizationError(
+                    .notFound,
+                    message: "file mount temp file was cleaned up before container start: \(fileInTempDir.path), "
+                        + "original host file: \(prepared.hostFilePath)"
+                )
             }
 
             return ContainerizationOCI.Mount(

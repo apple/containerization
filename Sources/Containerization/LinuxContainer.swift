@@ -526,7 +526,7 @@ extension LinuxContainer {
                     containerMounts.dropFirst()
                     .filter { !holdingTags.contains($0.source) }
                     .map { $0.to }
-                    + createdState.fileMountContext.ociBindMounts()
+                    + (try createdState.fileMountContext.ociBindMounts())
 
                 let stdio = IOUtil.setup(
                     portAllocator: self.hostVsockPorts,

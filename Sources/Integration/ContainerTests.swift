@@ -2101,11 +2101,13 @@ extension IntegrationSuite {
         try testContent.write(to: hostFile, atomically: true, encoding: .utf8)
 
         let buffer = BufferWriter()
+        let stderrBuffer = BufferWriter()
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["cat", "/etc/myconfig.txt"]
             // Mount a single file using virtiofs share
             config.mounts.append(.share(source: hostFile.path, destination: "/etc/myconfig.txt"))
             config.process.stdout = buffer
+            config.process.stderr = stderrBuffer
             config.bootLog = bs.bootLog
         }
 
@@ -2117,7 +2119,11 @@ extension IntegrationSuite {
             try await container.stop()
 
             guard status.exitCode == 0 else {
-                throw IntegrationError.assert(msg: "process status \(status) != 0")
+                let stderrOutput = String(data: stderrBuffer.data, encoding: .utf8) ?? "(no stderr)"
+                let stdoutOutput = String(data: buffer.data, encoding: .utf8) ?? "(no stdout)"
+                throw IntegrationError.assert(
+                    msg: "process status \(status) != 0, stdout: '\(stdoutOutput)', stderr: '\(stderrOutput)'"
+                )
             }
 
             guard let output = String(data: buffer.data, encoding: .utf8) else {
@@ -2158,16 +2164,19 @@ extension IntegrationSuite {
 
             // First verify we can read the file
             let readBuffer = BufferWriter()
+            let readStderrBuffer = BufferWriter()
             let readExec = try await container.exec("read-file") { config in
                 config.arguments = ["cat", "/etc/readonly.txt"]
                 config.stdout = readBuffer
+                config.stderr = readStderrBuffer
             }
             try await readExec.start()
             var status = try await readExec.wait()
             try await readExec.delete()
 
             guard status.exitCode == 0 else {
-                throw IntegrationError.assert(msg: "read status \(status) != 0")
+                let stderrOutput = String(data: readStderrBuffer.data, encoding: .utf8) ?? "(no stderr)"
+                throw IntegrationError.assert(msg: "read status \(status) != 0, stderr: '\(stderrOutput)'")
             }
 
             guard String(data: readBuffer.data, encoding: .utf8) == testContent else {
@@ -2220,15 +2229,18 @@ extension IntegrationSuite {
 
             // Write new content from inside the container
             let newContent = "modified from container"
+            let writeStderrBuffer = BufferWriter()
             let writeExec = try await container.exec("write-file") { config in
                 config.arguments = ["sh", "-c", "echo -n '\(newContent)' > /etc/writeable.txt"]
+                config.stderr = writeStderrBuffer
             }
             try await writeExec.start()
             let status = try await writeExec.wait()
             try await writeExec.delete()
 
             guard status.exitCode == 0 else {
-                throw IntegrationError.assert(msg: "write status \(status) != 0")
+                let stderrOutput = String(data: writeStderrBuffer.data, encoding: .utf8) ?? "(no stderr)"
+                throw IntegrationError.assert(msg: "write status \(status) != 0, stderr: '\(stderrOutput)'")
             }
 
             try await container.kill(SIGKILL)
@@ -2273,16 +2285,19 @@ extension IntegrationSuite {
 
             // Read the file to verify content
             let readBuffer = BufferWriter()
+            let readStderrBuffer = BufferWriter()
             let readExec = try await container.exec("read-file") { config in
                 config.arguments = ["cat", "/etc/config.txt"]
                 config.stdout = readBuffer
+                config.stderr = readStderrBuffer
             }
             try await readExec.start()
             var status = try await readExec.wait()
             try await readExec.delete()
 
             guard status.exitCode == 0 else {
-                throw IntegrationError.assert(msg: "read status \(status) != 0")
+                let stderrOutput = String(data: readStderrBuffer.data, encoding: .utf8) ?? "(no stderr)"
+                throw IntegrationError.assert(msg: "read status \(status) != 0, stderr: '\(stderrOutput)'")
             }
 
             guard String(data: readBuffer.data, encoding: .utf8) == initialContent else {
@@ -2291,15 +2306,18 @@ extension IntegrationSuite {
 
             // Write new content from container
             let newContent = "modified via symlink mount"
+            let writeStderrBuffer = BufferWriter()
             let writeExec = try await container.exec("write-file") { config in
                 config.arguments = ["sh", "-c", "echo -n '\(newContent)' > /etc/config.txt"]
+                config.stderr = writeStderrBuffer
             }
             try await writeExec.start()
             status = try await writeExec.wait()
             try await writeExec.delete()
 
             guard status.exitCode == 0 else {
-                throw IntegrationError.assert(msg: "write status \(status) != 0")
+                let stderrOutput = String(data: writeStderrBuffer.data, encoding: .utf8) ?? "(no stderr)"
+                throw IntegrationError.assert(msg: "write status \(status) != 0, stderr: '\(stderrOutput)'")
             }
 
             try await container.kill(SIGKILL)

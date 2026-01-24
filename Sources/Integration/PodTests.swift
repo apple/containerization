@@ -891,11 +891,13 @@ extension IntegrationSuite {
         }
 
         let buffer = BufferWriter()
+        let stderrBuffer = BufferWriter()
         try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
             config.process.arguments = ["cat", "/etc/myconfig.txt"]
             // Mount a single file using virtiofs share
             config.mounts.append(.share(source: hostFile.path, destination: "/etc/myconfig.txt"))
             config.process.stdout = buffer
+            config.process.stderr = stderrBuffer
         }
 
         do {
@@ -906,7 +908,11 @@ extension IntegrationSuite {
             try await pod.stop()
 
             guard status.exitCode == 0 else {
-                throw IntegrationError.assert(msg: "process status \(status) != 0")
+                let stderrOutput = String(data: stderrBuffer.data, encoding: .utf8) ?? "(no stderr)"
+                let stdoutOutput = String(data: buffer.data, encoding: .utf8) ?? "(no stdout)"
+                throw IntegrationError.assert(
+                    msg: "process status \(status) != 0, stdout: '\(stdoutOutput)', stderr: '\(stderrOutput)'"
+                )
             }
 
             guard let output = String(data: buffer.data, encoding: .utf8) else {
