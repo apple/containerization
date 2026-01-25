@@ -49,7 +49,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         request: Com_Apple_Containerization_Sandbox_V3_SetTimeRequest,
         context: GRPC.GRPCAsyncServerCallContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_SetTimeResponse {
-        log.debug(
+        log.trace(
             "setTime",
             metadata: [
                 "sec": "\(request.sec)",
