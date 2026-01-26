@@ -608,15 +608,18 @@ extension LinuxContainer {
 
             let vm: any VirtualMachineInstance
             let relayManager: UnixSocketRelayManager
+            let fileMountContext: FileMountContext
 
             let startedState = try? state.startedState("stop")
             if let startedState {
                 vm = startedState.vm
                 relayManager = startedState.relayManager
+                fileMountContext = startedState.fileMountContext
             } else {
                 let createdState = try state.createdState("stop")
                 vm = createdState.vm
                 relayManager = createdState.relayManager
+                fileMountContext = createdState.fileMountContext
             }
 
             var firstError: Error?
@@ -686,10 +689,10 @@ extension LinuxContainer {
                     self.logger?.error("failed to delete init process: \(error)")
                     firstError = firstError ?? error
                 }
-
-                // Clean up file mount temporary directories.
-                startedState.fileMountContext.cleanup()
             }
+
+            // Clean up file mount temporary directories.
+            fileMountContext.cleanup()
 
             do {
                 try await vm.stop()
