@@ -606,12 +606,22 @@ extension LinuxContainer {
                 return
             }
 
-            let startedState = try state.startedState("stop")
-            let vm = startedState.vm
+            let vm: any VirtualMachineInstance
+            let relayManager: UnixSocketRelayManager
+
+            let startedState = try? state.startedState("stop")
+            if let startedState {
+                vm = startedState.vm
+                relayManager = startedState.relayManager
+            } else {
+                let createdState = try state.createdState("stop")
+                vm = createdState.vm
+                relayManager = createdState.relayManager
+            }
 
             var firstError: Error?
             do {
-                try await startedState.relayManager.stopAll()
+                try await relayManager.stopAll()
             } catch {
                 self.logger?.error("failed to stop relay manager: \(error)")
                 firstError = firstError ?? error
@@ -634,15 +644,17 @@ extension LinuxContainer {
                         }
                     }
 
-                    // Now lets ensure every process is donezo.
-                    try await agent.kill(pid: -1, signal: SIGKILL)
+                    if let _ = startedState {
+                        // Now lets ensure every process is donezo.
+                        try await agent.kill(pid: -1, signal: SIGKILL)
 
-                    // Wait on init proc exit. Give it 5 seconds of leeway.
-                    _ = try await agent.waitProcess(
-                        id: self.id,
-                        containerID: self.id,
-                        timeoutInSeconds: 5
-                    )
+                        // Wait on init proc exit. Give it 5 seconds of leeway.
+                        _ = try await agent.waitProcess(
+                            id: self.id,
+                            containerID: self.id,
+                            timeoutInSeconds: 5
+                        )
+                    }
 
                     // Today, we leave EBUSY looping and other fun logic up to the
                     // guest agent.
@@ -658,24 +670,26 @@ extension LinuxContainer {
                 firstError = firstError ?? error
             }
 
-            for process in startedState.vendedProcesses.values {
+            if let startedState {
+                for process in startedState.vendedProcesses.values {
+                    do {
+                        try await process._delete()
+                    } catch {
+                        self.logger?.error("failed to delete process \(process.id): \(error)")
+                        firstError = firstError ?? error
+                    }
+                }
+
                 do {
-                    try await process._delete()
+                    try await startedState.process.delete()
                 } catch {
-                    self.logger?.error("failed to delete process \(process.id): \(error)")
+                    self.logger?.error("failed to delete init process: \(error)")
                     firstError = firstError ?? error
                 }
-            }
 
-            do {
-                try await startedState.process.delete()
-            } catch {
-                self.logger?.error("failed to delete init process: \(error)")
-                firstError = firstError ?? error
+                // Clean up file mount temporary directories.
+                startedState.fileMountContext.cleanup()
             }
-
-            // Clean up file mount temporary directories.
-            startedState.fileMountContext.cleanup()
 
             do {
                 try await vm.stop()
