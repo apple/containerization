@@ -358,6 +358,10 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("pod container hosts config", testPodContainerHostsConfig),
                 Test("pod multiple containers different DNS", testPodMultipleContainersDifferentDNS),
                 Test("pod multiple containers different hosts", testPodMultipleContainersDifferentHosts),
+                Test("pod level DNS", testPodLevelDNS),
+                Test("pod level DNS with container override", testPodLevelDNSWithContainerOverride),
+                Test("pod level hosts", testPodLevelHosts),
+                Test("pod level hosts with container override", testPodLevelHostsWithContainerOverride),
             ] + macOS26Tests()
 
         let filteredTests: [Test]

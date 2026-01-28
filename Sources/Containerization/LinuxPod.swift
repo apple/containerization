@@ -51,6 +51,12 @@ public final class LinuxPod: Sendable {
         /// Whether containers in the pod should share a PID namespace.
         /// When enabled, all containers can see each other's processes.
         public var shareProcessNamespace: Bool = false
+        /// The default DNS configuration for all containers in the pod.
+        /// Individual containers can override this by setting their own `dns` configuration.
+        public var dns: DNS?
+        /// The default hosts file configuration for all containers in the pod.
+        /// Individual containers can override this by setting their own `hosts` configuration.
+        public var hosts: Hosts?
 
         public init() {}
     }
@@ -435,15 +441,16 @@ extension LinuxPod {
                         }
                     }
 
-                    // Setup /etc/resolv.conf and /etc/hosts for each container
+                    // Setup /etc/resolv.conf and /etc/hosts for each container.
+                    // Container-level config takes precedence over pod-level config.
                     for (_, container) in containers {
-                        if let dns = container.config.dns {
+                        if let dns = container.config.dns ?? self.config.dns {
                             try await agent.configureDNS(
                                 config: dns,
                                 location: Self.guestRootfsPath(container.id)
                             )
                         }
-                        if let hosts = container.config.hosts {
+                        if let hosts = container.config.hosts ?? self.config.hosts {
                             try await agent.configureHosts(
                                 config: hosts,
                                 location: Self.guestRootfsPath(container.id)
