@@ -109,4 +109,14 @@ struct ProxyUtilsTests {
         #expect(proxyFoo != nil)
         #expect(proxyBar == nil)
     }
+
+    @Test("NO_PROXY with wildcard")
+    func testComplexNoProxy() {
+        let env = [
+            "HTTP_PROXY": "http://proxy.example.com",
+            "NO_PROXY": "localhost,127.0.0.1,*.bar.com",
+        ]
+        let proxy = ProxyUtils.proxyFromEnvironment(scheme: "http", host: "foo.bar.com", env: env)
+        #expect(proxy == nil)
+    }
 }
