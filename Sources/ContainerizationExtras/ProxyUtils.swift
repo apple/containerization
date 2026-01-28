@@ -66,6 +66,10 @@ public enum ProxyUtils {
             if entry.isEmpty { continue }
             if entry == "*" { return true }
             if host == entry { return true }
+            if entry.hasPrefix("*.") {
+                let suffix = String(entry.dropFirst())
+                if host.hasSuffix(suffix) { return true }
+            }
             if entry.hasPrefix(".") && host.hasSuffix(entry) { return true }
         }
         return false
