@@ -1347,4 +1347,96 @@ extension IntegrationSuite {
             throw IntegrationError.assert(msg: "container2 should NOT have pod-level hosts entry, got: \(output2)")
         }
     }
+
+    func testPodRLimitOpenFiles() async throws {
+        let id = "test-pod-rlimit-open-files"
+
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        let buffer = BufferWriter()
+        try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
+            config.process.arguments = ["sh", "-c", "ulimit -n"]
+            config.process.rlimits = [
+                LinuxRLimit(kind: .openFiles, hard: 2048, soft: 1024)
+            ]
+            config.process.stdout = buffer
+        }
+
+        try await pod.create()
+        try await pod.startContainer("container1")
+
+        let status = try await pod.waitContainer("container1")
+        try await pod.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        guard let output = String(data: buffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+        }
+
+        // ulimit -n returns the soft limit
+        guard output == "1024" else {
+            throw IntegrationError.assert(msg: "expected soft limit '1024', got '\(output)'")
+        }
+    }
+
+    func testPodRLimitExec() async throws {
+        let id = "test-pod-rlimit-exec"
+
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
+            config.process.arguments = ["sleep", "100"]
+        }
+
+        do {
+            try await pod.create()
+            try await pod.startContainer("container1")
+
+            // Exec a process with rlimits set
+            let buffer = BufferWriter()
+            let exec = try await pod.execInContainer("container1", processID: "rlimit-exec") { config in
+                config.arguments = ["sh", "-c", "ulimit -n"]
+                config.rlimits = [
+                    LinuxRLimit(kind: .openFiles, hard: 512, soft: 256)
+                ]
+                config.stdout = buffer
+            }
+
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "exec status \(status) != 0")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+            }
+
+            guard output == "256" else {
+                throw IntegrationError.assert(msg: "expected soft limit '256', got '\(output)'")
+            }
+
+            try await pod.killContainer("container1", signal: SIGKILL)
+            try await pod.waitContainer("container1")
+            try await pod.stop()
+        } catch {
+            try? await pod.stop()
+            throw error
+        }
+    }
 }
