@@ -34,8 +34,7 @@ struct InitCommand {
 
     static func run(log: Logger) async throws {
         var log = log
-
-        try Self.adjustLimits()
+        try Self.adjustLimits(log)
 
         // when running under debug mode, launch vminitd as a sub process of pid1
         // so that we get a chance to collect better logs and errors before pid1 exists
@@ -170,13 +169,14 @@ struct InitCommand {
         log.info("child process exited with code: \(exitCode)")
     }
 
-    private static func adjustLimits() throws {
-        var limits = rlimit()
-        guard getrlimit(RLIMIT_NOFILE, &limits) == 0 else {
-            throw POSIXError(.init(rawValue: errno)!)
+    private static func adjustLimits(_ log: Logger) throws {
+        let nrOpen = try String(contentsOfFile: "/proc/sys/fs/nr_open", encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let max = rlim_t(nrOpen) else {
+            throw POSIXError(.EINVAL)
         }
-        limits.rlim_cur = 65536
-        limits.rlim_max = 65536
+        log.debug("setting RLIMIT_NOFILE to \(max)")
+        var limits = rlimit(rlim_cur: max, rlim_max: max)
         guard setrlimit(RLIMIT_NOFILE, &limits) == 0 else {
             throw POSIXError(.init(rawValue: errno)!)
         }
