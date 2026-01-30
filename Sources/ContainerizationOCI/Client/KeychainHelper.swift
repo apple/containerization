@@ -46,6 +46,12 @@ public struct KeychainHelper: Sendable {
             }
         }
     }
+    
+    /// List all registry domains this id has credentials for.
+    public func listDomains() throws -> [String] {
+        let kq = KeychainQuery()
+        return try kq.listHosts(id: self.id)
+    }
 
     /// Delete authorization data for a given domain from the keychain.
     public func delete(domain: String) throws {

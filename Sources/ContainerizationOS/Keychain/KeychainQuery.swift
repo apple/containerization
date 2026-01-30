@@ -107,6 +107,35 @@ public struct KeychainQuery {
             createdDate: createdDate
         )
     }
+    
+    /// List all hostnames in the keychain.
+    public func listHosts(id: String) throws -> [String] {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassInternetPassword,
+            kSecAttrSecurityDomain as String: id,
+            kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitAll,
+            kSecReturnData as String: false,
+        ]
+
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        guard status != errSecItemNotFound else {
+            return []
+        }
+        guard status == errSecSuccess else {
+            throw Error.unhandledError(status: status)
+        }
+
+        guard let items = result as? [[String: Any]] else {
+            throw Error.unexpectedDataFetched
+        }
+
+        return items.compactMap {
+            $0[kSecAttrServer as String] as? String
+        }
+    }
 
     private func isQuerySuccessful(_ status: Int32) throws -> Bool {
         guard status != errSecItemNotFound else {
