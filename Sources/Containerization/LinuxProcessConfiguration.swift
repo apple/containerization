@@ -14,6 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import ContainerizationError
 import ContainerizationOCI
 import ContainerizationOS
 
@@ -160,6 +161,49 @@ extension LinuxRLimit {
         /// Maximum size of the process stack in bytes.
         public static var stackSize: Self {
             Self(.stackSize)
+        }
+
+        /// Creates a Kind from its OCI string representation.
+        ///
+        /// - Parameter string: The OCI string representation (e.g., "RLIMIT_NOFILE").
+        /// - Throws: `ContainerizationError` with code `.invalidArgument` if the string doesn't match a known rlimit kind.
+        public init(_ string: String) throws {
+            switch string {
+            case "RLIMIT_AS":
+                self = .addressSpace
+            case "RLIMIT_CORE":
+                self = .coreFileSize
+            case "RLIMIT_CPU":
+                self = .cpuTime
+            case "RLIMIT_DATA":
+                self = .dataSize
+            case "RLIMIT_FSIZE":
+                self = .fileSize
+            case "RLIMIT_LOCKS":
+                self = .locks
+            case "RLIMIT_MEMLOCK":
+                self = .lockedMemory
+            case "RLIMIT_MSGQUEUE":
+                self = .messageQueue
+            case "RLIMIT_NICE":
+                self = .nice
+            case "RLIMIT_NOFILE":
+                self = .openFiles
+            case "RLIMIT_NPROC":
+                self = .numberOfProcesses
+            case "RLIMIT_RSS":
+                self = .residentSetSize
+            case "RLIMIT_RTPRIO":
+                self = .realtimePriority
+            case "RLIMIT_RTTIME":
+                self = .realtimeTimeout
+            case "RLIMIT_SIGPENDING":
+                self = .signalsPending
+            case "RLIMIT_STACK":
+                self = .stackSize
+            default:
+                throw ContainerizationError(.invalidArgument, message: "invalid rlimit kind: '\(string)'")
+            }
         }
     }
 }
