@@ -692,7 +692,7 @@ extension LinuxContainer {
             }
 
             // Clean up file mount temporary directories.
-            fileMountContext.cleanup()
+            fileMountContext.cleanUp()
 
             do {
                 try await vm.stop()

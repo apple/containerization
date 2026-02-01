@@ -57,7 +57,7 @@ protocol ContainerProcess: Sendable {
     /// - Throws: If stdin cannot be closed
     func closeStdin() throws
 
-    /// Delete the container process and cleanup resources
+    /// Delete the container process and clean up resources
     /// - Throws: If cleanup fails
     func delete() async throws
 
