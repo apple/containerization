@@ -141,12 +141,6 @@ extension ImageStore {
         }
     }
 
-    @available(*, deprecated, renamed: "cleanUpOrphanedBlobs")
-    @discardableResult
-    public func cleanupOrphanedBlobs() async throws -> (deleted: [String], freed: UInt64) {
-        try await cleanUpOrphanedBlobs()
-    }
-
     /// Calculate the size of orphaned blobs without deleting them.
     ///
     /// - Returns: The total size in bytes of blobs that are not referenced by any image.
