@@ -14,8 +14,6 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-//
-
 import Foundation
 import Testing
 
@@ -40,6 +38,36 @@ struct KeychainQueryTests {
             let result = try #require(fetched)
             #expect(result.account == user)
             #expect(result.data == "foobar")
+        } catch KeychainQuery.Error.unhandledError(status: -25308) {
+            // ignore errSecInteractionNotAllowed
+        }
+    }
+
+    @Test(.enabled(if: !isCI))
+    func list() throws {
+        let domain1 = "testing-1-keychain.example.com"
+        let domain2 = "testing-2-keychain.example.com"
+
+        defer {
+            try? kq.delete(id: id, host: domain1)
+            try? kq.delete(id: id, host: domain2)
+        }
+
+        do {
+            try kq.save(id: id, host: domain1, user: user, token: "foobar")
+            try kq.save(id: id, host: domain2, user: user, token: "foobar")
+
+            let entries = try kq.list(domain: id)
+
+            // Verify that both hostnames exist
+            let hostnames = entries.map { $0.hostname }
+            #expect(hostnames.contains(domain1))
+            #expect(hostnames.contains(domain2))
+
+            // Verify that the accounts exist
+            for entry in entries {
+                #expect(entry.account == user)
+            }
         } catch KeychainQuery.Error.unhandledError(status: -25308) {
             // ignore errSecInteractionNotAllowed
         }

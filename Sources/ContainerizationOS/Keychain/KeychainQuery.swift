@@ -25,6 +25,14 @@ public struct KeychainQueryResult {
     public var createdDate: Date
 }
 
+/// Holds the stored attributes for a registry.
+public struct RegistryInfo: Sendable {
+    public var hostname: String
+    public var account: String
+    public let modifiedDate: Date
+    public let createdDate: Date
+}
+
 /// Type that facilitates interacting with the macOS keychain.
 public struct KeychainQuery {
     public init() {}
@@ -107,33 +115,47 @@ public struct KeychainQuery {
             createdDate: createdDate
         )
     }
-    
-    /// List all hostnames in the keychain.
-    public func listHosts(id: String) throws -> [String] {
+
+    /// List all registry entries in the keychain for a domain.
+    public func list(domain: String) throws -> [RegistryInfo] {
         let query: [String: Any] = [
             kSecClass as String: kSecClassInternetPassword,
-            kSecAttrSecurityDomain as String: id,
+            kSecAttrSecurityDomain as String: domain,
             kSecReturnAttributes as String: true,
-            kSecMatchLimit as String: kSecMatchLimitAll,
             kSecReturnData as String: false,
+            kSecMatchLimit as String: kSecMatchLimitAll,
         ]
-
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-
-        guard status != errSecItemNotFound else {
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        let exists = try isQuerySuccessful(status)
+        if !exists {
             return []
         }
-        guard status == errSecSuccess else {
-            throw Error.unhandledError(status: status)
+
+        guard let fetched = item as? [[String: Any]] else {
+            throw Self.Error.unexpectedDataFetched
         }
 
-        guard let items = result as? [[String: Any]] else {
-            throw Error.unexpectedDataFetched
-        }
+        return try fetched.map { registry in
+            guard let hostname = registry[kSecAttrServer as String] as? String else {
+                throw Self.Error.keyNotPresent(key: kSecAttrServer as String)
+            }
+            guard let account = registry[kSecAttrAccount as String] as? String else {
+                throw Self.Error.keyNotPresent(key: kSecAttrAccount as String)
+            }
+            guard let modifiedDate = registry[kSecAttrModificationDate as String] as? Date else {
+                throw Self.Error.keyNotPresent(key: kSecAttrModificationDate as String)
+            }
+            guard let createdDate = registry[kSecAttrCreationDate as String] as? Date else {
+                throw Self.Error.keyNotPresent(key: kSecAttrCreationDate as String)
+            }
 
-        return items.compactMap {
-            $0[kSecAttrServer as String] as? String
+            return RegistryInfo(
+                hostname: hostname,
+                account: account,
+                modifiedDate: modifiedDate,
+                createdDate: createdDate
+            )
         }
     }
 
