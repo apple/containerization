@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-KSOURCE ?= https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.14.9.tar.xz
+KSOURCE ?= https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.18.5.tar.xz
 KIMAGE ?= kernel-build:0.1
 CURDIR := $(shell pwd)
 
