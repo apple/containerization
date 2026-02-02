@@ -156,16 +156,28 @@ extension App {
                 resource = RLIMIT_DATA
             case "RLIMIT_FSIZE":
                 resource = RLIMIT_FSIZE
+            case "RLIMIT_LOCKS":
+                resource = RLIMIT_LOCKS
+            case "RLIMIT_MEMLOCK":
+                resource = RLIMIT_MEMLOCK
+            case "RLIMIT_MSGQUEUE":
+                resource = RLIMIT_MSGQUEUE
+            case "RLIMIT_NICE":
+                resource = RLIMIT_NICE
             case "RLIMIT_NOFILE":
                 resource = RLIMIT_NOFILE
-            case "RLIMIT_STACK":
-                resource = RLIMIT_STACK
             case "RLIMIT_NPROC":
                 resource = RLIMIT_NPROC
             case "RLIMIT_RSS":
                 resource = RLIMIT_RSS
-            case "RLIMIT_MEMLOCK":
-                resource = RLIMIT_MEMLOCK
+            case "RLIMIT_RTPRIO":
+                resource = RLIMIT_RTPRIO
+            case "RLIMIT_RTTIME":
+                resource = RLIMIT_RTTIME
+            case "RLIMIT_SIGPENDING":
+                resource = RLIMIT_SIGPENDING
+            case "RLIMIT_STACK":
+                resource = RLIMIT_STACK
             default:
                 errno = EINVAL
                 throw App.Errno(stage: "rlimit key unknown")
