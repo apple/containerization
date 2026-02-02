@@ -44,8 +44,6 @@ public final class LinuxPod: Sendable {
         public var memoryInBytes: UInt64 = 1024.mib()
         /// The network interfaces for the pod.
         public var interfaces: [any Interface] = []
-        /// The DNS configuration for the pod.
-        public var dns: DNS?
         /// Whether nested virtualization should be turned on for the pod.
         public var virtualization: Bool = false
         /// Optional file path to store serial boot logs.
@@ -53,6 +51,12 @@ public final class LinuxPod: Sendable {
         /// Whether containers in the pod should share a PID namespace.
         /// When enabled, all containers can see each other's processes.
         public var shareProcessNamespace: Bool = false
+        /// The default DNS configuration for all containers in the pod.
+        /// Individual containers can override this by setting their own `dns` configuration.
+        public var dns: DNS?
+        /// The default hosts file configuration for all containers in the pod.
+        /// Individual containers can override this by setting their own `hosts` configuration.
+        public var hosts: Hosts?
 
         public init() {}
     }
@@ -73,6 +77,10 @@ public final class LinuxPod: Sendable {
         public var mounts: [Mount] = LinuxContainer.defaultMounts()
         /// The Unix domain socket relays to setup for the container.
         public var sockets: [UnixSocketConfiguration] = []
+        /// The DNS configuration for the container.
+        public var dns: DNS?
+        /// The hosts file configuration for the container.
+        public var hosts: Hosts?
 
         public init() {}
     }
@@ -433,12 +441,18 @@ extension LinuxPod {
                         }
                     }
 
-                    // Setup /etc/resolv.conf if asked for
-                    if let dns = self.config.dns {
-                        // Configure DNS in each container's rootfs
-                        for (_, container) in containers {
+                    // Setup /etc/resolv.conf and /etc/hosts for each container.
+                    // Container-level config takes precedence over pod-level config.
+                    for (_, container) in containers {
+                        if let dns = container.config.dns ?? self.config.dns {
                             try await agent.configureDNS(
                                 config: dns,
+                                location: Self.guestRootfsPath(container.id)
+                            )
+                        }
+                        if let hosts = container.config.hosts ?? self.config.hosts {
+                            try await agent.configureHosts(
+                                config: hosts,
                                 location: Self.guestRootfsPath(container.id)
                             )
                         }

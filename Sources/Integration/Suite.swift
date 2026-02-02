@@ -335,6 +335,9 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container single file mount read-only", testSingleFileMountReadOnly),
                 Test("container single file mount write-back", testSingleFileMountWriteBack),
                 Test("container single file mount symlink", testSingleFileMountSymlink),
+                Test("container rlimit open files", testRLimitOpenFiles),
+                Test("container rlimit multiple", testRLimitMultiple),
+                Test("container rlimit exec", testRLimitExec),
 
                 // Pods
                 Test("pod single container", testPodSingleContainer),
@@ -355,6 +358,15 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("pod read-only rootfs", testPodReadOnlyRootfs),
                 Test("pod read-only rootfs DNS", testPodReadOnlyRootfsDNSConfigured),
                 Test("pod single file mount", testPodSingleFileMount),
+                Test("pod container hosts config", testPodContainerHostsConfig),
+                Test("pod multiple containers different DNS", testPodMultipleContainersDifferentDNS),
+                Test("pod multiple containers different hosts", testPodMultipleContainersDifferentHosts),
+                Test("pod level DNS", testPodLevelDNS),
+                Test("pod level DNS with container override", testPodLevelDNSWithContainerOverride),
+                Test("pod level hosts", testPodLevelHosts),
+                Test("pod level hosts with container override", testPodLevelHostsWithContainerOverride),
+                Test("pod rlimit open files", testPodRLimitOpenFiles),
+                Test("pod rlimit exec", testPodRLimitExec),
             ] + macOS26Tests()
 
         let filteredTests: [Test]

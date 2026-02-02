@@ -844,7 +844,6 @@ extension IntegrationSuite {
             config.cpus = 4
             config.memoryInBytes = 1024.mib()
             config.bootLog = bs.bootLog
-            config.dns = DNS(nameservers: ["8.8.8.8", "8.8.4.4"])
         }
 
         let buffer = BufferWriter()
@@ -852,6 +851,7 @@ extension IntegrationSuite {
             // Verify /etc/resolv.conf was written before rootfs was remounted read-only
             config.process.arguments = ["cat", "/etc/resolv.conf"]
             config.process.stdout = buffer
+            config.dns = DNS(nameservers: ["8.8.8.8", "8.8.4.4"])
         }
 
         try await pod.create()
@@ -917,6 +917,523 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(
                     msg: "expected '\(testContent)', got '\(output)'")
             }
+        } catch {
+            try? await pod.stop()
+            throw error
+        }
+    }
+
+    func testPodContainerHostsConfig() async throws {
+        let id = "test-pod-container-hosts"
+
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        let buffer = BufferWriter()
+        try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
+            config.process.arguments = ["cat", "/etc/hosts"]
+            config.process.stdout = buffer
+            config.hosts = Hosts(entries: [
+                Hosts.Entry.localHostIPV4(),
+                Hosts.Entry.localHostIPV6(),
+                Hosts.Entry(ipAddress: "10.0.0.50", hostnames: ["myservice.local", "myservice"]),
+            ])
+        }
+
+        try await pod.create()
+        try await pod.startContainer("container1")
+
+        let status = try await pod.waitContainer("container1")
+        try await pod.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "cat /etc/hosts failed with status \(status)")
+        }
+
+        guard let output = String(data: buffer.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+        }
+
+        guard output.contains("10.0.0.50") && output.contains("myservice.local") else {
+            throw IntegrationError.assert(msg: "expected /etc/hosts to contain custom entry, got: \(output)")
+        }
+    }
+
+    func testPodMultipleContainersDifferentDNS() async throws {
+        let id = "test-pod-multi-dns"
+
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        let buffer1 = BufferWriter()
+        let buffer2 = BufferWriter()
+
+        try await pod.addContainer("container1", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container1")) { config in
+            config.process.arguments = ["cat", "/etc/resolv.conf"]
+            config.process.stdout = buffer1
+            config.dns = DNS(nameservers: ["1.1.1.1"])
+        }
+
+        try await pod.addContainer("container2", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container2")) { config in
+            config.process.arguments = ["cat", "/etc/resolv.conf"]
+            config.process.stdout = buffer2
+            config.dns = DNS(nameservers: ["8.8.8.8"])
+        }
+
+        try await pod.create()
+
+        try await pod.startContainer("container1")
+        let status1 = try await pod.waitContainer("container1")
+
+        try await pod.startContainer("container2")
+        let status2 = try await pod.waitContainer("container2")
+
+        try await pod.stop()
+
+        guard status1.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container1 cat failed with status \(status1)")
+        }
+        guard status2.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container2 cat failed with status \(status2)")
+        }
+
+        guard let output1 = String(data: buffer1.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert container1 stdout to UTF8")
+        }
+        guard let output2 = String(data: buffer2.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert container2 stdout to UTF8")
+        }
+
+        guard output1.contains("1.1.1.1") && !output1.contains("8.8.8.8") else {
+            throw IntegrationError.assert(msg: "container1 should have 1.1.1.1 DNS, got: \(output1)")
+        }
+        guard output2.contains("8.8.8.8") && !output2.contains("1.1.1.1") else {
+            throw IntegrationError.assert(msg: "container2 should have 8.8.8.8 DNS, got: \(output2)")
+        }
+    }
+
+    func testPodMultipleContainersDifferentHosts() async throws {
+        let id = "test-pod-multi-hosts"
+
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        let buffer1 = BufferWriter()
+        let buffer2 = BufferWriter()
+
+        try await pod.addContainer("container1", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container1")) { config in
+            config.process.arguments = ["cat", "/etc/hosts"]
+            config.process.stdout = buffer1
+            config.hosts = Hosts(entries: [
+                Hosts.Entry.localHostIPV4(),
+                Hosts.Entry(ipAddress: "10.0.0.1", hostnames: ["service-a.local", "service-a"]),
+            ])
+        }
+
+        try await pod.addContainer("container2", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container2")) { config in
+            config.process.arguments = ["cat", "/etc/hosts"]
+            config.process.stdout = buffer2
+            config.hosts = Hosts(entries: [
+                Hosts.Entry.localHostIPV4(),
+                Hosts.Entry(ipAddress: "10.0.0.2", hostnames: ["service-b.local", "service-b"]),
+            ])
+        }
+
+        try await pod.create()
+
+        try await pod.startContainer("container1")
+        let status1 = try await pod.waitContainer("container1")
+
+        try await pod.startContainer("container2")
+        let status2 = try await pod.waitContainer("container2")
+
+        try await pod.stop()
+
+        guard status1.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container1 cat failed with status \(status1)")
+        }
+        guard status2.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container2 cat failed with status \(status2)")
+        }
+
+        guard let output1 = String(data: buffer1.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert container1 stdout to UTF8")
+        }
+        guard let output2 = String(data: buffer2.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert container2 stdout to UTF8")
+        }
+
+        guard output1.contains("10.0.0.1") && output1.contains("service-a.local") else {
+            throw IntegrationError.assert(msg: "container1 should have service-a entry, got: \(output1)")
+        }
+        guard !output1.contains("10.0.0.2") && !output1.contains("service-b") else {
+            throw IntegrationError.assert(msg: "container1 should NOT have service-b entry, got: \(output1)")
+        }
+
+        guard output2.contains("10.0.0.2") && output2.contains("service-b.local") else {
+            throw IntegrationError.assert(msg: "container2 should have service-b entry, got: \(output2)")
+        }
+        guard !output2.contains("10.0.0.1") && !output2.contains("service-a") else {
+            throw IntegrationError.assert(msg: "container2 should NOT have service-a entry, got: \(output2)")
+        }
+    }
+
+    func testPodLevelDNS() async throws {
+        let id = "test-pod-level-dns"
+
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+            // Set DNS at the pod level
+            config.dns = DNS(nameservers: ["9.9.9.9", "149.112.112.112"])
+        }
+
+        let buffer1 = BufferWriter()
+        let buffer2 = BufferWriter()
+
+        // Neither container specifies DNS. We should inherit from pod
+        try await pod.addContainer("container1", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container1")) { config in
+            config.process.arguments = ["cat", "/etc/resolv.conf"]
+            config.process.stdout = buffer1
+        }
+
+        try await pod.addContainer("container2", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container2")) { config in
+            config.process.arguments = ["cat", "/etc/resolv.conf"]
+            config.process.stdout = buffer2
+        }
+
+        try await pod.create()
+
+        try await pod.startContainer("container1")
+        let status1 = try await pod.waitContainer("container1")
+
+        try await pod.startContainer("container2")
+        let status2 = try await pod.waitContainer("container2")
+
+        try await pod.stop()
+
+        guard status1.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container1 cat failed with status \(status1)")
+        }
+        guard status2.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container2 cat failed with status \(status2)")
+        }
+
+        guard let output1 = String(data: buffer1.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert container1 stdout to UTF8")
+        }
+        guard let output2 = String(data: buffer2.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert container2 stdout to UTF8")
+        }
+
+        // Both containers should have the pod-level DNS
+        guard output1.contains("9.9.9.9") && output1.contains("149.112.112.112") else {
+            throw IntegrationError.assert(msg: "container1 should have pod-level DNS (9.9.9.9), got: \(output1)")
+        }
+        guard output2.contains("9.9.9.9") && output2.contains("149.112.112.112") else {
+            throw IntegrationError.assert(msg: "container2 should have pod-level DNS (9.9.9.9), got: \(output2)")
+        }
+    }
+
+    func testPodLevelDNSWithContainerOverride() async throws {
+        let id = "test-pod-level-dns-override"
+
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+            // Set DNS at the pod level
+            config.dns = DNS(nameservers: ["9.9.9.9"])
+        }
+
+        let buffer1 = BufferWriter()
+        let buffer2 = BufferWriter()
+
+        // Container1 does NOT specify DNS. It should inherit from pod
+        try await pod.addContainer("container1", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container1")) { config in
+            config.process.arguments = ["cat", "/etc/resolv.conf"]
+            config.process.stdout = buffer1
+        }
+
+        // Container2 specifies its own DNS. It should override pod-level
+        try await pod.addContainer("container2", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container2")) { config in
+            config.process.arguments = ["cat", "/etc/resolv.conf"]
+            config.process.stdout = buffer2
+            config.dns = DNS(nameservers: ["8.8.8.8"])
+        }
+
+        try await pod.create()
+
+        try await pod.startContainer("container1")
+        let status1 = try await pod.waitContainer("container1")
+
+        try await pod.startContainer("container2")
+        let status2 = try await pod.waitContainer("container2")
+
+        try await pod.stop()
+
+        guard status1.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container1 cat failed with status \(status1)")
+        }
+        guard status2.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container2 cat failed with status \(status2)")
+        }
+
+        guard let output1 = String(data: buffer1.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert container1 stdout to UTF8")
+        }
+        guard let output2 = String(data: buffer2.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert container2 stdout to UTF8")
+        }
+
+        // Container1 should have pod-level DNS
+        guard output1.contains("9.9.9.9") && !output1.contains("8.8.8.8") else {
+            throw IntegrationError.assert(msg: "container1 should have pod-level DNS (9.9.9.9), got: \(output1)")
+        }
+        // Container2 should have its own DNS, not pod-level
+        guard output2.contains("8.8.8.8") && !output2.contains("9.9.9.9") else {
+            throw IntegrationError.assert(msg: "container2 should have container-level DNS (8.8.8.8), got: \(output2)")
+        }
+    }
+
+    func testPodLevelHosts() async throws {
+        let id = "test-pod-level-hosts"
+
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+            // Set hosts at the pod level
+            config.hosts = Hosts(entries: [
+                Hosts.Entry.localHostIPV4(),
+                Hosts.Entry(ipAddress: "10.0.0.100", hostnames: ["shared-service.local"]),
+            ])
+        }
+
+        let buffer1 = BufferWriter()
+        let buffer2 = BufferWriter()
+
+        // Neither container specifies hosts. It should inherit from pod
+        try await pod.addContainer("container1", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container1")) { config in
+            config.process.arguments = ["cat", "/etc/hosts"]
+            config.process.stdout = buffer1
+        }
+
+        try await pod.addContainer("container2", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container2")) { config in
+            config.process.arguments = ["cat", "/etc/hosts"]
+            config.process.stdout = buffer2
+        }
+
+        try await pod.create()
+
+        try await pod.startContainer("container1")
+        let status1 = try await pod.waitContainer("container1")
+
+        try await pod.startContainer("container2")
+        let status2 = try await pod.waitContainer("container2")
+
+        try await pod.stop()
+
+        guard status1.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container1 cat failed with status \(status1)")
+        }
+        guard status2.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container2 cat failed with status \(status2)")
+        }
+
+        guard let output1 = String(data: buffer1.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert container1 stdout to UTF8")
+        }
+        guard let output2 = String(data: buffer2.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert container2 stdout to UTF8")
+        }
+
+        // Both containers should have the pod-level hosts entry
+        guard output1.contains("10.0.0.100") && output1.contains("shared-service.local") else {
+            throw IntegrationError.assert(msg: "container1 should have pod-level hosts entry, got: \(output1)")
+        }
+        guard output2.contains("10.0.0.100") && output2.contains("shared-service.local") else {
+            throw IntegrationError.assert(msg: "container2 should have pod-level hosts entry, got: \(output2)")
+        }
+    }
+
+    func testPodLevelHostsWithContainerOverride() async throws {
+        let id = "test-pod-level-hosts-override"
+
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+            // Set hosts at the pod level
+            config.hosts = Hosts(entries: [
+                Hosts.Entry.localHostIPV4(),
+                Hosts.Entry(ipAddress: "10.0.0.100", hostnames: ["shared-service.local"]),
+            ])
+        }
+
+        let buffer1 = BufferWriter()
+        let buffer2 = BufferWriter()
+
+        // Container1 does NOT specify hosts. It should inherit from pod
+        try await pod.addContainer("container1", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container1")) { config in
+            config.process.arguments = ["cat", "/etc/hosts"]
+            config.process.stdout = buffer1
+        }
+
+        // Container2 specifies its own hosts. It should override pod-level
+        try await pod.addContainer("container2", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container2")) { config in
+            config.process.arguments = ["cat", "/etc/hosts"]
+            config.process.stdout = buffer2
+            config.hosts = Hosts(entries: [
+                Hosts.Entry.localHostIPV4(),
+                Hosts.Entry(ipAddress: "10.0.0.200", hostnames: ["container-specific.local"]),
+            ])
+        }
+
+        try await pod.create()
+
+        try await pod.startContainer("container1")
+        let status1 = try await pod.waitContainer("container1")
+
+        try await pod.startContainer("container2")
+        let status2 = try await pod.waitContainer("container2")
+
+        try await pod.stop()
+
+        guard status1.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container1 cat failed with status \(status1)")
+        }
+        guard status2.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container2 cat failed with status \(status2)")
+        }
+
+        guard let output1 = String(data: buffer1.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert container1 stdout to UTF8")
+        }
+        guard let output2 = String(data: buffer2.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert container2 stdout to UTF8")
+        }
+
+        // Container1 should have pod-level hosts entry
+        guard output1.contains("10.0.0.100") && output1.contains("shared-service.local") else {
+            throw IntegrationError.assert(msg: "container1 should have pod-level hosts entry, got: \(output1)")
+        }
+        guard !output1.contains("10.0.0.200") && !output1.contains("container-specific.local") else {
+            throw IntegrationError.assert(msg: "container1 should NOT have container2's hosts entry, got: \(output1)")
+        }
+
+        // Container2 should have its own hosts entry, not pod-level
+        guard output2.contains("10.0.0.200") && output2.contains("container-specific.local") else {
+            throw IntegrationError.assert(msg: "container2 should have container-level hosts entry, got: \(output2)")
+        }
+        guard !output2.contains("10.0.0.100") && !output2.contains("shared-service.local") else {
+            throw IntegrationError.assert(msg: "container2 should NOT have pod-level hosts entry, got: \(output2)")
+        }
+    }
+
+    func testPodRLimitOpenFiles() async throws {
+        let id = "test-pod-rlimit-open-files"
+
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        let buffer = BufferWriter()
+        try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
+            config.process.arguments = ["sh", "-c", "ulimit -n"]
+            config.process.rlimits = [
+                LinuxRLimit(kind: .openFiles, hard: 2048, soft: 1024)
+            ]
+            config.process.stdout = buffer
+        }
+
+        try await pod.create()
+        try await pod.startContainer("container1")
+
+        let status = try await pod.waitContainer("container1")
+        try await pod.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        guard let output = String(data: buffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+        }
+
+        // ulimit -n returns the soft limit
+        guard output == "1024" else {
+            throw IntegrationError.assert(msg: "expected soft limit '1024', got '\(output)'")
+        }
+    }
+
+    func testPodRLimitExec() async throws {
+        let id = "test-pod-rlimit-exec"
+
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
+            config.process.arguments = ["sleep", "100"]
+        }
+
+        do {
+            try await pod.create()
+            try await pod.startContainer("container1")
+
+            // Exec a process with rlimits set
+            let buffer = BufferWriter()
+            let exec = try await pod.execInContainer("container1", processID: "rlimit-exec") { config in
+                config.arguments = ["sh", "-c", "ulimit -n"]
+                config.rlimits = [
+                    LinuxRLimit(kind: .openFiles, hard: 512, soft: 256)
+                ]
+                config.stdout = buffer
+            }
+
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "exec status \(status) != 0")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+            }
+
+            guard output == "256" else {
+                throw IntegrationError.assert(msg: "expected soft limit '256', got '\(output)'")
+            }
+
+            try await pod.killContainer("container1", signal: SIGKILL)
+            try await pod.waitContainer("container1")
+            try await pod.stop()
         } catch {
             try? await pod.stop()
             throw error

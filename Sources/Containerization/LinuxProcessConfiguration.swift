@@ -14,8 +14,239 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import ContainerizationError
 import ContainerizationOCI
 import ContainerizationOS
+
+/// A resource limit (rlimit) configuration for a container process.
+public struct LinuxRLimit: Sendable, Hashable {
+    /// The kind of resource limit.
+    public var kind: Kind
+    /// The hard limit value.
+    public var hard: UInt64
+    /// The soft limit value.
+    public var soft: UInt64
+
+    /// Creates a new resource limit.
+    ///
+    /// - Parameters:
+    ///   - kind: The kind of resource limit.
+    ///   - hard: The hard limit value.
+    ///   - soft: The soft limit value.
+    public init(kind: Kind, hard: UInt64, soft: UInt64) {
+        self.kind = kind
+        self.hard = hard
+        self.soft = soft
+    }
+
+    /// Creates a new resource limit with the same value for both hard and soft limits.
+    ///
+    /// - Parameters:
+    ///   - kind: The kind of resource limit.
+    ///   - limit: The limit value for both hard and soft limits.
+    public init(kind: Kind, limit: UInt64) {
+        self.kind = kind
+        self.hard = limit
+        self.soft = limit
+    }
+
+    /// Convert to OCI POSIXRlimit format for transport.
+    public func toOCI() -> POSIXRlimit {
+        POSIXRlimit(type: self.kind.description, hard: self.hard, soft: self.soft)
+    }
+}
+
+extension LinuxRLimit {
+    /// The kind of resource limit.
+    public struct Kind: Sendable, Hashable {
+        private enum Value: Hashable, Sendable, CaseIterable {
+            case addressSpace
+            case coreFileSize
+            case cpuTime
+            case dataSize
+            case fileSize
+            case locks
+            case lockedMemory
+            case messageQueue
+            case nice
+            case openFiles
+            case numberOfProcesses
+            case residentSetSize
+            case realtimePriority
+            case realtimeTimeout
+            case signalsPending
+            case stackSize
+        }
+
+        private var value: Value
+        private init(_ value: Value) {
+            self.value = value
+        }
+
+        /// Maximum size of the process's virtual memory (address space) in bytes.
+        public static var addressSpace: Self {
+            Self(.addressSpace)
+        }
+
+        /// Maximum size of a core file in bytes.
+        public static var coreFileSize: Self {
+            Self(.coreFileSize)
+        }
+
+        /// Maximum amount of CPU time the process can consume in seconds.
+        public static var cpuTime: Self {
+            Self(.cpuTime)
+        }
+
+        /// Maximum size of the process's data segment in bytes.
+        public static var dataSize: Self {
+            Self(.dataSize)
+        }
+
+        /// Maximum size of files the process may create in bytes.
+        public static var fileSize: Self {
+            Self(.fileSize)
+        }
+
+        /// Maximum number of file locks.
+        public static var locks: Self {
+            Self(.locks)
+        }
+
+        /// Maximum number of bytes of memory that may be locked into RAM.
+        public static var lockedMemory: Self {
+            Self(.lockedMemory)
+        }
+
+        /// Maximum number of bytes that can be allocated for POSIX message queues.
+        public static var messageQueue: Self {
+            Self(.messageQueue)
+        }
+
+        /// Maximum nice value that can be set.
+        public static var nice: Self {
+            Self(.nice)
+        }
+
+        /// Maximum number of open file descriptors.
+        public static var openFiles: Self {
+            Self(.openFiles)
+        }
+
+        /// Maximum number of processes that can be created by the user.
+        public static var numberOfProcesses: Self {
+            Self(.numberOfProcesses)
+        }
+
+        /// Maximum size of the process's resident set (physical memory) in bytes.
+        public static var residentSetSize: Self {
+            Self(.residentSetSize)
+        }
+
+        /// Maximum real-time scheduling priority.
+        public static var realtimePriority: Self {
+            Self(.realtimePriority)
+        }
+
+        /// Maximum amount of CPU time for real-time scheduling in microseconds.
+        public static var realtimeTimeout: Self {
+            Self(.realtimeTimeout)
+        }
+
+        /// Maximum number of signals that may be queued.
+        public static var signalsPending: Self {
+            Self(.signalsPending)
+        }
+
+        /// Maximum size of the process stack in bytes.
+        public static var stackSize: Self {
+            Self(.stackSize)
+        }
+
+        /// Creates a Kind from its OCI string representation.
+        ///
+        /// - Parameter string: The OCI string representation (e.g., "RLIMIT_NOFILE").
+        /// - Throws: `ContainerizationError` with code `.invalidArgument` if the string doesn't match a known rlimit kind.
+        public init(_ string: String) throws {
+            switch string {
+            case "RLIMIT_AS":
+                self = .addressSpace
+            case "RLIMIT_CORE":
+                self = .coreFileSize
+            case "RLIMIT_CPU":
+                self = .cpuTime
+            case "RLIMIT_DATA":
+                self = .dataSize
+            case "RLIMIT_FSIZE":
+                self = .fileSize
+            case "RLIMIT_LOCKS":
+                self = .locks
+            case "RLIMIT_MEMLOCK":
+                self = .lockedMemory
+            case "RLIMIT_MSGQUEUE":
+                self = .messageQueue
+            case "RLIMIT_NICE":
+                self = .nice
+            case "RLIMIT_NOFILE":
+                self = .openFiles
+            case "RLIMIT_NPROC":
+                self = .numberOfProcesses
+            case "RLIMIT_RSS":
+                self = .residentSetSize
+            case "RLIMIT_RTPRIO":
+                self = .realtimePriority
+            case "RLIMIT_RTTIME":
+                self = .realtimeTimeout
+            case "RLIMIT_SIGPENDING":
+                self = .signalsPending
+            case "RLIMIT_STACK":
+                self = .stackSize
+            default:
+                throw ContainerizationError(.invalidArgument, message: "invalid rlimit kind: '\(string)'")
+            }
+        }
+    }
+}
+
+extension LinuxRLimit.Kind: CustomStringConvertible {
+    /// The OCI string representation of the resource limit kind.
+    public var description: String {
+        switch self.value {
+        case .addressSpace:
+            "RLIMIT_AS"
+        case .coreFileSize:
+            "RLIMIT_CORE"
+        case .cpuTime:
+            "RLIMIT_CPU"
+        case .dataSize:
+            "RLIMIT_DATA"
+        case .fileSize:
+            "RLIMIT_FSIZE"
+        case .locks:
+            "RLIMIT_LOCKS"
+        case .lockedMemory:
+            "RLIMIT_MEMLOCK"
+        case .messageQueue:
+            "RLIMIT_MSGQUEUE"
+        case .nice:
+            "RLIMIT_NICE"
+        case .openFiles:
+            "RLIMIT_NOFILE"
+        case .numberOfProcesses:
+            "RLIMIT_NPROC"
+        case .residentSetSize:
+            "RLIMIT_RSS"
+        case .realtimePriority:
+            "RLIMIT_RTPRIO"
+        case .realtimeTimeout:
+            "RLIMIT_RTTIME"
+        case .signalsPending:
+            "RLIMIT_SIGPENDING"
+        case .stackSize:
+            "RLIMIT_STACK"
+        }
+    }
+}
 
 /// User-friendly Linux capabilities configuration
 public struct LinuxCapabilities: Sendable {
@@ -140,7 +371,7 @@ public struct LinuxProcessConfiguration: Sendable {
     /// The user the container process will run as.
     public var user: ContainerizationOCI.User = .init()
     /// The rlimits for the container process.
-    public var rlimits: [POSIXRlimit] = []
+    public var rlimits: [LinuxRLimit] = []
     /// The Linux capabilities for the container process.
     public var capabilities: LinuxCapabilities = .allCapabilities
     /// Whether to allocate a pseudo terminal for the process. If you'd like interactive
@@ -161,7 +392,7 @@ public struct LinuxProcessConfiguration: Sendable {
         environmentVariables: [String] = ["PATH=\(Self.defaultPath)"],
         workingDirectory: String = "/",
         user: ContainerizationOCI.User = .init(),
-        rlimits: [POSIXRlimit] = [],
+        rlimits: [LinuxRLimit] = [],
         capabilities: LinuxCapabilities = .allCapabilities,
         terminal: Bool = false,
         stdin: ReaderStream? = nil,
@@ -208,7 +439,7 @@ public struct LinuxProcessConfiguration: Sendable {
             env: self.environmentVariables,
             capabilities: self.capabilities.toOCI(),
             user: self.user,
-            rlimits: self.rlimits,
+            rlimits: self.rlimits.map { $0.toOCI() },
             terminal: self.terminal
         )
     }

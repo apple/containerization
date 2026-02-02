@@ -2317,4 +2317,139 @@ extension IntegrationSuite {
             throw error
         }
     }
+
+    func testRLimitOpenFiles() async throws {
+        let id = "test-rlimit-open-files"
+
+        let bs = try await bootstrap(id)
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sh", "-c", "ulimit -n"]
+            config.process.rlimits = [
+                LinuxRLimit(kind: .openFiles, hard: 2048, soft: 1024)
+            ]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        guard let output = String(data: buffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+        }
+
+        // ulimit -n returns the soft limit
+        guard output == "1024" else {
+            throw IntegrationError.assert(msg: "expected soft limit '1024', got '\(output)'")
+        }
+    }
+
+    func testRLimitMultiple() async throws {
+        let id = "test-rlimit-multiple"
+
+        let bs = try await bootstrap(id)
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            // Read /proc/self/limits to verify multiple rlimits are set
+            config.process.arguments = ["cat", "/proc/self/limits"]
+            config.process.rlimits = [
+                LinuxRLimit(kind: .openFiles, hard: 4096, soft: 2048),
+                LinuxRLimit(kind: .stackSize, hard: 16_777_216, soft: 8_388_608),
+                LinuxRLimit(kind: .coreFileSize, hard: 0, soft: 0),
+            ]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        guard let output = String(data: buffer.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+        }
+
+        // Parse /proc/self/limits and verify the values
+        // Format: "Limit Name                Soft Limit           Hard Limit           Units"
+        let lines = output.split(separator: "\n")
+
+        // Helper to find and verify a limit line
+        func verifyLimit(name: String, expectedSoft: String, expectedHard: String) throws {
+            guard let line = lines.first(where: { $0.contains(name) }) else {
+                throw IntegrationError.assert(msg: "limit '\(name)' not found in output")
+            }
+            let parts = line.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+            // The line format varies, but soft and hard are typically the last numeric values before units
+            guard parts.contains(expectedSoft) && parts.contains(expectedHard) else {
+                throw IntegrationError.assert(
+                    msg: "limit '\(name)' expected soft=\(expectedSoft) hard=\(expectedHard), got: \(line)")
+            }
+        }
+
+        try verifyLimit(name: "Max open files", expectedSoft: "2048", expectedHard: "4096")
+        try verifyLimit(name: "Max stack size", expectedSoft: "8388608", expectedHard: "16777216")
+        try verifyLimit(name: "Max core file size", expectedSoft: "0", expectedHard: "0")
+    }
+
+    func testRLimitExec() async throws {
+        let id = "test-rlimit-exec"
+
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Exec a process with rlimits set
+            let buffer = BufferWriter()
+            let exec = try await container.exec("rlimit-exec") { config in
+                config.arguments = ["sh", "-c", "ulimit -n"]
+                config.rlimits = [
+                    LinuxRLimit(kind: .openFiles, hard: 512, soft: 256)
+                ]
+                config.stdout = buffer
+            }
+
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "exec status \(status) != 0")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+            }
+
+            guard output == "256" else {
+                throw IntegrationError.assert(msg: "expected soft limit '256', got '\(output)'")
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
 }
