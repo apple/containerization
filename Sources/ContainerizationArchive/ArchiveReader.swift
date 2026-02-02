@@ -128,7 +128,26 @@ public final class ArchiveReader {
 
     /// Decompress a zstd file to a temporary location
     private static func decompressZstd(_ source: URL) throws -> URL {
-        let inputData = try Data(contentsOf: source)
+        guard let inputStream = InputStream(url: source) else {
+            throw ArchiveError.noUnderlyingArchive
+        }
+        inputStream.open()
+        defer { inputStream.close() }
+
+        // Create temp file into which the source zstd archived is decompressed
+        guard let tempDir = createTemporaryDirectory(baseName: "zstd-decompress") else {
+            throw ArchiveError.failedToDetectFormat
+        }
+
+        let tempFile = tempDir.appendingPathComponent(
+            source.deletingPathExtension().lastPathComponent
+        )
+
+        guard let outputStream = OutputStream(url: tempFile, append: false) else {
+            throw ArchiveError.noUnderlyingArchive
+        }
+        outputStream.open()
+        defer { outputStream.close() }
 
         // Use streaming decompression since content size may be unknown
         guard let dstream = ZSTD_createDStream() else {
@@ -141,47 +160,39 @@ public final class ArchiveReader {
             throw ArchiveError.failedToDetectFormat
         }
 
-        var decompressed = Data()
-        let outputBufferSize = Int(ZSTD_DStreamOutSize())
+        let inputBufferSize = ZSTD_DStreamInSize()
+        let outputBufferSize = ZSTD_DStreamOutSize()
 
-        try inputData.withUnsafeBytes { inputBytes in
-            var input = ZSTD_inBuffer(
-                src: inputBytes.baseAddress,
-                size: inputData.count,
-                pos: 0
-            )
+        var inputBuffer = [UInt8](repeating: 0, count: inputBufferSize)
 
-            var outputBuffer = [UInt8](repeating: 0, count: outputBufferSize)
-
-            while input.pos < input.size {
-                try outputBuffer.withUnsafeMutableBytes { outputBytes in
-                    var output = ZSTD_outBuffer(
-                        dst: outputBytes.baseAddress,
-                        size: outputBufferSize,
-                        pos: 0
-                    )
-
-                    let result = ZSTD_decompressStream(dstream, &output, &input)
-                    guard ZSTD_isError(result) == 0 else {
-                        throw ArchiveError.failedToDetectFormat
+        while case let amount = inputStream.read(&inputBuffer, maxLength: inputBufferSize), amount > 0 {
+            try inputBuffer.withUnsafeBufferPointer { ptr in
+                var input = ZSTD_inBuffer(
+                    src: ptr.baseAddress,
+                    size: amount,
+                    pos: 0
+                )
+                while input.pos < input.size {
+                    var outputBuffer = [UInt8](repeating: 0, count: outputBufferSize)
+                    var decompressedBytes = 0
+                    try outputBuffer.withUnsafeMutableBytes { outputBytes in
+                        var output = ZSTD_outBuffer(
+                            dst: outputBytes.baseAddress,
+                            size: outputBufferSize,
+                            pos: 0
+                        )
+                        let result = ZSTD_decompressStream(dstream, &output, &input)
+                        guard ZSTD_isError(result) == 0 else {
+                            throw ArchiveError.failedToDetectFormat
+                        }
+                        decompressedBytes = output.pos
                     }
-
-                    if output.pos > 0 {
-                        decompressed.append(contentsOf: outputBytes.bindMemory(to: UInt8.self).prefix(Int(output.pos)))
+                    if decompressedBytes > 0 {
+                        outputStream.write(outputBuffer, maxLength: decompressedBytes)
                     }
                 }
             }
         }
-
-        // Create temp file
-        guard let tempDir = createTemporaryDirectory(baseName: "zstd-decompress") else {
-            throw ArchiveError.failedToDetectFormat
-        }
-
-        let tempFile = tempDir.appendingPathComponent(
-            source.deletingPathExtension().lastPathComponent
-        )
-        try decompressed.write(to: tempFile)
         return tempFile
     }
 
