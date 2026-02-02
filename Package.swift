@@ -47,6 +47,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-system.git", from: "1.4.0"),
         .package(url: "https://github.com/swiftlang/swift-docc-plugin", from: "1.1.0"),
         .package(url: "https://github.com/apple/swift-nio-ssl.git", from: "2.36.0"),
+        .package(url: "https://github.com/facebook/zstd.git", exact: "1.5.7"),
     ],
     targets: [
         .target(
@@ -143,17 +144,26 @@ let package = Package(
             name: "ContainerizationArchiveTests",
             dependencies: [
                 "ContainerizationArchive"
+            ],
+            resources: [
+                .copy("Resources/test.tar.zst")
             ]
         ),
         .target(
             name: "CArchive",
-            dependencies: [],
+            dependencies: [
+                .product(name: "libzstd", package: "zstd")
+            ],
             path: "Sources/ContainerizationArchive/CArchive",
+            sources: [
+                "archive_swift_bridge.c"
+            ],
             cSettings: [
                 .define(
                     "PLATFORM_CONFIG_H", to: "\"config_darwin.h\"",
                     .when(platforms: [.iOS, .macOS, .macCatalyst, .watchOS, .driverKit, .tvOS])),
                 .define("PLATFORM_CONFIG_H", to: "\"config_linux.h\"", .when(platforms: [.linux])),
+                .unsafeFlags(["-fno-modules"]),
             ],
             linkerSettings: [
                 .linkedLibrary("z"),

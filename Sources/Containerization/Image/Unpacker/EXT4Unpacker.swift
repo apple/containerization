@@ -94,6 +94,8 @@ public struct EXT4Unpacker: Unpacker {
                 compression = .none
             case MediaTypes.imageLayerGzip, MediaTypes.dockerImageLayerGzip:
                 compression = .gzip
+            case MediaTypes.imageLayerZstd, MediaTypes.dockerImageLayerZstd:
+                compression = .zstd
             default:
                 throw ContainerizationError(.unsupported, message: "media type \(layer.mediaType) not supported.")
             }
