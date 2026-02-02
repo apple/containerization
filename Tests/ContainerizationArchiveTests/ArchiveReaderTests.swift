@@ -657,4 +657,58 @@ struct ArchiveReaderTests {
             _ = try reader.extractContents(to: extractDir)
         }
     }
+
+    // MARK: - Zstd Compression Tests
+
+    @Test func readZstdCompressedArchive() throws {
+        guard let resourceURL = Bundle.module.url(forResource: "test", withExtension: "tar.zst") else {
+            Issue.record("Test resource test.tar.zst not found")
+            return
+        }
+
+        let extractDir = try createExtractionDirectory(name: "zstd-test")
+        defer { try? FileManager.default.removeItem(at: extractDir.deletingLastPathComponent()) }
+
+        // Test with explicit filter
+        let reader = try ArchiveReader(format: .paxRestricted, filter: .zstd, file: resourceURL)
+        let rejectedPaths = try reader.extractContents(to: extractDir)
+
+        #expect(rejectedPaths.isEmpty, "No paths should be rejected")
+
+        // Check extracted files
+        let testFile = extractDir.appendingPathComponent("test.txt")
+        let file2 = extractDir.appendingPathComponent("file2.txt")
+
+        #expect(FileManager.default.fileExists(atPath: testFile.path), "test.txt should exist")
+        #expect(FileManager.default.fileExists(atPath: file2.path), "file2.txt should exist")
+
+        let testContent = try String(contentsOf: testFile, encoding: .utf8)
+        #expect(testContent == "Hello from zstd compressed archive", "Content should match")
+
+        let file2Content = try String(contentsOf: file2, encoding: .utf8)
+        #expect(file2Content == "Another file", "Content should match")
+    }
+
+    @Test func readZstdCompressedArchiveAutoDetect() throws {
+        guard let resourceURL = Bundle.module.url(forResource: "test", withExtension: "tar.zst") else {
+            Issue.record("Test resource test.tar.zst not found")
+            return
+        }
+
+        let extractDir = try createExtractionDirectory(name: "zstd-auto-test")
+        defer { try? FileManager.default.removeItem(at: extractDir.deletingLastPathComponent()) }
+
+        // Test with auto-detect
+        let reader = try ArchiveReader(file: resourceURL)
+        let rejectedPaths = try reader.extractContents(to: extractDir)
+
+        #expect(rejectedPaths.isEmpty, "No paths should be rejected")
+
+        // Check extracted files
+        let testFile = extractDir.appendingPathComponent("test.txt")
+        #expect(FileManager.default.fileExists(atPath: testFile.path), "test.txt should exist")
+
+        let testContent = try String(contentsOf: testFile, encoding: .utf8)
+        #expect(testContent == "Hello from zstd compressed archive", "Content should match")
+    }
 }

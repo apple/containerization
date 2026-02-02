@@ -15,9 +15,11 @@
 //===----------------------------------------------------------------------===//
 
 import CArchive
+import ContainerizationError
 import ContainerizationOS
 import Foundation
 import SystemPackage
+import libzstd
 
 /// A protocol for reading data in chunks, compatible with both `InputStream` and zero-allocation archive readers.
 public protocol ReadableStream {
@@ -53,13 +55,32 @@ public final class ArchiveReader {
     var underlying: OpaquePointer?
     /// The file handle associated with the archive file being read.
     let fileHandle: FileHandle?
+    /// Temporary decompressed file URL if the input was zstd-compressed
+    private var tempDecompressedFile: URL?
 
     /// Initializes an `ArchiveReader` to read from a specified file URL with an explicit `Format` and `Filter`.
     /// Note: This method must be used when it is known that the archive at the specified URL follows the specified
     /// `Format` and `Filter`.
     public convenience init(format: Format, filter: Filter, file: URL) throws {
-        let fileHandle = try FileHandle(forReadingFrom: file)
-        try self.init(format: format, filter: filter, fileHandle: fileHandle)
+        // If filter is zstd, decompress it and use filter .none
+        let fileToRead: URL
+        let tempFile: URL?
+        let actualFilter: Filter
+
+        if filter == .zstd {
+            let decompressed = try Self.decompressZstd(file)
+            tempFile = decompressed
+            fileToRead = decompressed
+            actualFilter = .none
+        } else {
+            tempFile = nil
+            fileToRead = file
+            actualFilter = filter
+        }
+
+        let fileHandle = try FileHandle(forReadingFrom: fileToRead)
+        try self.init(format: format, filter: actualFilter, fileHandle: fileHandle)
+        self.tempDecompressedFile = tempFile
     }
 
     /// Initializes an `ArchiveReader` to read from the provided file descriptor with an explicit `Format` and `Filter`.
@@ -82,8 +103,22 @@ public final class ArchiveReader {
     /// Initialize the `ArchiveReader` to read from a specified file URL
     /// by trying to auto determine the archives `Format` and `Filter`.
     public init(file: URL) throws {
+        print("ArchiveReader.init called with file: \(file.path)")
+
         self.underlying = archive_read_new()
-        let fileHandle = try FileHandle(forReadingFrom: file)
+
+        // Try to decompress as zstd first, fall back to original if it fails
+        let fileToRead: URL
+        if let decompressed = try? Self.decompressZstd(file) {
+            print("Successfully decompressed zstd to: \(decompressed.path)")
+            self.tempDecompressedFile = decompressed
+            fileToRead = decompressed
+        } else {
+            print("Not a zstd file or decompression failed, using original")
+            fileToRead = file
+        }
+
+        let fileHandle = try FileHandle(forReadingFrom: fileToRead)
         self.fileHandle = fileHandle
         try archive_read_support_filter_all(underlying)
             .checkOk(elseThrow: .failedToDetectFilter)
@@ -94,9 +129,73 @@ public final class ArchiveReader {
             .checkOk(elseThrow: { .unableToOpenArchive($0) })
     }
 
+    /// Decompress a zstd file to a temporary location
+    private static func decompressZstd(_ source: URL) throws -> URL {
+        let inputData = try Data(contentsOf: source)
+
+        // Use streaming decompression since content size may be unknown
+        guard let dstream = ZSTD_createDStream() else {
+            throw ArchiveError.failedToDetectFormat
+        }
+        defer { ZSTD_freeDStream(dstream) }
+
+        let initResult = ZSTD_initDStream(dstream)
+        guard ZSTD_isError(initResult) == 0 else {
+            throw ArchiveError.failedToDetectFormat
+        }
+
+        var decompressed = Data()
+        let outputBufferSize = Int(ZSTD_DStreamOutSize())
+
+        try inputData.withUnsafeBytes { inputBytes in
+            var input = ZSTD_inBuffer(
+                src: inputBytes.baseAddress,
+                size: inputData.count,
+                pos: 0
+            )
+
+            var outputBuffer = [UInt8](repeating: 0, count: outputBufferSize)
+
+            while input.pos < input.size {
+                try outputBuffer.withUnsafeMutableBytes { outputBytes in
+                    var output = ZSTD_outBuffer(
+                        dst: outputBytes.baseAddress,
+                        size: outputBufferSize,
+                        pos: 0
+                    )
+
+                    let result = ZSTD_decompressStream(dstream, &output, &input)
+                    guard ZSTD_isError(result) == 0 else {
+                        throw ArchiveError.failedToDetectFormat
+                    }
+
+                    if output.pos > 0 {
+                        decompressed.append(contentsOf: outputBytes.bindMemory(to: UInt8.self).prefix(Int(output.pos)))
+                    }
+                }
+            }
+        }
+
+        // Create temp file
+        guard let tempDir = createTemporaryDirectory(baseName: "zstd-decompress") else {
+            throw ArchiveError.failedToDetectFormat
+        }
+
+        let tempFile = tempDir.appendingPathComponent(
+            source.deletingPathExtension().lastPathComponent
+        )
+        try decompressed.write(to: tempFile)
+        return tempFile
+    }
+
     deinit {
         archive_read_free(underlying)
         try? fileHandle?.close()
+
+        // Clean up temp decompressed file
+        if let tempFile = tempDecompressedFile {
+            try? FileManager.default.removeItem(at: tempFile.deletingLastPathComponent())
+        }
     }
 }
 

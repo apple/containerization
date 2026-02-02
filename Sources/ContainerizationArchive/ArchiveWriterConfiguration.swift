@@ -174,6 +174,7 @@ public enum Filter: String, Sendable {
     case lzop
     case grzip
     case lz4
+    case zstd
 
     internal var code: CInt {
         switch self {
@@ -190,6 +191,7 @@ public enum Filter: String, Sendable {
         case .lzop: return ARCHIVE_FILTER_LZOP
         case .grzip: return ARCHIVE_FILTER_GRZIP
         case .lz4: return ARCHIVE_FILTER_LZ4
+        case .zstd: return ARCHIVE_FILTER_ZSTD
         }
     }
 }
