@@ -103,18 +103,15 @@ public final class ArchiveReader {
     /// Initialize the `ArchiveReader` to read from a specified file URL
     /// by trying to auto determine the archives `Format` and `Filter`.
     public init(file: URL) throws {
-        print("ArchiveReader.init called with file: \(file.path)")
 
         self.underlying = archive_read_new()
 
         // Try to decompress as zstd first, fall back to original if it fails
         let fileToRead: URL
         if let decompressed = try? Self.decompressZstd(file) {
-            print("Successfully decompressed zstd to: \(decompressed.path)")
             self.tempDecompressedFile = decompressed
             fileToRead = decompressed
         } else {
-            print("Not a zstd file or decompression failed, using original")
             fileToRead = file
         }
 
