@@ -103,7 +103,6 @@ public final class ArchiveReader {
     /// Initialize the `ArchiveReader` to read from a specified file URL
     /// by trying to auto determine the archives `Format` and `Filter`.
     public init(file: URL) throws {
-
         self.underlying = archive_read_new()
 
         // Try to decompress as zstd first, fall back to original if it fails
@@ -128,7 +127,15 @@ public final class ArchiveReader {
 
     /// Decompress a zstd file to a temporary location
     private static func decompressZstd(_ source: URL) throws -> URL {
-        guard let inputStream = InputStream(url: source) else {
+        let inputStream: InputStream?
+        if source.scheme == nil || source.scheme == "" {
+            // can't use InputStream(url:) with nil scheme
+            inputStream = .init(fileAtPath: source.path)
+        } else {
+            inputStream = InputStream(url: source)
+        }
+
+        guard let inputStream else {
             throw ArchiveError.noUnderlyingArchive
         }
         inputStream.open()
