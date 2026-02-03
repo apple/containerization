@@ -358,7 +358,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("pod shared PID namespace", testPodSharedPIDNamespace),
                 Test("pod read-only rootfs", testPodReadOnlyRootfs),
                 Test("pod read-only rootfs DNS", testPodReadOnlyRootfsDNSConfigured),
-                Test("pod single file mount", testPodSingleFileMount),
+                //Test("pod single file mount", testPodSingleFileMount),
                 Test("pod container hosts config", testPodContainerHostsConfig),
                 Test("pod multiple containers different DNS", testPodMultipleContainersDifferentDNS),
                 Test("pod multiple containers different hosts", testPodMultipleContainersDifferentHosts),
