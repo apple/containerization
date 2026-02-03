@@ -20,9 +20,9 @@ import ContainerizationOS
 
 /// Helper type to lookup registry related values in the macOS keychain.
 public struct KeychainHelper: Sendable {
-    private let id: String
-    public init(id: String) {
-        self.id = id
+    private let securityDomain: String
+    public init(securityDomain: String) {
+        self.securityDomain = securityDomain
     }
 
     /// Lookup authorization data for a given registry domain.
@@ -30,7 +30,7 @@ public struct KeychainHelper: Sendable {
         let kq = KeychainQuery()
 
         do {
-            guard let fetched = try kq.get(id: self.id, host: domain) else {
+            guard let fetched = try kq.get(securityDomain: self.securityDomain, host: domain) else {
                 throw Self.Error.keyNotFound
             }
             return BasicAuthentication(
@@ -52,19 +52,19 @@ public struct KeychainHelper: Sendable {
     /// - Throws: An error if the keychain query fails.
     public func list() throws -> [RegistryInfo] {
         let kq = KeychainQuery()
-        return try kq.list(domain: self.id)
+        return try kq.list(domain: self.securityDomain)
     }
 
     /// Delete authorization data for a given domain from the keychain.
     public func delete(domain: String) throws {
         let kq = KeychainQuery()
-        try kq.delete(id: self.id, host: domain)
+        try kq.delete(securityDomain: self.securityDomain, host: domain)
     }
 
     /// Save authorization data for a given domain to the keychain.
     public func save(domain: String, username: String, password: String) throws {
         let kq = KeychainQuery()
-        try kq.save(id: self.id, host: domain, user: username, token: password)
+        try kq.save(securityDomain: self.securityDomain, host: domain, user: username, token: password)
     }
 
     /// Prompt for authorization data for a given domain to be saved to the keychain.

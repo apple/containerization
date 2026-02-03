@@ -30,9 +30,9 @@ public struct KeychainQuery {
     public init() {}
 
     /// Save a value to the keychain.
-    public func save(id: String, host: String, user: String, token: String) throws {
-        if try exists(id: id, host: host) {
-            try delete(id: id, host: host)
+    public func save(securityDomain: String, host: String, user: String, token: String) throws {
+        if try exists(securityDomain: securityDomain, host: host) {
+            try delete(securityDomain: securityDomain, host: host)
         }
 
         guard let tokenEncoded = token.data(using: String.Encoding.utf8) else {
@@ -40,7 +40,7 @@ public struct KeychainQuery {
         }
         let query: [String: Any] = [
             kSecClass as String: kSecClassInternetPassword,
-            kSecAttrSecurityDomain as String: id,
+            kSecAttrSecurityDomain as String: securityDomain,
             kSecAttrServer as String: host,
             kSecAttrAccount as String: user,
             kSecValueData as String: tokenEncoded,
@@ -52,10 +52,10 @@ public struct KeychainQuery {
     }
 
     /// Delete a value from the keychain.
-    public func delete(id: String, host: String) throws {
+    public func delete(securityDomain: String, host: String) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassInternetPassword,
-            kSecAttrSecurityDomain as String: id,
+            kSecAttrSecurityDomain as String: securityDomain,
             kSecAttrServer as String: host,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
@@ -66,10 +66,10 @@ public struct KeychainQuery {
     }
 
     /// Retrieve a value from the keychain.
-    public func get(id: String, host: String) throws -> KeychainQueryResult? {
+    public func get(securityDomain: String, host: String) throws -> KeychainQueryResult? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassInternetPassword,
-            kSecAttrSecurityDomain as String: id,
+            kSecAttrSecurityDomain as String: securityDomain,
             kSecAttrServer as String: host,
             kSecReturnAttributes as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
@@ -165,10 +165,10 @@ public struct KeychainQuery {
     }
 
     /// Check if a value exists in the keychain.
-    public func exists(id: String, host: String) throws -> Bool {
+    public func exists(securityDomain: String, host: String) throws -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassInternetPassword,
-            kSecAttrSecurityDomain as String: id,
+            kSecAttrSecurityDomain as String: securityDomain,
             kSecAttrServer as String: host,
             kSecReturnAttributes as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
