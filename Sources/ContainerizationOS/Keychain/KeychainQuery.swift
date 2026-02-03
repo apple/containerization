@@ -25,14 +25,6 @@ public struct KeychainQueryResult {
     public var createdDate: Date
 }
 
-/// Holds the stored attributes for a registry.
-public struct RegistryInfo: Sendable {
-    public var hostname: String
-    public var account: String
-    public let modifiedDate: Date
-    public let createdDate: Date
-}
-
 /// Type that facilitates interacting with the macOS keychain.
 public struct KeychainQuery {
     public init() {}
@@ -117,6 +109,9 @@ public struct KeychainQuery {
     }
 
     /// List all registry entries in the keychain for a domain.
+    /// - Parameter domain: The security domain used to fetch registry entries in the keychain.
+    /// - Returns: An array of registry metadata for each matching entry, or an empty array if none are found.
+    /// - Throws: An error if the keychain query fails or returns unexpected data.
     public func list(domain: String) throws -> [RegistryInfo] {
         let query: [String: Any] = [
             kSecClass as String: kSecClassInternetPassword,
@@ -140,7 +135,7 @@ public struct KeychainQuery {
             guard let hostname = registry[kSecAttrServer as String] as? String else {
                 throw Self.Error.keyNotPresent(key: kSecAttrServer as String)
             }
-            guard let account = registry[kSecAttrAccount as String] as? String else {
+            guard let username = registry[kSecAttrAccount as String] as? String else {
                 throw Self.Error.keyNotPresent(key: kSecAttrAccount as String)
             }
             guard let modifiedDate = registry[kSecAttrModificationDate as String] as? Date else {
@@ -152,7 +147,7 @@ public struct KeychainQuery {
 
             return RegistryInfo(
                 hostname: hostname,
-                account: account,
+                username: username,
                 modifiedDate: modifiedDate,
                 createdDate: createdDate
             )

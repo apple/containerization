@@ -66,7 +66,7 @@ struct KeychainQueryTests {
 
             // Verify that the accounts exist
             for entry in entries {
-                #expect(entry.account == user)
+                #expect(entry.username == user)
             }
         } catch KeychainQuery.Error.unhandledError(status: -25308) {
             // ignore errSecInteractionNotAllowed

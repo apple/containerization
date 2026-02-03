@@ -47,7 +47,9 @@ public struct KeychainHelper: Sendable {
         }
     }
 
-    /// List all registry entries for this domain.
+    /// Lists all registry entries for this domain.
+    /// - Returns: An array of registry metadata for each matching entry, or an empty array if none are found.
+    /// - Throws: An error if the keychain query fails.
     public func list() throws -> [RegistryInfo] {
         let kq = KeychainQuery()
         return try kq.list(domain: self.id)
