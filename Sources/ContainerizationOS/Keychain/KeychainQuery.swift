@@ -30,9 +30,9 @@ public struct KeychainQuery {
     public init() {}
 
     /// Save a value to the keychain.
-    public func save(securityDomain: String, host: String, user: String, token: String) throws {
-        if try exists(securityDomain: securityDomain, host: host) {
-            try delete(securityDomain: securityDomain, host: host)
+    public func save(securityDomain: String, hostname: String, user: String, token: String) throws {
+        if try exists(securityDomain: securityDomain, hostname: hostname) {
+            try delete(securityDomain: securityDomain, hostname: hostname)
         }
 
         guard let tokenEncoded = token.data(using: String.Encoding.utf8) else {
@@ -41,7 +41,7 @@ public struct KeychainQuery {
         let query: [String: Any] = [
             kSecClass as String: kSecClassInternetPassword,
             kSecAttrSecurityDomain as String: securityDomain,
-            kSecAttrServer as String: host,
+            kSecAttrServer as String: hostname,
             kSecAttrAccount as String: user,
             kSecValueData as String: tokenEncoded,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
@@ -52,11 +52,11 @@ public struct KeychainQuery {
     }
 
     /// Delete a value from the keychain.
-    public func delete(securityDomain: String, host: String) throws {
+    public func delete(securityDomain: String, hostname: String) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassInternetPassword,
             kSecAttrSecurityDomain as String: securityDomain,
-            kSecAttrServer as String: host,
+            kSecAttrServer as String: hostname,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
         let status = SecItemDelete(query as CFDictionary)
@@ -66,11 +66,11 @@ public struct KeychainQuery {
     }
 
     /// Retrieve a value from the keychain.
-    public func get(securityDomain: String, host: String) throws -> KeychainQueryResult? {
+    public func get(securityDomain: String, hostname: String) throws -> KeychainQueryResult? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassInternetPassword,
             kSecAttrSecurityDomain as String: securityDomain,
-            kSecAttrServer as String: host,
+            kSecAttrServer as String: hostname,
             kSecReturnAttributes as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
             kSecReturnData as String: true,
@@ -109,13 +109,13 @@ public struct KeychainQuery {
     }
 
     /// List all registry entries in the keychain for a domain.
-    /// - Parameter domain: The security domain used to fetch registry entries in the keychain.
+    /// - Parameter securityDomain: The security domain used to fetch registry entries in the keychain.
     /// - Returns: An array of registry metadata for each matching entry, or an empty array if none are found.
     /// - Throws: An error if the keychain query fails or returns unexpected data.
-    public func list(domain: String) throws -> [RegistryInfo] {
+    public func list(securityDomain: String) throws -> [RegistryInfo] {
         let query: [String: Any] = [
             kSecClass as String: kSecClassInternetPassword,
-            kSecAttrSecurityDomain as String: domain,
+            kSecAttrSecurityDomain as String: securityDomain,
             kSecReturnAttributes as String: true,
             kSecReturnData as String: false,
             kSecMatchLimit as String: kSecMatchLimitAll,
@@ -165,11 +165,11 @@ public struct KeychainQuery {
     }
 
     /// Check if a value exists in the keychain.
-    public func exists(securityDomain: String, host: String) throws -> Bool {
+    public func exists(securityDomain: String, hostname: String) throws -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassInternetPassword,
             kSecAttrSecurityDomain as String: securityDomain,
-            kSecAttrServer as String: host,
+            kSecAttrServer as String: hostname,
             kSecReturnAttributes as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
             kSecReturnData as String: false,

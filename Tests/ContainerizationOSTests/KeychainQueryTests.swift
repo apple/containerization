@@ -20,21 +20,21 @@ import Testing
 @testable import ContainerizationOS
 
 struct KeychainQueryTests {
-    let id = "com.example.container-testing-keychain"
-    let domain = "testing-keychain.example.com"
+    let securityDomain = "com.example.container-testing-keychain"
+    let hostname = "testing-keychain.example.com"
     let user = "containerization-test"
 
     let kq = KeychainQuery()
 
     @Test(.enabled(if: !isCI))
     func keychainQuery() throws {
-        defer { try? kq.delete(id: id, host: domain) }
+        defer { try? kq.delete(securityDomain: securityDomain, hostname: hostname) }
 
         do {
-            try kq.save(id: id, host: domain, user: user, token: "foobar")
-            #expect(try kq.exists(id: id, host: domain))
+            try kq.save(securityDomain: securityDomain, hostname: hostname, user: user, token: "foobar")
+            #expect(try kq.exists(securityDomain: securityDomain, hostname: hostname))
 
-            let fetched = try kq.get(id: id, host: domain)
+            let fetched = try kq.get(securityDomain: securityDomain, hostname: hostname)
             let result = try #require(fetched)
             #expect(result.account == user)
             #expect(result.data == "foobar")
@@ -45,24 +45,24 @@ struct KeychainQueryTests {
 
     @Test(.enabled(if: !isCI))
     func list() throws {
-        let domain1 = "testing-1-keychain.example.com"
-        let domain2 = "testing-2-keychain.example.com"
+        let hostname1 = "testing-1-keychain.example.com"
+        let hostname2 = "testing-2-keychain.example.com"
 
         defer {
-            try? kq.delete(id: id, host: domain1)
-            try? kq.delete(id: id, host: domain2)
+            try? kq.delete(securityDomain: securityDomain, hostname: hostname1)
+            try? kq.delete(securityDomain: securityDomain, hostname: hostname2)
         }
 
         do {
-            try kq.save(id: id, host: domain1, user: user, token: "foobar")
-            try kq.save(id: id, host: domain2, user: user, token: "foobar")
+            try kq.save(securityDomain: securityDomain, hostname: hostname1, user: user, token: "foobar")
+            try kq.save(securityDomain: securityDomain, hostname: hostname2, user: user, token: "foobar")
 
-            let entries = try kq.list(domain: id)
+            let entries = try kq.list(securityDomain: securityDomain)
 
             // Verify that both hostnames exist
             let hostnames = entries.map { $0.hostname }
-            #expect(hostnames.contains(domain1))
-            #expect(hostnames.contains(domain2))
+            #expect(hostnames.contains(hostname1))
+            #expect(hostnames.contains(hostname2))
 
             // Verify that the accounts exist
             for entry in entries {
