@@ -19,7 +19,7 @@ import Foundation
 
 /// Holds the result of a query to the keychain.
 public struct KeychainQueryResult {
-    public var account: String
+    public var username: String
     public var data: String
     public var modifiedDate: Date
     public var createdDate: Date
@@ -30,7 +30,7 @@ public struct KeychainQuery {
     public init() {}
 
     /// Save a value to the keychain.
-    public func save(securityDomain: String, hostname: String, user: String, token: String) throws {
+    public func save(securityDomain: String, hostname: String, username: String, token: String) throws {
         if try exists(securityDomain: securityDomain, hostname: hostname) {
             try delete(securityDomain: securityDomain, hostname: hostname)
         }
@@ -42,7 +42,7 @@ public struct KeychainQuery {
             kSecClass as String: kSecClassInternetPassword,
             kSecAttrSecurityDomain as String: securityDomain,
             kSecAttrServer as String: hostname,
-            kSecAttrAccount as String: user,
+            kSecAttrAccount as String: username,
             kSecValueData as String: tokenEncoded,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
             kSecAttrSynchronizable as String: false,
@@ -91,7 +91,7 @@ public struct KeychainQuery {
         guard let decodedData = String(data: data, encoding: String.Encoding.utf8) else {
             throw Self.Error.unexpectedDataFetched
         }
-        guard let account = fetched[kSecAttrAccount as String] as? String else {
+        guard let username = fetched[kSecAttrAccount as String] as? String else {
             throw Self.Error.keyNotPresent(key: kSecAttrAccount as String)
         }
         guard let modifiedDate = fetched[kSecAttrModificationDate as String] as? Date else {
@@ -101,7 +101,7 @@ public struct KeychainQuery {
             throw Self.Error.keyNotPresent(key: kSecAttrCreationDate as String)
         }
         return KeychainQueryResult(
-            account: account,
+            username: username,
             data: decodedData,
             modifiedDate: modifiedDate,
             createdDate: createdDate

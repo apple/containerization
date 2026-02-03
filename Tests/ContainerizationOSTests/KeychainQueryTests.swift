@@ -22,7 +22,7 @@ import Testing
 struct KeychainQueryTests {
     let securityDomain = "com.example.container-testing-keychain"
     let hostname = "testing-keychain.example.com"
-    let user = "containerization-test"
+    let username = "containerization-test"
 
     let kq = KeychainQuery()
 
@@ -31,12 +31,12 @@ struct KeychainQueryTests {
         defer { try? kq.delete(securityDomain: securityDomain, hostname: hostname) }
 
         do {
-            try kq.save(securityDomain: securityDomain, hostname: hostname, user: user, token: "foobar")
+            try kq.save(securityDomain: securityDomain, hostname: hostname, username: username, token: "foobar")
             #expect(try kq.exists(securityDomain: securityDomain, hostname: hostname))
 
             let fetched = try kq.get(securityDomain: securityDomain, hostname: hostname)
             let result = try #require(fetched)
-            #expect(result.account == user)
+            #expect(result.username == username)
             #expect(result.data == "foobar")
         } catch KeychainQuery.Error.unhandledError(status: -25308) {
             // ignore errSecInteractionNotAllowed
@@ -54,8 +54,8 @@ struct KeychainQueryTests {
         }
 
         do {
-            try kq.save(securityDomain: securityDomain, hostname: hostname1, user: user, token: "foobar")
-            try kq.save(securityDomain: securityDomain, hostname: hostname2, user: user, token: "foobar")
+            try kq.save(securityDomain: securityDomain, hostname: hostname1, username: username, token: "foobar")
+            try kq.save(securityDomain: securityDomain, hostname: hostname2, username: username, token: "foobar")
 
             let entries = try kq.list(securityDomain: securityDomain)
 
@@ -66,7 +66,7 @@ struct KeychainQueryTests {
 
             // Verify that the accounts exist
             for entry in entries {
-                #expect(entry.username == user)
+                #expect(entry.username == username)
             }
         } catch KeychainQuery.Error.unhandledError(status: -25308) {
             // ignore errSecInteractionNotAllowed
