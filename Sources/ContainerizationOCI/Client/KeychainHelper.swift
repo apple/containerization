@@ -35,7 +35,7 @@ public struct KeychainHelper: Sendable {
             }
             return BasicAuthentication(
                 username: fetched.username,
-                password: fetched.data
+                password: fetched.password
             )
         } catch let err as KeychainQuery.Error {
             switch err {
@@ -64,7 +64,7 @@ public struct KeychainHelper: Sendable {
     /// Save authorization data for a given hostname to the keychain.
     public func save(hostname: String, username: String, password: String) throws {
         let kq = KeychainQuery()
-        try kq.save(securityDomain: self.securityDomain, hostname: hostname, username: username, token: password)
+        try kq.save(securityDomain: self.securityDomain, hostname: hostname, username: username, password: password)
     }
 
     /// Prompt for authorization data for a given hostname to be saved to the keychain.

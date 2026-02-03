@@ -20,7 +20,7 @@ import Foundation
 /// Holds the result of a query to the keychain.
 public struct KeychainQueryResult {
     public var username: String
-    public var data: String
+    public var password: String
     public var modifiedDate: Date
     public var createdDate: Date
 }
@@ -30,20 +30,20 @@ public struct KeychainQuery {
     public init() {}
 
     /// Save a value to the keychain.
-    public func save(securityDomain: String, hostname: String, username: String, token: String) throws {
+    public func save(securityDomain: String, hostname: String, username: String, password: String) throws {
         if try exists(securityDomain: securityDomain, hostname: hostname) {
             try delete(securityDomain: securityDomain, hostname: hostname)
         }
 
-        guard let tokenEncoded = token.data(using: String.Encoding.utf8) else {
-            throw Self.Error.invalidTokenConversion
+        guard let passwordEncoded = password.data(using: String.Encoding.utf8) else {
+            throw Self.Error.invalidPasswordConversion
         }
         let query: [String: Any] = [
             kSecClass as String: kSecClassInternetPassword,
             kSecAttrSecurityDomain as String: securityDomain,
             kSecAttrServer as String: hostname,
             kSecAttrAccount as String: username,
-            kSecValueData as String: tokenEncoded,
+            kSecValueData as String: passwordEncoded,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
             kSecAttrSynchronizable as String: false,
         ]
@@ -88,7 +88,7 @@ public struct KeychainQuery {
         guard let data = fetched[kSecValueData as String] as? Data else {
             throw Self.Error.keyNotPresent(key: kSecValueData as String)
         }
-        guard let decodedData = String(data: data, encoding: String.Encoding.utf8) else {
+        guard let password = String(data: data, encoding: String.Encoding.utf8) else {
             throw Self.Error.unexpectedDataFetched
         }
         guard let username = fetched[kSecAttrAccount as String] as? String else {
@@ -102,7 +102,7 @@ public struct KeychainQuery {
         }
         return KeychainQueryResult(
             username: username,
-            data: decodedData,
+            password: password,
             modifiedDate: modifiedDate,
             createdDate: createdDate
         )
@@ -185,7 +185,7 @@ extension KeychainQuery {
         case unhandledError(status: Int32)
         case unexpectedDataFetched
         case keyNotPresent(key: String)
-        case invalidTokenConversion
+        case invalidPasswordConversion
     }
 }
 #endif

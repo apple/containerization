@@ -31,13 +31,13 @@ struct KeychainQueryTests {
         defer { try? kq.delete(securityDomain: securityDomain, hostname: hostname) }
 
         do {
-            try kq.save(securityDomain: securityDomain, hostname: hostname, username: username, token: "foobar")
+            try kq.save(securityDomain: securityDomain, hostname: hostname, username: username, password: "foobar")
             #expect(try kq.exists(securityDomain: securityDomain, hostname: hostname))
 
             let fetched = try kq.get(securityDomain: securityDomain, hostname: hostname)
             let result = try #require(fetched)
             #expect(result.username == username)
-            #expect(result.data == "foobar")
+            #expect(result.password == "foobar")
         } catch KeychainQuery.Error.unhandledError(status: -25308) {
             // ignore errSecInteractionNotAllowed
         }
@@ -54,8 +54,8 @@ struct KeychainQueryTests {
         }
 
         do {
-            try kq.save(securityDomain: securityDomain, hostname: hostname1, username: username, token: "foobar")
-            try kq.save(securityDomain: securityDomain, hostname: hostname2, username: username, token: "foobar")
+            try kq.save(securityDomain: securityDomain, hostname: hostname1, username: username, password: "foobar")
+            try kq.save(securityDomain: securityDomain, hostname: hostname2, username: username, password: "foobar")
 
             let entries = try kq.list(securityDomain: securityDomain)
 
