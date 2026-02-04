@@ -137,6 +137,10 @@ extension SocketRelay {
             }
             t.cancel()
             $0.t = nil
+            for (_, sources) in $0.relaySources {
+                sources.hostSource.cancel()
+                sources.guestSource.cancel()
+            }
             $0.relaySources.removeAll()
 
             switch configuration.direction {
@@ -332,6 +336,8 @@ extension SocketRelay {
                     "guestFd": "\(guestFd)",
                 ])
 
+            buf1.deallocate()
+
             // only close underlying fds when both sources are at EOF
             // ensure that one of the cancel handlers will see both sources cancelled
             self.state.withLock { _ in
@@ -356,6 +362,8 @@ extension SocketRelay {
                     "hostFd": "\(hostConn.fileDescriptor)",
                     "guestFd": "\(guestFd)",
                 ])
+
+            buf2.deallocate()
 
             // only close underlying fds when both sources are at EOF
             // ensure that one of the cancel handlers will see both sources cancelled
