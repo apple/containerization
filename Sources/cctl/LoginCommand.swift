@@ -54,9 +54,9 @@ extension Application {
                 }
                 password = String(decoding: passwordData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
             }
-            let keychain = KeychainHelper(id: Application.keychainID)
+            let keychain = KeychainHelper(securityDomain: Application.keychainID)
             if username == "" {
-                username = try keychain.userPrompt(domain: server)
+                username = try keychain.userPrompt(hostname: server)
             }
             if password == "" {
                 password = try keychain.passwordPrompt()
@@ -79,7 +79,7 @@ extension Application {
                 tlsConfiguration: TLSUtils.makeEnvironmentAwareTLSConfiguration(),
             )
             try await client.ping()
-            try keychain.save(domain: server, username: username, password: password)
+            try keychain.save(hostname: server, username: username, password: password)
             print("Login succeeded")
         }
     }
