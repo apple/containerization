@@ -20,7 +20,7 @@ jobs:
     name: Build and Test repo
     if: github.repository == 'apple/containerization'
     timeout-minutes: 60
-    runs-on: [self-hosted, macos, sequoia, ARM64]
+    runs-on: [self-hosted, macos, tahoe, ARM64]
     permissions:
       contents: read
       packages: write
@@ -29,7 +29,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4 
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6
         with:
           fetch-depth: 0
 
@@ -51,15 +51,19 @@ jobs:
           if ! git diff --quiet ; then echo the following files require formatting or license headers: ; git diff --name-only ; false ; fi
 
       - name: Make containerization and docs
-        run: | 
+        run: |
           make clean containerization docs
           tar cfz _site.tgz _site
+        env:
+          BUILD_CONFIGURATION: ${{ inputs.release && 'release' || 'debug' }}
 
       - name: Make vminitd image
-        run: | 
+        run: |
           source /opt/swiftly/env.sh
           make -C vminitd swift linux-sdk
           make init
+        env:
+          BUILD_CONFIGURATION: ${{ inputs.release && 'release' || 'debug' }}
 
       - name: Test containerization
         run: | 
@@ -86,13 +90,13 @@ jobs:
 
       - name: Save vminit artifact
         if: ${{ !inputs.release }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6
         with:
           name: vminit
           path: vminit.tar
 
       - name: Save documentation artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6
         with:
           name: api-docs
           path: "./_site.tgz"
@@ -111,7 +115,7 @@ jobs:
         uses: actions/configure-pages@v5
 
       - name: Download a single artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7
         with:
           name: api-docs
 
@@ -120,6 +124,6 @@ jobs:
           tar xfz _site.tgz
 
       - name: Upload Artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b  # v4
         with:
           path: "./_site"

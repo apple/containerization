@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -23,10 +23,11 @@ import ArgumentParser
 import ContainerizationError
 import ContainerizationOCI
 import ContainerizationOS
-import Foundation
+import FoundationEssentials
 import LCShim
 import Logging
 import Musl
+import SystemPackage
 
 @main
 struct App: ParsableCommand {
@@ -41,15 +42,6 @@ struct App: ParsableCommand {
             RunCommand.self,
         ]
     )
-
-    static let standardErrorLock = NSLock()
-
-    @Sendable
-    static func standardError(label: String) -> StreamLogHandler {
-        standardErrorLock.withLock {
-            StreamLogHandler.standardError(label: label)
-        }
-    }
 }
 
 extension App {
@@ -77,20 +69,33 @@ extension App {
             throw App.Errno(stage: "exec", info: "process args cannot be empty")
         }
 
-        // lookup executable
-        let path = Path.findPath(currentEnv) ?? Path.getCurrentPath()
-        guard let resolvedExecutable = Path.lookPath(process.args[0], path: path) else {
-            throw App.Failure(message: "failed to find target executable \(process.args[0])")
+        let executableArg = process.args[0]
+        let resolvedExecutable: URL
+
+        if executableArg.contains("/") {
+            if executableArg.hasPrefix("/") {
+                resolvedExecutable = URL(fileURLWithPath: executableArg)
+            } else {
+                resolvedExecutable = URL(fileURLWithPath: process.cwd).appendingPathComponent(executableArg).standardized
+            }
+
+            guard FileManager.default.fileExists(atPath: resolvedExecutable.path) else {
+                throw App.Failure(message: "failed to find target executable \(executableArg)")
+            }
+        } else {
+            let path = Path.findPath(currentEnv) ?? Path.getCurrentPath()
+            guard let found = Path.lookPath(executableArg, path: path) else {
+                throw App.Failure(message: "failed to find target executable \(executableArg)")
+            }
+            resolvedExecutable = found
         }
 
-        let executable = strdup(resolvedExecutable.path())
+        let executable = strdup(resolvedExecutable.path)
         var argv = process.args.map { strdup($0) }
         argv += [nil]
-
         let env = process.env.map { strdup($0) } + [nil]
         let cwd = process.cwd
 
-        // switch cwd
         guard chdir(cwd) == 0 else {
             throw App.Errno(stage: "chdir(cwd)", info: "failed to change directory to '\(cwd)'")
         }
@@ -151,16 +156,28 @@ extension App {
                 resource = RLIMIT_DATA
             case "RLIMIT_FSIZE":
                 resource = RLIMIT_FSIZE
+            case "RLIMIT_LOCKS":
+                resource = RLIMIT_LOCKS
+            case "RLIMIT_MEMLOCK":
+                resource = RLIMIT_MEMLOCK
+            case "RLIMIT_MSGQUEUE":
+                resource = RLIMIT_MSGQUEUE
+            case "RLIMIT_NICE":
+                resource = RLIMIT_NICE
             case "RLIMIT_NOFILE":
                 resource = RLIMIT_NOFILE
-            case "RLIMIT_STACK":
-                resource = RLIMIT_STACK
             case "RLIMIT_NPROC":
                 resource = RLIMIT_NPROC
             case "RLIMIT_RSS":
                 resource = RLIMIT_RSS
-            case "RLIMIT_MEMLOCK":
-                resource = RLIMIT_MEMLOCK
+            case "RLIMIT_RTPRIO":
+                resource = RLIMIT_RTPRIO
+            case "RLIMIT_RTTIME":
+                resource = RLIMIT_RTTIME
+            case "RLIMIT_SIGPENDING":
+                resource = RLIMIT_SIGPENDING
+            case "RLIMIT_STACK":
+                resource = RLIMIT_STACK
             default:
                 errno = EINVAL
                 throw App.Errno(stage: "rlimit key unknown")
@@ -169,6 +186,51 @@ extension App {
                 throw App.Errno(stage: "setrlimit()")
             }
         }
+    }
+
+    static func prepareCapabilities(capabilities: ContainerizationOCI.LinuxCapabilities) throws -> ContainerizationOS.LinuxCapabilities? {
+        // Create capabilities instance from OCI config
+        var caps = ContainerizationOS.LinuxCapabilities()
+
+        caps.set(which: [.effective], caps: (capabilities.effective ?? []).compactMap { CapabilityName(rawValue: $0) })
+        caps.set(which: [.permitted], caps: (capabilities.permitted ?? []).compactMap { CapabilityName(rawValue: $0) })
+        caps.set(which: [.inheritable], caps: (capabilities.inheritable ?? []).compactMap { CapabilityName(rawValue: $0) })
+        caps.set(which: [.bounding], caps: (capabilities.bounding ?? []).compactMap { CapabilityName(rawValue: $0) })
+        caps.set(which: [.ambient], caps: (capabilities.ambient ?? []).compactMap { CapabilityName(rawValue: $0) })
+
+        // Apply bounding set BEFORE user change (drop capabilities early)
+        do {
+            try caps.apply(kind: .bounds)
+        } catch {
+            throw App.Failure(message: "failed to apply bounding set capabilities: \(error)")
+        }
+
+        // Set keep caps to preserve capabilities across setuid()
+        do {
+            try LinuxCapabilities.setKeepCaps()
+        } catch {
+            throw App.Failure(message: "failed to set keep caps: \(error)")
+        }
+
+        return caps
+    }
+
+    static func finishCapabilities(_ caps: ContainerizationOS.LinuxCapabilities?) throws {
+        guard let caps = caps else { return }
+
+        do {
+            try LinuxCapabilities.clearKeepCaps()
+        } catch {
+            throw App.Failure(message: "failed to clear keep caps: \(error)")
+        }
+
+        do {
+            try caps.apply(kind: [.caps])
+        } catch {
+            throw App.Failure(message: "failed to apply final capabilities: \(error)")
+        }
+
+        try? caps.apply(kind: [.ambs])
     }
 
     static func Errno(stage: String, info: String = "") -> ContainerizationError {
@@ -184,7 +246,7 @@ extension App {
     }
 
     static func writeError(_ error: Error) {
-        let errorPipe = FileHandle(fileDescriptor: 5)
+        let errorPipe = FileDescriptor(rawValue: 5)
 
         let errorMessage: String
         if let czError = error as? ContainerizationError {
@@ -193,8 +255,9 @@ extension App {
             errorMessage = String(describing: error)
         }
 
-        if let data = errorMessage.data(using: .utf8) {
-            try? errorPipe.write(contentsOf: data)
+        let bytes = Array(errorMessage.utf8)
+        _ = try? bytes.withUnsafeBytes { buffer in
+            try errorPipe.write(buffer)
         }
         try? errorPipe.close()
     }

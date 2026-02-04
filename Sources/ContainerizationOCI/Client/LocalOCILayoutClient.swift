@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -87,7 +87,7 @@ package final class LocalOCILayoutClient: ContentClient {
                     throw ContainerizationError(
                         .internalError,
                         message:
-                            "File \(filePath) exists but contains different content. Expected digest: \(expectedDigest.digestString), existing digest: \(existingDigest.digestString)"
+                            "file \(filePath) exists but contains different content, expected digest: \(expectedDigest.digestString), existing digest: \(existingDigest.digestString)"
                     )
                 }
 

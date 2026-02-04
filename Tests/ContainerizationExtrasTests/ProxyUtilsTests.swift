@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -108,5 +108,15 @@ struct ProxyUtilsTests {
 
         #expect(proxyFoo != nil)
         #expect(proxyBar == nil)
+    }
+
+    @Test("NO_PROXY with wildcard")
+    func testComplexNoProxy() {
+        let env = [
+            "HTTP_PROXY": "http://proxy.example.com",
+            "NO_PROXY": "localhost,127.0.0.1,*.bar.com",
+        ]
+        let proxy = ProxyUtils.proxyFromEnvironment(scheme: "http", host: "foo.bar.com", env: env)
+        #expect(proxy == nil)
     }
 }

@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -154,6 +154,9 @@ struct IntegrationSuite: AsyncParsableCommand {
     @Option(name: .shortAndLong, help: "Maximum number of concurrent tests")
     var maxConcurrency: Int = 4
 
+    @Option(name: .shortAndLong, help: "Only run tests whose names contain this string")
+    var filter: String?
+
     static func binPath(name: String) -> URL {
         URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent("bin")
@@ -255,6 +258,15 @@ struct IntegrationSuite: AsyncParsableCommand {
         }
     }
 
+    private func macOS26Tests() -> [Test] {
+        if #available(macOS 26.0, *) {
+            return [
+                Test("container interface custom MTU", testInterfaceMTU)
+            ]
+        }
+        return []
+    }
+
     // Why does this exist?
     //
     // We need the virtualization entitlement to execute these tests.
@@ -271,57 +283,106 @@ struct IntegrationSuite: AsyncParsableCommand {
         let suiteStarted = CFAbsoluteTimeGetCurrent()
         log.info("starting integration suite\n")
 
-        let tests: [Test] = [
-            // Containers
-            Test("process true", testProcessTrue),
-            Test("process false", testProcessFalse),
-            Test("process echo hi", testProcessEchoHi),
-            Test("process user", testProcessUser),
-            Test("process stdin", testProcessStdin),
-            Test("process home envvar", testProcessHomeEnvvar),
-            Test("process custom home envvar", testProcessCustomHomeEnvvar),
-            Test("process tty ensure TERM", testProcessTtyEnvvar),
-            Test("multiple concurrent processes", testMultipleConcurrentProcesses),
-            Test("multiple concurrent processes with output stress", testMultipleConcurrentProcessesOutputStress),
-            Test("container hostname", testHostname),
-            Test("container hosts", testHostsFile),
-            Test("container mount", testMounts),
-            Test("container stop idempotency", testContainerStopIdempotency),
-            Test("nested virt", testNestedVirtualizationEnabled),
-            Test("container manager", testContainerManagerCreate),
-            Test("container reuse", testContainerReuse),
-            Test("container /dev/console", testContainerDevConsole),
-            Test("container statistics", testContainerStatistics),
-            Test("container cgroup limits", testCgroupLimits),
-            Test("container no serial console", testNoSerialConsole),
-            Test("unix socket into guest", testUnixSocketIntoGuest),
-            Test("container non-closure constructor", testNonClosureConstructor),
-            Test("container test large stdio ingest", testLargeStdioOutput),
-            Test("process delete idempotency", testProcessDeleteIdempotency),
-            Test("multiple execs without delete", testMultipleExecsWithoutDelete),
-            Test("container bootlog using filehandle", testBootLogFileHandle),
+        let tests: [Test] =
+            [
+                // Containers
+                Test("process true", testProcessTrue),
+                Test("process false", testProcessFalse),
+                Test("process echo hi", testProcessEchoHi),
+                Test("process user", testProcessUser),
+                Test("process stdin", testProcessStdin),
+                Test("process home envvar", testProcessHomeEnvvar),
+                Test("process custom home envvar", testProcessCustomHomeEnvvar),
+                Test("process tty ensure TERM", testProcessTtyEnvvar),
+                Test("multiple concurrent processes", testMultipleConcurrentProcesses),
+                Test("multiple concurrent processes with output stress", testMultipleConcurrentProcessesOutputStress),
+                Test("container hostname", testHostname),
+                Test("container hosts", testHostsFile),
+                Test("container mount", testMounts),
+                Test("container stop idempotency", testContainerStopIdempotency),
+                Test("nested virt", testNestedVirtualizationEnabled),
+                Test("container manager", testContainerManagerCreate),
+                Test("container reuse", testContainerReuse),
+                Test("container /dev/console", testContainerDevConsole),
+                Test("container statistics", testContainerStatistics),
+                Test("container cgroup limits", testCgroupLimits),
+                Test("container memory events OOM kill", testMemoryEventsOOMKill),
+                Test("container no serial console", testNoSerialConsole),
+                Test("unix socket into guest", testUnixSocketIntoGuest),
+                Test("container non-closure constructor", testNonClosureConstructor),
+                Test("container test large stdio ingest", testLargeStdioOutput),
+                Test("process delete idempotency", testProcessDeleteIdempotency),
+                Test("multiple execs without delete", testMultipleExecsWithoutDelete),
+                Test("container bootlog using filehandle", testBootLogFileHandle),
+                Test("container capabilities sys admin", testCapabilitiesSysAdmin),
+                Test("container capabilities net admin", testCapabilitiesNetAdmin),
+                Test("container capabilities OCI default", testCapabilitiesOCIDefault),
+                Test("container capabilities all capabilities", testCapabilitiesAllCapabilities),
+                Test("container capabilities file ownership", testCapabilitiesFileOwnership),
+                Test("container copy in", testCopyIn),
+                Test("container copy out", testCopyOut),
+                Test("container copy large file", testCopyLargeFile),
+                Test("container read-only rootfs", testReadOnlyRootfs),
+                Test("container read-only rootfs hosts file", testReadOnlyRootfsHostsFileWritten),
+                Test("container read-only rootfs DNS", testReadOnlyRootfsDNSConfigured),
+                Test("large stdin input", testLargeStdinInput),
+                Test("exec large stdin input", testExecLargeStdinInput),
+                Test("stdin explicit close", testStdinExplicitClose),
+                Test("stdin binary data", testStdinBinaryData),
+                Test("stdin multiple chunks", testStdinMultipleChunks),
+                Test("stdin very large", testStdinVeryLarge),
+                // FIXME: reenable when single file mount issues resolved
+                //Test("container single file mount", testSingleFileMount),
+                //Test("container single file mount read-only", testSingleFileMountReadOnly),
+                //Test("container single file mount write-back", testSingleFileMountWriteBack),
+                //Test("container single file mount symlink", testSingleFileMountSymlink),
+                Test("container rlimit open files", testRLimitOpenFiles),
+                Test("container rlimit multiple", testRLimitMultiple),
+                Test("container rlimit exec", testRLimitExec),
 
-            // Pods
-            Test("pod single container", testPodSingleContainer),
-            Test("pod multiple containers", testPodMultipleContainers),
-            Test("pod container output", testPodContainerOutput),
-            Test("pod concurrent containers", testPodConcurrentContainers),
-            Test("pod exec in container", testPodExecInContainer),
-            Test("pod container hostname", testPodContainerHostname),
-            Test("pod stop container idempotency", testPodStopContainerIdempotency),
-            Test("pod list containers", testPodListContainers),
-            Test("pod container statistics", testPodContainerStatistics),
-            Test("pod container resource limits", testPodContainerResourceLimits),
-            Test("pod container filesystem isolation", testPodContainerFilesystemIsolation),
-            Test("pod container PID namespace isolation", testPodContainerPIDNamespaceIsolation),
-            Test("pod container independent resource limits", testPodContainerIndependentResourceLimits),
-        ]
+                // Pods
+                Test("pod single container", testPodSingleContainer),
+                Test("pod multiple containers", testPodMultipleContainers),
+                Test("pod container output", testPodContainerOutput),
+                Test("pod concurrent containers", testPodConcurrentContainers),
+                Test("pod exec in container", testPodExecInContainer),
+                Test("pod container hostname", testPodContainerHostname),
+                Test("pod stop container idempotency", testPodStopContainerIdempotency),
+                Test("pod list containers", testPodListContainers),
+                Test("pod container statistics", testPodContainerStatistics),
+                Test("pod memory events OOM kill", testPodMemoryEventsOOMKill),
+                Test("pod container resource limits", testPodContainerResourceLimits),
+                Test("pod container filesystem isolation", testPodContainerFilesystemIsolation),
+                Test("pod container PID namespace isolation", testPodContainerPIDNamespaceIsolation),
+                Test("pod container independent resource limits", testPodContainerIndependentResourceLimits),
+                Test("pod shared PID namespace", testPodSharedPIDNamespace),
+                Test("pod read-only rootfs", testPodReadOnlyRootfs),
+                Test("pod read-only rootfs DNS", testPodReadOnlyRootfsDNSConfigured),
+                //Test("pod single file mount", testPodSingleFileMount),
+                Test("pod container hosts config", testPodContainerHostsConfig),
+                Test("pod multiple containers different DNS", testPodMultipleContainersDifferentDNS),
+                Test("pod multiple containers different hosts", testPodMultipleContainersDifferentHosts),
+                Test("pod level DNS", testPodLevelDNS),
+                Test("pod level DNS with container override", testPodLevelDNSWithContainerOverride),
+                Test("pod level hosts", testPodLevelHosts),
+                Test("pod level hosts with container override", testPodLevelHostsWithContainerOverride),
+                Test("pod rlimit open files", testPodRLimitOpenFiles),
+                Test("pod rlimit exec", testPodRLimitExec),
+            ] + macOS26Tests()
+
+        let filteredTests: [Test]
+        if let filter {
+            filteredTests = tests.filter { $0.name.contains(filter) }
+            log.info("filter '\(filter)' matched \(filteredTests.count)/\(tests.count) tests")
+        } else {
+            filteredTests = tests
+        }
 
         let passed: Atomic<Int> = Atomic(0)
         let skipped: Atomic<Int> = Atomic(0)
 
         await withTaskGroup(of: Void.self) { group in
-            let jobQueue = JobQueue(tests)
+            let jobQueue = JobQueue(filteredTests)
             for _ in 0..<maxConcurrency {
                 group.addTask { @Sendable in
                     while let job = jobQueue.pop() {
@@ -350,16 +411,16 @@ struct IntegrationSuite: AsyncParsableCommand {
         let skippedCount = skipped.load(ordering: .acquiring)
 
         let ended = CFAbsoluteTimeGetCurrent() - suiteStarted
-        var finishingText = "\n\nIntegration suite completed in \(ended)s with \(passedCount)/\(tests.count) passed"
+        var finishingText = "\n\nIntegration suite completed in \(ended)s with \(passedCount)/\(filteredTests.count) passed"
         if skipped.load(ordering: .acquiring) > 0 {
-            finishingText += " and \(skippedCount)/\(tests.count) skipped"
+            finishingText += " and \(skippedCount)/\(filteredTests.count) skipped"
         }
         finishingText += "!"
 
         log.info("\(finishingText)")
 
         try? FileManager.default.removeItem(at: Self.testDir)
-        if passedCount + skippedCount < tests.count {
+        if passedCount + skippedCount < filteredTests.count {
             log.error("❌")
             throw ExitCode(1)
         }

@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -44,12 +44,19 @@ public final class LinuxPod: Sendable {
         public var memoryInBytes: UInt64 = 1024.mib()
         /// The network interfaces for the pod.
         public var interfaces: [any Interface] = []
-        /// The DNS configuration for the pod.
-        public var dns: DNS?
         /// Whether nested virtualization should be turned on for the pod.
         public var virtualization: Bool = false
         /// Optional file path to store serial boot logs.
         public var bootLog: BootLog?
+        /// Whether containers in the pod should share a PID namespace.
+        /// When enabled, all containers can see each other's processes.
+        public var shareProcessNamespace: Bool = false
+        /// The default DNS configuration for all containers in the pod.
+        /// Individual containers can override this by setting their own `dns` configuration.
+        public var dns: DNS?
+        /// The default hosts file configuration for all containers in the pod.
+        /// Individual containers can override this by setting their own `hosts` configuration.
+        public var hosts: Hosts?
 
         public init() {}
     }
@@ -70,6 +77,10 @@ public final class LinuxPod: Sendable {
         public var mounts: [Mount] = LinuxContainer.defaultMounts()
         /// The Unix domain socket relays to setup for the container.
         public var sockets: [UnixSocketConfiguration] = []
+        /// The DNS configuration for the container.
+        public var dns: DNS?
+        /// The hosts file configuration for the container.
+        public var hosts: Hosts?
 
         public init() {}
     }
@@ -80,6 +91,7 @@ public final class LinuxPod: Sendable {
         let config: ContainerConfiguration
         var state: ContainerState
         var process: LinuxProcess?
+        var fileMountContext: FileMountContext
 
         enum ContainerState: Sendable {
             case registered
@@ -103,6 +115,7 @@ public final class LinuxPod: Sendable {
     private struct State: Sendable {
         var phase: Phase
         var containers: [String: PodContainer]
+        var pauseProcess: LinuxProcess?
     }
 
     private enum Phase: Sendable {
@@ -173,7 +186,7 @@ public final class LinuxPod: Sendable {
         try configuration(&config)
 
         self.config = config
-        self.state = AsyncMutex(State(phase: .initialized, containers: [:]))
+        self.state = AsyncMutex(State(phase: .initialized, containers: [:], pauseProcess: nil))
     }
 
     private static func createDefaultRuntimeSpec(_ containerID: String, podID: String) -> Spec {
@@ -191,7 +204,7 @@ public final class LinuxPod: Sendable {
         )
     }
 
-    private func generateRuntimeSpec(containerID: String, config: ContainerConfiguration) -> Spec {
+    private func generateRuntimeSpec(containerID: String, config: ContainerConfiguration, rootfs: Mount) -> Spec {
         var spec = Self.createDefaultRuntimeSpec(containerID, podID: self.id)
 
         // Process configuration
@@ -202,6 +215,10 @@ public final class LinuxPod: Sendable {
 
         // Linux toggles
         spec.linux?.sysctl = config.sysctl
+
+        // If the rootfs was requested as read-only, set it in the OCI spec.
+        // We let the OCI runtime remount as ro, instead of doing it originally.
+        spec.root?.readonly = rootfs.options.contains("ro")
 
         // Resource limits (if specified)
         if let cpus = config.cpus, cpus > 0 {
@@ -265,12 +282,16 @@ extension LinuxPod {
             var config = ContainerConfiguration()
             try configuration(&config)
 
+            // Prepare file mounts - transforms single-file mounts into directory shares.
+            let fileMountContext = try FileMountContext.prepare(mounts: config.mounts)
+
             state.containers[id] = PodContainer(
                 id: id,
                 rootfs: rootfs,
                 config: config,
                 state: .registered,
-                process: nil
+                process: nil,
+                fileMountContext: fileMountContext
             )
         }
     }
@@ -283,9 +304,14 @@ extension LinuxPod {
             try state.phase.validateForCreate()
 
             // Build mountsByID for all containers.
+            // Strip "ro" from rootfs options - we handle readonly via the OCI spec's
+            // root.readonly field and remount in vmexec after setup is complete.
+            // Use transformedMounts from fileMountContext (file mounts become directory shares).
             var mountsByID: [String: [Mount]] = [:]
             for (id, container) in state.containers {
-                mountsByID[id] = [container.rootfs] + container.config.mounts
+                var modifiedRootfs = container.rootfs
+                modifiedRootfs.options.removeAll(where: { $0 == "ro" })
+                mountsByID[id] = [modifiedRootfs] + container.fileMountContext.transformedMounts
             }
 
             let vmConfig = VMConfiguration(
@@ -303,8 +329,64 @@ extension LinuxPod {
 
             do {
                 let containers = state.containers
+                let shareProcessNamespace = self.config.shareProcessNamespace
+                let pauseProcessHolder = Mutex<LinuxProcess?>(nil)
+                let fileMountContextUpdates = Mutex<[String: FileMountContext]>([:])
+
                 try await vm.withAgent { agent in
                     try await agent.standardSetup()
+
+                    // Create pause container if PID namespace sharing is enabled
+                    if shareProcessNamespace {
+                        let pauseID = "pause-\(self.id)"
+                        let pauseRootfsPath = "/run/container/\(pauseID)/rootfs"
+
+                        // Bind mount /sbin into the pause container rootfs.
+                        // This is where the guest agent lives.
+                        try await agent.mount(
+                            ContainerizationOCI.Mount(
+                                type: "",
+                                source: "/sbin",
+                                destination: "\(pauseRootfsPath)/sbin",
+                                options: ["bind"]
+                            ))
+
+                        var pauseSpec = Self.createDefaultRuntimeSpec(pauseID, podID: self.id)
+                        pauseSpec.process?.args = ["/sbin/vminitd", "pause"]
+                        pauseSpec.hostname = ""
+                        pauseSpec.mounts = LinuxContainer.defaultMounts().map {
+                            ContainerizationOCI.Mount(
+                                type: $0.type,
+                                source: $0.source,
+                                destination: $0.destination,
+                                options: $0.options
+                            )
+                        }
+                        pauseSpec.linux?.namespaces = [
+                            LinuxNamespace(type: .cgroup),
+                            LinuxNamespace(type: .ipc),
+                            LinuxNamespace(type: .mount),
+                            LinuxNamespace(type: .pid),
+                            LinuxNamespace(type: .uts),
+                        ]
+
+                        // Create LinuxProcess for pause container
+                        let process = LinuxProcess(
+                            pauseID,
+                            containerID: pauseID,
+                            spec: pauseSpec,
+                            io: LinuxProcess.Stdio(stdin: nil, stdout: nil, stderr: nil),
+                            ociRuntimePath: nil,
+                            agent: agent,
+                            vm: vm,
+                            logger: self.logger
+                        )
+
+                        try await process.start()
+                        pauseProcessHolder.withLock { $0 = process }
+
+                        self.logger?.debug("Pause container started", metadata: ["pid": "\(process.pid)"])
+                    }
 
                     // Mount all container rootfs
                     for (_, container) in containers {
@@ -314,6 +396,19 @@ extension LinuxPod {
                         var rootfs = rootfsAttachment.to
                         rootfs.destination = Self.guestRootfsPath(container.id)
                         try await agent.mount(rootfs)
+                    }
+
+                    // Mount file mount holding directories under /run for each container.
+                    for (id, container) in containers {
+                        if container.fileMountContext.hasFileMounts {
+                            var ctx = container.fileMountContext
+                            let containerMounts = vm.mounts[id] ?? []
+                            try await ctx.mountHoldingDirectories(
+                                vmMounts: containerMounts,
+                                agent: agent
+                            )
+                            fileMountContextUpdates.withLock { $0[id] = ctx }
+                        }
                     }
 
                     // Start up unix socket relays for each container
@@ -334,23 +429,42 @@ extension LinuxPod {
                     // 3. If a gateway IP address is present, add the default route.
                     for (index, i) in self.interfaces.enumerated() {
                         let name = "eth\(index)"
-                        try await agent.addressAdd(name: name, address: i.address)
-                        try await agent.up(name: name, mtu: 1280)
-                        if let gateway = i.gateway {
-                            try await agent.routeAddDefault(name: name, gateway: gateway)
+                        self.logger?.debug("setting up interface \(name) with address \(i.ipv4Address)")
+                        try await agent.addressAdd(name: name, ipv4Address: i.ipv4Address)
+                        try await agent.up(name: name, mtu: i.mtu)
+                        if let ipv4Gateway = i.ipv4Gateway {
+                            if !i.ipv4Address.contains(ipv4Gateway) {
+                                self.logger?.debug("gateway \(ipv4Gateway) is outside subnet \(i.ipv4Address), adding a route first")
+                                try await agent.routeAddLink(name: name, dstIPv4Addr: ipv4Gateway, srcIPv4Addr: nil)
+                            }
+                            try await agent.routeAddDefault(name: name, ipv4Gateway: ipv4Gateway)
                         }
                     }
 
-                    // Setup /etc/resolv.conf if asked for
-                    if let dns = self.config.dns {
-                        // Configure DNS in each container's rootfs
-                        for (_, container) in containers {
+                    // Setup /etc/resolv.conf and /etc/hosts for each container.
+                    // Container-level config takes precedence over pod-level config.
+                    for (_, container) in containers {
+                        if let dns = container.config.dns ?? self.config.dns {
                             try await agent.configureDNS(
                                 config: dns,
                                 location: Self.guestRootfsPath(container.id)
                             )
                         }
+                        if let hosts = container.config.hosts ?? self.config.hosts {
+                            try await agent.configureHosts(
+                                config: hosts,
+                                location: Self.guestRootfsPath(container.id)
+                            )
+                        }
                     }
+                }
+
+                state.pauseProcess = pauseProcessHolder.withLock { $0 }
+
+                // Apply file mount context updates.
+                let updates = fileMountContextUpdates.withLock { $0 }
+                for (id, ctx) in updates {
+                    state.containers[id]?.fileMountContext = ctx
                 }
 
                 // Transition all containers to created state
@@ -389,10 +503,43 @@ extension LinuxPod {
 
             let agent = try await createdState.vm.dialAgent()
             do {
-                var spec = self.generateRuntimeSpec(containerID: containerID, config: container.config)
+                var spec = self.generateRuntimeSpec(containerID: containerID, config: container.config, rootfs: container.rootfs)
                 // We don't need the rootfs, nor do OCI runtimes want it included.
+                // Also filter out file mount holding directories - we mount those separately under /run.
                 let containerMounts = createdState.vm.mounts[containerID] ?? []
-                spec.mounts = containerMounts.dropFirst().map { $0.to }
+                let holdingTags = container.fileMountContext.holdingDirectoryTags
+                spec.mounts =
+                    containerMounts.dropFirst()
+                    .filter { !holdingTags.contains($0.source) }
+                    .map { $0.to }
+                    + container.fileMountContext.ociBindMounts()
+
+                // Configure namespaces for the container
+                var namespaces: [LinuxNamespace] = [
+                    LinuxNamespace(type: .cgroup),
+                    LinuxNamespace(type: .ipc),
+                    LinuxNamespace(type: .mount),
+                    LinuxNamespace(type: .uts),
+                ]
+
+                // Either join pause container's pid ns or create a new one
+                if self.config.shareProcessNamespace, let pausePID = state.pauseProcess?.pid {
+                    let nsPath = "/proc/\(pausePID)/ns/pid"
+
+                    self.logger?.debug(
+                        "Container joining pause PID namespace",
+                        metadata: [
+                            "container": "\(containerID)",
+                            "pausePID": "\(pausePID)",
+                            "nsPath": "\(nsPath)",
+                        ])
+
+                    namespaces.append(LinuxNamespace(type: .pid, path: nsPath))
+                } else {
+                    namespaces.append(LinuxNamespace(type: .pid))
+                }
+
+                spec.linux?.namespaces = namespaces
 
                 let stdio = IOUtil.setup(
                     portAllocator: self.hostVsockPorts,
@@ -519,6 +666,10 @@ extension LinuxPod {
                         try? await process.delete()
                         container.process = nil
                         container.state = .stopped
+
+                        // Clean up file mount temporary directories.
+                        container.fileMountContext.cleanUp()
+
                         state.containers[containerID] = container
                     }
                 }
@@ -597,7 +748,7 @@ extension LinuxPod {
                 )
             }
 
-            var spec = self.generateRuntimeSpec(containerID: containerID, config: container.config)
+            var spec = self.generateRuntimeSpec(containerID: containerID, config: container.config, rootfs: container.rootfs)
             var config = LinuxProcessConfiguration()
             try configuration(&config)
             spec.process = config.toOCI()
@@ -631,7 +782,7 @@ extension LinuxPod {
     }
 
     /// Get statistics for containers in the pod.
-    public func statistics(containerIDs: [String]? = nil) async throws -> [ContainerStatistics] {
+    public func statistics(containerIDs: [String]? = nil, categories: StatCategory = .all) async throws -> [ContainerStatistics] {
         let (createdState, ids) = try await self.state.withLock { state in
             let createdState = try state.phase.createdState("statistics")
             let ids = containerIDs ?? Array(state.containers.keys)
@@ -639,7 +790,7 @@ extension LinuxPod {
         }
 
         let stats = try await createdState.vm.withAgent { agent in
-            try await agent.containerStatistics(containerIDs: ids)
+            try await agent.containerStatistics(containerIDs: ids, categories: categories)
         }
 
         return stats

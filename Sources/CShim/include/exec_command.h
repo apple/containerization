@@ -1,5 +1,5 @@
 /*
- * Copyright © 2025 Apple Inc. and the Containerization project authors.
+ * Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -38,6 +38,8 @@ struct exec_command_attrs {
   gid_t gid;
   /// signal mask for the child process
   int mask;
+  /// parent death signal (Linux only, 0 to disable)
+  int pdeathSignal;
 };
 
 void exec_command_attrs_init(struct exec_command_attrs *attrs);

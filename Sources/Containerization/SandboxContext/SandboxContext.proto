@@ -24,6 +24,10 @@ service SandboxContext {
   rpc SetupEmulator(SetupEmulatorRequest) returns (SetupEmulatorResponse);
   // Write data to an existing or new file.
   rpc WriteFile(WriteFileRequest) returns (WriteFileResponse);
+  // Copy a file from the host into the guest.
+  rpc CopyIn(stream CopyInChunk) returns (CopyInResponse);
+  // Copy a file from the guest to the host.
+  rpc CopyOut(CopyOutRequest) returns (stream CopyOutChunk);
 
   // Create a new process inside the container.
   rpc CreateProcess(CreateProcessRequest) returns (CreateProcessResponse);
@@ -225,6 +229,45 @@ message WriteFileRequest {
 
 message WriteFileResponse {}
 
+message CopyInChunk {
+  oneof content {
+    // Initialization message (must be first).
+    CopyInInit init = 1;
+    // File data chunk.
+    bytes data = 2;
+  }
+}
+
+message CopyInInit {
+  // Destination path in the guest.
+  string path = 1;
+  // File mode (defaults to 0644 if not set).
+  uint32 mode = 2;
+  // Create parent directories if they don't exist.
+  bool create_parents = 3;
+}
+
+message CopyInResponse {}
+
+message CopyOutRequest {
+  // Source path in the guest.
+  string path = 1;
+}
+
+message CopyOutChunk {
+  oneof content {
+    // Initialization message with metadata (first chunk).
+    CopyOutInit init = 1;
+    // File data chunk.
+    bytes data = 2;
+  }
+}
+
+message CopyOutInit {
+  // Total file size in bytes.
+  uint64 total_size = 1;
+}
+
 message IpLinkSetRequest {
   string interface = 1;
   bool up = 2;
@@ -235,22 +278,22 @@ message IpLinkSetResponse {}
 
 message IpAddrAddRequest {
   string interface = 1;
-  string address = 2;
+  string ipv4Address = 2;
 }
 
 message IpAddrAddResponse {}
 
 message IpRouteAddLinkRequest {
   string interface = 1;
-  string address = 2;
-  string srcAddr = 3;
+  string dstIpv4Addr = 2;
+  string srcIpv4Addr = 3;
 }
 
 message IpRouteAddLinkResponse {}
 
 message IpRouteAddDefaultRequest {
   string interface = 1;
-  string gateway = 2;
+  string ipv4Gateway = 2;
 }
 
 message IpRouteAddDefaultResponse {}
@@ -288,8 +331,20 @@ message KillRequest {
 
 message KillResponse { int32 result = 1; }
 
+// Categories of statistics that can be requested.
+enum StatCategory {
+  STAT_CATEGORY_UNSPECIFIED = 0;
+  STAT_CATEGORY_PROCESS = 1;
+  STAT_CATEGORY_MEMORY = 2;
+  STAT_CATEGORY_CPU = 3;
+  STAT_CATEGORY_BLOCK_IO = 4;
+  STAT_CATEGORY_NETWORK = 5;
+  STAT_CATEGORY_MEMORY_EVENTS = 6;
+}
+
 message ContainerStatisticsRequest {
   repeated string container_ids = 1;  // Empty = all containers
+  repeated StatCategory categories = 2;  // Empty = all categories
 }
 
 message ContainerStatisticsResponse {
@@ -303,6 +358,7 @@ message ContainerStats {
   CPUStats cpu = 4;
   BlockIOStats block_io = 5;
   repeated NetworkStats networks = 6;
+  MemoryEventStats memory_events = 7;
 }
 
 message ProcessStats {
@@ -352,4 +408,20 @@ message NetworkStats {
   uint64 transmittedBytes = 5;
   uint64 receivedErrors = 6;
   uint64 transmittedErrors = 7;
+}
+
+// Memory event counters from cgroup2's memory.events file.
+message MemoryEventStats {
+  // Number of times the cgroup was reclaimed due to low memory.
+  uint64 low = 1;
+  // Number of times the cgroup exceeded its high memory limit.
+  uint64 high = 2;
+  // Number of times the cgroup hit its max memory limit.
+  uint64 max = 3;
+  // Number of times the cgroup triggered OOM.
+  uint64 oom = 4;
+  // Number of processes killed by OOM killer.
+  uint64 oom_kill = 5;
+  // Number of times charge for memory failed because of limit.
+  uint64 oom_group_kill = 6;
 }

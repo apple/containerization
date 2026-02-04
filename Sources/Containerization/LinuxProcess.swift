@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -124,18 +124,17 @@ public final class LinuxProcess: Sendable {
 }
 
 extension LinuxProcess {
-    func setupIO(streams: [VsockConnectionStream?]) async throws -> [FileHandle?] {
+    func setupIO(listeners: [VsockListener?]) async throws -> [FileHandle?] {
         let handles = try await Timeout.run(seconds: 3) {
             try await withThrowingTaskGroup(of: (Int, FileHandle?).self) { group in
                 var results = [FileHandle?](repeating: nil, count: 3)
 
-                for (index, stream) in streams.enumerated() {
-                    guard let stream = stream else { continue }
+                for (index, listener) in listeners.enumerated() {
+                    guard let listener else { continue }
 
                     group.addTask {
-                        let first = await stream.first(where: { _ in true })
-                        stream.finish()
-                        try self.vm.stopListen(stream.port)
+                        let first = await listener.first(where: { _ in true })
+                        try listener.finish()
                         return (index, first)
                     }
                 }
@@ -147,44 +146,9 @@ extension LinuxProcess {
             }
         }
 
-        if let stdin = self.ioSetup.stdin {
-            if let handle = handles[0] {
-                self.state.withLock {
-                    $0.stdinRelay = Task {
-                        for await data in stdin.reader.stream() {
-                            do {
-                                try handle.write(contentsOf: data)
-                            } catch {
-                                self.logger?.error("failed to write to stdin: \(error)")
-                                break
-                            }
-                        }
-
-                        do {
-                            self.logger?.debug("stdin relay finished, closing")
-
-                            // There's two ways we can wind up here:
-                            //
-                            // 1. The stream finished on its own (e.g. we wrote all the
-                            // data) and we will close the underlying stdin in the guest below.
-                            //
-                            // 2. The client explicitly called closeStdin() themselves
-                            // which will cancel this relay task AFTER actually closing
-                            // the fds. If the client did that, then this task will be
-                            // cancelled, and the fds are already gone so there's nothing
-                            // for us to do.
-                            if Task.isCancelled {
-                                return
-                            }
-
-                            try await self._closeStdin()
-                        } catch {
-                            self.logger?.error("failed to close stdin: \(error)")
-                        }
-                    }
-                }
-            }
-        }
+        // Note: stdin relay is started separately via startStdinRelay() after
+        // the process has started, to avoid a deadlock where closeStdin is
+        // called before the process is consuming from the pipe.
 
         var configuredStreams = 0
         let (stream, cc) = AsyncStream<Void>.makeStream()
@@ -232,16 +196,55 @@ extension LinuxProcess {
         return handles
     }
 
+    func startStdinRelay(handle: FileHandle) {
+        guard let stdin = self.ioSetup.stdin else { return }
+
+        self.state.withLock {
+            $0.stdinRelay = Task {
+                for await data in stdin.reader.stream() {
+                    do {
+                        try handle.write(contentsOf: data)
+                    } catch {
+                        self.logger?.error("failed to write to stdin: \(error)")
+                        break
+                    }
+                }
+
+                do {
+                    self.logger?.debug("stdin relay finished, closing")
+
+                    // There's two ways we can wind up here:
+                    //
+                    // 1. The stream finished on its own (e.g. we wrote all the
+                    // data) and we will close the underlying stdin in the guest below.
+                    //
+                    // 2. The client explicitly called closeStdin() themselves
+                    // which will cancel this relay task AFTER actually closing
+                    // the fds. If the client did that, then this task will be
+                    // cancelled, and the fds are already gone so there's nothing
+                    // for us to do.
+                    if Task.isCancelled {
+                        return
+                    }
+
+                    try await self._closeStdin()
+                } catch {
+                    self.logger?.error("failed to close stdin: \(error)")
+                }
+            }
+        }
+    }
+
     /// Start the process.
     public func start() async throws {
         do {
             let spec = self.state.withLock { $0.spec }
-            var streams = [VsockConnectionStream?](repeating: nil, count: 3)
+            var listeners = [VsockListener?](repeating: nil, count: 3)
             if let stdin = self.ioSetup.stdin {
-                streams[0] = try self.vm.listen(stdin.port)
+                listeners[0] = try self.vm.listen(stdin.port)
             }
             if let stdout = self.ioSetup.stdout {
-                streams[1] = try self.vm.listen(stdout.port)
+                listeners[1] = try self.vm.listen(stdout.port)
             }
             if let stderr = self.ioSetup.stderr {
                 if spec.process!.terminal {
@@ -250,11 +253,11 @@ extension LinuxProcess {
                         message: "stderr should not be configured with terminal=true"
                     )
                 }
-                streams[2] = try self.vm.listen(stderr.port)
+                listeners[2] = try self.vm.listen(stderr.port)
             }
 
             let t = Task {
-                try await self.setupIO(streams: streams)
+                try await self.setupIO(listeners: listeners)
             }
 
             try await agent.createProcess(
@@ -273,6 +276,12 @@ extension LinuxProcess {
                 id: self.id,
                 containerID: self.owningContainer
             )
+
+            // Start stdin relay after process launch to avoid filling the pipe
+            // buffer before the process is even running.
+            if let stdinHandle = result[0] {
+                self.startStdinRelay(handle: stdinHandle)
+            }
 
             self.state.withLock {
                 $0.stdio = StdioHandles(
@@ -392,7 +401,7 @@ extension LinuxProcess {
                 }
             }
         } catch {
-            self.logger?.error("Timeout waiting for IO to complete for process \(id): \(error)")
+            self.logger?.error("timeout waiting for IO to complete for process \(id): \(error)")
         }
         self.state.withLock {
             $0.ioTracker = nil

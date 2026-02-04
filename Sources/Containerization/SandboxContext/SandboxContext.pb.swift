@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -35,6 +35,61 @@ import SwiftProtobuf
 fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
   struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
   typealias Version = _2
+}
+
+/// Categories of statistics that can be requested.
+public enum Com_Apple_Containerization_Sandbox_V3_StatCategory: SwiftProtobuf.Enum, Swift.CaseIterable {
+  public typealias RawValue = Int
+  case unspecified // = 0
+  case process // = 1
+  case memory // = 2
+  case cpu // = 3
+  case blockIo // = 4
+  case network // = 5
+  case memoryEvents // = 6
+  case UNRECOGNIZED(Int)
+
+  public init() {
+    self = .unspecified
+  }
+
+  public init?(rawValue: Int) {
+    switch rawValue {
+    case 0: self = .unspecified
+    case 1: self = .process
+    case 2: self = .memory
+    case 3: self = .cpu
+    case 4: self = .blockIo
+    case 5: self = .network
+    case 6: self = .memoryEvents
+    default: self = .UNRECOGNIZED(rawValue)
+    }
+  }
+
+  public var rawValue: Int {
+    switch self {
+    case .unspecified: return 0
+    case .process: return 1
+    case .memory: return 2
+    case .cpu: return 3
+    case .blockIo: return 4
+    case .network: return 5
+    case .memoryEvents: return 6
+    case .UNRECOGNIZED(let i): return i
+    }
+  }
+
+  // The compiler won't synthesize support with the UNRECOGNIZED case.
+  public static let allCases: [Com_Apple_Containerization_Sandbox_V3_StatCategory] = [
+    .unspecified,
+    .process,
+    .memory,
+    .cpu,
+    .blockIo,
+    .network,
+    .memoryEvents,
+  ]
+
 }
 
 public struct Com_Apple_Containerization_Sandbox_V3_Stdio: Sendable {
@@ -756,6 +811,137 @@ public struct Com_Apple_Containerization_Sandbox_V3_WriteFileResponse: Sendable 
   public init() {}
 }
 
+public struct Com_Apple_Containerization_Sandbox_V3_CopyInChunk: @unchecked Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var content: Com_Apple_Containerization_Sandbox_V3_CopyInChunk.OneOf_Content? = nil
+
+  /// Initialization message (must be first).
+  public var init_p: Com_Apple_Containerization_Sandbox_V3_CopyInInit {
+    get {
+      if case .init_p(let v)? = content {return v}
+      return Com_Apple_Containerization_Sandbox_V3_CopyInInit()
+    }
+    set {content = .init_p(newValue)}
+  }
+
+  /// File data chunk.
+  public var data: Data {
+    get {
+      if case .data(let v)? = content {return v}
+      return Data()
+    }
+    set {content = .data(newValue)}
+  }
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public enum OneOf_Content: Equatable, @unchecked Sendable {
+    /// Initialization message (must be first).
+    case init_p(Com_Apple_Containerization_Sandbox_V3_CopyInInit)
+    /// File data chunk.
+    case data(Data)
+
+  }
+
+  public init() {}
+}
+
+public struct Com_Apple_Containerization_Sandbox_V3_CopyInInit: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// Destination path in the guest.
+  public var path: String = String()
+
+  /// File mode (defaults to 0644 if not set).
+  public var mode: UInt32 = 0
+
+  /// Create parent directories if they don't exist.
+  public var createParents: Bool = false
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public struct Com_Apple_Containerization_Sandbox_V3_CopyInResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public struct Com_Apple_Containerization_Sandbox_V3_CopyOutRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// Source path in the guest.
+  public var path: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public struct Com_Apple_Containerization_Sandbox_V3_CopyOutChunk: @unchecked Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var content: Com_Apple_Containerization_Sandbox_V3_CopyOutChunk.OneOf_Content? = nil
+
+  /// Initialization message with metadata (first chunk).
+  public var init_p: Com_Apple_Containerization_Sandbox_V3_CopyOutInit {
+    get {
+      if case .init_p(let v)? = content {return v}
+      return Com_Apple_Containerization_Sandbox_V3_CopyOutInit()
+    }
+    set {content = .init_p(newValue)}
+  }
+
+  /// File data chunk.
+  public var data: Data {
+    get {
+      if case .data(let v)? = content {return v}
+      return Data()
+    }
+    set {content = .data(newValue)}
+  }
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public enum OneOf_Content: Equatable, @unchecked Sendable {
+    /// Initialization message with metadata (first chunk).
+    case init_p(Com_Apple_Containerization_Sandbox_V3_CopyOutInit)
+    /// File data chunk.
+    case data(Data)
+
+  }
+
+  public init() {}
+}
+
+public struct Com_Apple_Containerization_Sandbox_V3_CopyOutInit: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// Total file size in bytes.
+  public var totalSize: UInt64 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 public struct Com_Apple_Containerization_Sandbox_V3_IpLinkSetRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -798,7 +984,7 @@ public struct Com_Apple_Containerization_Sandbox_V3_IpAddrAddRequest: Sendable {
 
   public var interface: String = String()
 
-  public var address: String = String()
+  public var ipv4Address: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -822,9 +1008,9 @@ public struct Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest: Senda
 
   public var interface: String = String()
 
-  public var address: String = String()
+  public var dstIpv4Addr: String = String()
 
-  public var srcAddr: String = String()
+  public var srcIpv4Addr: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -848,7 +1034,7 @@ public struct Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRequest: Se
 
   public var interface: String = String()
 
-  public var gateway: String = String()
+  public var ipv4Gateway: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -1018,6 +1204,9 @@ public struct Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest: 
   /// Empty = all containers
   public var containerIds: [String] = []
 
+  /// Empty = all categories
+  public var categories: [Com_Apple_Containerization_Sandbox_V3_StatCategory] = []
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -1085,6 +1274,15 @@ public struct Com_Apple_Containerization_Sandbox_V3_ContainerStats: @unchecked S
     get {return _storage._networks}
     set {_uniqueStorage()._networks = newValue}
   }
+
+  public var memoryEvents: Com_Apple_Containerization_Sandbox_V3_MemoryEventStats {
+    get {return _storage._memoryEvents ?? Com_Apple_Containerization_Sandbox_V3_MemoryEventStats()}
+    set {_uniqueStorage()._memoryEvents = newValue}
+  }
+  /// Returns true if `memoryEvents` has been explicitly set.
+  public var hasMemoryEvents: Bool {return _storage._memoryEvents != nil}
+  /// Clears the value of `memoryEvents`. Subsequent reads from it will return its default value.
+  public mutating func clearMemoryEvents() {_uniqueStorage()._memoryEvents = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -1216,9 +1414,50 @@ public struct Com_Apple_Containerization_Sandbox_V3_NetworkStats: Sendable {
   public init() {}
 }
 
+/// Memory event counters from cgroup2's memory.events file.
+public struct Com_Apple_Containerization_Sandbox_V3_MemoryEventStats: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// Number of times the cgroup was reclaimed due to low memory.
+  public var low: UInt64 = 0
+
+  /// Number of times the cgroup exceeded its high memory limit.
+  public var high: UInt64 = 0
+
+  /// Number of times the cgroup hit its max memory limit.
+  public var max: UInt64 = 0
+
+  /// Number of times the cgroup triggered OOM.
+  public var oom: UInt64 = 0
+
+  /// Number of processes killed by OOM killer.
+  public var oomKill: UInt64 = 0
+
+  /// Number of times charge for memory failed because of limit.
+  public var oomGroupKill: UInt64 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
 fileprivate let _protobuf_package = "com.apple.containerization.sandbox.v3"
+
+extension Com_Apple_Containerization_Sandbox_V3_StatCategory: SwiftProtobuf._ProtoNameProviding {
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    0: .same(proto: "STAT_CATEGORY_UNSPECIFIED"),
+    1: .same(proto: "STAT_CATEGORY_PROCESS"),
+    2: .same(proto: "STAT_CATEGORY_MEMORY"),
+    3: .same(proto: "STAT_CATEGORY_CPU"),
+    4: .same(proto: "STAT_CATEGORY_BLOCK_IO"),
+    5: .same(proto: "STAT_CATEGORY_NETWORK"),
+    6: .same(proto: "STAT_CATEGORY_MEMORY_EVENTS"),
+  ]
+}
 
 extension Com_Apple_Containerization_Sandbox_V3_Stdio: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Stdio"
@@ -2565,6 +2804,263 @@ extension Com_Apple_Containerization_Sandbox_V3_WriteFileResponse: SwiftProtobuf
   }
 }
 
+extension Com_Apple_Containerization_Sandbox_V3_CopyInChunk: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".CopyInChunk"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "init"),
+    2: .same(proto: "data"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try {
+        var v: Com_Apple_Containerization_Sandbox_V3_CopyInInit?
+        var hadOneofValue = false
+        if let current = self.content {
+          hadOneofValue = true
+          if case .init_p(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.content = .init_p(v)
+        }
+      }()
+      case 2: try {
+        var v: Data?
+        try decoder.decodeSingularBytesField(value: &v)
+        if let v = v {
+          if self.content != nil {try decoder.handleConflictingOneOf()}
+          self.content = .data(v)
+        }
+      }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    switch self.content {
+    case .init_p?: try {
+      guard case .init_p(let v)? = self.content else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    }()
+    case .data?: try {
+      guard case .data(let v)? = self.content else { preconditionFailure() }
+      try visitor.visitSingularBytesField(value: v, fieldNumber: 2)
+    }()
+    case nil: break
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_CopyInChunk, rhs: Com_Apple_Containerization_Sandbox_V3_CopyInChunk) -> Bool {
+    if lhs.content != rhs.content {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Com_Apple_Containerization_Sandbox_V3_CopyInInit: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".CopyInInit"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "path"),
+    2: .same(proto: "mode"),
+    3: .standard(proto: "create_parents"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.path) }()
+      case 2: try { try decoder.decodeSingularUInt32Field(value: &self.mode) }()
+      case 3: try { try decoder.decodeSingularBoolField(value: &self.createParents) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.path.isEmpty {
+      try visitor.visitSingularStringField(value: self.path, fieldNumber: 1)
+    }
+    if self.mode != 0 {
+      try visitor.visitSingularUInt32Field(value: self.mode, fieldNumber: 2)
+    }
+    if self.createParents != false {
+      try visitor.visitSingularBoolField(value: self.createParents, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_CopyInInit, rhs: Com_Apple_Containerization_Sandbox_V3_CopyInInit) -> Bool {
+    if lhs.path != rhs.path {return false}
+    if lhs.mode != rhs.mode {return false}
+    if lhs.createParents != rhs.createParents {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Com_Apple_Containerization_Sandbox_V3_CopyInResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".CopyInResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_CopyInResponse, rhs: Com_Apple_Containerization_Sandbox_V3_CopyInResponse) -> Bool {
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Com_Apple_Containerization_Sandbox_V3_CopyOutRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".CopyOutRequest"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "path"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.path) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.path.isEmpty {
+      try visitor.visitSingularStringField(value: self.path, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_CopyOutRequest, rhs: Com_Apple_Containerization_Sandbox_V3_CopyOutRequest) -> Bool {
+    if lhs.path != rhs.path {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Com_Apple_Containerization_Sandbox_V3_CopyOutChunk: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".CopyOutChunk"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "init"),
+    2: .same(proto: "data"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try {
+        var v: Com_Apple_Containerization_Sandbox_V3_CopyOutInit?
+        var hadOneofValue = false
+        if let current = self.content {
+          hadOneofValue = true
+          if case .init_p(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.content = .init_p(v)
+        }
+      }()
+      case 2: try {
+        var v: Data?
+        try decoder.decodeSingularBytesField(value: &v)
+        if let v = v {
+          if self.content != nil {try decoder.handleConflictingOneOf()}
+          self.content = .data(v)
+        }
+      }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    switch self.content {
+    case .init_p?: try {
+      guard case .init_p(let v)? = self.content else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    }()
+    case .data?: try {
+      guard case .data(let v)? = self.content else { preconditionFailure() }
+      try visitor.visitSingularBytesField(value: v, fieldNumber: 2)
+    }()
+    case nil: break
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_CopyOutChunk, rhs: Com_Apple_Containerization_Sandbox_V3_CopyOutChunk) -> Bool {
+    if lhs.content != rhs.content {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Com_Apple_Containerization_Sandbox_V3_CopyOutInit: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".CopyOutInit"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .standard(proto: "total_size"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt64Field(value: &self.totalSize) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.totalSize != 0 {
+      try visitor.visitSingularUInt64Field(value: self.totalSize, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_CopyOutInit, rhs: Com_Apple_Containerization_Sandbox_V3_CopyOutInit) -> Bool {
+    if lhs.totalSize != rhs.totalSize {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
 extension Com_Apple_Containerization_Sandbox_V3_IpLinkSetRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".IpLinkSetRequest"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
@@ -2636,7 +3132,7 @@ extension Com_Apple_Containerization_Sandbox_V3_IpAddrAddRequest: SwiftProtobuf.
   public static let protoMessageName: String = _protobuf_package + ".IpAddrAddRequest"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
     1: .same(proto: "interface"),
-    2: .same(proto: "address"),
+    2: .same(proto: "ipv4Address"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -2646,7 +3142,7 @@ extension Com_Apple_Containerization_Sandbox_V3_IpAddrAddRequest: SwiftProtobuf.
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.interface) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.address) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.ipv4Address) }()
       default: break
       }
     }
@@ -2656,15 +3152,15 @@ extension Com_Apple_Containerization_Sandbox_V3_IpAddrAddRequest: SwiftProtobuf.
     if !self.interface.isEmpty {
       try visitor.visitSingularStringField(value: self.interface, fieldNumber: 1)
     }
-    if !self.address.isEmpty {
-      try visitor.visitSingularStringField(value: self.address, fieldNumber: 2)
+    if !self.ipv4Address.isEmpty {
+      try visitor.visitSingularStringField(value: self.ipv4Address, fieldNumber: 2)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_IpAddrAddRequest, rhs: Com_Apple_Containerization_Sandbox_V3_IpAddrAddRequest) -> Bool {
     if lhs.interface != rhs.interface {return false}
-    if lhs.address != rhs.address {return false}
+    if lhs.ipv4Address != rhs.ipv4Address {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -2693,8 +3189,8 @@ extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest: SwiftProt
   public static let protoMessageName: String = _protobuf_package + ".IpRouteAddLinkRequest"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
     1: .same(proto: "interface"),
-    2: .same(proto: "address"),
-    3: .same(proto: "srcAddr"),
+    2: .same(proto: "dstIpv4Addr"),
+    3: .same(proto: "srcIpv4Addr"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -2704,8 +3200,8 @@ extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest: SwiftProt
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.interface) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.address) }()
-      case 3: try { try decoder.decodeSingularStringField(value: &self.srcAddr) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.dstIpv4Addr) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.srcIpv4Addr) }()
       default: break
       }
     }
@@ -2715,19 +3211,19 @@ extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest: SwiftProt
     if !self.interface.isEmpty {
       try visitor.visitSingularStringField(value: self.interface, fieldNumber: 1)
     }
-    if !self.address.isEmpty {
-      try visitor.visitSingularStringField(value: self.address, fieldNumber: 2)
+    if !self.dstIpv4Addr.isEmpty {
+      try visitor.visitSingularStringField(value: self.dstIpv4Addr, fieldNumber: 2)
     }
-    if !self.srcAddr.isEmpty {
-      try visitor.visitSingularStringField(value: self.srcAddr, fieldNumber: 3)
+    if !self.srcIpv4Addr.isEmpty {
+      try visitor.visitSingularStringField(value: self.srcIpv4Addr, fieldNumber: 3)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest, rhs: Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest) -> Bool {
     if lhs.interface != rhs.interface {return false}
-    if lhs.address != rhs.address {return false}
-    if lhs.srcAddr != rhs.srcAddr {return false}
+    if lhs.dstIpv4Addr != rhs.dstIpv4Addr {return false}
+    if lhs.srcIpv4Addr != rhs.srcIpv4Addr {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -2756,7 +3252,7 @@ extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRequest: SwiftP
   public static let protoMessageName: String = _protobuf_package + ".IpRouteAddDefaultRequest"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
     1: .same(proto: "interface"),
-    2: .same(proto: "gateway"),
+    2: .same(proto: "ipv4Gateway"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -2766,7 +3262,7 @@ extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRequest: SwiftP
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.interface) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.gateway) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.ipv4Gateway) }()
       default: break
       }
     }
@@ -2776,15 +3272,15 @@ extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRequest: SwiftP
     if !self.interface.isEmpty {
       try visitor.visitSingularStringField(value: self.interface, fieldNumber: 1)
     }
-    if !self.gateway.isEmpty {
-      try visitor.visitSingularStringField(value: self.gateway, fieldNumber: 2)
+    if !self.ipv4Gateway.isEmpty {
+      try visitor.visitSingularStringField(value: self.ipv4Gateway, fieldNumber: 2)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRequest, rhs: Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRequest) -> Bool {
     if lhs.interface != rhs.interface {return false}
-    if lhs.gateway != rhs.gateway {return false}
+    if lhs.ipv4Gateway != rhs.ipv4Gateway {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -3115,6 +3611,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest: Swif
   public static let protoMessageName: String = _protobuf_package + ".ContainerStatisticsRequest"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
     1: .standard(proto: "container_ids"),
+    2: .same(proto: "categories"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -3124,6 +3621,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest: Swif
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeRepeatedStringField(value: &self.containerIds) }()
+      case 2: try { try decoder.decodeRepeatedEnumField(value: &self.categories) }()
       default: break
       }
     }
@@ -3133,11 +3631,15 @@ extension Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest: Swif
     if !self.containerIds.isEmpty {
       try visitor.visitRepeatedStringField(value: self.containerIds, fieldNumber: 1)
     }
+    if !self.categories.isEmpty {
+      try visitor.visitPackedEnumField(value: self.categories, fieldNumber: 2)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest, rhs: Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest) -> Bool {
     if lhs.containerIds != rhs.containerIds {return false}
+    if lhs.categories != rhs.categories {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -3184,6 +3686,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ContainerStats: SwiftProtobuf.Me
     4: .same(proto: "cpu"),
     5: .standard(proto: "block_io"),
     6: .same(proto: "networks"),
+    7: .standard(proto: "memory_events"),
   ]
 
   fileprivate class _StorageClass {
@@ -3193,6 +3696,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ContainerStats: SwiftProtobuf.Me
     var _cpu: Com_Apple_Containerization_Sandbox_V3_CPUStats? = nil
     var _blockIo: Com_Apple_Containerization_Sandbox_V3_BlockIOStats? = nil
     var _networks: [Com_Apple_Containerization_Sandbox_V3_NetworkStats] = []
+    var _memoryEvents: Com_Apple_Containerization_Sandbox_V3_MemoryEventStats? = nil
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -3209,6 +3713,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ContainerStats: SwiftProtobuf.Me
       _cpu = source._cpu
       _blockIo = source._blockIo
       _networks = source._networks
+      _memoryEvents = source._memoryEvents
     }
   }
 
@@ -3233,6 +3738,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ContainerStats: SwiftProtobuf.Me
         case 4: try { try decoder.decodeSingularMessageField(value: &_storage._cpu) }()
         case 5: try { try decoder.decodeSingularMessageField(value: &_storage._blockIo) }()
         case 6: try { try decoder.decodeRepeatedMessageField(value: &_storage._networks) }()
+        case 7: try { try decoder.decodeSingularMessageField(value: &_storage._memoryEvents) }()
         default: break
         }
       }
@@ -3263,6 +3769,9 @@ extension Com_Apple_Containerization_Sandbox_V3_ContainerStats: SwiftProtobuf.Me
       if !_storage._networks.isEmpty {
         try visitor.visitRepeatedMessageField(value: _storage._networks, fieldNumber: 6)
       }
+      try { if let v = _storage._memoryEvents {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 7)
+      } }()
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -3278,6 +3787,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ContainerStats: SwiftProtobuf.Me
         if _storage._cpu != rhs_storage._cpu {return false}
         if _storage._blockIo != rhs_storage._blockIo {return false}
         if _storage._networks != rhs_storage._networks {return false}
+        if _storage._memoryEvents != rhs_storage._memoryEvents {return false}
         return true
       }
       if !storagesAreEqual {return false}
@@ -3624,6 +4134,68 @@ extension Com_Apple_Containerization_Sandbox_V3_NetworkStats: SwiftProtobuf.Mess
     if lhs.transmittedBytes != rhs.transmittedBytes {return false}
     if lhs.receivedErrors != rhs.receivedErrors {return false}
     if lhs.transmittedErrors != rhs.transmittedErrors {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Com_Apple_Containerization_Sandbox_V3_MemoryEventStats: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".MemoryEventStats"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "low"),
+    2: .same(proto: "high"),
+    3: .same(proto: "max"),
+    4: .same(proto: "oom"),
+    5: .standard(proto: "oom_kill"),
+    6: .standard(proto: "oom_group_kill"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt64Field(value: &self.low) }()
+      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.high) }()
+      case 3: try { try decoder.decodeSingularUInt64Field(value: &self.max) }()
+      case 4: try { try decoder.decodeSingularUInt64Field(value: &self.oom) }()
+      case 5: try { try decoder.decodeSingularUInt64Field(value: &self.oomKill) }()
+      case 6: try { try decoder.decodeSingularUInt64Field(value: &self.oomGroupKill) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.low != 0 {
+      try visitor.visitSingularUInt64Field(value: self.low, fieldNumber: 1)
+    }
+    if self.high != 0 {
+      try visitor.visitSingularUInt64Field(value: self.high, fieldNumber: 2)
+    }
+    if self.max != 0 {
+      try visitor.visitSingularUInt64Field(value: self.max, fieldNumber: 3)
+    }
+    if self.oom != 0 {
+      try visitor.visitSingularUInt64Field(value: self.oom, fieldNumber: 4)
+    }
+    if self.oomKill != 0 {
+      try visitor.visitSingularUInt64Field(value: self.oomKill, fieldNumber: 5)
+    }
+    if self.oomGroupKill != 0 {
+      try visitor.visitSingularUInt64Field(value: self.oomGroupKill, fieldNumber: 6)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_MemoryEventStats, rhs: Com_Apple_Containerization_Sandbox_V3_MemoryEventStats) -> Bool {
+    if lhs.low != rhs.low {return false}
+    if lhs.high != rhs.high {return false}
+    if lhs.max != rhs.max {return false}
+    if lhs.oom != rhs.oom {return false}
+    if lhs.oomKill != rhs.oomKill {return false}
+    if lhs.oomGroupKill != rhs.oomGroupKill {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

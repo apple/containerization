@@ -1,4 +1,4 @@
-# Copyright © 2025 Apple Inc. and the Containerization project authors.
+# Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,13 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-BUILD_CONFIGURATION := debug
+BUILD_CONFIGURATION ?= debug
 WARNINGS_AS_ERRORS ?= true
 SWIFT_WARNING_CONFIG := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors)
-SWIFT_CONFIGURATION := --swift-sdk aarch64-swift-linux-musl $(SWIFT_WARNING_CONFIG)
+SWIFT_CONFIGURATION := --swift-sdk aarch64-swift-linux-musl $(SWIFT_WARNING_CONFIG) -Xlinker -s
 
-SWIFT_VERSION := 6.2
-SWIFT_SDK_URL := https://download.swift.org/swift-6.2-release/static-sdk/swift-6.2-RELEASE/swift-6.2-RELEASE_static-linux-0.0.1.artifactbundle.tar.gz
+SWIFT_VERSION := 6.2.3
+SWIFT_SDK_URL := https://download.swift.org/swift-6.2.3-release/static-sdk/swift-6.2.3-RELEASE/swift-6.2.3-RELEASE_static-linux-0.0.1.artifactbundle.tar.gz
 SWIFT_SDK_PATH := /tmp/$(notdir $(SWIFT_SDK_URL))
 
 SWIFTLY_URL := https://download.swift.org/swiftly/darwin/swiftly.pkg
@@ -26,9 +26,12 @@ SWIFTLY_FILENAME := $(notdir $(SWIFTLY_URL))
 SWIFTLY_BIN_DIR ?= ~/.swiftly/bin
 BUILD_BIN_DIR := $(shell swift build -c $(BUILD_CONFIGURATION) $(SWIFT_CONFIGURATION) --show-bin-path)
 
+SYSTEM_TYPE := $(shell uname -s)
+ifeq ($(SYSTEM_TYPE),Darwin)
 MACOS_VERSION := $(shell sw_vers -productVersion)
 MACOS_MAJOR := $(shell echo $(MACOS_VERSION) | cut -d. -f1)
 MACOS_RELEASE_TYPE := $(shell sw_vers | grep ReleaseType)
+endif
 
 .DEFAULT_GOAL := all
 

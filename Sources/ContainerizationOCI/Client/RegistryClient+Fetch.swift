@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -55,19 +55,19 @@ extension RegistryClient {
             }
 
             guard let digest = response.headers.first(name: "Docker-Content-Digest") else {
-                throw ContainerizationError(.invalidArgument, message: "Missing required header Docker-Content-Digest")
+                throw ContainerizationError(.invalidArgument, message: "missing required header Docker-Content-Digest")
             }
 
             guard let type = response.headers.first(name: "Content-Type") else {
-                throw ContainerizationError(.invalidArgument, message: "Missing required header Content-Type")
+                throw ContainerizationError(.invalidArgument, message: "missing required header Content-Type")
             }
 
             guard let sizeStr = response.headers.first(name: "Content-Length") else {
-                throw ContainerizationError(.invalidArgument, message: "Missing required header Content-Length")
+                throw ContainerizationError(.invalidArgument, message: "missing required header Content-Length")
             }
 
             guard let size = Int64(sizeStr) else {
-                throw ContainerizationError(.invalidArgument, message: "Cannot convert \(sizeStr) to Int64")
+                throw ContainerizationError(.invalidArgument, message: "cannot convert \(sizeStr) to Int64")
             }
 
             return Descriptor(mediaType: type, digest: digest, size: size)
@@ -92,7 +92,7 @@ extension RegistryClient {
 
         let mediaType = descriptor.mediaType
         if mediaType.isEmpty {
-            throw ContainerizationError(.invalidArgument, message: "Missing media type for descriptor \(descriptor.digest)")
+            throw ContainerizationError(.invalidArgument, message: "missing media type for descriptor \(descriptor.digest)")
         }
 
         let headers = [
@@ -120,7 +120,7 @@ extension RegistryClient {
 
         let mediaType = descriptor.mediaType
         if mediaType.isEmpty {
-            throw ContainerizationError(.invalidArgument, message: "Missing media type for descriptor \(descriptor.digest)")
+            throw ContainerizationError(.invalidArgument, message: "missing media type for descriptor \(descriptor.digest)")
         }
 
         let headers = [
@@ -142,7 +142,7 @@ extension RegistryClient {
 
         let mediaType = descriptor.mediaType
         if mediaType.isEmpty {
-            throw ContainerizationError(.invalidArgument, message: "Missing media type for descriptor \(descriptor.digest)")
+            throw ContainerizationError(.invalidArgument, message: "missing media type for descriptor \(descriptor.digest)")
         }
 
         let headers = [
@@ -158,7 +158,7 @@ extension RegistryClient {
 
             // How many bytes to expect
             guard let expectedBytes = response.headers.first(name: "Content-Length").flatMap(Int64.init) else {
-                throw ContainerizationError(.invalidArgument, message: "Missing required header Content-Length")
+                throw ContainerizationError(.invalidArgument, message: "missing required header Content-Length")
             }
 
             try await closure(expectedBytes, response.body)
@@ -186,7 +186,7 @@ extension RegistryClient {
                     guard written == readBytes else {
                         throw ContainerizationError(
                             .internalError,
-                            message: "Could not write \(readBytes) bytes to file \(file)"
+                            message: "could not write \(readBytes) bytes to file \(file)"
                         )
                     }
                     hasher.update(data: buf.readableBytesView)
@@ -212,7 +212,7 @@ extension RegistryClient {
         var hasher = SHA256()
         var received: Int64 = 0
         guard FileManager.default.createFile(atPath: file.path, contents: nil) else {
-            throw ContainerizationError(.internalError, message: "Cannot create file at path \(file.path)")
+            throw ContainerizationError(.internalError, message: "cannot create file at path \(file.path)")
         }
         try await self.fetchBlob(name: name, descriptor: descriptor) { (size, body) in
             let fd = try FileHandle(forWritingTo: file)

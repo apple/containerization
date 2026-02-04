@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -32,6 +32,42 @@ struct ArchiveTests {
         entry.group = 2
         entry.xattrs = ["user.data": Data([1, 2, 3])]
         return entry
+    }
+
+    @Test func createTemporaryDirectorySuccess() throws {
+        // Test that createTemporaryDirectory creates a directory with randomized suffix
+        let baseName = "ArchiveTests.testTempDir"
+        guard let tempDir = createTemporaryDirectory(baseName: baseName) else {
+            Issue.record("createTemporaryDirectory returned nil")
+            return
+        }
+
+        defer {
+            let fileManager = FileManager.default
+            try? fileManager.removeItem(at: tempDir)
+        }
+
+        // Verify the directory exists
+        var isDirectory: ObjCBool = false
+        let fileManager = FileManager.default
+        let exists = fileManager.fileExists(atPath: tempDir.path, isDirectory: &isDirectory)
+        #expect(exists)
+        #expect(isDirectory.boolValue)
+
+        // Verify the directory name starts with the base name
+        let lastComponent = tempDir.lastPathComponent
+        #expect(lastComponent.starts(with: baseName))
+
+        // Verify that mkdtemp replaced the X's with random characters
+        // (should be 6 random alphanumeric characters after the base name and dot)
+        let suffix = String(lastComponent.dropFirst(baseName.count + 1))  // +1 for the dot
+        #expect(suffix.count == 6, "Expected 6 character suffix, got \(suffix.count)")
+        #expect(suffix != "XXXXXX", "mkdtemp did not replace X's with random characters")
+
+        // Verify we can write to the directory
+        let testFile = tempDir.appendingPathComponent("test.txt")
+        try "test content".write(toFile: testFile.path, atomically: true, encoding: .utf8)
+        #expect(fileManager.fileExists(atPath: testFile.path))
     }
 
     @Test func tarUTF8() throws {

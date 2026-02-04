@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -339,7 +339,9 @@ extension Runc {
         cmd.stdout = stdout ?? outPipe.fileHandleForWriting
         cmd.stderr = stderr ?? outPipe.fileHandleForWriting
 
-        // FIXME: pdeathSignal handling if Command supported it.
+        if let pdeathSignal = pdeathSignal {
+            cmd.attrs.pdeathSignal = pdeathSignal
+        }
 
         if setpgid {
             cmd.attrs.setPGroup = true

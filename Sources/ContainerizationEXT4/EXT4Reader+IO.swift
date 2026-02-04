@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,12 +28,12 @@ extension EXT4 {
 
         public var description: String {
             switch self {
-            case .notFound(let p): return "No such file or directory: \(p)"
-            case .notAFile(let p): return "Not a regular file: \(p)"
-            case .isDirectory(let p): return "Is a directory: \(p)"
-            case .notADirectory(let p): return "Not a directory: \(p)"
-            case .symlinkLoop(let p): return "Symlink loop while resolving: \(p)"
-            case .invalidPath(let p): return "Invalid path: \(p)"
+            case .notFound(let p): return "no such file or directory: \(p)"
+            case .notAFile(let p): return "not a regular file: \(p)"
+            case .isDirectory(let p): return "is a directory: \(p)"
+            case .notADirectory(let p): return "not a directory: \(p)"
+            case .symlinkLoop(let p): return "symlink loop while resolving: \(p)"
+            case .invalidPath(let p): return "invalid path: \(p)"
             }
         }
     }
@@ -57,7 +57,7 @@ extension EXT4.EXT4Reader {
     /// Validate that a physical block address is within device bounds
     private func validateBlockAddress(_ block: UInt32) throws {
         guard UInt64(block) < totalBlocks else {
-            throw EXT4.PathIOError.invalidPath("Block address \(block) exceeds device bounds (\(totalBlocks) blocks)")
+            throw EXT4.PathIOError.invalidPath("block address \(block) exceeds device bounds (\(totalBlocks) blocks)")
         }
     }
 
@@ -220,7 +220,7 @@ extension EXT4.EXT4Reader {
                 if bytesWritten > 0 {
                     return bytesWritten
                 }
-                throw EXT4.PathIOError.invalidPath("Failed to seek to offset \(absoluteByteOffset): \(error)")
+                throw EXT4.PathIOError.invalidPath("failed to seek to offset \(absoluteByteOffset): \(error)")
             }
 
             while remaining > 0 && bytesWritten < desiredBytes {
@@ -345,7 +345,7 @@ extension EXT4.EXT4Reader {
                 // Read symlink target
                 let linkBytes = try readFileFromInode(inodeNum: child.1)
                 guard let linkTarget = String(data: linkBytes, encoding: .utf8), !linkTarget.isEmpty else {
-                    throw EXT4.PathIOError.invalidPath("Empty symlink target")
+                    throw EXT4.PathIOError.invalidPath("empty symlink target")
                 }
 
                 // Parse symlink target into components
@@ -517,7 +517,7 @@ extension EXT4.EXT4Reader {
                     // Return partial data that was successfully read
                     return out
                 }
-                throw EXT4.PathIOError.invalidPath("Failed to seek to offset \(absByteOffset): \(error)")
+                throw EXT4.PathIOError.invalidPath("failed to seek to offset \(absByteOffset): \(error)")
             }
 
             var left = ovlLen

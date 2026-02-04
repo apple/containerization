@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -72,7 +72,7 @@ public struct EXT4Unpacker: Unpacker {
         progress: ProgressHandler? = nil
     ) async throws -> Mount {
         #if !os(macOS)
-        throw ContainerizationError(.unsupported, message: "Cannot unpack an image on current platform")
+        throw ContainerizationError(.unsupported, message: "cannot unpack an image on current platform")
         #else
         let cleanedPath = try prepareUnpackPath(path: path)
         let manifest = try await image.manifest(for: platform)
@@ -94,8 +94,10 @@ public struct EXT4Unpacker: Unpacker {
                 compression = .none
             case MediaTypes.imageLayerGzip, MediaTypes.dockerImageLayerGzip:
                 compression = .gzip
+            case MediaTypes.imageLayerZstd, MediaTypes.dockerImageLayerZstd:
+                compression = .zstd
             default:
-                throw ContainerizationError(.unsupported, message: "Media type \(layer.mediaType) not supported.")
+                throw ContainerizationError(.unsupported, message: "media type \(layer.mediaType) not supported.")
             }
             try filesystem.unpack(
                 source: content.path,

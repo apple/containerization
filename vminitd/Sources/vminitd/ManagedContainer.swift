@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -68,7 +68,7 @@ actor ManagedContainer {
 
             if let runtimePath = ociRuntimePath {
                 // Use runc runtime
-                let runc = await ProcessSupervisor.default.getRuncWithReaper(
+                let runc = ProcessSupervisor.default.getRuncWithReaper(
                     Runc(
                         command: runtimePath,
                         root: "/run/runc"
@@ -110,6 +110,45 @@ actor ManagedContainer {
 }
 
 extension ManagedContainer {
+    // removeCgroupWithRetry will remove a cgroup path handling EAGAIN and EBUSY errors and
+    // retrying the remove after an exponential timeout
+    private func removeCgroupWithRetry() async throws {
+        var delay = 10  // 10ms
+        let maxRetries = 5
+
+        for i in 0..<maxRetries {
+            if i != 0 {
+                try await Task.sleep(for: .milliseconds(delay))
+                delay *= 2
+            }
+
+            do {
+                try self.cgroupManager.delete(force: true)
+                return
+            } catch let error as Cgroup2Manager.Error {
+                guard case .errno(let errnoValue, let message) = error,
+                    errnoValue == EBUSY || errnoValue == EAGAIN
+                else {
+                    throw error
+                }
+                self.log.warning(
+                    "cgroup deletion failed with EBUSY/EAGAIN, retrying",
+                    metadata: [
+                        "attempt": "\(i + 1)",
+                        "delay": "\(delay)",
+                        "errno": "\(errnoValue)",
+                        "context": "\(message)",
+                    ])
+                continue
+            }
+        }
+
+        throw ContainerizationError(
+            .internalError,
+            message: "cgroups: unable to remove cgroup after \(maxRetries) retries"
+        )
+    }
+
     private func ensureExecExists(_ id: String) throws {
         if self.execs[id] == nil {
             throw ContainerizationError(
@@ -184,12 +223,16 @@ extension ManagedContainer {
         // Delete the bundle and cgroup
         try self.bundle.delete()
         if self.needsCgroupCleanup {
-            try self.cgroupManager.delete(force: true)
+            try await self.removeCgroupWithRetry()
         }
     }
 
     func stats() throws -> Cgroup2Stats {
         try self.cgroupManager.stats()
+    }
+
+    func getMemoryEvents() throws -> MemoryEvents {
+        try self.cgroupManager.getMemoryEvents()
     }
 
     func getExecOrInit(execID: String) throws -> any ContainerProcess {

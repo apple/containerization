@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -59,7 +59,7 @@ public struct Image: Sendable {
     /// Returns the underlying OCI index for the image.
     public func index() async throws -> Index {
         guard let content: Content = try await contentStore.get(digest: digest) else {
-            throw ContainerizationError(.notFound, message: "Content with digest \(digest)")
+            throw ContainerizationError(.notFound, message: "content with digest \(digest)")
         }
         return try content.decode()
     }
@@ -71,10 +71,10 @@ public struct Image: Sendable {
             desc.platform == platform
         }
         guard let desc else {
-            throw ContainerizationError(.unsupported, message: "Platform \(platform.description)")
+            throw ContainerizationError(.unsupported, message: "platform \(platform.description)")
         }
         guard let content: Content = try await contentStore.get(digest: desc.digest) else {
-            throw ContainerizationError(.notFound, message: "Content with digest \(digest)")
+            throw ContainerizationError(.notFound, message: "content with digest \(digest)")
         }
         return try content.decode()
     }
@@ -95,7 +95,7 @@ public struct Image: Sendable {
         let manifest = try await self.manifest(for: platform)
         let desc = manifest.config
         guard let content: Content = try await contentStore.get(digest: desc.digest) else {
-            throw ContainerizationError(.notFound, message: "Content with digest \(digest)")
+            throw ContainerizationError(.notFound, message: "content with digest \(digest)")
         }
         return try content.decode()
     }
@@ -120,10 +120,10 @@ public struct Image: Sendable {
     /// Returns a reference to the content blob for the image. The specified digest must be referenced by the image in one of its layers.
     public func getContent(digest: String) async throws -> Content {
         guard try await self.referencedDigests().contains(digest.trimmingDigestPrefix) else {
-            throw ContainerizationError(.internalError, message: "Image \(self.reference) does not reference digest \(digest)")
+            throw ContainerizationError(.internalError, message: "image \(self.reference) does not reference digest \(digest)")
         }
         guard let content: Content = try await contentStore.get(digest: digest) else {
-            throw ContainerizationError(.notFound, message: "Content with digest \(digest)")
+            throw ContainerizationError(.notFound, message: "content with digest \(digest)")
         }
         return content
     }

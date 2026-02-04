@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -43,7 +43,7 @@ extension ImageStore {
             let image = try await self.get(reference: reference)
             let allowedMediaTypes = [MediaTypes.dockerManifestList, MediaTypes.index]
             guard allowedMediaTypes.contains(image.mediaType) else {
-                throw ContainerizationError(.internalError, message: "Cannot save image \(image.reference) with Index media type \(image.mediaType)")
+                throw ContainerizationError(.internalError, message: "cannot save image \(image.reference) with Index media type \(image.mediaType)")
             }
             toSave.append(image)
         }
@@ -54,7 +54,7 @@ extension ImageStore {
             let ref = try Reference.parse(image.reference)
             let name = ref.path
             guard let tag = ref.tag ?? ref.digest else {
-                throw ContainerizationError(.invalidArgument, message: "Invalid tag/digest for image reference \(image.reference)")
+                throw ContainerizationError(.invalidArgument, message: "invalid tag/digest for image reference \(image.reference)")
             }
             let operation = ExportOperation(name: name, tag: tag, contentStore: self.contentStore, client: client, progress: nil)
             var descriptor = try await operation.export(index: image.descriptor, platforms: matcher)
@@ -99,7 +99,7 @@ extension ImageStore {
                 return images
             }
             guard importedImages.count > 0 else {
-                throw ContainerizationError(.internalError, message: "Failed to import image")
+                throw ContainerizationError(.internalError, message: "failed to import image")
             }
             return importedImages
         } catch {

@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -441,7 +441,6 @@ extension EXT4 {
                         buffer[89],
                         buffer[90], buffer[91], buffer[92], buffer[93], buffer[94], buffer[95]
                     )
-                    childInode.flags |= InodeFlag.inlineData.rawValue
                 }
                 if !state.blockAttributes.isEmpty {
                     var buffer: [UInt8] = .init(repeating: 0, count: Int(blockSize))
@@ -902,7 +901,7 @@ extension EXT4 {
             superblock.inodeSize = UInt16(EXT4.InodeSize)
             superblock.featureCompat = CompatFeature.sparseSuper2 | CompatFeature.extAttr
             superblock.featureIncompat =
-                IncompatFeature.filetype | IncompatFeature.extents | IncompatFeature.flexBg | IncompatFeature.inlineData
+                IncompatFeature.filetype | IncompatFeature.extents | IncompatFeature.flexBg
             superblock.featureRoCompat =
                 RoCompatFeature.largeFile | RoCompatFeature.hugeFile | RoCompatFeature.extraIsize
             superblock.minExtraIsize = EXT4.ExtraIsize

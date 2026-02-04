@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -30,7 +30,6 @@ final class IOPair: Sendable {
         let to: IOCloser
         let buffer: UnsafeMutableBufferPointer<UInt8>
         var closed: Bool
-        let logger: Logger?
 
         func drain() {
             let readFrom = OSFile(fd: from.fileDescriptor)
@@ -59,7 +58,7 @@ final class IOPair: Sendable {
             }
         }
 
-        mutating func close() {
+        mutating func close(logger: Logger?) {
             if self.closed {
                 return
             }
@@ -72,19 +71,19 @@ final class IOPair: Sendable {
             do {
                 try ProcessSupervisor.default.poller.delete(readFromFd)
             } catch {
-                self.logger?.error("failed to delete fd from epoll \(readFromFd): \(error)")
+                logger?.error("failed to delete fd from epoll \(readFromFd): \(error)")
             }
 
             do {
                 try self.from.close()
             } catch {
-                self.logger?.error("failed to close reader fd for IOPair: \(error)")
+                logger?.error("failed to close reader fd for IOPair: \(error)")
             }
 
             do {
                 try self.to.close()
             } catch {
-                self.logger?.error("failed to close writer fd for IOPair: \(error)")
+                logger?.error("failed to close writer fd for IOPair: \(error)")
             }
             self.buffer.deallocate()
             self.closed = true
@@ -103,8 +102,7 @@ final class IOPair: Sendable {
                 from: readFrom,
                 to: writeTo,
                 buffer: buffer,
-                closed: false,
-                logger: logger
+                closed: false
             ))
         self.reason = reason
         self.logger = logger
@@ -129,7 +127,7 @@ final class IOPair: Sendable {
                 if mask.isHangup && !mask.readyToRead {
                     self.logger?.debug("received EPOLLHUP with no EPOLLIN")
                     if !ignoreHup {
-                        io.close()
+                        io.close(logger: self.logger)
                     }
                     return
                 }
@@ -146,7 +144,7 @@ final class IOPair: Sendable {
                         let w = writeTo.write(view)
                         if w.wrote != r.read {
                             self.logger?.error("stopping relay: short write for stdio")
-                            io.close()
+                            io.close(logger: self.logger)
                             return
                         }
                     }
@@ -157,7 +155,7 @@ final class IOPair: Sendable {
                         fallthrough
                     case .eof:
                         self.logger?.debug("closing relay for \(readFromFd)")
-                        io.close()
+                        io.close(logger: self.logger)
                         return
                     case .again:
                         if mask.isHangup && !ignoreHup {
@@ -176,7 +174,7 @@ final class IOPair: Sendable {
     func close() {
         self.io.withLock { io in
             self.logger?.info("closing relay for \(reason)")
-            io.close()
+            io.close(logger: self.logger)
         }
     }
 }

@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,10 +17,11 @@
 import ArgumentParser
 import Cgroup
 import ContainerizationOCI
-import Foundation
+import ContainerizationOS
+import FoundationEssentials
 import LCShim
-import Logging
 import Musl
+import SystemPackage
 
 struct RunCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
@@ -33,33 +34,59 @@ struct RunCommand: ParsableCommand {
 
     mutating func run() throws {
         do {
-            LoggingSystem.bootstrap(App.standardError)
-            let log = Logger(label: "vmexec")
-
-            let bundle = try ContainerizationOCI.Bundle.load(path: URL(filePath: bundlePath))
-            let ociSpec = try bundle.loadConfig()
-            try execInNamespace(spec: ociSpec, log: log)
+            let spec: ContainerizationOCI.Spec
+            do {
+                let bundle = try ContainerizationOCI.Bundle.load(path: URL(filePath: bundlePath))
+                spec = try bundle.loadConfig()
+            } catch {
+                throw App.Failure(message: "failed to load OCI bundle at \(bundlePath): \(error)")
+            }
+            try execInNamespace(spec: spec)
         } catch {
             App.writeError(error)
             throw error
         }
     }
 
-    private func childRootSetup(rootfs: ContainerizationOCI.Root, mounts: [ContainerizationOCI.Mount], log: Logger) throws {
+    private func childRootSetup(rootfs: ContainerizationOCI.Root, mounts: [ContainerizationOCI.Mount]) throws {
         // setup rootfs
         try prepareRoot(rootfs: rootfs.path)
         try mountRootfs(rootfs: rootfs.path, mounts: mounts)
         try setDevSymlinks(rootfs: rootfs.path)
 
         try pivotRoot(rootfs: rootfs.path)
+
+        // Remount ro if requested.
+        if rootfs.readonly {
+            try self.remountRootfsReadOnly()
+        }
+
         try reOpenDevNull()
+    }
+
+    private func remountRootfsReadOnly() throws {
+        var flags = UInt(MS_BIND | MS_REMOUNT | MS_RDONLY)
+
+        let ret = mount("", "/", "", flags, "")
+        if ret == 0 {
+            return
+        }
+
+        var s = statfs()
+        guard statfs("/", &s) == 0 else {
+            throw App.Errno(stage: "statfs(/)")
+        }
+        flags |= s.f_flags
+
+        guard mount("", "/", "", flags, "") == 0 else {
+            throw App.Errno(stage: "mount rootfs ro")
+        }
     }
 
     private func childSetup(
         spec: ContainerizationOCI.Spec,
-        ackPipe: FileHandle,
-        syncPipe: FileHandle,
-        log: Logger
+        ackPipe: FileDescriptor,
+        syncPipe: FileDescriptor
     ) throws {
         guard let process = spec.process else {
             throw App.Failure(message: "no process configuration found in runtime spec")
@@ -69,12 +96,14 @@ struct RunCommand: ParsableCommand {
         }
 
         // Wait for the grandparent to tell us that they acked our pid.
-        guard let data = try ackPipe.read(upToCount: App.ackPid.count) else {
+        var pidAckBuffer = [UInt8](repeating: 0, count: App.ackPid.count)
+        let pidAckBytesRead = try pidAckBuffer.withUnsafeMutableBytes { buffer in
+            try ackPipe.read(into: buffer)
+        }
+        guard pidAckBytesRead > 0 else {
             throw App.Failure(message: "read ack pipe")
         }
-        guard let pidAckStr = String(data: data, encoding: .utf8) else {
-            throw App.Failure(message: "convert ack pipe data to string")
-        }
+        let pidAckStr = String(decoding: pidAckBuffer[..<pidAckBytesRead], as: UTF8.self)
 
         guard pidAckStr == App.ackPid else {
             throw App.Failure(message: "received invalid acknowledgement string: \(pidAckStr)")
@@ -88,24 +117,26 @@ struct RunCommand: ParsableCommand {
             throw App.Errno(stage: "setsid()")
         }
 
-        try childRootSetup(rootfs: root, mounts: spec.mounts, log: log)
+        try childRootSetup(rootfs: root, mounts: spec.mounts)
 
         if process.terminal {
             let pty = try Console()
             try pty.configureStdIO()
             var masterFD = pty.master
 
-            let data = Data(bytes: &masterFD, count: MemoryLayout.size(ofValue: masterFD))
-            try syncPipe.write(contentsOf: data)
+            try withUnsafeBytes(of: &masterFD) { bytes in
+                _ = try syncPipe.write(bytes)
+            }
 
             // Wait for the grandparent to tell us that they acked our console.
-            guard let data = try ackPipe.read(upToCount: App.ackConsole.count) else {
+            var consoleAckBuffer = [UInt8](repeating: 0, count: App.ackConsole.count)
+            let consoleAckBytesRead = try consoleAckBuffer.withUnsafeMutableBytes { buffer in
+                try ackPipe.read(into: buffer)
+            }
+            guard consoleAckBytesRead > 0 else {
                 throw App.Failure(message: "read ack pipe")
             }
-
-            guard let consoleAckStr = String(data: data, encoding: .utf8) else {
-                throw App.Failure(message: "convert ack pipe data to string")
-            }
+            let consoleAckStr = String(decoding: consoleAckBuffer[..<consoleAckBytesRead], as: UTF8.self)
 
             guard consoleAckStr == App.ackConsole else {
                 throw App.Failure(message: "received invalid acknowledgement string: \(consoleAckStr)")
@@ -136,22 +167,70 @@ struct RunCommand: ParsableCommand {
 
         try App.setRLimits(rlimits: process.rlimits)
 
+        // Prepare capabilities (before user change)
+        let preparedCaps = try App.prepareCapabilities(capabilities: process.capabilities ?? ContainerizationOCI.LinuxCapabilities())
+
         // Change stdio to be owned by the requested user.
         try App.fixStdioPerms(user: process.user)
 
         // Set uid, gid, and supplementary groups.
         try App.setPermissions(user: process.user)
 
+        // Finish capabilities (after user change)
+        try App.finishCapabilities(preparedCaps)
+
         // Finally execve the container process.
         try App.exec(process: process, currentEnv: process.env)
     }
 
-    private func execInNamespace(spec: ContainerizationOCI.Spec, log: Logger) throws {
-        let syncPipe = FileHandle(fileDescriptor: 3)
-        let ackPipe = FileHandle(fileDescriptor: 4)
+    private func setupNamespaces(namespaces: [ContainerizationOCI.LinuxNamespace]?) throws -> Int32 {
+        var unshareFlags: Int32 = 0
 
-        guard unshare(CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWUTS) == 0 else {
-            throw App.Errno(stage: "unshare(pid|mnt|uts)")
+        // Map namespace types to their corresponding CLONE flags
+        let nsTypeToFlag: [ContainerizationOCI.LinuxNamespaceType: Int32] = [
+            .pid: CLONE_NEWPID,
+            .mount: CLONE_NEWNS,
+            .uts: CLONE_NEWUTS,
+            .ipc: CLONE_NEWIPC,
+            .user: CLONE_NEWUSER,
+            .cgroup: CLONE_NEWCGROUP,
+        ]
+
+        guard let namespaces = namespaces else {
+            return CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWUTS
+        }
+
+        for ns in namespaces {
+            guard let flag = nsTypeToFlag[ns.type] else {
+                continue
+            }
+
+            if ns.path.isEmpty {
+                unshareFlags |= flag
+            } else {
+                let fd = open(ns.path, O_RDONLY | O_CLOEXEC)
+                guard fd >= 0 else {
+                    throw App.Errno(stage: "open(\(ns.path))")
+                }
+                defer { close(fd) }
+
+                guard setns(fd, flag) == 0 else {
+                    throw App.Errno(stage: "setns(\(ns.path))")
+                }
+            }
+        }
+
+        return unshareFlags
+    }
+
+    private func execInNamespace(spec: ContainerizationOCI.Spec) throws {
+        let syncPipe = FileDescriptor(rawValue: 3)
+        let ackPipe = FileDescriptor(rawValue: 4)
+
+        let unshareFlags = try setupNamespaces(namespaces: spec.linux?.namespaces)
+
+        guard unshare(unshareFlags) == 0 else {
+            throw App.Errno(stage: "unshare(\(unshareFlags))")
         }
 
         let processID = fork()
@@ -162,7 +241,7 @@ struct RunCommand: ParsableCommand {
         }
 
         if processID == 0 {  // child
-            try childSetup(spec: spec, ackPipe: ackPipe, syncPipe: syncPipe, log: log)
+            try childSetup(spec: spec, ackPipe: ackPipe, syncPipe: syncPipe)
         } else {  // parent process
             // Setup cgroup before child enters cgroup namespace
             if let linux = spec.linux {
@@ -180,8 +259,9 @@ struct RunCommand: ParsableCommand {
 
             // Send our child's pid before we exit.
             var childPid = processID
-            let data = Data(bytes: &childPid, count: MemoryLayout.size(ofValue: childPid))
-            try syncPipe.write(contentsOf: data)
+            try withUnsafeBytes(of: &childPid) { bytes in
+                _ = try syncPipe.write(bytes)
+            }
         }
     }
 

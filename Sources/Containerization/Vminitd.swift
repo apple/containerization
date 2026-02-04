@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 //===----------------------------------------------------------------------===//
 
 import ContainerizationError
+import ContainerizationExtras
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
@@ -79,62 +80,76 @@ extension Vminitd: VirtualMachineAgent {
     }
 
     /// Get statistics for containers. If `containerIDs` is empty returns stats for all containers
-    /// in the guest.
-    public func containerStatistics(containerIDs: [String]) async throws -> [ContainerStatistics] {
+    /// in the guest. If `categories` is empty, all categories are returned.
+    public func containerStatistics(containerIDs: [String], categories: StatCategory) async throws -> [ContainerStatistics] {
         let response = try await client.containerStatistics(
             .with {
                 $0.containerIds = containerIDs
+                $0.categories = categories.toProtoCategories()
             })
 
         return response.containers.map { protoStats in
             ContainerStatistics(
                 id: protoStats.containerID,
-                process: .init(
-                    current: protoStats.process.current,
-                    limit: protoStats.process.limit
-                ),
-                memory: .init(
-                    usageBytes: protoStats.memory.usageBytes,
-                    limitBytes: protoStats.memory.limitBytes,
-                    swapUsageBytes: protoStats.memory.swapUsageBytes,
-                    swapLimitBytes: protoStats.memory.swapLimitBytes,
-                    cacheBytes: protoStats.memory.cacheBytes,
-                    kernelStackBytes: protoStats.memory.kernelStackBytes,
-                    slabBytes: protoStats.memory.slabBytes,
-                    pageFaults: protoStats.memory.pageFaults,
-                    majorPageFaults: protoStats.memory.majorPageFaults
-                ),
-                cpu: .init(
-                    usageUsec: protoStats.cpu.usageUsec,
-                    userUsec: protoStats.cpu.userUsec,
-                    systemUsec: protoStats.cpu.systemUsec,
-                    throttlingPeriods: protoStats.cpu.throttlingPeriods,
-                    throttledPeriods: protoStats.cpu.throttledPeriods,
-                    throttledTimeUsec: protoStats.cpu.throttledTimeUsec
-                ),
-                blockIO: .init(
-                    devices: protoStats.blockIo.devices.map { device in
-                        .init(
-                            major: device.major,
-                            minor: device.minor,
-                            readBytes: device.readBytes,
-                            writeBytes: device.writeBytes,
-                            readOperations: device.readOperations,
-                            writeOperations: device.writeOperations
+                process: categories.contains(.process) && protoStats.hasProcess
+                    ? .init(
+                        current: protoStats.process.current,
+                        limit: protoStats.process.limit
+                    ) : nil,
+                memory: categories.contains(.memory) && protoStats.hasMemory
+                    ? .init(
+                        usageBytes: protoStats.memory.usageBytes,
+                        limitBytes: protoStats.memory.limitBytes,
+                        swapUsageBytes: protoStats.memory.swapUsageBytes,
+                        swapLimitBytes: protoStats.memory.swapLimitBytes,
+                        cacheBytes: protoStats.memory.cacheBytes,
+                        kernelStackBytes: protoStats.memory.kernelStackBytes,
+                        slabBytes: protoStats.memory.slabBytes,
+                        pageFaults: protoStats.memory.pageFaults,
+                        majorPageFaults: protoStats.memory.majorPageFaults
+                    ) : nil,
+                cpu: categories.contains(.cpu) && protoStats.hasCpu
+                    ? .init(
+                        usageUsec: protoStats.cpu.usageUsec,
+                        userUsec: protoStats.cpu.userUsec,
+                        systemUsec: protoStats.cpu.systemUsec,
+                        throttlingPeriods: protoStats.cpu.throttlingPeriods,
+                        throttledPeriods: protoStats.cpu.throttledPeriods,
+                        throttledTimeUsec: protoStats.cpu.throttledTimeUsec
+                    ) : nil,
+                blockIO: categories.contains(.blockIO) && protoStats.hasBlockIo
+                    ? .init(
+                        devices: protoStats.blockIo.devices.map { device in
+                            .init(
+                                major: device.major,
+                                minor: device.minor,
+                                readBytes: device.readBytes,
+                                writeBytes: device.writeBytes,
+                                readOperations: device.readOperations,
+                                writeOperations: device.writeOperations
+                            )
+                        }
+                    ) : nil,
+                networks: categories.contains(.network)
+                    ? protoStats.networks.map { network in
+                        ContainerStatistics.NetworkStatistics(
+                            interface: network.interface,
+                            receivedPackets: network.receivedPackets,
+                            transmittedPackets: network.transmittedPackets,
+                            receivedBytes: network.receivedBytes,
+                            transmittedBytes: network.transmittedBytes,
+                            receivedErrors: network.receivedErrors,
+                            transmittedErrors: network.transmittedErrors
                         )
-                    }
-                ),
-                networks: protoStats.networks.map { network in
-                    ContainerStatistics.NetworkStatistics(
-                        interface: network.interface,
-                        receivedPackets: network.receivedPackets,
-                        transmittedPackets: network.transmittedPackets,
-                        receivedBytes: network.receivedBytes,
-                        transmittedBytes: network.transmittedBytes,
-                        receivedErrors: network.receivedErrors,
-                        transmittedErrors: network.transmittedErrors
-                    )
-                }
+                    } : nil,
+                memoryEvents: categories.contains(.memoryEvents) && protoStats.hasMemoryEvents
+                    ? .init(
+                        low: protoStats.memoryEvents.low,
+                        high: protoStats.memoryEvents.high,
+                        max: protoStats.memoryEvents.max,
+                        oom: protoStats.memoryEvents.oom,
+                        oomKill: protoStats.memoryEvents.oomKill
+                    ) : nil
             )
         }
     }
@@ -359,20 +374,33 @@ extension Vminitd {
     }
 
     /// Add an IP address to the sandbox's network interfaces.
-    public func addressAdd(name: String, address: String) async throws {
+    public func addressAdd(name: String, ipv4Address: CIDRv4) async throws {
         _ = try await client.ipAddrAdd(
             .with {
                 $0.interface = name
-                $0.address = address
+                $0.ipv4Address = ipv4Address.description
+            })
+    }
+
+    /// Add a route in the sandbox's environment.
+    public func routeAddLink(name: String, dstIPv4Addr: IPv4Address, srcIPv4Addr: IPv4Address? = nil) async throws {
+        let dstCIDR = "\(dstIPv4Addr.description)/32"
+        _ = try await client.ipRouteAddLink(
+            .with {
+                $0.interface = name
+                $0.dstIpv4Addr = dstCIDR
+                if let srcIPv4Addr {
+                    $0.srcIpv4Addr = srcIPv4Addr.description
+                }
             })
     }
 
     /// Set the default route in the sandbox's environment.
-    public func routeAddDefault(name: String, gateway: String) async throws {
+    public func routeAddDefault(name: String, ipv4Gateway: IPv4Address) async throws {
         _ = try await client.ipRouteAddDefault(
             .with {
                 $0.interface = name
-                $0.gateway = gateway
+                $0.ipv4Gateway = ipv4Gateway.description
             })
     }
 
@@ -407,6 +435,96 @@ extension Vminitd {
                 $0.signal = signal
             })
         return response.result
+    }
+
+    /// Copy a file from the host into the guest.
+    public func copyIn(
+        from source: URL,
+        to destination: URL,
+        mode: UInt32,
+        createParents: Bool,
+        chunkSize: Int,
+        progress: ProgressHandler?
+    ) async throws {
+        let fileHandle = try FileHandle(forReadingFrom: source)
+        defer { try? fileHandle.close() }
+
+        let attrs = try FileManager.default.attributesOfItem(atPath: source.path)
+        guard let fileSize = attrs[.size] as? Int64 else {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "copyIn: failed to get file size for '\(source.path)'"
+            )
+        }
+
+        await progress?([ProgressEvent(event: "add-total-size", value: fileSize)])
+
+        let call = client.makeCopyInCall()
+
+        try await call.requestStream.send(
+            .with {
+                $0.content = .init_p(
+                    .with {
+                        $0.path = destination.path
+                        $0.mode = mode
+                        $0.createParents = createParents
+                    })
+            }
+        )
+
+        var totalSent: Int64 = 0
+        while true {
+            guard let data = try fileHandle.read(upToCount: chunkSize), !data.isEmpty else {
+                break
+            }
+            try await call.requestStream.send(.with { $0.content = .data(data) })
+            totalSent += Int64(data.count)
+            await progress?([ProgressEvent(event: "add-size", value: Int64(data.count))])
+        }
+
+        call.requestStream.finish()
+        _ = try await call.response
+    }
+
+    /// Copy a file from the guest to the host.
+    public func copyOut(
+        from source: URL,
+        to destination: URL,
+        createParents: Bool,
+        chunkSize: Int,
+        progress: ProgressHandler?
+    ) async throws {
+        let request = Com_Apple_Containerization_Sandbox_V3_CopyOutRequest.with {
+            $0.path = source.path
+        }
+
+        if createParents {
+            let parentDir = destination.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
+        }
+
+        let fd = open(destination.path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
+        guard fd != -1 else {
+            throw ContainerizationError(
+                .internalError,
+                message: "copyOut: failed to open '\(destination.path)': \(String(cString: strerror(errno)))"
+            )
+        }
+        let fileHandle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        defer { try? fileHandle.close() }
+
+        let stream = client.copyOut(request)
+        for try await chunk in stream {
+            switch chunk.content {
+            case .init_p(let initMsg):
+                await progress?([ProgressEvent(event: "add-total-size", value: Int64(initMsg.totalSize))])
+            case .data(let data):
+                try fileHandle.write(contentsOf: data)
+                await progress?([ProgressEvent(event: "add-size", value: Int64(data.count))])
+            case .none:
+                break
+            }
+        }
     }
 }
 
@@ -444,5 +562,31 @@ extension Vminitd.Client {
 
     public func close() async throws {
         try await self.channel.close().get()
+    }
+}
+
+extension StatCategory {
+    /// Convert StatCategory to proto enum values.
+    func toProtoCategories() -> [Com_Apple_Containerization_Sandbox_V3_StatCategory] {
+        var categories: [Com_Apple_Containerization_Sandbox_V3_StatCategory] = []
+        if contains(.process) {
+            categories.append(.process)
+        }
+        if contains(.memory) {
+            categories.append(.memory)
+        }
+        if contains(.cpu) {
+            categories.append(.cpu)
+        }
+        if contains(.blockIO) {
+            categories.append(.blockIo)
+        }
+        if contains(.network) {
+            categories.append(.network)
+        }
+        if contains(.memoryEvents) {
+            categories.append(.memoryEvents)
+        }
+        return categories
     }
 }

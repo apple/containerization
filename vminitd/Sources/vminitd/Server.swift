@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -90,8 +90,8 @@ final class Initd: Sendable {
         try await withThrowingTaskGroup(of: Void.self) { group in
             log.debug("starting process supervisor")
 
-            await ProcessSupervisor.default.setLog(self.log)
-            await ProcessSupervisor.default.ready()
+            ProcessSupervisor.default.setLog(self.log)
+            ProcessSupervisor.default.ready()
 
             log.info(
                 "booting gRPC server on vsock",

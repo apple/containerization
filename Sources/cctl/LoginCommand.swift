@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 import ArgumentParser
 import Containerization
 import ContainerizationError
+import ContainerizationExtras
 import ContainerizationOCI
 import Foundation
 
@@ -74,7 +75,8 @@ extension Application {
                     shouldRetry: ({ response in
                         response.status.code >= 500
                     })
-                )
+                ),
+                tlsConfiguration: TLSUtils.makeEnvironmentAwareTLSConfiguration(),
             )
             try await client.ping()
             try keychain.save(domain: server, username: username, password: password)

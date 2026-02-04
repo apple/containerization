@@ -1,0 +1,17 @@
+{
+    "build": {
+        "dockerfile": "Dockerfile"
+    },
+    "features": {},
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "swiftlang.swift-vscode"
+            ],
+            "settings": {
+            }
+        }
+    },
+    "runArgs": [],
+    "mounts": []
+}

@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,25 +21,27 @@ import Virtualization
 #endif
 
 /// A stream of vsock connections.
-public final class VsockConnectionStream: NSObject, Sendable, AsyncSequence {
+public final class VsockListener: NSObject, Sendable, AsyncSequence {
     public typealias Element = FileHandle
 
-    /// A stream of connections dialed from the remote.
-    private let connections: AsyncStream<FileHandle>
     /// The port the connections are for.
     public let port: UInt32
 
+    private let connections: AsyncStream<FileHandle>
     private let cont: AsyncStream<FileHandle>.Continuation
+    private let stopListening: @Sendable (_ port: UInt32) throws -> Void
 
-    public init(port: UInt32) {
+    package init(port: UInt32, stopListen: @Sendable @escaping (_ port: UInt32) throws -> Void) {
         self.port = port
         let (stream, continuation) = AsyncStream.makeStream(of: FileHandle.self)
         self.connections = stream
         self.cont = continuation
+        self.stopListening = stopListen
     }
 
-    public func finish() {
+    public func finish() throws {
         self.cont.finish()
+        try self.stopListening(self.port)
     }
 
     public func makeAsyncIterator() -> AsyncStream<FileHandle>.AsyncIterator {
@@ -49,7 +51,7 @@ public final class VsockConnectionStream: NSObject, Sendable, AsyncSequence {
 
 #if os(macOS)
 
-extension VsockConnectionStream: VZVirtioSocketListenerDelegate {
+extension VsockListener: VZVirtioSocketListenerDelegate {
     public func listener(
         _: VZVirtioSocketListener, shouldAcceptNewConnection conn: VZVirtioSocketConnection,
         from _: VZVirtioSocketDevice

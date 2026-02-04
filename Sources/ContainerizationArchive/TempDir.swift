@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,12 +20,15 @@ import Foundation
 internal func createTemporaryDirectory(baseName: String) -> URL? {
     let url = FileManager.default.uniqueTemporaryDirectory().appendingPathComponent(
         "\(baseName).XXXXXX")
-    guard let templatePathData = (url.absoluteURL.path as NSString).utf8String else {
-        return nil
+
+    var path = url.absoluteURL.path
+    return path.withUTF8 { utf8Bytes in
+        var mutablePath = Array(utf8Bytes) + [0]
+        return mutablePath.withUnsafeMutableBufferPointer { buffer -> URL? in
+            guard let baseAddress = buffer.baseAddress else { return nil }
+            mkdtemp(baseAddress)
+            let resultPath = String(decoding: buffer[..<(buffer.count - 1)], as: UTF8.self)
+            return URL(fileURLWithPath: resultPath, isDirectory: true)
+        }
     }
-
-    let pathData = UnsafeMutablePointer(mutating: templatePathData)
-    mkdtemp(pathData)
-
-    return URL(fileURLWithPath: String(cString: pathData), isDirectory: true)
 }

@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -164,7 +164,7 @@ extension Mount {
 extension VZDiskImageStorageDeviceAttachment {
     static func mountToVZAttachment(mount: Mount, options: [String]) throws -> VZDiskImageStorageDeviceAttachment {
         var cachingMode: VZDiskImageCachingMode = .automatic
-        var synchronizationMode: VZDiskImageSynchronizationMode = .none
+        var synchronizationMode: VZDiskImageSynchronizationMode = .fsync
 
         for option in options {
             let split = option.split(separator: "=")

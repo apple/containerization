@@ -1,6 +1,6 @@
 // swift-tools-version: 6.2
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -46,6 +46,8 @@ let package = Package(
         .package(url: "https://github.com/swift-server/async-http-client.git", from: "1.20.1"),
         .package(url: "https://github.com/apple/swift-system.git", from: "1.4.0"),
         .package(url: "https://github.com/swiftlang/swift-docc-plugin", from: "1.1.0"),
+        .package(url: "https://github.com/apple/swift-nio-ssl.git", from: "2.36.0"),
+        .package(url: "https://github.com/facebook/zstd.git", exact: "1.5.7"),
     ],
     targets: [
         .target(
@@ -129,9 +131,10 @@ let package = Package(
         .target(
             name: "ContainerizationArchive",
             dependencies: [
-                "CArchive",
                 .product(name: "SystemPackage", package: "swift-system"),
+                "CArchive",
                 "ContainerizationExtras",
+                "ContainerizationOS",
             ],
             exclude: [
                 "CArchive"
@@ -141,17 +144,26 @@ let package = Package(
             name: "ContainerizationArchiveTests",
             dependencies: [
                 "ContainerizationArchive"
+            ],
+            resources: [
+                .copy("Resources/test.tar.zst")
             ]
         ),
         .target(
             name: "CArchive",
-            dependencies: [],
+            dependencies: [
+                .product(name: "libzstd", package: "zstd")
+            ],
             path: "Sources/ContainerizationArchive/CArchive",
+            sources: [
+                "archive_swift_bridge.c"
+            ],
             cSettings: [
                 .define(
                     "PLATFORM_CONFIG_H", to: "\"config_darwin.h\"",
                     .when(platforms: [.iOS, .macOS, .macCatalyst, .watchOS, .driverKit, .tvOS])),
                 .define("PLATFORM_CONFIG_H", to: "\"config_linux.h\"", .when(platforms: [.linux])),
+                .unsafeFlags(["-fno-modules"]),
             ],
             linkerSettings: [
                 .linkedLibrary("z"),
@@ -202,6 +214,7 @@ let package = Package(
             name: "ContainerizationOS",
             dependencies: [
                 .product(name: "Logging", package: "swift-log"),
+                .product(name: "SystemPackage", package: "swift-system"),
                 "CShim",
                 "ContainerizationError",
             ],
@@ -212,6 +225,7 @@ let package = Package(
         .testTarget(
             name: "ContainerizationOSTests",
             dependencies: [
+                .product(name: "SystemPackage", package: "swift-system"),
                 "ContainerizationOS",
                 "ContainerizationExtras",
             ]
@@ -231,6 +245,8 @@ let package = Package(
                 "ContainerizationError",
                 .product(name: "Collections", package: "swift-collections"),
                 .product(name: "Logging", package: "swift-log"),
+                .product(name: "NIOSSL", package: "swift-nio-ssl"),
+
             ]
         ),
         .testTarget(

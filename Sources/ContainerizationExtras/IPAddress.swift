@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,79 +14,135 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-/// Facilitates conversion between IPv4 address representations.
-public struct IPv4Address: Codable, CustomStringConvertible, Equatable, Sendable {
-    /// The address as a 32-bit integer.
-    public let value: UInt32
+/// Represents an IP address that can be either IPv4 or IPv6.
+@frozen
+public enum IPAddress: Sendable, Hashable, CustomStringConvertible, Equatable {
+    /// An IPv4 address
+    case v4(IPv4Address)
 
-    /// Create an address from a dotted-decimal string, such as "192.168.64.10".
-    public init(_ fromString: String) throws {
-        let split = fromString.components(separatedBy: ".")
-        if split.count != 4 {
-            throw NetworkAddressError.invalidStringAddress(address: fromString)
-        }
+    /// An IPv6 address
+    case v6(IPv6Address)
 
-        var parsedValue: UInt32 = 0
-        for index in 0..<4 {
-            guard let octet = UInt8(split[index]) else {
-                throw NetworkAddressError.invalidStringAddress(address: fromString)
+    /// Parses an IP address string, automatically detecting IPv4 or IPv6 format.
+    ///
+    /// - Parameter string: IP address string to parse
+    /// - Returns: An `IPAddress` containing either an IPv4 or IPv6 address
+    /// - Throws: `AddressError.unableToParse` if invalid
+    public init(_ string: String) throws {
+        let utf8 = string.utf8
+        var hasColon = false
+        var hasDot = false
+
+        for byte in utf8 {
+            if byte == 58 {  // ASCII ':'
+                hasColon = true
+                break
             }
-            parsedValue |= UInt32(octet) << ((3 - index) * 8)
+            if byte == 46 {  // ASCII '.'
+                hasDot = true
+            }
         }
 
-        value = parsedValue
-    }
-
-    /// Create an address from an array of four bytes in network order (big-endian),
-    /// such as [192, 168, 64, 10].
-    public init(fromNetworkBytes: [UInt8]) throws {
-        guard fromNetworkBytes.count == 4 else {
-            throw NetworkAddressError.invalidNetworkByteAddress(address: fromNetworkBytes)
+        if hasColon {
+            let ipv6 = try IPv6Address.parse(string)
+            self = .v6(ipv6)
+        } else if hasDot {
+            let ipv4 = try IPv4Address(string)
+            self = .v4(ipv4)
+        } else {
+            throw AddressError.unableToParse
         }
-
-        value =
-            (UInt32(fromNetworkBytes[0]) << 24)
-            | (UInt32(fromNetworkBytes[1]) << 16)
-            | (UInt32(fromNetworkBytes[2]) << 8)
-            | UInt32(fromNetworkBytes[3])
     }
 
-    /// Create an address from a 32-bit integer, such as 0xc0a8_400a.
-    public init(fromValue: UInt32) {
-        value = fromValue
-    }
-
-    /// Retrieve the address as an array of bytes in network byte order.
-    public var networkBytes: [UInt8] {
-        [
-            UInt8((value >> 24) & 0xff),
-            UInt8((value >> 16) & 0xff),
-            UInt8((value >> 8) & 0xff),
-            UInt8(value & 0xff),
-        ]
-    }
-
-    /// Retrieve the address as a dotted decimal string.
+    /// String representation of the IP address.
     public var description: String {
-        networkBytes.map(String.init).joined(separator: ".")
+        switch self {
+        case .v4(let addr):
+            return addr.description
+        case .v6(let addr):
+            return addr.description
+        }
     }
 
-    /// Create the base IPv4 address for a network that contains this
-    /// address and uses the specified subnet mask length.
-    public func prefix(prefixLength: PrefixLength) -> IPv4Address {
-        IPv4Address(fromValue: value & prefixLength.prefixMask32)
+    /// Returns `true` if this is an IPv4 address.
+    @inlinable
+    public var isV4: Bool {
+        if case .v4 = self {
+            return true
+        }
+        return false
+    }
+
+    /// Returns `true` if this is an IPv6 address.
+    @inlinable
+    public var isV6: Bool {
+        if case .v6 = self {
+            return true
+        }
+        return false
+    }
+
+    /// Returns the underlying IPv4 address if this is an IPv4 address, otherwise `nil`.
+    @inlinable
+    public var ipv4: IPv4Address? {
+        if case .v4(let addr) = self {
+            return addr
+        }
+        return nil
+    }
+
+    /// Returns the underlying IPv6 address if this is an IPv6 address, otherwise `nil`.
+    @inlinable
+    public var ipv6: IPv6Address? {
+        if case .v6(let addr) = self {
+            return addr
+        }
+        return nil
+    }
+
+    /// Returns `true` if this is a loopback address (127.0.0.0/8 or ::1).
+    @inlinable
+    public var isLoopback: Bool {
+        switch self {
+        case .v4(let addr):
+            return addr.isLoopback
+        case .v6(let addr):
+            return addr.isLoopback
+        }
+    }
+
+    /// Returns `true` if this is a multicast address.
+    @inlinable
+    public var isMulticast: Bool {
+        switch self {
+        case .v4(let addr):
+            return addr.isMulticast
+        case .v6(let addr):
+            return addr.isMulticast
+        }
+    }
+
+    /// Returns `true` if this is an unspecified address (0.0.0.0 or ::).
+    @inlinable
+    public var isUnspecified: Bool {
+        switch self {
+        case .v4(let addr):
+            return addr.isUnspecified
+        case .v6(let addr):
+            return addr.isUnspecified
+        }
     }
 }
 
-extension IPv4Address {
+extension IPAddress: Codable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
-        let text = try container.decode(String.self)
-        try self.init(text)
+        let string = try container.decode(String.self)
+        try self.init(string)
     }
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
-        try container.encode(self.description)
+        try container.encode(description)
     }
 }

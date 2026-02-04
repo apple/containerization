@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -29,7 +29,7 @@ extension IPv4Address {
                 }
                 return Int(address.value - lower)
             },
-            indexToAddress: { IPv4Address(fromValue: lower + UInt32($0)) }
+            indexToAddress: { IPv4Address(lower + UInt32($0)) }
         )
     }
 }

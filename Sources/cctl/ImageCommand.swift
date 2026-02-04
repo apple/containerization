@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -140,7 +140,7 @@ extension Application {
                     return
                 }
                 guard !FileManager.default.fileExists(atPath: unpackPath) else {
-                    throw ContainerizationError(.exists, message: "Directory already exists at \(unpackPath)")
+                    throw ContainerizationError(.exists, message: "directory already exists at \(unpackPath)")
                 }
                 let unpackUrl = URL(filePath: unpackPath)
                 try FileManager.default.createDirectory(at: unpackUrl, withIntermediateDirectories: true)
@@ -252,10 +252,13 @@ extension Application {
                 defer {
                     try? FileManager.default.removeItem(at: tempDir)
                 }
-                try reader.extractContents(to: tempDir)
+                let rejectedPaths = try reader.extractContents(to: tempDir)
                 let imported = try await store.load(from: tempDir)
                 for image in imported {
                     print("imported \(image.reference)")
+                }
+                for rejectedPath in rejectedPaths {
+                    print("warning: skipped image archive member \(rejectedPath)")
                 }
             }
         }
@@ -266,7 +269,7 @@ extension Application {
             var authentication: Authentication?
             let ref = try Reference.parse(ref)
             guard let host = ref.resolvedDomain else {
-                throw ContainerizationError(.invalidArgument, message: "No host specified in image reference")
+                throw ContainerizationError(.invalidArgument, message: "no host specified in image reference")
             }
             authentication = Self.authenticationFromEnv(host: host)
             if let authentication {

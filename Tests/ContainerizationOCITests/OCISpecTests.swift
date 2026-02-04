@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -142,5 +142,27 @@ struct OCISpecTests {
         #expect(decodedSpec.options.isEmpty)
         #expect(decodedSpec.uidMappings == nil)
         #expect(decodedSpec.gidMappings == nil)
+    }
+
+    @Test func minimalCapabilitiesDecode() throws {
+        let minCapabilitiesSpec =
+            """
+                {
+                    "ociVersion": "1.1.0",
+                    "capabilities": {
+                        "permitted": [
+                            "CAP_SYS_ADMIN"
+                        ]
+                    },
+                    "linux": {}
+                }
+            """
+
+        guard let data = minCapabilitiesSpec.data(using: .utf8) else {
+            Issue.record("test capabilities spec is not valid: \(minCapabilitiesSpec)")
+            return
+        }
+
+        let _ = try JSONDecoder().decode(ContainerizationOCI.Spec.self, from: data)
     }
 }

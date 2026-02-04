@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -66,6 +66,10 @@ public enum ProxyUtils {
             if entry.isEmpty { continue }
             if entry == "*" { return true }
             if host == entry { return true }
+            if entry.hasPrefix("*.") {
+                let suffix = String(entry.dropFirst())
+                if host.hasSuffix(suffix) { return true }
+            }
             if entry.hasPrefix(".") && host.hasSuffix(entry) { return true }
         }
         return false

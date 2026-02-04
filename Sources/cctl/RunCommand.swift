@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 import ArgumentParser
 import Containerization
 import ContainerizationError
+import ContainerizationExtras
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
@@ -49,17 +50,14 @@ extension Application {
         @Option(name: .customLong("mount"), help: "Directory to share into the container (Example: /foo:/bar)")
         var mounts: [String] = []
 
-        @Option(name: .long, help: "IP address with subnet")
-        var ip: String?
-
-        @Option(name: .long, help: "Gateway address")
-        var gateway: String?
-
         @Option(name: .customLong("ns"), help: "Nameserver addresses")
         var nameservers: [String] = []
 
         @Option(name: .long, help: "Path to OCI runtime to use for spawning the container")
         var ociRuntimePath: String?
+
+        @Flag(name: .long, help: "Make rootfs readonly")
+        var readOnly: Bool = false
 
         @Option(
             name: [.customLong("kernel"), .customShort("k")], help: "Kernel binary path", completion: .file(),
@@ -79,9 +77,19 @@ extension Application {
                 path: URL(fileURLWithPath: kernel),
                 platform: .linuxArm
             )
+
+            // Choose network implementation based on macOS version
+            let network: ContainerManager.Network?
+            if #available(macOS 26, *) {
+                network = try ContainerManager.VmnetNetwork()
+            } else {
+                network = nil
+            }
+
             var manager = try await ContainerManager(
                 kernel: kernel,
                 initfsReference: "vminit:latest",
+                network: network,
                 rosetta: rosetta
             )
             let sigwinchStream = AsyncSignalHandler.create(notify: [SIGWINCH])
@@ -93,13 +101,15 @@ extension Application {
             let container = try await manager.create(
                 id,
                 reference: imageReference,
-                rootfsSizeInBytes: fsSizeInMB.mib()
+                rootfsSizeInBytes: fsSizeInMB.mib(),
+                readOnly: readOnly
             ) { config in
                 config.cpus = cpus
                 config.memoryInBytes = memory.mib()
                 config.process.setTerminalIO(terminal: current)
                 config.process.arguments = arguments
                 config.process.workingDirectory = cwd
+                config.process.capabilities = .allCapabilities
 
                 for mount in self.mounts {
                     let paths = mount.split(separator: ":")
@@ -119,21 +129,24 @@ extension Application {
                 }
 
                 var hosts = Hosts.default
-                if let ip {
-                    guard let gateway else {
-                        throw ContainerizationError(.invalidArgument, message: "gateway must be specified")
+                if !nameservers.isEmpty {
+                    if #available(macOS 26, *) {
+                        config.dns = DNS(nameservers: nameservers)
+                    } else {
+                        print("Warning: Networking not supported on macOS < 26, ignoring DNS configuration")
                     }
-                    config.interfaces.append(NATInterface(address: ip, gateway: gateway))
-                    config.dns = .init(nameservers: [gateway])
-                    if nameservers.count > 0 {
-                        config.dns = .init(nameservers: nameservers)
-                    }
+                }
+
+                // Add host entry for the container using just the IP (not CIDR)
+                if #available(macOS 26, *), !config.interfaces.isEmpty {
+                    let interface = config.interfaces[0]
                     hosts.entries.append(
                         Hosts.Entry(
-                            ipAddress: ip,
+                            ipAddress: interface.ipv4Address.address.description,
                             hostnames: [id]
                         ))
                 }
+
                 config.hosts = hosts
                 if let ociRuntimePath {
                     config.ociRuntimePath = ociRuntimePath

@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@
 import vmnet
 import Virtualization
 import ContainerizationError
+import ContainerizationExtras
 import Foundation
 import Synchronization
 
@@ -26,9 +27,10 @@ import Synchronization
 /// container/virtual machine.
 @available(macOS 26, *)
 public final class NATNetworkInterface: Interface, Sendable {
-    public let address: String
-    public let gateway: String?
-    public let macAddress: String?
+    public let ipv4Address: CIDRv4
+    public let ipv4Gateway: IPv4Address?
+    public let macAddress: MACAddress?
+    public let mtu: UInt32
 
     @available(macOS 26, *)
     // `reference` isn't used concurrently.
@@ -36,26 +38,30 @@ public final class NATNetworkInterface: Interface, Sendable {
 
     @available(macOS 26, *)
     public init(
-        address: String,
-        gateway: String?,
+        ipv4Address: CIDRv4,
+        ipv4Gateway: IPv4Address?,
         reference: sending vmnet_network_ref,
-        macAddress: String? = nil
+        macAddress: MACAddress? = nil,
+        mtu: UInt32 = 1500
     ) {
-        self.address = address
-        self.gateway = gateway
+        self.ipv4Address = ipv4Address
+        self.ipv4Gateway = ipv4Gateway
         self.macAddress = macAddress
+        self.mtu = mtu
         self.reference = reference
     }
 
-    @available(macOS, obsoleted: 26, message: "Use init(address:gateway:reference:macAddress:) instead")
+    @available(macOS, obsoleted: 26, message: "Use init(ipv4Address:ipv4Gateway:reference:macAddress:) instead")
     public init(
-        address: String,
-        gateway: String?,
-        macAddress: String? = nil
+        ipv4Address: CIDRv4,
+        ipv4Gateway: IPv4Address?,
+        macAddress: MACAddress? = nil,
+        mtu: UInt32 = 1500
     ) {
-        self.address = address
-        self.gateway = gateway
+        self.ipv4Address = ipv4Address
+        self.ipv4Gateway = ipv4Gateway
         self.macAddress = macAddress
+        self.mtu = mtu
         self.reference = nil
     }
 }
@@ -65,7 +71,7 @@ extension NATNetworkInterface: VZInterface {
     public func device() throws -> VZVirtioNetworkDeviceConfiguration {
         let config = VZVirtioNetworkDeviceConfiguration()
         if let macAddress = self.macAddress {
-            guard let mac = VZMACAddress(string: macAddress) else {
+            guard let mac = VZMACAddress(string: macAddress.description) else {
                 throw ContainerizationError(.invalidArgument, message: "invalid mac address \(macAddress)")
             }
             config.macAddress = mac

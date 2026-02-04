@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -157,6 +157,7 @@ public struct Process: Codable, Sendable {
         }()
         self.init(args: args, cwd: cwd, env: env, user: user)
     }
+
     public init(from decoder: Decoder) throws {
         self.init()
 
@@ -194,24 +195,50 @@ public struct Process: Codable, Sendable {
 }
 
 public struct LinuxCapabilities: Codable, Sendable {
-    public var bounding: [String]
-    public var effective: [String]
-    public var inheritable: [String]
-    public var permitted: [String]
-    public var ambient: [String]
+    public var bounding: [String]?
+    public var effective: [String]?
+    public var inheritable: [String]?
+    public var permitted: [String]?
+    public var ambient: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case bounding
+        case effective
+        case inheritable
+        case permitted
+        case ambient
+    }
 
     public init(
-        bounding: [String],
-        effective: [String],
-        inheritable: [String],
-        permitted: [String],
-        ambient: [String]
+        bounding: [String]? = nil,
+        effective: [String]? = nil,
+        inheritable: [String]? = nil,
+        permitted: [String]? = nil,
+        ambient: [String]? = nil
     ) {
         self.bounding = bounding
         self.effective = effective
         self.inheritable = inheritable
         self.permitted = permitted
         self.ambient = ambient
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.bounding = try container.decodeIfPresent([String].self, forKey: .bounding)
+        self.effective = try container.decodeIfPresent([String].self, forKey: .effective)
+        self.inheritable = try container.decodeIfPresent([String].self, forKey: .inheritable)
+        self.permitted = try container.decodeIfPresent([String].self, forKey: .permitted)
+        self.ambient = try container.decodeIfPresent([String].self, forKey: .ambient)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(bounding, forKey: .bounding)
+        try container.encodeIfPresent(effective, forKey: .effective)
+        try container.encodeIfPresent(inheritable, forKey: .inheritable)
+        try container.encodeIfPresent(permitted, forKey: .permitted)
+        try container.encodeIfPresent(ambient, forKey: .ambient)
     }
 }
 
@@ -399,6 +426,22 @@ public struct Linux: Codable, Sendable {
     public var mountLabel: String
     public var personality: LinuxPersonality?
 
+    public enum CodingKeys: String, CodingKey {
+        case uidMappings
+        case gidMappings
+        case sysctl
+        case resources
+        case cgroupsPath
+        case namespaces
+        case devices
+        case seccomp
+        case rootfsPropagation
+        case maskedPaths
+        case readonlyPaths
+        case mountLabel
+        case personality
+    }
+
     public init(
         uidMappings: [LinuxIDMapping] = [],
         gidMappings: [LinuxIDMapping] = [],
@@ -427,6 +470,43 @@ public struct Linux: Codable, Sendable {
         self.readonlyPaths = readonlyPaths
         self.mountLabel = mountLabel
         self.personality = personality
+    }
+
+    public init(from decoder: Decoder) throws {
+        self.init()
+
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let uidMappings = try container.decodeIfPresent([LinuxIDMapping].self, forKey: .uidMappings) {
+            self.uidMappings = uidMappings
+        }
+        if let gidMappings = try container.decodeIfPresent([LinuxIDMapping].self, forKey: .gidMappings) {
+            self.gidMappings = gidMappings
+        }
+        self.sysctl = try container.decodeIfPresent([String: String].self, forKey: .sysctl)
+        self.resources = try container.decodeIfPresent(LinuxResources.self, forKey: .resources)
+        if let cgroupsPath = try container.decodeIfPresent(String.self, forKey: .cgroupsPath) {
+            self.cgroupsPath = cgroupsPath
+        }
+        if let namespaces = try container.decodeIfPresent([LinuxNamespace].self, forKey: .namespaces) {
+            self.namespaces = namespaces
+        }
+        if let devices = try container.decodeIfPresent([LinuxDevice].self, forKey: .devices) {
+            self.devices = devices
+        }
+        self.seccomp = try container.decodeIfPresent(LinuxSeccomp.self, forKey: .seccomp)
+        if let rootfsPropagation = try container.decodeIfPresent(String.self, forKey: .rootfsPropagation) {
+            self.rootfsPropagation = rootfsPropagation
+        }
+        if let maskedPaths = try container.decodeIfPresent([String].self, forKey: .maskedPaths) {
+            self.maskedPaths = maskedPaths
+        }
+        if let readonlyPaths = try container.decodeIfPresent([String].self, forKey: .readonlyPaths) {
+            self.readonlyPaths = readonlyPaths
+        }
+        if let mountLabel = try container.decodeIfPresent(String.self, forKey: .mountLabel) {
+            self.mountLabel = mountLabel
+        }
+        self.personality = try container.decodeIfPresent(LinuxPersonality.self, forKey: .personality)
     }
 }
 

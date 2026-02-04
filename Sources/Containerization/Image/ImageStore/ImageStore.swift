@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -124,7 +124,7 @@ extension ImageStore {
         try await self.lock.withLock { lockCtx in
             try await self.referenceManager.delete(reference: reference)
             if performCleanup {
-                try await self._cleanupOrphanedBlobs(lockCtx)
+                try await self._cleanUpOrphanedBlobs(lockCtx)
             }
         }
     }
@@ -135,9 +135,9 @@ extension ImageStore {
     ///   `deleted` :  A  list of the names of the content items that were deleted from the `ContentStore`,
     ///   `freed` : The total size of the items that were deleted.
     @discardableResult
-    public func cleanupOrphanedBlobs() async throws -> (deleted: [String], freed: UInt64) {
+    public func cleanUpOrphanedBlobs() async throws -> (deleted: [String], freed: UInt64) {
         try await self.lock.withLock { lockCtx in
-            try await self._cleanupOrphanedBlobs(lockCtx)
+            try await self._cleanUpOrphanedBlobs(lockCtx)
         }
     }
 
@@ -151,7 +151,7 @@ extension ImageStore {
     }
 
     @discardableResult
-    private func _cleanupOrphanedBlobs(_ lock: AsyncLock.Context) async throws -> (deleted: [String], freed: UInt64) {
+    private func _cleanUpOrphanedBlobs(_ lock: AsyncLock.Context) async throws -> (deleted: [String], freed: UInt64) {
         let images = try await self.list()
         var referenced: [String] = []
         for image in images {
@@ -208,7 +208,7 @@ extension ImageStore {
         do {
             _ = try Reference.parse(new)
         } catch {
-            throw ContainerizationError(.invalidArgument, message: "Invalid reference \(new). Error: \(error)")
+            throw ContainerizationError(.invalidArgument, message: "invalid reference \(new), error: \(error)")
         }
         let newDescription = Image.Description(reference: new, descriptor: descriptor)
         return try await self.create(description: newDescription)
@@ -237,12 +237,12 @@ extension ImageStore {
     ) async throws -> Image {
 
         let matcher = createPlatformMatcher(for: platform)
-        let client = try RegistryClient(reference: reference, insecure: insecure, auth: auth)
+        let client = try RegistryClient(reference: reference, insecure: insecure, auth: auth, tlsConfiguration: TLSUtils.makeEnvironmentAwareTLSConfiguration())
 
         let ref = try Reference.parse(reference)
         let name = ref.path
         guard let tag = ref.tag ?? ref.digest else {
-            throw ContainerizationError(.invalidArgument, message: "Invalid tag/digest for image reference \(reference)")
+            throw ContainerizationError(.invalidArgument, message: "invalid tag/digest for image reference \(reference)")
         }
 
         let rootDescriptor = try await client.resolve(name: name, tag: tag)
@@ -282,14 +282,14 @@ extension ImageStore {
         let img = try await self.get(reference: reference)
         let allowedMediaTypes = [MediaTypes.dockerManifestList, MediaTypes.index]
         guard allowedMediaTypes.contains(img.mediaType) else {
-            throw ContainerizationError(.internalError, message: "Cannot push image \(reference) with Index media type \(img.mediaType)")
+            throw ContainerizationError(.internalError, message: "cannot push image \(reference) with Index media type \(img.mediaType)")
         }
         let ref = try Reference.parse(reference)
         let name = ref.path
         guard let tag = ref.tag ?? ref.digest else {
-            throw ContainerizationError(.invalidArgument, message: "Invalid tag/digest for image reference \(reference)")
+            throw ContainerizationError(.invalidArgument, message: "invalid tag/digest for image reference \(reference)")
         }
-        let client = try RegistryClient(reference: reference, insecure: insecure, auth: auth)
+        let client = try RegistryClient(reference: reference, insecure: insecure, auth: auth, tlsConfiguration: TLSUtils.makeEnvironmentAwareTLSConfiguration())
         let operation = ExportOperation(name: name, tag: tag, contentStore: self.contentStore, client: client, progress: progress)
         try await operation.export(index: img.descriptor, platforms: matcher)
     }
