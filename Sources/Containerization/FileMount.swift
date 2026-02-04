@@ -230,7 +230,7 @@ extension FileMountContext {
 
 extension FileMountContext {
     /// Clean up temp directories.
-    func cleanup() {
+    func cleanUp() {
         let fm = FileManager.default
         for prepared in preparedMounts {
             try? fm.removeItem(at: prepared.tempDirectory)

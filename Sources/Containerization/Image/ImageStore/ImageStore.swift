@@ -124,7 +124,7 @@ extension ImageStore {
         try await self.lock.withLock { lockCtx in
             try await self.referenceManager.delete(reference: reference)
             if performCleanup {
-                try await self._cleanupOrphanedBlobs(lockCtx)
+                try await self._cleanUpOrphanedBlobs(lockCtx)
             }
         }
     }
@@ -135,9 +135,9 @@ extension ImageStore {
     ///   `deleted` :  A  list of the names of the content items that were deleted from the `ContentStore`,
     ///   `freed` : The total size of the items that were deleted.
     @discardableResult
-    public func cleanupOrphanedBlobs() async throws -> (deleted: [String], freed: UInt64) {
+    public func cleanUpOrphanedBlobs() async throws -> (deleted: [String], freed: UInt64) {
         try await self.lock.withLock { lockCtx in
-            try await self._cleanupOrphanedBlobs(lockCtx)
+            try await self._cleanUpOrphanedBlobs(lockCtx)
         }
     }
 
@@ -151,7 +151,7 @@ extension ImageStore {
     }
 
     @discardableResult
-    private func _cleanupOrphanedBlobs(_ lock: AsyncLock.Context) async throws -> (deleted: [String], freed: UInt64) {
+    private func _cleanUpOrphanedBlobs(_ lock: AsyncLock.Context) async throws -> (deleted: [String], freed: UInt64) {
         let images = try await self.list()
         var referenced: [String] = []
         for image in images {
