@@ -231,7 +231,7 @@ extension SocketRelay {
     ) async throws {
         do {
             let guestConn = try await vm.dial(port)
-            log?.info(
+            log?.debug(
                 "initiating connection from host to guest",
                 metadata: [
                     "vport": "\(port)",
@@ -260,7 +260,7 @@ extension SocketRelay {
             type: socketType,
             closeOnDeinit: false
         )
-        log?.info(
+        log?.debug(
             "initiating connection from guest to host",
             metadata: [
                 "vport": "\(port)",
@@ -343,7 +343,7 @@ extension SocketRelay {
             self.state.withLock { _ in
                 connSource.cancel()
                 if vsockConnectionSource.isCancelled {
-                    self.log?.info(
+                    self.log?.debug(
                         "close file descriptors",
                         metadata: [
                             "hostFd": "\(hostConn.fileDescriptor)",
@@ -370,7 +370,7 @@ extension SocketRelay {
             self.state.withLock { _ in
                 vsockConnectionSource.cancel()
                 if connSource.isCancelled {
-                    self.log?.info(
+                    self.log?.debug(
                         "close file descriptors",
                         metadata: [
                             "hostFd": "\(hostConn.fileDescriptor)",
