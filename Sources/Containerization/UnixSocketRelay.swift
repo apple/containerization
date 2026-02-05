@@ -86,15 +86,9 @@ package final class SocketRelay: Sendable {
     private let state: Mutex<State>
 
     private struct State {
-        var relaySources: [String: ConnectionSources] = [:]
+        var activeRelays: [String: BidirectionalRelay] = [:]
         var t: Task<(), Never>? = nil
         var listener: VsockListener? = nil
-    }
-
-    // `DispatchSourceRead` is thread-safe.
-    private struct ConnectionSources: @unchecked Sendable {
-        let hostSource: DispatchSourceRead
-        let guestSource: DispatchSourceRead
     }
 
     init(
@@ -137,11 +131,10 @@ extension SocketRelay {
             }
             t.cancel()
             $0.t = nil
-            for (_, sources) in $0.relaySources {
-                sources.hostSource.cancel()
-                sources.guestSource.cancel()
+            for (_, relay) in $0.activeRelays {
+                relay.stop()
             }
-            $0.relaySources.removeAll()
+            $0.activeRelays.removeAll()
 
             switch configuration.direction {
             case .outOf:
@@ -283,216 +276,20 @@ extension SocketRelay {
         hostConn: Socket,
         guestFd: Int32
     ) async throws {
-        // set up the source for host to guest transfers
-        let connSource = DispatchSource.makeReadSource(
-            fileDescriptor: hostConn.fileDescriptor,
-            queue: self.q
+        let hostFd = hostConn.fileDescriptor
+
+        let relayID = UUID().uuidString
+        let relay = BidirectionalRelay(
+            fd1: hostFd,
+            fd2: guestFd,
+            queue: self.q,
+            log: self.log
         )
 
-        // set up the source for guest to host transfers
-        let vsockConnectionSource = DispatchSource.makeReadSource(
-            fileDescriptor: guestFd,
-            queue: self.q
-        )
-
-        // add the sources to the connection map
-        let pairID = UUID().uuidString
         self.state.withLock {
-            $0.relaySources[pairID] = ConnectionSources(
-                hostSource: connSource,
-                guestSource: vsockConnectionSource
-            )
+            $0.activeRelays[relayID] = relay
         }
 
-        // `buf1` is thread-safe because it is only used when servicing a serial dispatch queue
-        nonisolated(unsafe) let buf1 = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: Int(getpagesize()))
-        connSource.setEventHandler {
-            Self.fdCopyHandler(
-                buffer: buf1,
-                source: connSource,
-                from: hostConn.fileDescriptor,
-                to: guestFd,
-                log: self.log
-            )
-        }
-
-        // `buf2` is thread-safe because it is only used when servicing a serial dispatch queue
-        nonisolated(unsafe) let buf2 = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: Int(getpagesize()))
-        vsockConnectionSource.setEventHandler {
-            Self.fdCopyHandler(
-                buffer: buf2,
-                source: vsockConnectionSource,
-                from: guestFd,
-                to: hostConn.fileDescriptor,
-                log: self.log
-            )
-        }
-
-        connSource.setCancelHandler {
-            self.log?.debug(
-                "host cancel received",
-                metadata: [
-                    "hostFd": "\(hostConn.fileDescriptor)",
-                    "guestFd": "\(guestFd)",
-                ])
-
-            buf1.deallocate()
-
-            // only close underlying fds when both sources are at EOF
-            // ensure that one of the cancel handlers will see both sources cancelled
-            self.state.withLock { _ in
-                connSource.cancel()
-                if vsockConnectionSource.isCancelled {
-                    self.log?.debug(
-                        "close file descriptors",
-                        metadata: [
-                            "hostFd": "\(hostConn.fileDescriptor)",
-                            "guestFd": "\(guestFd)",
-                        ])
-                    try? hostConn.close()
-                    close(guestFd)
-                }
-            }
-        }
-
-        vsockConnectionSource.setCancelHandler {
-            self.log?.debug(
-                "guest cancel received",
-                metadata: [
-                    "hostFd": "\(hostConn.fileDescriptor)",
-                    "guestFd": "\(guestFd)",
-                ])
-
-            buf2.deallocate()
-
-            // only close underlying fds when both sources are at EOF
-            // ensure that one of the cancel handlers will see both sources cancelled
-            self.state.withLock { _ in
-                vsockConnectionSource.cancel()
-                if connSource.isCancelled {
-                    self.log?.debug(
-                        "close file descriptors",
-                        metadata: [
-                            "hostFd": "\(hostConn.fileDescriptor)",
-                            "guestFd": "\(guestFd)",
-                        ])
-                    try? hostConn.close()
-                    close(guestFd)
-                }
-            }
-        }
-
-        connSource.activate()
-        vsockConnectionSource.activate()
-    }
-
-    private static func fdCopyHandler(
-        buffer: UnsafeMutableBufferPointer<UInt8>,
-        source: DispatchSourceRead,
-        from sourceFd: Int32,
-        to destinationFd: Int32,
-        log: Logger? = nil
-    ) {
-        if source.data == 0 {
-            log?.debug(
-                "source EOF",
-                metadata: [
-                    "sourceFd": "\(sourceFd)",
-                    "destinationFd": "\(destinationFd)",
-                ])
-            if !source.isCancelled {
-                log?.debug(
-                    "canceling DispatchSourceRead",
-                    metadata: [
-                        "sourceFd": "\(sourceFd)",
-                        "destinationFd": "\(destinationFd)",
-                    ])
-                source.cancel()
-                if shutdown(destinationFd, Int32(SHUT_WR)) != 0 {
-                    log?.warning(
-                        "failed to shut down writes",
-                        metadata: [
-                            "errno": "\(errno)",
-                            "sourceFd": "\(sourceFd)",
-                            "destinationFd": "\(destinationFd)",
-                        ]
-                    )
-                }
-            }
-            return
-        }
-
-        do {
-            log?.trace(
-                "source copy",
-                metadata: [
-                    "sourceFd": "\(sourceFd)",
-                    "destinationFd": "\(destinationFd)",
-                    "size": "\(source.data)",
-                ])
-            try self.fileDescriptorCopy(
-                buffer: buffer,
-                size: source.data,
-                from: sourceFd,
-                to: destinationFd
-            )
-        } catch {
-            log?.error("file descriptor copy failed \(error)")
-            if !source.isCancelled {
-                source.cancel()
-                if shutdown(destinationFd, Int32(SHUT_RDWR)) != 0 {
-                    log?.warning(
-                        "failed to shut down destination after I/O error",
-                        metadata: [
-                            "errno": "\(errno)",
-                            "sourceFd": "\(sourceFd)",
-                            "destinationFd": "\(destinationFd)",
-                        ]
-                    )
-                }
-            }
-        }
-    }
-
-    private static func fileDescriptorCopy(
-        buffer: UnsafeMutableBufferPointer<UInt8>,
-        size: UInt,
-        from sourceFd: Int32,
-        to destinationFd: Int32
-    ) throws {
-        let bufferSize = buffer.count
-        var readBytesRemaining = min(Int(size), bufferSize)
-
-        guard let baseAddr = buffer.baseAddress else {
-            throw ContainerizationError(
-                .invalidState,
-                message: "buffer has no base address"
-            )
-        }
-
-        while readBytesRemaining > 0 {
-            let readResult = read(sourceFd, baseAddr, min(bufferSize, readBytesRemaining))
-            if readResult <= 0 {
-                throw ContainerizationError(
-                    .internalError,
-                    message: "zero byte read or error in socket relay: fd \(sourceFd), result \(readResult)"
-                )
-            }
-            readBytesRemaining -= readResult
-
-            var writeBytesRemaining = readResult
-            var writeOffset = 0
-            while writeBytesRemaining > 0 {
-                let writeResult = write(destinationFd, baseAddr + writeOffset, writeBytesRemaining)
-                if writeResult <= 0 {
-                    throw ContainerizationError(
-                        .internalError,
-                        message: "zero byte write or error in socket relay: fd \(destinationFd), result \(writeResult)"
-                    )
-                }
-                writeOffset += writeResult
-                writeBytesRemaining -= writeResult
-            }
-        }
+        relay.start()
     }
 }
