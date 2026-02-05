@@ -481,14 +481,16 @@ extension SocketRelay {
             readBytesRemaining -= readResult
 
             var writeBytesRemaining = readResult
+            var writeOffset = 0
             while writeBytesRemaining > 0 {
-                let writeResult = write(destinationFd, baseAddr, writeBytesRemaining)
+                let writeResult = write(destinationFd, baseAddr + writeOffset, writeBytesRemaining)
                 if writeResult <= 0 {
                     throw ContainerizationError(
                         .internalError,
                         message: "zero byte write or error in socket relay: fd \(destinationFd), result \(writeResult)"
                     )
                 }
+                writeOffset += writeResult
                 writeBytesRemaining -= writeResult
             }
         }
