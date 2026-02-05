@@ -475,7 +475,7 @@ extension SocketRelay {
             if readResult <= 0 {
                 throw ContainerizationError(
                     .internalError,
-                    message: "missing pointer base address"
+                    message: "zero byte read or error in socket relay: fd \(sourceFd), result \(readResult)"
                 )
             }
             readBytesRemaining -= readResult
