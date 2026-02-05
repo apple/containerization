@@ -410,7 +410,7 @@ extension SocketRelay {
                 source.cancel()
                 if shutdown(destinationFd, Int32(SHUT_WR)) != 0 {
                     log?.warning(
-                        "failed to shut down reads",
+                        "failed to shut down writes",
                         metadata: [
                             "errno": "\(errno)",
                             "sourceFd": "\(sourceFd)",
