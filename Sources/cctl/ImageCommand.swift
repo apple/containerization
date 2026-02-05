@@ -275,8 +275,8 @@ extension Application {
             if let authentication {
                 return try await body(authentication)
             }
-            let keychain = KeychainHelper(id: Application.keychainID)
-            authentication = try? keychain.lookup(domain: host)
+            let keychain = KeychainHelper(securityDomain: Application.keychainID)
+            authentication = try? keychain.lookup(hostname: host)
             return try await body(authentication)
         }
 
