@@ -398,14 +398,14 @@ extension SocketRelay {
                 "source EOF",
                 metadata: [
                     "sourceFd": "\(sourceFd)",
-                    "dstFd": "\(destinationFd)",
+                    "destinationFd": "\(destinationFd)",
                 ])
             if !source.isCancelled {
                 log?.debug(
                     "canceling DispatchSourceRead",
                     metadata: [
                         "sourceFd": "\(sourceFd)",
-                        "dstFd": "\(destinationFd)",
+                        "destinationFd": "\(destinationFd)",
                     ])
                 source.cancel()
                 if shutdown(destinationFd, Int32(SHUT_WR)) != 0 {
@@ -414,7 +414,7 @@ extension SocketRelay {
                         metadata: [
                             "errno": "\(errno)",
                             "sourceFd": "\(sourceFd)",
-                            "dstFd": "\(destinationFd)",
+                            "destinationFd": "\(destinationFd)",
                         ]
                     )
                 }
@@ -427,7 +427,7 @@ extension SocketRelay {
                 "source copy",
                 metadata: [
                     "sourceFd": "\(sourceFd)",
-                    "dstFd": "\(destinationFd)",
+                    "destinationFd": "\(destinationFd)",
                     "size": "\(source.data)",
                 ])
             try self.fileDescriptorCopy(
@@ -446,7 +446,7 @@ extension SocketRelay {
                         metadata: [
                             "errno": "\(errno)",
                             "sourceFd": "\(sourceFd)",
-                            "dstFd": "\(destinationFd)",
+                            "destinationFd": "\(destinationFd)",
                         ]
                     )
                 }
