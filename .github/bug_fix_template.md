@@ -15,7 +15,7 @@
 
 - [ ] The bug fix fully resolves the issue.
 - [ ] Tests have been added or updated appropriately.
-- [ ] Documentation has been updated appropriately..
+- [ ] Documentation has been updated appropriately.
 - [ ] Commented-out code and debugging artifacts have been removed.
 - [ ] Commit messages are clear and appropriate.
 - [ ] The PR title accurately reflects the code changes.
@@ -23,5 +23,5 @@
 ### Code of Conduct
 <!-- By submitting this PR, you agree to follow the project's Code of Conduct. -->
 
-- [ ] I agree to follow this project's [Code of Conduct](CODE_OF_CONDUCT.md)
+- [ ] I agree to follow this project's [Code of Conduct](https://github.com/apple/.github/blob/main/CODE_OF_CONDUCT.md)
 
