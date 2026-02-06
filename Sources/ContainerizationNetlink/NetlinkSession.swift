@@ -201,6 +201,34 @@ public struct NetlinkSession {
     ///   - interface: The name of the interface.
     ///   - ipv4Address: The CIDRv4 address describing the interface IP and subnet prefix length.
     public func addressAdd(interface: String, ipv4Address: CIDRv4) throws {
+        try addressAddInternal(
+            interface: interface,
+            addressBytes: ipv4Address.address.bytes,
+            prefixLength: ipv4Address.prefix.length,
+            family: UInt8(AddressFamily.AF_INET)
+        )
+    }
+
+    /// Adds an IPv6 address to an interface.
+    /// - Parameters:
+    ///   - interface: The name of the interface.
+    ///   - ipv6Address: The CIDRv6 address describing the interface IP and subnet prefix length.
+    public func addressAdd(interface: String, ipv6Address: CIDRv6) throws {
+        try addressAddInternal(
+            interface: interface,
+            addressBytes: ipv6Address.address.bytes,
+            prefixLength: ipv6Address.prefix.length,
+            family: UInt8(AddressFamily.AF_INET6)
+        )
+    }
+
+    /// Internal implementation for adding an IP address to an interface.
+    /// - Parameters:
+    ///   - interface: The name of the interface.
+    ///   - addressBytes: The IP address bytes (4 for IPv4, 16 for IPv6).
+    ///   - prefixLength: The prefix length.
+    ///   - family: The address family (AF_INET or AF_INET6).
+    private func addressAddInternal(interface: String, addressBytes: [UInt8], prefixLength: UInt8, family: UInt8) throws {
         // ip addr add [addr] dev [interface]
         // ip address {add|change|replace} IFADDR dev IFNAME [ LIFETIME ] [ CONFFLAG-LIST ]
         // IFADDR := PREFIX | ADDR peer PREFIX
@@ -213,8 +241,7 @@ public struct NetlinkSession {
         // LFT := forever | SECONDS
         let interfaceIndex = try getInterfaceIndex(interface)
 
-        let ipAddressBytes = ipv4Address.address.bytes
-        let addressAttrSize = RTAttribute.size + MemoryLayout<UInt8>.size * ipAddressBytes.count
+        let addressAttrSize = RTAttribute.size + MemoryLayout<UInt8>.size * addressBytes.count
         let requestSize = NetlinkMessageHeader.size + AddressInfo.size + 2 * addressAttrSize
         var requestBuffer = [UInt8](repeating: 0, count: requestSize)
         var requestOffset = 0
@@ -229,8 +256,8 @@ public struct NetlinkSession {
         requestOffset = try header.appendBuffer(&requestBuffer, offset: requestOffset)
 
         let requestInfo = AddressInfo(
-            family: UInt8(AddressFamily.AF_INET),
-            prefixLength: ipv4Address.prefix.length,
+            family: family,
+            prefixLength: prefixLength,
             flags: 0,
             scope: NetlinkScope.RT_SCOPE_UNIVERSE,
             index: UInt32(interfaceIndex))
@@ -238,13 +265,13 @@ public struct NetlinkSession {
 
         let ipLocalAttr = RTAttribute(len: UInt16(addressAttrSize), type: AddressAttributeType.IFA_LOCAL)
         requestOffset = try ipLocalAttr.appendBuffer(&requestBuffer, offset: requestOffset)
-        guard var requestOffset = requestBuffer.copyIn(buffer: ipAddressBytes, offset: requestOffset) else {
+        guard var requestOffset = requestBuffer.copyIn(buffer: addressBytes, offset: requestOffset) else {
             throw BindError.sendMarshalFailure(type: "RTAttribute", field: "IFA_LOCAL")
         }
 
         let ipAddressAttr = RTAttribute(len: UInt16(addressAttrSize), type: AddressAttributeType.IFA_ADDRESS)
         requestOffset = try ipAddressAttr.appendBuffer(&requestBuffer, offset: requestOffset)
-        guard let requestOffset = requestBuffer.copyIn(buffer: ipAddressBytes, offset: requestOffset) else {
+        guard let requestOffset = requestBuffer.copyIn(buffer: addressBytes, offset: requestOffset) else {
             throw BindError.sendMarshalFailure(type: "RTAttribute", field: "IFA_ADDRESS")
         }
 
@@ -353,9 +380,40 @@ public struct NetlinkSession {
         interface: String,
         ipv4Gateway: IPv4Address
     ) throws {
+        try routeAddDefaultInternal(
+            interface: interface,
+            gatewayBytes: ipv4Gateway.bytes,
+            family: UInt8(AddressFamily.AF_INET)
+        )
+    }
+
+    /// Adds a default IPv6 route to an interface.
+    /// - Parameters:
+    ///   - interface: The name of the interface.
+    ///   - ipv6Gateway: The gateway address.
+    public func routeAddDefault(
+        interface: String,
+        ipv6Gateway: IPv6Address
+    ) throws {
+        try routeAddDefaultInternal(
+            interface: interface,
+            gatewayBytes: ipv6Gateway.bytes,
+            family: UInt8(AddressFamily.AF_INET6)
+        )
+    }
+
+    /// Internal implementation for adding a default route to an interface.
+    /// - Parameters:
+    ///   - interface: The name of the interface.
+    ///   - gatewayBytes: The gateway address bytes (4 for IPv4, 16 for IPv6).
+    ///   - family: The address family (AF_INET or AF_INET6).
+    private func routeAddDefaultInternal(
+        interface: String,
+        gatewayBytes: [UInt8],
+        family: UInt8
+    ) throws {
         // ip route add default via [dst-address] src [src-address]
-        let dstAddrBytes = ipv4Gateway.bytes
-        let dstAddrAttrSize = RTAttribute.size + dstAddrBytes.count
+        let dstAddrAttrSize = RTAttribute.size + gatewayBytes.count
 
         let interfaceAttrSize = RTAttribute.size + MemoryLayout<UInt32>.size
         let interfaceIndex = try getInterfaceIndex(interface)
@@ -373,7 +431,7 @@ public struct NetlinkSession {
         requestOffset = try header.appendBuffer(&requestBuffer, offset: requestOffset)
 
         let requestInfo = RouteInfo(
-            family: UInt8(AddressFamily.AF_INET),
+            family: family,
             dstLen: 0,
             srcLen: 0,
             tos: 0,
@@ -386,7 +444,7 @@ public struct NetlinkSession {
 
         let dstAddrAttr = RTAttribute(len: UInt16(dstAddrAttrSize), type: RouteAttributeType.GATEWAY)
         requestOffset = try dstAddrAttr.appendBuffer(&requestBuffer, offset: requestOffset)
-        guard var requestOffset = requestBuffer.copyIn(buffer: dstAddrBytes, offset: requestOffset) else {
+        guard var requestOffset = requestBuffer.copyIn(buffer: gatewayBytes, offset: requestOffset) else {
             throw BindError.sendMarshalFailure(type: "RTAttribute", field: "RTA_GATEWAY")
         }
         let interfaceAttr = RTAttribute(len: UInt16(interfaceAttrSize), type: RouteAttributeType.OIF)
