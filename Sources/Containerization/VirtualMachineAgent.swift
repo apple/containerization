@@ -89,8 +89,10 @@ public protocol VirtualMachineAgent: Sendable {
     func up(name: String, mtu: UInt32?) async throws
     func down(name: String) async throws
     func addressAdd(name: String, ipv4Address: CIDRv4) async throws
+    func addressAdd(name: String, ipv6Address: CIDRv6) async throws
     func routeAddLink(name: String, dstIPv4Addr: IPv4Address, srcIPv4Addr: IPv4Address?) async throws
     func routeAddDefault(name: String, ipv4Gateway: IPv4Address) async throws
+    func routeAddDefault(name: String, ipv6Gateway: IPv6Address) async throws
     func configureDNS(config: DNS, location: String) async throws
     func configureHosts(config: Hosts, location: String) async throws
 
@@ -105,6 +107,14 @@ extension VirtualMachineAgent {
 
     public func configureHosts(config: Hosts, location: String) async throws {
         throw ContainerizationError(.unsupported, message: "configureHosts")
+    }
+
+    public func addressAdd(name: String, ipv6Address: CIDRv6) async throws {
+        throw ContainerizationError(.unsupported, message: "addressAdd IPv6")
+    }
+
+    public func routeAddDefault(name: String, ipv6Gateway: IPv6Address) async throws {
+        throw ContainerizationError(.unsupported, message: "routeAddDefault IPv6")
     }
 
     public func writeFile(path: String, data: Data, flags: WriteFileFlags, mode: UInt32) async throws {
