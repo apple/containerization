@@ -64,13 +64,14 @@ extension VsockProxy {
             return
         }
 
-        log?.info(
+        log?.debug(
             "stopping proxy",
             metadata: [
                 "vport": "\(port)",
                 "uds": "\(path)",
                 "action": "\(action)",
             ])
+
         try listener.close()
         let fm = FileManager.default
         if fm.fileExists(atPath: path.path) {
@@ -85,13 +86,14 @@ extension VsockProxy {
             return
         }
 
-        log?.info(
+        log?.debug(
             "starting proxy",
             metadata: [
                 "vport": "\(port)",
                 "uds": "\(path)",
                 "action": "\(action)",
             ])
+
         switch action {
         case .dial:
             try dialHost()
@@ -145,7 +147,7 @@ extension VsockProxy {
             do {
                 for try await conn in stream {
                     Task {
-                        log?.info(
+                        log?.debug(
                             "accepting connection",
                             metadata: [
                                 "vport": "\(port)",
@@ -213,7 +215,7 @@ extension VsockProxy {
                 //     - read hangup on epoll
                 //     - EOF on splice
                 let cleanup = { @Sendable [log, port, path, action] in
-                    log?.info(
+                    log?.debug(
                         "cleaning up",
                         metadata: [
                             "vport": "\(port)",
