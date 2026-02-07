@@ -73,10 +73,14 @@ extension VsockProxy {
             ])
 
         try listener.close()
-        let fm = FileManager.default
-        if fm.fileExists(atPath: path.path) {
-            try FileManager.default.removeItem(at: path)
+
+        if action == .dial {
+            let fm = FileManager.default
+            if fm.fileExists(atPath: path.path) {
+                try fm.removeItem(at: path)
+            }
         }
+
         task?.cancel()
         self.listener = nil
     }
