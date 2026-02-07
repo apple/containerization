@@ -53,7 +53,7 @@ actor ManagedContainer {
             path: Self.craftBundlePath(id: id),
             spec: spec
         )
-        log.debug("created bundle with spec \(spec)")
+        log.debug("created bundle with spec \(spec.redacted)")
 
         let cgManager = Cgroup2Manager(
             group: URL(filePath: cgroupsPath),
@@ -163,7 +163,7 @@ extension ManagedContainer {
         stdio: HostStdio,
         process: ContainerizationOCI.Process
     ) throws {
-        log.debug("creating exec process with \(process)")
+        log.debug("creating exec process with \(process.redacted)")
 
         // Write the process config to the bundle, and pass this on
         // over to ManagedProcess to deal with.
