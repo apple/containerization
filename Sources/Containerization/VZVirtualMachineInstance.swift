@@ -375,8 +375,19 @@ extension VZVirtualMachineInstance.Configuration {
         config.bootLoader = loader
 
         try initialFilesystem.configure(config: &config)
+
+        // Track used virtiofs tags to avoid creating duplicate VZ devices.
+        // The same source directory mounted to multiple destinations shares one device.
+        var usedVirtioFSTags: Set<String> = []
         for (_, mounts) in self.mountsByID {
             for mount in mounts {
+                if case .virtiofs = mount.runtimeOptions {
+                    let tag = try hashMountSource(source: mount.source)
+                    if usedVirtioFSTags.contains(tag) {
+                        continue
+                    }
+                    usedVirtioFSTags.insert(tag)
+                }
                 try mount.configure(config: &config)
             }
         }
