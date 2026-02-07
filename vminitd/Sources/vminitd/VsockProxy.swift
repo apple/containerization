@@ -59,6 +59,27 @@ actor VsockProxy {
 }
 
 extension VsockProxy {
+    func start() throws {
+        guard listener == nil else {
+            return
+        }
+
+        log?.debug(
+            "starting proxy",
+            metadata: [
+                "vport": "\(port)",
+                "uds": "\(path)",
+                "action": "\(action)",
+            ])
+
+        switch action {
+        case .dial:
+            try dialHost()
+        case .listen:
+            try dialGuest()
+        }
+    }
+
     func close() throws {
         guard let listener else {
             return
@@ -83,27 +104,6 @@ extension VsockProxy {
 
         task?.cancel()
         self.listener = nil
-    }
-
-    func start() throws {
-        guard listener == nil else {
-            return
-        }
-
-        log?.debug(
-            "starting proxy",
-            metadata: [
-                "vport": "\(port)",
-                "uds": "\(path)",
-                "action": "\(action)",
-            ])
-
-        switch action {
-        case .dial:
-            try dialHost()
-        case .listen:
-            try dialGuest()
-        }
     }
 
     private func dialHost() throws {
