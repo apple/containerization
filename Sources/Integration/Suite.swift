@@ -339,6 +339,8 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container rlimit open files", testRLimitOpenFiles),
                 Test("container rlimit multiple", testRLimitMultiple),
                 Test("container rlimit exec", testRLimitExec),
+                Test("container duplicate virtiofs mount", testDuplicateVirtiofsMount),
+                Test("container duplicate virtiofs mount via symlink", testDuplicateVirtiofsMountViaSymlink),
 
                 // Pods
                 Test("pod single container", testPodSingleContainer),

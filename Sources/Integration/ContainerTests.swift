@@ -2452,4 +2452,139 @@ extension IntegrationSuite {
             throw error
         }
     }
+
+    func testDuplicateVirtiofsMount() async throws {
+        let id = "test-duplicate-virtiofs-mount"
+
+        let bs = try await bootstrap(id)
+
+        // Create a temp directory with a file
+        let sharedDir = FileManager.default.uniqueTemporaryDirectory(create: true)
+        try "shared content".write(to: sharedDir.appendingPathComponent("data.txt"), atomically: true, encoding: .utf8)
+
+        let buffer1 = BufferWriter()
+        let buffer2 = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            // Mount the same source directory to two different destinations
+            config.mounts.append(.share(source: sharedDir.path, destination: "/mnt1"))
+            config.mounts.append(.share(source: sharedDir.path, destination: "/mnt2"))
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Verify both mounts work. Read from /mnt1, then /mnt2
+            let exec1 = try await container.exec("read-mnt1") { config in
+                config.arguments = ["cat", "/mnt1/data.txt"]
+                config.stdout = buffer1
+            }
+            try await exec1.start()
+            var status = try await exec1.wait()
+            try await exec1.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "read from /mnt1 failed with status \(status)")
+            }
+
+            guard String(data: buffer1.data, encoding: .utf8) == "shared content" else {
+                throw IntegrationError.assert(msg: "unexpected content from /mnt1")
+            }
+
+            let exec2 = try await container.exec("read-mnt2") { config in
+                config.arguments = ["cat", "/mnt2/data.txt"]
+                config.stdout = buffer2
+            }
+            try await exec2.start()
+            status = try await exec2.wait()
+            try await exec2.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "read from /mnt2 failed with status \(status)")
+            }
+
+            guard String(data: buffer2.data, encoding: .utf8) == "shared content" else {
+                throw IntegrationError.assert(msg: "unexpected content from /mnt2")
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testDuplicateVirtiofsMountViaSymlink() async throws {
+        let id = "test-duplicate-virtiofs-mount-symlink"
+
+        let bs = try await bootstrap(id)
+
+        // Create a temp directory with a file, and a symlink to the same directory
+        let tempDir = FileManager.default.uniqueTemporaryDirectory(create: true)
+        let realDir = tempDir.appendingPathComponent("realdir")
+        let symlinkDir = tempDir.appendingPathComponent("symlinkdir")
+
+        try FileManager.default.createDirectory(at: realDir, withIntermediateDirectories: true)
+        try "symlink test content".write(to: realDir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(at: symlinkDir, withDestinationURL: realDir)
+
+        let buffer1 = BufferWriter()
+        let buffer2 = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.mounts.append(.share(source: realDir.path, destination: "/mnt1"))
+            config.mounts.append(.share(source: symlinkDir.path, destination: "/mnt2"))
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            // This should succeed as the symlink should resolve to the same directory
+            try await container.create()
+            try await container.start()
+
+            let exec1 = try await container.exec("read-mnt1") { config in
+                config.arguments = ["cat", "/mnt1/file.txt"]
+                config.stdout = buffer1
+            }
+            try await exec1.start()
+            var status = try await exec1.wait()
+            try await exec1.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "read from /mnt1 failed with status \(status)")
+            }
+
+            guard String(data: buffer1.data, encoding: .utf8) == "symlink test content" else {
+                throw IntegrationError.assert(msg: "unexpected content from /mnt1")
+            }
+
+            // Verify mount via symlink works now
+            let exec2 = try await container.exec("read-mnt2") { config in
+                config.arguments = ["cat", "/mnt2/file.txt"]
+                config.stdout = buffer2
+            }
+            try await exec2.start()
+            status = try await exec2.wait()
+            try await exec2.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "read from /mnt2 failed with status \(status)")
+            }
+
+            guard String(data: buffer2.data, encoding: .utf8) == "symlink test content" else {
+                throw IntegrationError.assert(msg: "unexpected content from /mnt2")
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
 }
