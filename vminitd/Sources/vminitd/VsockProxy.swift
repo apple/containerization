@@ -30,7 +30,8 @@ actor VsockProxy {
         case vsock
     }
 
-    public let id: String
+    let id: String
+
     private let path: URL
     private let action: Action
     private let port: UInt32
