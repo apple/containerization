@@ -440,8 +440,13 @@ public struct ContainerManager: Sendable {
             }
             if let interface = try self.network?.create(id) {
                 config.interfaces = [interface]
-                // FIXME: throw instead of crash here if we can't unwrap?
-                config.dns = .init(nameservers: [interface.ipv4Gateway!.description])
+                guard let gateway = interface.ipv4Gateway else {
+                    throw ContainerizationError(
+                        .invalidState,
+                        message: "missing ipv4 gateway for container \(id)"
+                    )
+                }
+                config.dns = .init(nameservers: [gateway.description])
             }
             config.bootLog = BootLog.file(path: self.containerRoot.appendingPathComponent(id).appendingPathComponent("bootlog.log"))
             try configuration(&config)
