@@ -27,6 +27,7 @@ import Logging
 import NIOCore
 import NIOPosix
 import SwiftProtobuf
+import SystemPackage
 
 private let _setenv = Foundation.setenv
 
@@ -1020,19 +1021,16 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             ])
 
         do {
-            let etc = URL(fileURLWithPath: request.location).appendingPathComponent("etc")
-            try FileManager.default.createDirectory(atPath: etc.path, withIntermediateDirectories: true)
-            let resolvConf = etc.appendingPathComponent("resolv.conf")
+            let resolvConfPath = FilePath(request.location)
+                .appending("etc")
+                .appending("resolv.conf")
             let config = DNS(
                 nameservers: request.nameservers,
                 domain: domain,
                 searchDomains: request.searchDomains,
                 options: request.options
             )
-            let text = config.resolvConf
-            log.debug("writing to path \(resolvConf.path) \(text)")
-            try text.write(toFile: resolvConf.path, atomically: true, encoding: .utf8)
-            log.debug("wrote resolver configuration", metadata: ["path": "\(resolvConf.path)"])
+            try await dnsMonitor.update(resolvConfPath: resolvConfPath, config: config)
         } catch {
             log.error(
                 "configureDns",

@@ -133,7 +133,8 @@ struct InitCommand {
         t.start()
 
         let eg = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
-        let server = Initd(log: log, group: eg)
+        let dnsMonitor = try DNSMonitor(log: log)
+        let server = Initd(log: log, group: eg, dnsMonitor: dnsMonitor)
 
         do {
             log.info("serving vminitd API")
