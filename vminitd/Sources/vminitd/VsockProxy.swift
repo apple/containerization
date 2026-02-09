@@ -30,7 +30,8 @@ actor VsockProxy {
         case vsock
     }
 
-    public let id: String
+    let id: String
+
     private let path: URL
     private let action: Action
     private let port: UInt32
@@ -58,40 +59,20 @@ actor VsockProxy {
 }
 
 extension VsockProxy {
-    func close() throws {
-        guard let listener else {
-            return
-        }
-
-        log?.info(
-            "stopping proxy",
-            metadata: [
-                "vport": "\(port)",
-                "uds": "\(path)",
-                "action": "\(action)",
-            ])
-        try listener.close()
-        let fm = FileManager.default
-        if fm.fileExists(atPath: self.path.path) {
-            try FileManager.default.removeItem(at: self.path)
-        }
-        task?.cancel()
-        self.listener = nil
-    }
-
     func start() throws {
         guard listener == nil else {
             return
         }
 
-        log?.info(
+        log?.debug(
             "starting proxy",
             metadata: [
                 "vport": "\(port)",
                 "uds": "\(path)",
                 "action": "\(action)",
             ])
-        switch self.action {
+
+        switch action {
         case .dial:
             try dialHost()
         case .listen:
@@ -99,18 +80,44 @@ extension VsockProxy {
         }
     }
 
+    func close() throws {
+        guard let listener else {
+            return
+        }
+
+        log?.debug(
+            "stopping proxy",
+            metadata: [
+                "vport": "\(port)",
+                "uds": "\(path)",
+                "action": "\(action)",
+            ])
+
+        try listener.close()
+
+        if action == .dial {
+            let fm = FileManager.default
+            if fm.fileExists(atPath: path.path) {
+                try fm.removeItem(at: path)
+            }
+        }
+
+        task?.cancel()
+        self.listener = nil
+    }
+
     private func dialHost() throws {
         let fm = FileManager.default
 
-        let parentDir = self.path.deletingLastPathComponent()
+        let parentDir = path.deletingLastPathComponent()
         try fm.createDirectory(
             at: parentDir,
             withIntermediateDirectories: true
         )
 
         let type = try UnixType(
-            path: self.path.path,
-            perms: self.udsPerms,
+            path: path.path,
+            perms: udsPerms,
             unlinkExisting: true
         )
         let oldMask = umask(0)
@@ -119,19 +126,19 @@ extension VsockProxy {
         try uds.listen()
         listener = uds
 
-        try self.acceptLoop(socketType: .unix)
+        try acceptLoop(socketType: .unix)
     }
 
     private func dialGuest() throws {
         let type = VsockType(
-            port: self.port,
+            port: port,
             cid: VsockType.anyCID
         )
         let vsock = try Socket(type: type)
         try vsock.listen()
         listener = vsock
 
-        try self.acceptLoop(socketType: .vsock)
+        try acceptLoop(socketType: .vsock)
     }
 
     private func acceptLoop(socketType: SocketType) throws {
@@ -144,7 +151,7 @@ extension VsockProxy {
             do {
                 for try await conn in stream {
                     Task {
-                        log?.info(
+                        log?.debug(
                             "accepting connection",
                             metadata: [
                                 "vport": "\(port)",
@@ -181,7 +188,7 @@ extension VsockProxy {
                 switch connType {
                 case .unix:
                     let type = VsockType(
-                        port: self.port,
+                        port: port,
                         cid: VsockType.hostCID
                     )
                     relayTo = try Socket(
@@ -189,7 +196,7 @@ extension VsockProxy {
                         closeOnDeinit: false
                     )
                 case .vsock:
-                    let type = try UnixType(path: self.path.path)
+                    let type = try UnixType(path: path.path)
                     relayTo = try Socket(
                         type: type,
                         closeOnDeinit: false
@@ -212,7 +219,7 @@ extension VsockProxy {
                 //     - read hangup on epoll
                 //     - EOF on splice
                 let cleanup = { @Sendable [log, port, path, action] in
-                    log?.info(
+                    log?.debug(
                         "cleaning up",
                         metadata: [
                             "vport": "\(port)",
