@@ -15,7 +15,7 @@
 # Build configuration variables
 BUILD_CONFIGURATION ?= debug
 WARNINGS_AS_ERRORS ?= true
-SWIFT_CONFIGURATION := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors)
+SWIFT_CONFIGURATION := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors) --disable-automatic-resolution
 
 # Commonly used locations
 SWIFT := "/usr/bin/swift"

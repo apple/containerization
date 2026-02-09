@@ -15,7 +15,7 @@
 BUILD_CONFIGURATION ?= debug
 WARNINGS_AS_ERRORS ?= true
 SWIFT_WARNING_CONFIG := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors)
-SWIFT_CONFIGURATION := --swift-sdk aarch64-swift-linux-musl $(SWIFT_WARNING_CONFIG) -Xlinker -s
+SWIFT_CONFIGURATION := --swift-sdk aarch64-swift-linux-musl $(SWIFT_WARNING_CONFIG) -Xlinker -s --disable-automatic-resolution
 
 SWIFT_VERSION := 6.2.3
 SWIFT_SDK_URL := https://download.swift.org/swift-6.2.3-release/static-sdk/swift-6.2.3-RELEASE/swift-6.2.3-RELEASE_static-linux-0.0.1.artifactbundle.tar.gz
