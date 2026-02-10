@@ -198,16 +198,16 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 "action": "\(request.action)",
             ])
 
-        do {
-            let proxy = VsockProxy(
-                id: request.id,
-                action: request.action == .into ? .dial : .listen,
-                port: request.vsockPort,
-                path: URL(fileURLWithPath: request.guestPath),
-                udsPerms: request.guestSocketPermissions,
-                log: log
-            )
+        let proxy = VsockProxy(
+            id: request.id,
+            action: request.action == .into ? .dial : .listen,
+            port: request.vsockPort,
+            path: URL(fileURLWithPath: request.guestPath),
+            udsPerms: request.guestSocketPermissions,
+            log: log
+        )
 
+        do {
             try await proxy.start()
             try await state.add(proxy: proxy)
         } catch {
