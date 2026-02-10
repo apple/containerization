@@ -32,7 +32,14 @@ public final class BidirectionalRelay: Sendable {
         let source2: DispatchSourceRead
     }
 
+    private enum CompletionState {
+        case pending
+        case waiting(CheckedContinuation<Void, Never>)
+        case completed
+    }
+
     private let state: Mutex<ConnectionSources?>
+    private let completionState: Mutex<CompletionState>
 
     // The buffers aren't used concurrently.
     private nonisolated(unsafe) let buffer1: UnsafeMutableBufferPointer<UInt8>
@@ -56,6 +63,7 @@ public final class BidirectionalRelay: Sendable {
         self.queue = queue ?? DispatchQueue(label: "com.apple.containerization.bidirectional-relay")
         self.log = log
         self.state = Mutex(nil)
+        self.completionState = Mutex(.pending)
 
         let pageSize = Int(getpagesize())
         self.buffer1 = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: pageSize)
@@ -131,6 +139,22 @@ public final class BidirectionalRelay: Sendable {
             sources?.source1.cancel()
             sources?.source2.cancel()
             sources = nil
+        }
+    }
+
+    /// Waits for the relay to complete.
+    public func waitForCompletion() async {
+        await withCheckedContinuation { c in
+            completionState.withLock { state in
+                switch state {
+                case .pending:
+                    state = .waiting(c)
+                case .waiting:
+                    fatalError("waitForCompletion called multiple times")
+                case .completed:
+                    c.resume()
+                }
+            }
         }
     }
 
@@ -253,5 +277,11 @@ public final class BidirectionalRelay: Sendable {
         )
         close(fd1)
         close(fd2)
+        completionState.withLock { state in
+            if case .waiting(let c) = state {
+                c.resume()
+            }
+            state = .completed
+        }
     }
 }
