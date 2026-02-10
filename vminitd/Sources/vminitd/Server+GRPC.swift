@@ -222,6 +222,14 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             )
         }
 
+        log.info(
+            "proxyVsock started",
+            metadata: [
+                "id": "\(request.id)",
+                "port": "\(request.vsockPort)",
+                "guestPath": "\(request.guestPath)",
+            ])
+
         return .init()
     }
 
@@ -249,6 +257,12 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 message: "stopVsockProxy: failed to stop vsock proxy: \(error)"
             )
         }
+
+        log.info(
+            "stopVsockProxy completed",
+            metadata: [
+                "id": "\(request.id)"
+            ])
 
         return .init()
     }
