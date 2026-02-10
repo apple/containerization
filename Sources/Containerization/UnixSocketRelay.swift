@@ -21,62 +21,6 @@ import Foundation
 import Logging
 import Synchronization
 
-package actor UnixSocketRelayManager {
-    private let vm: any VirtualMachineInstance
-    private var relays: [String: UnixSocketRelay]
-    private let q: DispatchQueue
-    private let log: Logger?
-
-    init(vm: any VirtualMachineInstance, log: Logger? = nil) {
-        self.vm = vm
-        self.relays = [:]
-        self.q = DispatchQueue(label: "com.apple.containerization.socket-relay")
-        self.log = log
-    }
-}
-
-extension UnixSocketRelayManager {
-    func start(port: UInt32, socket: UnixSocketConfiguration) async throws {
-        guard self.relays[socket.id] == nil else {
-            throw ContainerizationError(
-                .invalidState,
-                message: "socket relay \(socket.id) already started"
-            )
-        }
-
-        let relay = try UnixSocketRelay(
-            port: port,
-            socket: socket,
-            vm: self.vm,
-            queue: self.q,
-            log: self.log
-        )
-
-        do {
-            self.relays[socket.id] = relay
-            try await relay.start()
-        } catch {
-            self.relays.removeValue(forKey: socket.id)
-        }
-    }
-
-    func stop(socket: UnixSocketConfiguration) async throws {
-        guard let storedRelay = self.relays.removeValue(forKey: socket.id) else {
-            throw ContainerizationError(
-                .notFound,
-                message: "failed to stop socket relay"
-            )
-        }
-        try storedRelay.stop()
-    }
-
-    func stopAll() async throws {
-        for (_, relay) in self.relays {
-            try relay.stop()
-        }
-    }
-}
-
 package final class UnixSocketRelay: Sendable {
     private let port: UInt32
     private let configuration: UnixSocketConfiguration
