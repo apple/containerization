@@ -51,7 +51,7 @@ package final class UnixSocketRelay: Sendable {
     }
 
     deinit {
-        self.state.withLock { $0.t?.cancel() }
+        state.withLock { $0.t?.cancel() }
     }
 }
 
@@ -66,7 +66,7 @@ extension UnixSocketRelay {
     }
 
     func stop() throws {
-        try self.state.withLock {
+        try state.withLock {
             guard let t = $0.t else {
                 throw ContainerizationError(
                     .invalidState,
@@ -92,7 +92,7 @@ extension UnixSocketRelay {
     }
 
     private func setupHostVsockDial() async throws {
-        let hostConn = self.configuration.destination
+        let hostConn = configuration.destination
 
         let socketType = try UnixType(
             path: hostConn.path,
@@ -105,10 +105,10 @@ extension UnixSocketRelay {
             "listening on host UDS",
             metadata: [
                 "path": "\(hostConn.path)",
-                "vport": "\(self.port)",
+                "vport": "\(port)",
             ])
         let connectionStream = try hostSocket.acceptStream(closeOnDeinit: false)
-        self.state.withLock {
+        state.withLock {
             $0.t = Task {
                 do {
                     for try await connection in connectionStream {
@@ -128,11 +128,9 @@ extension UnixSocketRelay {
     }
 
     private func setupHostVsockListener() throws {
-        let hostPath = self.configuration.source
-        let port = self.port
-        let log = self.log
+        let hostPath = configuration.source
 
-        let listener = try self.vm.listen(self.port)
+        let listener = try vm.listen(port)
         log?.info(
             "listening on guest vsock",
             metadata: [
@@ -140,7 +138,7 @@ extension UnixSocketRelay {
                 "vport": "\(port)",
             ])
 
-        self.state.withLock {
+        state.withLock {
             $0.listener = listener
             $0.t = Task {
                 do {
@@ -149,12 +147,12 @@ extension UnixSocketRelay {
                         try await self.handleGuestVsockConn(
                             vsockConn: connection,
                             hostConnectionPath: hostPath,
-                            port: port,
-                            log: log
+                            port: self.port,
+                            log: self.log
                         )
                     }
                 } catch {
-                    log?.error("failed to setup relay between vsock \(port) and \(hostPath.path): \(error)")
+                    self.log?.error("failed to setup relay between vsock \(self.port) and \(hostPath.path): \(error)")
                 }
             }
         }
@@ -226,11 +224,11 @@ extension UnixSocketRelay {
         let relay = BidirectionalRelay(
             fd1: hostFd,
             fd2: guestFd,
-            queue: self.q,
-            log: self.log
+            queue: q,
+            log: log
         )
 
-        self.state.withLock {
+        state.withLock {
             $0.activeRelays[relayID] = relay
         }
 

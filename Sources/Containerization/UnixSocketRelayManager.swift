@@ -34,7 +34,7 @@ package actor UnixSocketRelayManager {
 
 extension UnixSocketRelayManager {
     func start(port: UInt32, socket: UnixSocketConfiguration) async throws {
-        guard self.relays[socket.id] == nil else {
+        guard relays[socket.id] == nil else {
             throw ContainerizationError(
                 .invalidState,
                 message: "socket relay \(socket.id) already started"
@@ -44,21 +44,21 @@ extension UnixSocketRelayManager {
         let relay = try UnixSocketRelay(
             port: port,
             socket: socket,
-            vm: self.vm,
-            queue: self.q,
-            log: self.log
+            vm: vm,
+            queue: q,
+            log: log
         )
 
         do {
-            self.relays[socket.id] = relay
+            relays[socket.id] = relay
             try await relay.start()
         } catch {
-            self.relays.removeValue(forKey: socket.id)
+            relays.removeValue(forKey: socket.id)
         }
     }
 
     func stop(socket: UnixSocketConfiguration) async throws {
-        guard let storedRelay = self.relays.removeValue(forKey: socket.id) else {
+        guard let storedRelay = relays.removeValue(forKey: socket.id) else {
             throw ContainerizationError(
                 .notFound,
                 message: "failed to stop socket relay"
@@ -68,7 +68,7 @@ extension UnixSocketRelayManager {
     }
 
     func stopAll() async throws {
-        for (_, relay) in self.relays {
+        for (_, relay) in relays {
             try relay.stop()
         }
     }
