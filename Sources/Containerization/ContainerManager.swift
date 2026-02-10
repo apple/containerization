@@ -448,10 +448,17 @@ public struct ContainerManager: Sendable {
         }
     }
 
-    /// Performs the cleanup of a container.
+    /// Releases network resources for a container.
+    ///
+    /// - Parameter id: The container ID.
+    public mutating func release(_ id: String) throws {
+        try self.network?.release(id)
+    }
+
+    /// Releases network resources and removes all files for a container.
     /// - Parameter id: The container ID.
     public mutating func delete(_ id: String) throws {
-        try self.network?.release(id)
+        try self.release(id)
         let path = containerRoot.appendingPathComponent(id)
         try FileManager.default.removeItem(at: path)
     }
