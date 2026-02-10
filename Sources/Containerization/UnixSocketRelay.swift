@@ -23,7 +23,7 @@ import Synchronization
 
 package actor UnixSocketRelayManager {
     private let vm: any VirtualMachineInstance
-    private var relays: [String: SocketRelay]
+    private var relays: [String: UnixSocketRelay]
     private let q: DispatchQueue
     private let log: Logger?
 
@@ -44,7 +44,7 @@ extension UnixSocketRelayManager {
             )
         }
 
-        let socketRelay = try SocketRelay(
+        let relay = try UnixSocketRelay(
             port: port,
             socket: socket,
             vm: self.vm,
@@ -53,8 +53,8 @@ extension UnixSocketRelayManager {
         )
 
         do {
-            self.relays[socket.id] = socketRelay
-            try await socketRelay.start()
+            self.relays[socket.id] = relay
+            try await relay.start()
         } catch {
             self.relays.removeValue(forKey: socket.id)
         }
@@ -77,7 +77,7 @@ extension UnixSocketRelayManager {
     }
 }
 
-package final class SocketRelay: Sendable {
+package final class UnixSocketRelay: Sendable {
     private let port: UInt32
     private let configuration: UnixSocketConfiguration
     private let log: Logger?
@@ -111,7 +111,7 @@ package final class SocketRelay: Sendable {
     }
 }
 
-extension SocketRelay {
+extension UnixSocketRelay {
     func start() async throws {
         switch configuration.direction {
         case .outOf:
