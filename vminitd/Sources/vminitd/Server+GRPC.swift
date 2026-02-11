@@ -211,6 +211,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             try await proxy.start()
             try await state.add(proxy: proxy)
         } catch {
+            try? await proxy.close()
             log.error(
                 "proxyVsock",
                 metadata: [
