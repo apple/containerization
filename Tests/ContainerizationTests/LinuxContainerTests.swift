@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -31,7 +31,7 @@ struct LinuxContainerTests {
             workingDir: "/app"
         )
 
-        let process = LinuxContainer.Configuration.Process(from: imageConfig)
+        let process = LinuxProcessConfiguration(from: imageConfig)
 
         #expect(process.workingDirectory == "/app")
         #expect(process.environmentVariables == ["NODE_ENV=production", "PORT=3000"])
@@ -48,7 +48,7 @@ struct LinuxContainerTests {
             workingDir: nil
         )
 
-        let process = LinuxContainer.Configuration.Process(from: imageConfig)
+        let process = LinuxProcessConfiguration(from: imageConfig)
 
         #expect(process.workingDirectory == "/")
         #expect(process.environmentVariables == [])
@@ -62,7 +62,7 @@ struct LinuxContainerTests {
             cmd: ["echo 'hello'", "&&", "sleep 10"]
         )
 
-        let process = LinuxContainer.Configuration.Process(from: imageConfig)
+        let process = LinuxProcessConfiguration(from: imageConfig)
 
         #expect(process.arguments == ["/bin/sh", "-c", "echo 'hello'", "&&", "sleep 10"])
     }

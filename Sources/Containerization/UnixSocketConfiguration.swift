@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,7 +20,8 @@ import SystemPackage
 /// Represents a UnixSocket that can be shared into or out of a container/guest.
 public struct UnixSocketConfiguration: Sendable {
     // TODO: Realistically, we can just hash this struct and use it as the "id".
-    package var id: String {
+    /// The unique identifier for this socket configuration.
+    public var id: String {
         _id
     }
 

@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,6 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import Cgroup
 import ContainerizationError
 import ContainerizationOCI
 import ContainerizationOS
@@ -22,14 +23,15 @@ import Logging
 
 actor ManagedContainer {
     let id: String
-    let initProcess: ManagedProcess
+    let initProcess: any ContainerProcess
 
     private let cgroupManager: Cgroup2Manager
     private let log: Logger
     private let bundle: ContainerizationOCI.Bundle
-    private var execs: [String: ManagedProcess] = [:]
+    private let needsCgroupCleanup: Bool
+    private var execs: [String: any ContainerProcess] = [:]
 
-    var pid: Int32 {
+    var pid: Int32? {
         self.initProcess.pid
     }
 
@@ -37,8 +39,9 @@ actor ManagedContainer {
         id: String,
         stdio: HostStdio,
         spec: ContainerizationOCI.Spec,
+        ociRuntimePath: String? = nil,
         log: Logger
-    ) throws {
+    ) async throws {
         var cgroupsPath: String
         if let cgPath = spec.linux?.cgroupsPath {
             cgroupsPath = cgPath
@@ -59,20 +62,40 @@ actor ManagedContainer {
         try cgManager.create()
 
         do {
-            try cgManager.toggleSubtreeControllers(
-                controllers: [.cpu, .cpuset, .hugetlb, .io, .memory, .pids],
-                enable: true
-            )
+            try cgManager.toggleAllAvailableControllers(enable: true)
 
-            let initProcess = try ManagedProcess(
-                id: id,
-                stdio: stdio,
-                bundle: bundle,
-                cgroupManager: cgManager,
-                owningPid: nil,
-                log: log
-            )
-            log.info("created managed init process")
+            let initProcess: any ContainerProcess
+
+            if let runtimePath = ociRuntimePath {
+                // Use runc runtime
+                let runc = ProcessSupervisor.default.getRuncWithReaper(
+                    Runc(
+                        command: runtimePath,
+                        root: "/run/runc"
+                    )
+                )
+                initProcess = try RuncProcess(
+                    id: id,
+                    stdio: stdio,
+                    bundle: bundle,
+                    runc: runc,
+                    log: log
+                )
+                self.needsCgroupCleanup = false
+                log.info("created runc init process with runtime: \(runtimePath)")
+            } else {
+                // Use vmexec runtime
+                initProcess = try ManagedProcess(
+                    id: id,
+                    stdio: stdio,
+                    bundle: bundle,
+                    cgroupManager: cgManager,
+                    owningPid: nil,
+                    log: log
+                )
+                self.needsCgroupCleanup = true
+                log.info("created vmexec init process")
+            }
 
             self.cgroupManager = cgManager
             self.initProcess = initProcess
@@ -87,6 +110,45 @@ actor ManagedContainer {
 }
 
 extension ManagedContainer {
+    // removeCgroupWithRetry will remove a cgroup path handling EAGAIN and EBUSY errors and
+    // retrying the remove after an exponential timeout
+    private func removeCgroupWithRetry() async throws {
+        var delay = 10  // 10ms
+        let maxRetries = 5
+
+        for i in 0..<maxRetries {
+            if i != 0 {
+                try await Task.sleep(for: .milliseconds(delay))
+                delay *= 2
+            }
+
+            do {
+                try self.cgroupManager.delete(force: true)
+                return
+            } catch let error as Cgroup2Manager.Error {
+                guard case .errno(let errnoValue, let message) = error,
+                    errnoValue == EBUSY || errnoValue == EAGAIN
+                else {
+                    throw error
+                }
+                self.log.warning(
+                    "cgroup deletion failed with EBUSY/EAGAIN, retrying",
+                    metadata: [
+                        "attempt": "\(i + 1)",
+                        "delay": "\(delay)",
+                        "errno": "\(errnoValue)",
+                        "context": "\(message)",
+                    ])
+                continue
+            }
+        }
+
+        throw ContainerizationError(
+            .internalError,
+            message: "cgroups: unable to remove cgroup after \(maxRetries) retries"
+        )
+    }
+
     private func ensureExecExists(_ id: String) throws {
         if self.execs[id] == nil {
             throw ContainerizationError(
@@ -124,14 +186,14 @@ extension ManagedContainer {
         return try await ProcessSupervisor.default.start(process: proc)
     }
 
-    func wait(execID: String) async throws -> ManagedProcess.ExitStatus {
+    func wait(execID: String) async throws -> ContainerExitStatus {
         let proc = try self.getExecOrInit(execID: execID)
         return await proc.wait()
     }
 
-    func kill(execID: String, _ signal: Int32) throws {
+    func kill(execID: String, _ signal: Int32) async throws {
         let proc = try self.getExecOrInit(execID: execID)
-        try proc.kill(signal)
+        try await proc.kill(signal)
     }
 
     func resize(execID: String, size: Terminal.Size) throws {
@@ -154,12 +216,26 @@ extension ManagedContainer {
         self.execs.removeValue(forKey: id)
     }
 
-    func delete() throws {
+    func delete() async throws {
+        // Delete the init process if it's a RuncProcess
+        try await self.initProcess.delete()
+
+        // Delete the bundle and cgroup
         try self.bundle.delete()
-        try self.cgroupManager.delete(force: true)
+        if self.needsCgroupCleanup {
+            try await self.removeCgroupWithRetry()
+        }
     }
 
-    func getExecOrInit(execID: String) throws -> ManagedProcess {
+    func stats() throws -> Cgroup2Stats {
+        try self.cgroupManager.stats()
+    }
+
+    func getMemoryEvents() throws -> MemoryEvents {
+        try self.cgroupManager.getMemoryEvents()
+    }
+
+    func getExecOrInit(execID: String) throws -> any ContainerProcess {
         if execID == self.id {
             return self.initProcess
         }

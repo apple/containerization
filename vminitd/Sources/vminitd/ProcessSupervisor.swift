@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,28 +17,35 @@
 import ContainerizationOS
 import Foundation
 import Logging
+import Synchronization
 
-actor ProcessSupervisor {
+final class ProcessSupervisor: Sendable {
+    let poller: Epoll
+
     private let queue: DispatchQueue
     // `DispatchSourceSignal` is thread-safe.
     private nonisolated(unsafe) let source: DispatchSourceSignal
-    private var processes = [ManagedProcess]()
 
-    var log: Logger?
+    private struct State {
+        var processes: [any ContainerProcess] = []
+        var log: Logger?
+    }
+
+    private let state: Mutex<State>
+    private let reaperCommandRunner = ReaperCommandRunner()
 
     func setLog(_ log: Logger?) {
-        self.log = log
+        self.state.withLock { $0.log = log }
     }
 
     static let `default` = ProcessSupervisor()
-
-    let poller: Epoll
 
     private init() {
         let queue = DispatchQueue(label: "process-supervisor")
         self.source = DispatchSource.makeSignalSource(signal: SIGCHLD, queue: queue)
         self.queue = queue
         self.poller = try! Epoll()
+        self.state = Mutex(State())
         let t = Thread {
             try! self.poller.run()
         }
@@ -47,67 +54,75 @@ actor ProcessSupervisor {
 
     func ready() {
         self.source.setEventHandler {
-            do {
-                self.log?.debug("received SIGCHLD, reaping processes")
-                try self.handleSignal()
-            } catch {
-                self.log?.error("reaping processes failed", metadata: ["error": "\(error)"])
-            }
+            self.handleSignal()
         }
         self.source.resume()
     }
 
-    private func handleSignal() throws {
+    private func handleSignal() {
         dispatchPrecondition(condition: .onQueue(queue))
 
-        self.log?.debug("starting to wait4 processes")
         let exited = Reaper.reap()
-        self.log?.debug("finished wait4 of \(exited.count) processes")
 
-        self.log?.debug("checking for exit of managed process", metadata: ["exits": "\(exited)", "processes": "\(processes.count)"])
-        let exitedProcesses = self.processes.filter { proc in
-            exited.contains { pid, _ in
-                proc.pid == pid
-            }
+        for (pid, status) in exited {
+            reaperCommandRunner.notifyExit(pid: pid, status: status)
         }
 
-        for proc in exitedProcesses {
-            let pid = proc.pid
-            if pid <= 0 {
-                continue
+        self.state.withLock { state in
+            state.log?.debug("received SIGCHLD, reaping processes")
+            state.log?.debug("finished wait4 of \(exited.count) processes")
+            state.log?.debug("checking for exit of managed process", metadata: ["exits": "\(exited)", "processes": "\(state.processes.count)"])
+
+            let exitedProcesses = state.processes.filter { proc in
+                exited.contains { pid, _ in
+                    proc.pid == pid
+                }
             }
 
-            if let status = exited[pid] {
-                self.log?.debug(
-                    "managed process exited",
-                    metadata: [
-                        "pid": "\(pid)",
-                        "status": "\(status)",
-                        "count": "\(processes.count - 1)",
-                    ])
-                proc.setExit(status)
-                self.processes.removeAll(where: { $0.pid == pid })
+            for proc in exitedProcesses {
+                guard let pid = proc.pid else {
+                    continue
+                }
+
+                if let status = exited[pid] {
+                    state.log?.debug(
+                        "managed process exited",
+                        metadata: [
+                            "pid": "\(pid)",
+                            "status": "\(status)",
+                            "count": "\(state.processes.count - 1)",
+                        ])
+                    proc.setExit(status)
+                    state.processes.removeAll(where: { $0.pid == pid })
+                }
             }
         }
     }
 
-    func start(process: ManagedProcess) throws -> Int32 {
-        self.log?.debug("in supervisor lock to start process")
-        defer {
-            self.log?.debug("out of supervisor lock to start process")
+    func start(process: any ContainerProcess) async throws -> Int32 {
+        self.state.withLock { state in
+            state.log?.debug("in supervisor lock to start process")
+            state.processes.append(process)
         }
-
         do {
-            self.processes.append(process)
-            return try process.start()
+            return try await process.start()
         } catch {
-            self.log?.error("process start failed \(error)", metadata: ["process-id": "\(process.id)"])
+            self.state.withLock { state in
+                state.processes.removeAll(where: { $0.id == process.id })
+            }
             throw error
         }
     }
 
+    /// Get a Runc instance configured with the reaper command runner
+    func getRuncWithReaper(_ base: Runc = Runc()) -> Runc {
+        var runc = base
+        runc.commandRunner = reaperCommandRunner
+        return runc
+    }
+
     deinit {
-        self.log?.info("process supervisor deinit")
         source.cancel()
+        try? poller.shutdown()
     }
 }

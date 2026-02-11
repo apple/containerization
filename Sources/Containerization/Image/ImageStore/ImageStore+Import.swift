@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -30,13 +30,15 @@ extension ImageStore {
         let contentStore: ContentStore
         let progress: ProgressHandler?
         let name: String
+        let maxConcurrentDownloads: Int
 
-        public init(name: String, contentStore: ContentStore, client: ContentClient, ingestDir: URL, progress: ProgressHandler? = nil) {
+        public init(name: String, contentStore: ContentStore, client: ContentClient, ingestDir: URL, progress: ProgressHandler? = nil, maxConcurrentDownloads: Int = 3) {
             self.client = client
             self.ingestDir = ingestDir
             self.contentStore = contentStore
             self.progress = progress
             self.name = name
+            self.maxConcurrentDownloads = maxConcurrentDownloads
         }
 
         /// Pull the required image layers for the provided descriptor and platform(s) into the given directory using the provided client. Returns a descriptor to the Index manifest.
@@ -73,7 +75,7 @@ extension ImageStore {
             // the Index.
             let supportedPlatforms = index.manifests.compactMap { $0.platform }
             guard supportedPlatforms.allSatisfy(matcher) else {
-                throw ContainerizationError(.unsupported, message: "Image \(root.digest) does not support required platforms")
+                throw ContainerizationError(.unsupported, message: "image \(root.digest) does not support required platforms")
             }
             let writer = try ContentWriter(for: self.ingestDir)
             let result = try writer.create(from: index)
@@ -93,7 +95,7 @@ extension ImageStore {
                 }
                 return try await self.client.fetch(name: name, descriptor: descriptor)
             } catch {
-                throw ContainerizationError(.internalError, message: "Cannot fetch content with digest \(descriptor.digest)", cause: error)
+                throw ContainerizationError(.internalError, message: "cannot fetch content with digest \(descriptor.digest)", cause: error)
             }
         }
 
@@ -120,13 +122,15 @@ extension ImageStore {
         private func fetchAll(_ descriptors: [Descriptor]) async throws {
             try await withThrowingTaskGroup(of: Void.self) { group in
                 var iterator = descriptors.makeIterator()
-                for _ in 0..<8 {
+                // Start initial batch of concurrent downloads based on maxConcurrentDownloads
+                for _ in 0..<self.maxConcurrentDownloads {
                     if let desc = iterator.next() {
                         group.addTask {
                             try await self.fetch(desc)
                         }
                     }
                 }
+                // As tasks complete, add new ones to maintain concurrency
                 for try await _ in group {
                     if let desc = iterator.next() {
                         group.addTask {
@@ -166,7 +170,7 @@ extension ImageStore {
             let tempFile = ingestDir.appendingPathComponent(id)
             let (_, digest) = try await client.fetchBlob(name: name, descriptor: descriptor, into: tempFile, progress: progress)
             guard digest.digestString == descriptor.digest else {
-                throw ContainerizationError(.internalError, message: "Digest mismatch expected \(descriptor.digest), got \(digest.digestString)")
+                throw ContainerizationError(.internalError, message: "digest mismatch expected \(descriptor.digest), got \(digest.digestString)")
             }
             do {
                 try fm.moveItem(at: tempFile, to: ingestDir.appendingPathComponent(digest.encoded))
@@ -190,7 +194,7 @@ extension ImageStore {
                 ])
             }
             guard result.digest.digestString == descriptor.digest else {
-                throw ContainerizationError(.internalError, message: "Digest mismatch expected \(descriptor.digest), got \(result.digest.digestString)")
+                throw ContainerizationError(.internalError, message: "digest mismatch expected \(descriptor.digest), got \(result.digest.digestString)")
             }
             return data
         }
@@ -205,7 +209,7 @@ extension ImageStore {
                     throw ContainerizationError(
                         .internalError,
                         message:
-                            "Descriptor \(root.mediaType) with digest \(root.digest) does not list any supported platform or supports more than one platform. Supported platforms = \(supportedPlatforms)"
+                            "descriptor \(root.mediaType) with digest \(root.digest) does not list any supported platform or supports more than one platform, supported platforms: \(supportedPlatforms)"
                     )
                 }
                 let platform = supportedPlatforms.first!
@@ -219,7 +223,7 @@ extension ImageStore {
                     ])
                 return index
             default:
-                throw ContainerizationError(.internalError, message: "Failed to create index for descriptor \(root.digest), media type \(root.mediaType)")
+                throw ContainerizationError(.internalError, message: "failed to create index for descriptor \(root.digest), media type \(root.mediaType)")
             }
         }
 

@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -27,6 +27,10 @@ struct AddressFamily {
     static let AF_INET6: UInt16 = 10
     static let AF_NETLINK: UInt16 = 16
     static let AF_PACKET: UInt16 = 17
+}
+
+struct ArpHardware {
+    static let ARPHRD_ETHER: UInt16 = 1
 }
 
 struct NetlinkProtocol {
@@ -72,11 +76,15 @@ struct NetlinkScope {
 
 struct InterfaceFlags {
     static let IFF_UP: UInt32 = 1 << 0
+    static let IFF_LOOPBACK: UInt32 = 1 << 3
+    static let IFF_POINTOPOINT: UInt32 = 1 << 4
     static let DEFAULT_CHANGE: UInt32 = 0xffff_ffff
 }
 
 struct LinkAttributeType {
-    static let IFLA_EXT_IFNAME: UInt16 = 3
+    static let IFLA_ADDRESS: UInt16 = 1
+    static let IFLA_BROADCAST: UInt16 = 2
+    static let IFLA_IFNAME: UInt16 = 3
     static let IFLA_MTU: UInt16 = 4
     static let IFLA_STATS64: UInt16 = 23
     static let IFLA_EXT_MASK: UInt16 = 29
@@ -127,17 +135,11 @@ struct RouteAttributeType {
     static let PREFSRC: UInt16 = 7
 }
 
-protocol Bindable: Equatable {
-    static var size: Int { get }
-    func appendBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int
-    mutating func bindBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int
-}
-
-struct SockaddrNetlink: Bindable {
+struct SockaddrNetlink: Bindable, Equatable {
     static let size = 12
 
     var family: UInt16
-    var pad: UInt16 = 0
+    var _pad: UInt16 = 0
     var pid: UInt32
     var groups: UInt32
 
@@ -149,13 +151,16 @@ struct SockaddrNetlink: Bindable {
 
     func appendBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
         guard let offset = buffer.copyIn(as: UInt16.self, value: family, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "SockaddrNetlink", field: "family")
+        }
+        guard let offset = buffer.copyIn(as: UInt16.self, value: 0, offset: offset) else {
+            throw BindError.sendMarshalFailure(type: "SockaddrNetlink", field: "_pad")
         }
         guard let offset = buffer.copyIn(as: UInt32.self, value: pid, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "SockaddrNetlink", field: "pid")
         }
         guard let offset = buffer.copyIn(as: UInt32.self, value: groups, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "SockaddrNetlink", field: "groups")
         }
 
         return offset
@@ -163,25 +168,30 @@ struct SockaddrNetlink: Bindable {
 
     mutating func bindBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
         guard let (offset, value) = buffer.copyOut(as: UInt16.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "SockaddrNetlink", field: "family")
         }
         family = value
 
+        guard let (offset, value) = buffer.copyOut(as: UInt16.self, offset: offset) else {
+            throw BindError.recvMarshalFailure(type: "SockaddrNetlink", field: "_pad")
+        }
+        _pad = value
+
         guard let (offset, value) = buffer.copyOut(as: UInt32.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "SockaddrNetlink", field: "pid")
         }
         pid = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt32.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "SockaddrNetlink", field: "groups")
         }
         groups = value
 
-        return offset + Self.size
+        return offset
     }
 }
 
-struct NetlinkMessageHeader: Bindable {
+struct NetlinkMessageHeader: Bindable, Equatable {
     static let size = 16
 
     var len: UInt32
@@ -200,19 +210,19 @@ struct NetlinkMessageHeader: Bindable {
 
     func appendBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
         guard let offset = buffer.copyIn(as: UInt32.self, value: len, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "NetlinkMessageHeader", field: "len")
         }
         guard let offset = buffer.copyIn(as: UInt16.self, value: type, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "NetlinkMessageHeader", field: "type")
         }
         guard let offset = buffer.copyIn(as: UInt16.self, value: flags, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "NetlinkMessageHeader", field: "flags")
         }
         guard let offset = buffer.copyIn(as: UInt32.self, value: seq, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "NetlinkMessageHeader", field: "seq")
         }
         guard let offset = buffer.copyIn(as: UInt32.self, value: pid, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "NetlinkMessageHeader", field: "pid")
         }
 
         return offset
@@ -220,27 +230,27 @@ struct NetlinkMessageHeader: Bindable {
 
     mutating func bindBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
         guard let (offset, value) = buffer.copyOut(as: UInt32.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "NetlinkMessageHeader", field: "len")
         }
         len = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt16.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "NetlinkMessageHeader", field: "type")
         }
         type = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt16.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "NetlinkMessageHeader", field: "flags")
         }
         flags = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt32.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "NetlinkMessageHeader", field: "seq")
         }
         seq = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt32.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "NetlinkMessageHeader", field: "pid")
         }
         pid = value
 
@@ -254,7 +264,7 @@ struct NetlinkMessageHeader: Bindable {
     }
 }
 
-struct InterfaceInfo: Bindable {
+struct InterfaceInfo: Bindable, Equatable {
     static let size = 16
 
     var family: UInt8
@@ -277,22 +287,22 @@ struct InterfaceInfo: Bindable {
 
     func appendBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
         guard let offset = buffer.copyIn(as: UInt8.self, value: family, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "InterfaceInfo", field: "family")
         }
         guard let offset = buffer.copyIn(as: UInt8.self, value: _pad, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "InterfaceInfo", field: "_pad")
         }
         guard let offset = buffer.copyIn(as: UInt16.self, value: type, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "InterfaceInfo", field: "type")
         }
         guard let offset = buffer.copyIn(as: Int32.self, value: index, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "InterfaceInfo", field: "index")
         }
         guard let offset = buffer.copyIn(as: UInt32.self, value: flags, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "InterfaceInfo", field: "flags")
         }
         guard let offset = buffer.copyIn(as: UInt32.self, value: change, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "InterfaceInfo", field: "change")
         }
 
         return offset
@@ -300,32 +310,32 @@ struct InterfaceInfo: Bindable {
 
     mutating func bindBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
         guard let (offset, value) = buffer.copyOut(as: UInt8.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "InterfaceInfo", field: "family")
         }
         family = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt8.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "InterfaceInfo", field: "_pad")
         }
         _pad = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt16.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "InterfaceInfo", field: "type")
         }
         type = value
 
         guard let (offset, value) = buffer.copyOut(as: Int32.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "InterfaceInfo", field: "index")
         }
         index = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt32.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "InterfaceInfo", field: "flags")
         }
         flags = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt32.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "InterfaceInfo", field: "change")
         }
         change = value
 
@@ -333,7 +343,7 @@ struct InterfaceInfo: Bindable {
     }
 }
 
-struct AddressInfo: Bindable {
+struct AddressInfo: Bindable, Equatable {
     static let size = 8
 
     var family: UInt8
@@ -355,19 +365,19 @@ struct AddressInfo: Bindable {
 
     func appendBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
         guard let offset = buffer.copyIn(as: UInt8.self, value: family, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "AddressInfo", field: "family")
         }
         guard let offset = buffer.copyIn(as: UInt8.self, value: prefixLength, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "AddressInfo", field: "prefixLength")
         }
         guard let offset = buffer.copyIn(as: UInt8.self, value: flags, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "AddressInfo", field: "flags")
         }
         guard let offset = buffer.copyIn(as: UInt8.self, value: scope, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "AddressInfo", field: "scope")
         }
         guard let offset = buffer.copyIn(as: UInt32.self, value: index, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "AddressInfo", field: "index")
         }
 
         return offset
@@ -375,27 +385,27 @@ struct AddressInfo: Bindable {
 
     mutating func bindBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
         guard let (offset, value) = buffer.copyOut(as: UInt8.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "AddressInfo", field: "family")
         }
         family = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt8.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "AddressInfo", field: "prefixLength")
         }
         prefixLength = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt8.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "AddressInfo", field: "flags")
         }
         flags = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt8.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "AddressInfo", field: "scope")
         }
         scope = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt32.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "AddressInfo", field: "index")
         }
         index = value
 
@@ -403,7 +413,7 @@ struct AddressInfo: Bindable {
     }
 }
 
-struct RouteInfo: Bindable {
+struct RouteInfo: Bindable, Equatable {
     static let size = 12
 
     var family: UInt8
@@ -440,31 +450,31 @@ struct RouteInfo: Bindable {
 
     func appendBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
         guard let offset = buffer.copyIn(as: UInt8.self, value: family, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "RouteInfo", field: "family")
         }
         guard let offset = buffer.copyIn(as: UInt8.self, value: dstLen, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "RouteInfo", field: "dstLen")
         }
         guard let offset = buffer.copyIn(as: UInt8.self, value: srcLen, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "RouteInfo", field: "srcLen")
         }
         guard let offset = buffer.copyIn(as: UInt8.self, value: tos, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "RouteInfo", field: "tos")
         }
         guard let offset = buffer.copyIn(as: UInt8.self, value: table, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "RouteInfo", field: "table")
         }
         guard let offset = buffer.copyIn(as: UInt8.self, value: proto, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "RouteInfo", field: "proto")
         }
         guard let offset = buffer.copyIn(as: UInt8.self, value: scope, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "RouteInfo", field: "scope")
         }
         guard let offset = buffer.copyIn(as: UInt8.self, value: type, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "RouteInfo", field: "type")
         }
         guard let offset = buffer.copyIn(as: UInt32.self, value: flags, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "RouteInfo", field: "flags")
         }
 
         return offset
@@ -472,47 +482,47 @@ struct RouteInfo: Bindable {
 
     mutating func bindBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
         guard let (offset, value) = buffer.copyOut(as: UInt8.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "RouteInfo", field: "family")
         }
         family = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt8.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "RouteInfo", field: "dstLen")
         }
         dstLen = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt8.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "RouteInfo", field: "srcLen")
         }
         srcLen = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt8.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "RouteInfo", field: "tos")
         }
         tos = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt8.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "RouteInfo", field: "table")
         }
         table = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt8.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "RouteInfo", field: "proto")
         }
         proto = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt8.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "RouteInfo", field: "scope")
         }
         scope = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt8.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "RouteInfo", field: "type")
         }
         type = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt32.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "RouteInfo", field: "flags")
         }
         flags = value
 
@@ -521,8 +531,8 @@ struct RouteInfo: Bindable {
 }
 
 /// A route information.
-public struct RTAttribute: Bindable {
-    static let size = 4
+public struct RTAttribute: Bindable, Equatable {
+    package static let size = 4
 
     public var len: UInt16
     public var type: UInt16
@@ -533,25 +543,25 @@ public struct RTAttribute: Bindable {
         self.type = type
     }
 
-    func appendBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
+    package func appendBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
         guard let offset = buffer.copyIn(as: UInt16.self, value: len, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "RTAttribute", field: "len")
         }
         guard let offset = buffer.copyIn(as: UInt16.self, value: type, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "RTAttribute", field: "type")
         }
 
         return offset
     }
 
-    mutating func bindBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
+    package mutating func bindBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
         guard let (offset, value) = buffer.copyOut(as: UInt16.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "RTAttribute", field: "len")
         }
         len = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt16.self, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.recvMarshalFailure(type: "RTAttribute", field: "type")
         }
         type = value
 
@@ -568,7 +578,25 @@ public struct RTAttributeData {
 /// A response from the get link command.
 public struct LinkResponse {
     public let interfaceIndex: Int32
+    public let interfaceFlags: UInt32
+    public let interfaceType: UInt16
     public let attrDatas: [RTAttributeData]
+
+    public var isLoopback: Bool {
+        (interfaceFlags & InterfaceFlags.IFF_LOOPBACK) != 0
+    }
+
+    public var isEthernet: Bool {
+        interfaceType == ArpHardware.ARPHRD_ETHER
+            && (interfaceFlags & (InterfaceFlags.IFF_LOOPBACK | InterfaceFlags.IFF_POINTOPOINT)) == 0
+    }
+
+    public var address: [UInt8]? {
+        attrDatas
+            .filter { $0.attribute.type == LinkAttributeType.IFLA_ADDRESS }
+            .first
+            .map { $0.data }
+    }
 
     /// Extract network interface statistics from the response attributes
     public func getStatistics() throws -> LinkStatistics64? {
@@ -580,13 +608,14 @@ public struct LinkResponse {
                 return stats
             }
         }
+
         return nil
     }
 }
 
 /// Network interface statistics (64-bit version)
-public struct LinkStatistics64: Bindable {
-    static let size = 23 * 8
+public struct LinkStatistics64: Bindable, Equatable {
+    package static let size = 23 * 8
 
     public var rxPackets: UInt64
     public var txPackets: UInt64
@@ -638,193 +667,193 @@ public struct LinkStatistics64: Bindable {
         self.txCompressed = 0
     }
 
-    func appendBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
+    package func appendBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
         guard let offset = buffer.copyIn(as: UInt64.self, value: rxPackets, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "LinkStatistics64", field: "rxPackets")
         }
         guard let offset = buffer.copyIn(as: UInt64.self, value: txPackets, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "LinkStatistics64", field: "txPackets")
         }
         guard let offset = buffer.copyIn(as: UInt64.self, value: rxBytes, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "LinkStatistics64", field: "rxBytes")
         }
         guard let offset = buffer.copyIn(as: UInt64.self, value: txBytes, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "LinkStatistics64", field: "txBytes")
         }
         guard let offset = buffer.copyIn(as: UInt64.self, value: rxErrors, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "LinkStatistics64", field: "rxErrors")
         }
         guard let offset = buffer.copyIn(as: UInt64.self, value: txErrors, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "LinkStatistics64", field: "txErrors")
         }
         guard let offset = buffer.copyIn(as: UInt64.self, value: rxDropped, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "LinkStatistics64", field: "rxDropped")
         }
         guard let offset = buffer.copyIn(as: UInt64.self, value: txDropped, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "LinkStatistics64", field: "txDropped")
         }
         guard let offset = buffer.copyIn(as: UInt64.self, value: multicast, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "LinkStatistics64", field: "multicast")
         }
         guard let offset = buffer.copyIn(as: UInt64.self, value: collisions, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "LinkStatistics64", field: "collisions")
         }
         guard let offset = buffer.copyIn(as: UInt64.self, value: rxLengthErrors, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "LinkStatistics64", field: "rxLengthErrors")
         }
         guard let offset = buffer.copyIn(as: UInt64.self, value: rxOverErrors, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "LinkStatistics64", field: "rxOverErrors")
         }
         guard let offset = buffer.copyIn(as: UInt64.self, value: rxCrcErrors, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "LinkStatistics64", field: "rxCrcErrors")
         }
         guard let offset = buffer.copyIn(as: UInt64.self, value: rxFrameErrors, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "LinkStatistics64", field: "rxFrameErrors")
         }
         guard let offset = buffer.copyIn(as: UInt64.self, value: rxFifoErrors, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "LinkStatistics64", field: "rxFifoErrors")
         }
         guard let offset = buffer.copyIn(as: UInt64.self, value: rxMissedErrors, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "LinkStatistics64", field: "rxMissedErrors")
         }
         guard let offset = buffer.copyIn(as: UInt64.self, value: txAbortedErrors, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "LinkStatistics64", field: "txAbortedErrors")
         }
         guard let offset = buffer.copyIn(as: UInt64.self, value: txCarrierErrors, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "LinkStatistics64", field: "txCarrierErrors")
         }
         guard let offset = buffer.copyIn(as: UInt64.self, value: txFifoErrors, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "LinkStatistics64", field: "txFifoErrors")
         }
         guard let offset = buffer.copyIn(as: UInt64.self, value: txHeartbeatErrors, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "LinkStatistics64", field: "txHeartbeatErrors")
         }
         guard let offset = buffer.copyIn(as: UInt64.self, value: txWindowErrors, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "LinkStatistics64", field: "txWindowErrors")
         }
         guard let offset = buffer.copyIn(as: UInt64.self, value: rxCompressed, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "LinkStatistics64", field: "rxCompressed")
         }
         guard let offset = buffer.copyIn(as: UInt64.self, value: txCompressed, offset: offset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "LinkStatistics64", field: "txCompressed")
         }
 
         return offset
     }
 
-    mutating func bindBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
+    package mutating func bindBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
         guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
-            throw NetlinkDataError.recvUnmarshalFailure
+            throw BindError.recvMarshalFailure(type: "LinkStatistics64", field: "rxPackets")
         }
         rxPackets = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
-            throw NetlinkDataError.recvUnmarshalFailure
+            throw BindError.recvMarshalFailure(type: "LinkStatistics64", field: "txPackets")
         }
         txPackets = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
-            throw NetlinkDataError.recvUnmarshalFailure
+            throw BindError.recvMarshalFailure(type: "LinkStatistics64", field: "rxBytes")
         }
         rxBytes = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
-            throw NetlinkDataError.recvUnmarshalFailure
+            throw BindError.recvMarshalFailure(type: "LinkStatistics64", field: "txBytes")
         }
         txBytes = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
-            throw NetlinkDataError.recvUnmarshalFailure
+            throw BindError.recvMarshalFailure(type: "LinkStatistics64", field: "rxErrors")
         }
         rxErrors = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
-            throw NetlinkDataError.recvUnmarshalFailure
+            throw BindError.recvMarshalFailure(type: "LinkStatistics64", field: "txErrors")
         }
         txErrors = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
-            throw NetlinkDataError.recvUnmarshalFailure
+            throw BindError.recvMarshalFailure(type: "LinkStatistics64", field: "rxDropped")
         }
         rxDropped = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
-            throw NetlinkDataError.recvUnmarshalFailure
+            throw BindError.recvMarshalFailure(type: "LinkStatistics64", field: "txDropped")
         }
         txDropped = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
-            throw NetlinkDataError.recvUnmarshalFailure
+            throw BindError.recvMarshalFailure(type: "LinkStatistics64", field: "multicast")
         }
         multicast = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
-            throw NetlinkDataError.recvUnmarshalFailure
+            throw BindError.recvMarshalFailure(type: "LinkStatistics64", field: "collisions")
         }
         collisions = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
-            throw NetlinkDataError.recvUnmarshalFailure
+            throw BindError.recvMarshalFailure(type: "LinkStatistics64", field: "rxLengthErrors")
         }
         rxLengthErrors = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
-            throw NetlinkDataError.recvUnmarshalFailure
+            throw BindError.recvMarshalFailure(type: "LinkStatistics64", field: "rxOverErrors")
         }
         rxOverErrors = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
-            throw NetlinkDataError.recvUnmarshalFailure
+            throw BindError.recvMarshalFailure(type: "LinkStatistics64", field: "rxCrcErrors")
         }
         rxCrcErrors = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
-            throw NetlinkDataError.recvUnmarshalFailure
+            throw BindError.recvMarshalFailure(type: "LinkStatistics64", field: "rxFrameErrors")
         }
         rxFrameErrors = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
-            throw NetlinkDataError.recvUnmarshalFailure
+            throw BindError.recvMarshalFailure(type: "LinkStatistics64", field: "rxFifoErrors")
         }
         rxFifoErrors = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
-            throw NetlinkDataError.recvUnmarshalFailure
+            throw BindError.recvMarshalFailure(type: "LinkStatistics64", field: "rxMissedErrors")
         }
         rxMissedErrors = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
-            throw NetlinkDataError.recvUnmarshalFailure
+            throw BindError.recvMarshalFailure(type: "LinkStatistics64", field: "txAbortedErrors")
         }
         txAbortedErrors = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
-            throw NetlinkDataError.recvUnmarshalFailure
+            throw BindError.recvMarshalFailure(type: "LinkStatistics64", field: "txCarrierErrors")
         }
         txCarrierErrors = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
-            throw NetlinkDataError.recvUnmarshalFailure
+            throw BindError.recvMarshalFailure(type: "LinkStatistics64", field: "txFifoErrors")
         }
         txFifoErrors = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
-            throw NetlinkDataError.recvUnmarshalFailure
+            throw BindError.recvMarshalFailure(type: "LinkStatistics64", field: "txHeartbeatErrors")
         }
         txHeartbeatErrors = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
-            throw NetlinkDataError.recvUnmarshalFailure
+            throw BindError.recvMarshalFailure(type: "LinkStatistics64", field: "txWindowErrors")
         }
         txWindowErrors = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
-            throw NetlinkDataError.recvUnmarshalFailure
+            throw BindError.recvMarshalFailure(type: "LinkStatistics64", field: "rxCompressed")
         }
         rxCompressed = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt64.self, offset: offset) else {
-            throw NetlinkDataError.recvUnmarshalFailure
+            throw BindError.recvMarshalFailure(type: "LinkStatistics64", field: "txCompressed")
         }
         txCompressed = value
 
@@ -834,18 +863,12 @@ public struct LinkStatistics64: Bindable {
 
 /// Errors thrown when parsing netlink data.
 public enum NetlinkDataError: Swift.Error, CustomStringConvertible, Equatable {
-    case sendMarshalFailure
-    case recvUnmarshalFailure
     case responseError(rc: Int32)
     case unsupportedPlatform
 
     /// The description of the errors.
     public var description: String {
         switch self {
-        case .sendMarshalFailure:
-            return "could not marshal netlink packet"
-        case .recvUnmarshalFailure:
-            return "could not unmarshal netlink packet"
         case .responseError(let rc):
             return "netlink response indicates error, rc = \(rc)"
         case .unsupportedPlatform:

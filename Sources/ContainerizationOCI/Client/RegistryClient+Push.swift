@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -50,7 +50,7 @@ extension RegistryClient {
 
         let mediaType = descriptor.mediaType
         if mediaType.isEmpty {
-            throw ContainerizationError(.invalidArgument, message: "Missing media type for descriptor \(descriptor.digest)")
+            throw ContainerizationError(.invalidArgument, message: "missing media type for descriptor \(descriptor.digest)")
         }
 
         var isManifest = false
@@ -88,7 +88,7 @@ extension RegistryClient {
                 }
 
                 if exists {
-                    throw ContainerizationError(.exists, message: "Content already exists \(descriptor.digest)")
+                    throw ContainerizationError(.exists, message: "content already exists \(descriptor.digest)")
                 }
             } else if response.status != .notFound {
                 let url = components.url?.absoluteString ?? "unknown"
@@ -111,7 +111,7 @@ extension RegistryClient {
                 case .ok, .accepted, .noContent:
                     break
                 case .created:
-                    throw ContainerizationError(.exists, message: "Content already exists \(descriptor.digest)")
+                    throw ContainerizationError(.exists, message: "content already exists \(descriptor.digest)")
                 default:
                     let url = components.url?.absoluteString ?? "unknown"
                     let reason = await ErrorResponse.fromResponseBody(response.body)?.jsonString
@@ -120,11 +120,11 @@ extension RegistryClient {
 
                 // Get the location to upload the blob.
                 guard let location = response.headers.first(name: "Location") else {
-                    throw ContainerizationError(.invalidArgument, message: "Missing required header Location")
+                    throw ContainerizationError(.invalidArgument, message: "missing required header Location")
                 }
 
                 guard let urlComponents = URLComponents(string: location) else {
-                    throw ContainerizationError(.invalidArgument, message: "Invalid url \(location)")
+                    throw ContainerizationError(.invalidArgument, message: "invalid url \(location)")
                 }
                 var queryItems = urlComponents.queryItems ?? []
                 queryItems.append(URLQueryItem(name: "digest", value: descriptor.digest))
@@ -156,7 +156,7 @@ extension RegistryClient {
 
             guard descriptor.digest == response.headers.first(name: "Docker-Content-Digest") else {
                 let required = response.headers.first(name: "Docker-Content-Digest") ?? ""
-                throw ContainerizationError(.internalError, message: "Digest mismatch \(descriptor.digest) != \(required)")
+                throw ContainerizationError(.internalError, message: "digest mismatch \(descriptor.digest) != \(required)")
             }
         }
     }

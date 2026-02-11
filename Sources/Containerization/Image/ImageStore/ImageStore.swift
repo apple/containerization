@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -103,7 +103,7 @@ extension ImageStore {
     /// - Note: It is assumed that the underlying manifests and blob layers for the image already exists in the `ContentStore` that the `ImageStore` was initialized with. This method is invoked when the `pull(...)` , `load(...)` and `tag(...)` methods are used.
     /// - Returns: A `Containerization.Image`
     @discardableResult
-    internal func create(description: Image.Description) async throws -> Image {
+    public func create(description: Image.Description) async throws -> Image {
         try await self.lock.withLock { ctx in
             try await self._create(description: description, lock: ctx)
         }
@@ -124,25 +124,34 @@ extension ImageStore {
         try await self.lock.withLock { lockCtx in
             try await self.referenceManager.delete(reference: reference)
             if performCleanup {
-                try await self._prune(lockCtx)
+                try await self._cleanUpOrphanedBlobs(lockCtx)
             }
         }
     }
 
-    /// Perform a garbage collection in the underlying `ContentStore` that is managed by the `ImageStore`.
+    /// Clean up orphaned blobs that are no longer referenced by any image.
     ///
     /// - Returns: Returns a tuple of `(deleted, freed)`.
     ///   `deleted` :  A  list of the names of the content items that were deleted from the `ContentStore`,
     ///   `freed` : The total size of the items that were deleted.
     @discardableResult
-    public func prune() async throws -> (deleted: [String], freed: UInt64) {
+    public func cleanUpOrphanedBlobs() async throws -> (deleted: [String], freed: UInt64) {
         try await self.lock.withLock { lockCtx in
-            try await self._prune(lockCtx)
+            try await self._cleanUpOrphanedBlobs(lockCtx)
+        }
+    }
+
+    /// Calculate the size of orphaned blobs without deleting them.
+    ///
+    /// - Returns: The total size in bytes of blobs that are not referenced by any image.
+    public func calculateOrphanedBlobsSize() async throws -> UInt64 {
+        try await self.lock.withLock { lockCtx in
+            try await self._calculateOrphanedBlobsSize(lockCtx)
         }
     }
 
     @discardableResult
-    private func _prune(_ lock: AsyncLock.Context) async throws -> ([String], UInt64) {
+    private func _cleanUpOrphanedBlobs(_ lock: AsyncLock.Context) async throws -> (deleted: [String], freed: UInt64) {
         let images = try await self.list()
         var referenced: [String] = []
         for image in images {
@@ -150,7 +159,39 @@ extension ImageStore {
         }
         let (deleted, size) = try await self.contentStore.delete(keeping: referenced)
         return (deleted, size)
+    }
 
+    private func _calculateOrphanedBlobsSize(_ lock: AsyncLock.Context) async throws -> UInt64 {
+        let images = try await self.list()
+        var referenced: [String] = []
+        for image in images {
+            try await referenced.append(contentsOf: image.referencedDigests().uniqued())
+        }
+
+        // Calculate size of blobs not in the referenced list
+        let referencedSet = Set(referenced.map { $0.trimmingDigestPrefix })
+        let blobsPath = self.path.appendingPathComponent("content/blobs/sha256")
+
+        let fileManager = FileManager.default
+        let allBlobs = try fileManager.contentsOfDirectory(
+            at: blobsPath,
+            includingPropertiesForKeys: [.fileSizeKey],
+            options: [.skipsHiddenFiles]
+        )
+
+        var orphanedSize: UInt64 = 0
+        for blobURL in allBlobs {
+            let digest = blobURL.lastPathComponent
+            if !referencedSet.contains(digest) {
+                if let resourceValues = try? blobURL.resourceValues(forKeys: [.fileSizeKey]),
+                    let size = resourceValues.fileSize
+                {
+                    orphanedSize += UInt64(size)
+                }
+            }
+        }
+
+        return orphanedSize
     }
 
     /// Tag an existing image such that it can be referenced by another name.
@@ -167,7 +208,7 @@ extension ImageStore {
         do {
             _ = try Reference.parse(new)
         } catch {
-            throw ContainerizationError(.invalidArgument, message: "Invalid reference \(new). Error: \(error)")
+            throw ContainerizationError(.invalidArgument, message: "invalid reference \(new), error: \(error)")
         }
         let newDescription = Image.Description(reference: new, descriptor: descriptor)
         return try await self.create(description: newDescription)
@@ -192,21 +233,22 @@ extension ImageStore {
     /// - Returns: A `Containerization.Image` object to the newly pulled image.
     public func pull(
         reference: String, platform: Platform? = nil, insecure: Bool = false,
-        auth: Authentication? = nil, progress: ProgressHandler? = nil
+        auth: Authentication? = nil, progress: ProgressHandler? = nil, maxConcurrentDownloads: Int = 3
     ) async throws -> Image {
 
         let matcher = createPlatformMatcher(for: platform)
-        let client = try RegistryClient(reference: reference, insecure: insecure, auth: auth)
+        let client = try RegistryClient(reference: reference, insecure: insecure, auth: auth, tlsConfiguration: TLSUtils.makeEnvironmentAwareTLSConfiguration())
 
         let ref = try Reference.parse(reference)
         let name = ref.path
         guard let tag = ref.tag ?? ref.digest else {
-            throw ContainerizationError(.invalidArgument, message: "Invalid tag/digest for image reference \(reference)")
+            throw ContainerizationError(.invalidArgument, message: "invalid tag/digest for image reference \(reference)")
         }
 
         let rootDescriptor = try await client.resolve(name: name, tag: tag)
         let (id, tempDir) = try await self.contentStore.newIngestSession()
-        let operation = ImportOperation(name: name, contentStore: self.contentStore, client: client, ingestDir: tempDir, progress: progress)
+        let operation = ImportOperation(
+            name: name, contentStore: self.contentStore, client: client, ingestDir: tempDir, progress: progress, maxConcurrentDownloads: maxConcurrentDownloads)
         do {
             let index = try await operation.import(root: rootDescriptor, matcher: matcher)
             return try await self.lock.withLock { lock in
@@ -240,14 +282,14 @@ extension ImageStore {
         let img = try await self.get(reference: reference)
         let allowedMediaTypes = [MediaTypes.dockerManifestList, MediaTypes.index]
         guard allowedMediaTypes.contains(img.mediaType) else {
-            throw ContainerizationError(.internalError, message: "Cannot push image \(reference) with Index media type \(img.mediaType)")
+            throw ContainerizationError(.internalError, message: "cannot push image \(reference) with Index media type \(img.mediaType)")
         }
         let ref = try Reference.parse(reference)
         let name = ref.path
         guard let tag = ref.tag ?? ref.digest else {
-            throw ContainerizationError(.invalidArgument, message: "Invalid tag/digest for image reference \(reference)")
+            throw ContainerizationError(.invalidArgument, message: "invalid tag/digest for image reference \(reference)")
         }
-        let client = try RegistryClient(reference: reference, insecure: insecure, auth: auth)
+        let client = try RegistryClient(reference: reference, insecure: insecure, auth: auth, tlsConfiguration: TLSUtils.makeEnvironmentAwareTLSConfiguration())
         let operation = ExportOperation(name: name, tag: tag, contentStore: self.contentStore, client: client, progress: progress)
         try await operation.export(index: img.descriptor, platforms: matcher)
     }

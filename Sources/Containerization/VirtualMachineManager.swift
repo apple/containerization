@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,5 +16,5 @@
 
 /// A protocol to implement for virtual machine isolated containers.
 public protocol VirtualMachineManager: Sendable {
-    func create(container: Container) throws -> any VirtualMachineInstance
+    func create(config: some VMCreationConfig) async throws -> any VirtualMachineInstance
 }

@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,11 +16,13 @@
 
 import AsyncHTTPClient
 import ContainerizationError
+import ContainerizationExtras
 import ContainerizationOS
 import Foundation
 import Logging
 import NIO
 import NIOHTTP1
+import NIOSSL
 
 #if os(macOS)
 import Network
@@ -54,6 +56,7 @@ public final class RegistryClient: ContentClient {
     )
 
     let client: HTTPClient
+    let proxyURL: URL?
     let base: URLComponents
     let clientID: String
     let authentication: Authentication?
@@ -64,19 +67,20 @@ public final class RegistryClient: ContentClient {
         reference: String,
         insecure: Bool = false,
         auth: Authentication? = nil,
-        logger: Logger? = nil
+        tlsConfiguration: TLSConfiguration? = nil,
+        logger: Logger? = nil,
     ) throws {
         let ref = try Reference.parse(reference)
         guard let domain = ref.resolvedDomain else {
-            throw ContainerizationError(.invalidArgument, message: "Invalid domain for image reference \(reference)")
+            throw ContainerizationError(.invalidArgument, message: "invalid domain for image reference \(reference)")
         }
         let scheme = insecure ? "http" : "https"
         let _url = "\(scheme)://\(domain)"
         guard let url = URL(string: _url) else {
-            throw ContainerizationError(.invalidArgument, message: "Cannot convert \(_url) to URL")
+            throw ContainerizationError(.invalidArgument, message: "cannot convert \(_url) to URL")
         }
         guard let host = url.host else {
-            throw ContainerizationError(.invalidArgument, message: "Invalid host \(domain)")
+            throw ContainerizationError(.invalidArgument, message: "invalid host \(domain)")
         }
         let port = url.port
         self.init(
@@ -84,7 +88,8 @@ public final class RegistryClient: ContentClient {
             scheme: scheme,
             port: port,
             authentication: auth,
-            retryOptions: Self.defaultRetryOptions
+            retryOptions: Self.defaultRetryOptions,
+            tlsConfiguration: tlsConfiguration,
         )
     }
 
@@ -96,7 +101,8 @@ public final class RegistryClient: ContentClient {
         clientID: String? = nil,
         retryOptions: RetryOptions? = nil,
         bufferSize: Int = Int(4.mib()),
-        logger: Logger? = nil
+        tlsConfiguration: TLSConfiguration? = nil,
+        logger: Logger? = nil,
     ) {
         var components = URLComponents()
         components.scheme = scheme
@@ -109,17 +115,17 @@ public final class RegistryClient: ContentClient {
         self.retryOptions = retryOptions
         self.bufferSize = bufferSize
         var httpConfiguration = HTTPClient.Configuration()
-        let proxyConfig: HTTPClient.Configuration.Proxy? = {
-            let proxyEnv = ProcessInfo.processInfo.environment["HTTP_PROXY"]
-            guard let proxyEnv else {
-                return nil
-            }
-            guard let url = URL(string: proxyEnv), let host = url.host(), let port = url.port else {
-                return nil
-            }
-            return .server(host: host, port: port)
-        }()
-        httpConfiguration.proxy = proxyConfig
+
+        // proxy configuration assumes all client requests will go to `base` URL
+        self.proxyURL = ProxyUtils.proxyFromEnvironment(scheme: scheme, host: host)
+        if let proxyURL = self.proxyURL, let proxyHost = proxyURL.host {
+            let proxyPort = proxyURL.port ?? (proxyURL.scheme == "https" ? 443 : 80)
+            httpConfiguration.proxy = HTTPClient.Configuration.Proxy.server(host: proxyHost, port: proxyPort)
+        }
+        if tlsConfiguration != nil {
+            httpConfiguration.tlsConfiguration = tlsConfiguration
+        }
+
         if let logger {
             self.client = HTTPClient(eventLoopGroupProvider: .singleton, configuration: httpConfiguration, backgroundActivityLogger: logger)
         } else {
@@ -143,7 +149,7 @@ public final class RegistryClient: ContentClient {
         closure: (HTTPClientResponse) async throws -> T
     ) async throws -> T {
         guard let path = components.url?.absoluteString else {
-            throw ContainerizationError(.invalidArgument, message: "Invalid url \(components.path)")
+            throw ContainerizationError(.invalidArgument, message: "invalid url \(components.path)")
         }
 
         var request = HTTPClientRequest(url: path)
@@ -188,7 +194,7 @@ public final class RegistryClient: ContentClient {
                     do {
                         let _currentToken = try await fetchToken(request: tokenRequest)
                         guard let token = _currentToken.getToken() else {
-                            throw ContainerizationError(.internalError, message: "Failed to fetch Bearer token")
+                            throw ContainerizationError(.internalError, message: "failed to fetch Bearer token")
                         }
                         currentToken = _currentToken
                         request.headers.replaceOrAdd(name: "Authorization", value: token)
@@ -198,7 +204,7 @@ public final class RegistryClient: ContentClient {
                             throw err
                         }
                         if status == .unauthorized || status == .forbidden {
-                            throw RegistryClient.Error.invalidStatus(url: path, _response.status, reason: "Access denied or wrong credentials")
+                            throw RegistryClient.Error.invalidStatus(url: path, _response.status, reason: "access denied or wrong credentials")
                         }
 
                         throw err
@@ -224,7 +230,13 @@ public final class RegistryClient: ContentClient {
                 #if os(macOS)
                 if let err = error as? NWError {
                     if err.errorCode == kDNSServiceErr_NoSuchRecord {
-                        throw ContainerizationError(.internalError, message: "No Such DNS Record \(host())")
+                        let message: String
+                        if let proxyURL = self.proxyURL, let proxyHost = proxyURL.host {
+                            message = "failed to resolve either repository hostname \(host()) or proxy hostname \(proxyHost)"
+                        } else {
+                            message = "failed to resolve either repository hostname \(host())"
+                        }
+                        throw ContainerizationError(.internalError, message: message)
                     }
                 }
                 #endif
@@ -236,7 +248,7 @@ public final class RegistryClient: ContentClient {
             }
         }
         guard let response else {
-            throw ContainerizationError(.internalError, message: "Invalid response")
+            throw ContainerizationError(.internalError, message: "invalid response")
         }
         return try await closure(response)
     }

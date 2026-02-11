@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,7 +24,7 @@ public final class LocalContent: Content {
 
     public init(path: URL) throws {
         guard FileManager.default.fileExists(atPath: path.path) else {
-            throw ContainerizationError(.notFound, message: "Content at path \(path.absolutePath())")
+            throw ContainerizationError(.notFound, message: "content at path \(path.absolutePath())")
         }
 
         self.file = try FileHandle(forReadingFrom: path)
@@ -63,7 +63,7 @@ public final class LocalContent: Content {
         if let size = fileAttrs[FileAttributeKey.size] as? UInt64 {
             return size
         }
-        throw ContainerizationError(.internalError, message: "Could not determine file size for \(path.absolutePath())")
+        throw ContainerizationError(.internalError, message: "could not determine file size for \(path.absolutePath())")
     }
 
     public func decode<T>() throws -> T where T: Decodable {

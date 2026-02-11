@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,14 +14,18 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-public struct NATInterface: Interface {
-    public var address: String
-    public var gateway: String?
-    public var macAddress: String?
+import ContainerizationExtras
 
-    public init(address: String, gateway: String?, macAddress: String? = nil) {
-        self.address = address
-        self.gateway = gateway
+public struct NATInterface: Interface {
+    public var ipv4Address: CIDRv4
+    public var ipv4Gateway: IPv4Address?
+    public var macAddress: MACAddress?
+    public var mtu: UInt32
+
+    public init(ipv4Address: CIDRv4, ipv4Gateway: IPv4Address?, macAddress: MACAddress? = nil, mtu: UInt32 = 1500) {
+        self.ipv4Address = ipv4Address
+        self.ipv4Gateway = ipv4Gateway
         self.macAddress = macAddress
+        self.mtu = mtu
     }
 }

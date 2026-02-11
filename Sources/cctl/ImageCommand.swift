@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -123,6 +123,7 @@ extension Application {
                     print("Reference resolved to \(reference.description)")
                 }
 
+                var startTime = ContinuousClock.now
                 let image = try await Images.withAuthentication(ref: normalizedReference) { auth in
                     try await imageStore.pull(reference: normalizedReference, platform: platform, insecure: http, auth: auth)
                 }
@@ -132,18 +133,21 @@ extension Application {
                     Application.exit(withError: POSIXError(.EACCES))
                 }
 
-                print("image pulled")
+                var duration = ContinuousClock.now - startTime
+                print("Image pull took: \(duration)\n")
+
                 guard let unpackPath else {
                     return
                 }
                 guard !FileManager.default.fileExists(atPath: unpackPath) else {
-                    throw ContainerizationError(.exists, message: "Directory already exists at \(unpackPath)")
+                    throw ContainerizationError(.exists, message: "directory already exists at \(unpackPath)")
                 }
                 let unpackUrl = URL(filePath: unpackPath)
                 try FileManager.default.createDirectory(at: unpackUrl, withIntermediateDirectories: true)
 
                 let unpacker = EXT4Unpacker.init(blockSizeInBytes: 2.gib())
 
+                startTime = ContinuousClock.now
                 if let platform {
                     let name = platform.description.replacingOccurrences(of: "/", with: "-")
                     let _ = try await unpacker.unpack(image, for: platform, at: unpackUrl.appending(component: name))
@@ -160,6 +164,8 @@ extension Application {
                         print("created snapshot for platform \(descPlatform.description)")
                     }
                 }
+                duration = ContinuousClock.now - startTime
+                print("\nUnpacking took: \(duration)")
             }
         }
 
@@ -246,10 +252,13 @@ extension Application {
                 defer {
                     try? FileManager.default.removeItem(at: tempDir)
                 }
-                try reader.extractContents(to: tempDir)
+                let rejectedPaths = try reader.extractContents(to: tempDir)
                 let imported = try await store.load(from: tempDir)
                 for image in imported {
                     print("imported \(image.reference)")
+                }
+                for rejectedPath in rejectedPaths {
+                    print("warning: skipped image archive member \(rejectedPath)")
                 }
             }
         }
@@ -260,14 +269,14 @@ extension Application {
             var authentication: Authentication?
             let ref = try Reference.parse(ref)
             guard let host = ref.resolvedDomain else {
-                throw ContainerizationError(.invalidArgument, message: "No host specified in image reference")
+                throw ContainerizationError(.invalidArgument, message: "no host specified in image reference")
             }
             authentication = Self.authenticationFromEnv(host: host)
             if let authentication {
                 return try await body(authentication)
             }
-            let keychain = KeychainHelper(id: Application.keychainID)
-            authentication = try? keychain.lookup(domain: host)
+            let keychain = KeychainHelper(securityDomain: Application.keychainID)
+            authentication = try? keychain.lookup(hostname: host)
             return try await body(authentication)
         }
 

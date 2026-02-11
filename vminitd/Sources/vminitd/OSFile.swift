@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,8 +17,6 @@
 import Foundation
 
 struct OSFile: Sendable {
-    private let fd: Int32
-
     enum IOAction: Equatable {
         case eof
         case again
@@ -26,6 +24,8 @@ struct OSFile: Sendable {
         case brokenPipe
         case error(_ errno: Int32)
     }
+
+    private let fd: Int32
 
     var closed: Bool {
         Foundation.fcntl(fd, F_GETFD) == -1 && errno == EBADF

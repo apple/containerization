@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -27,9 +27,6 @@ import struct ContainerizationOS.Terminal
 /// `LinuxContainer` is an easy to use type for launching and managing the
 /// full lifecycle of a Linux container ran inside of a virtual machine.
 public final class LinuxContainer: Container, Sendable {
-    /// The default PATH value for a process.
-    public static let defaultPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-
     /// The identifier of the container.
     public let id: String
 
@@ -41,66 +38,8 @@ public final class LinuxContainer: Container, Sendable {
 
     /// The configuration for the LinuxContainer.
     public struct Configuration: Sendable {
-        /// Configuration of a container process.
-        public struct Process: Sendable {
-            /// The arguments for the container process.
-            public var arguments: [String] = []
-            /// The environment variables for the container process.
-            public var environmentVariables: [String] = ["PATH=\(LinuxContainer.defaultPath)"]
-            /// The working directory for the container process.
-            public var workingDirectory: String = "/"
-            /// The user the container process will run as.
-            public var user: ContainerizationOCI.User = .init()
-            /// The rlimits for the container process.
-            public var rlimits: [POSIXRlimit] = []
-            /// Whether to allocate a pseudo terminal for the process. If you'd like interactive
-            /// behavior and are planning to use a terminal for stdin/out/err on the client side,
-            /// this should likely be set to true.
-            public var terminal: Bool = false
-            /// The stdin for the process.
-            public var stdin: ReaderStream?
-            /// The stdout for the process.
-            public var stdout: Writer?
-            /// The stderr for the process.
-            public var stderr: Writer?
-
-            public init() {}
-
-            public init(from config: ImageConfig) {
-                self.workingDirectory = config.workingDir ?? "/"
-                self.environmentVariables = config.env ?? []
-                self.arguments = (config.entrypoint ?? []) + (config.cmd ?? [])
-                self.user = {
-                    if let rawString = config.user {
-                        return User(username: rawString)
-                    }
-                    return User()
-                }()
-            }
-
-            func toOCI() -> ContainerizationOCI.Process {
-                ContainerizationOCI.Process(
-                    args: self.arguments,
-                    cwd: self.workingDirectory,
-                    env: self.environmentVariables,
-                    user: self.user,
-                    rlimits: self.rlimits,
-                    terminal: self.terminal
-                )
-            }
-
-            /// Sets up IO to be handled by the passed in Terminal, and edits the
-            /// process configuration to set the necessary state for using a pty.
-            mutating public func setTerminalIO(terminal: Terminal) {
-                self.environmentVariables.append("TERM=xterm")
-                self.terminal = true
-                self.stdin = terminal
-                self.stdout = terminal
-            }
-        }
-
         /// Configuration for the init process of the container.
-        public var process = Process.init()
+        public var process = LinuxProcessConfiguration()
         /// The amount of cpus for the container.
         public var cpus: Int = 4
         /// The memory in bytes to give to the container.
@@ -113,21 +52,54 @@ public final class LinuxContainer: Container, Sendable {
         public var interfaces: [any Interface] = []
         /// The Unix domain socket relays to setup for the container.
         public var sockets: [UnixSocketConfiguration] = []
-        /// Whether rosetta x86-64 emulation should be setup for the container.
-        public var rosetta: Bool = false
-        /// Whether nested virtualization should be turned on for the container.
-        public var virtualization: Bool = false
         /// The mounts for the container.
         public var mounts: [Mount] = LinuxContainer.defaultMounts()
         /// The DNS configuration for the container.
         public var dns: DNS?
         /// The hosts to add to /etc/hosts for the container.
         public var hosts: Hosts?
+        /// Enable nested virtualization support.
+        public var virtualization: Bool = false
+        /// Optional destination for serial boot logs.
+        public var bootLog: BootLog?
+        /// EXPERIMENTAL: Path in the root filesystem for the virtual
+        /// machine where the OCI runtime used to spawn the container lives.
+        public var ociRuntimePath: String?
 
         public init() {}
+
+        public init(
+            process: LinuxProcessConfiguration,
+            cpus: Int = 4,
+            memoryInBytes: UInt64 = 1024.mib(),
+            hostname: String = "",
+            sysctl: [String: String] = [:],
+            interfaces: [any Interface] = [],
+            sockets: [UnixSocketConfiguration] = [],
+            mounts: [Mount] = LinuxContainer.defaultMounts(),
+            dns: DNS? = nil,
+            hosts: Hosts? = nil,
+            virtualization: Bool = false,
+            bootLog: BootLog? = nil,
+            ociRuntimePath: String? = nil
+        ) {
+            self.process = process
+            self.cpus = cpus
+            self.memoryInBytes = memoryInBytes
+            self.hostname = hostname
+            self.sysctl = sysctl
+            self.interfaces = interfaces
+            self.sockets = sockets
+            self.mounts = mounts
+            self.dns = dns
+            self.hosts = hosts
+            self.virtualization = virtualization
+            self.bootLog = bootLog
+            self.ociRuntimePath = ociRuntimePath
+        }
     }
 
-    private let state: Mutex<State>
+    private let state: AsyncMutex<State>
 
     // Ports to be allocated from for stdio and for
     // unix socket relays that are sharing a guest
@@ -140,55 +112,44 @@ public final class LinuxContainer: Container, Sendable {
     private enum State: Sendable {
         /// The container class has been created but no live resources are running.
         case initialized
-        /// The container is creating and booting the underlying virtual resources.
-        case creating(CreatingState)
         /// The container's virtual machine has been setup and the runtime environment has been configured.
         case created(CreatedState)
-        /// The initial process of the container is preparing to start.
-        case starting(StartingState)
         /// The initial process of the container has started and is running.
         case started(StartedState)
-        /// The container is preparing to stop.
-        case stopping(StoppingState)
         /// The container has run and fully stopped.
         case stopped
         /// An error occurred during the lifetime of this class.
         case errored(Swift.Error)
-        /// The container is being paused.
-        case pausing(PausingState)
         /// The container is paused.
         case paused(PausedState)
-        /// The container is being resumed.
-        case resuming(ResumingState)
-
-        struct Idempotent: Swift.Error {}
-
-        struct CreatingState: Sendable {}
 
         struct CreatedState: Sendable {
             let vm: any VirtualMachineInstance
             let relayManager: UnixSocketRelayManager
+            var fileMountContext: FileMountContext
         }
 
-        struct StartingState: Sendable {
+        struct StartedState: Sendable {
             let vm: any VirtualMachineInstance
+            let process: LinuxProcess
             let relayManager: UnixSocketRelayManager
+            var vendedProcesses: [String: LinuxProcess]
+            let fileMountContext: FileMountContext
 
-            init(_ state: CreatedState) {
+            init(_ state: CreatedState, process: LinuxProcess) {
                 self.vm = state.vm
                 self.relayManager = state.relayManager
+                self.process = process
+                self.vendedProcesses = [:]
+                self.fileMountContext = state.fileMountContext
             }
-        }
 
-        struct PausingState: Sendable {
-            let vm: any VirtualMachineInstance
-            let relayManager: UnixSocketRelayManager
-            let process: LinuxProcess
-
-            init(_ state: StartedState) {
+            init(_ state: PausedState) {
                 self.vm = state.vm
                 self.relayManager = state.relayManager
                 self.process = state.process
+                self.vendedProcesses = state.vendedProcesses
+                self.fileMountContext = state.fileMountContext
             }
         }
 
@@ -196,139 +157,28 @@ public final class LinuxContainer: Container, Sendable {
             let vm: any VirtualMachineInstance
             let relayManager: UnixSocketRelayManager
             let process: LinuxProcess
-
-            init(_ state: PausingState) {
-                self.vm = state.vm
-                self.relayManager = state.relayManager
-                self.process = state.process
-            }
-        }
-
-        struct ResumingState: Sendable {
-            let vm: any VirtualMachineInstance
-            let relayManager: UnixSocketRelayManager
-            let process: LinuxProcess
-
-            init(_ state: PausedState) {
-                self.vm = state.vm
-                self.relayManager = state.relayManager
-                self.process = state.process
-            }
-        }
-
-        struct StartedState: Sendable {
-            let vm: any VirtualMachineInstance
-            let process: LinuxProcess
-            let relayManager: UnixSocketRelayManager
-
-            init(_ state: StartingState, process: LinuxProcess) {
-                self.vm = state.vm
-                self.relayManager = state.relayManager
-                self.process = process
-            }
-
-            init(_ state: ResumingState) {
-                self.vm = state.vm
-                self.relayManager = state.relayManager
-                self.process = state.process
-            }
-        }
-
-        struct StoppingState: Sendable {
-            let vm: any VirtualMachineInstance
+            var vendedProcesses: [String: LinuxProcess]
+            let fileMountContext: FileMountContext
 
             init(_ state: StartedState) {
                 self.vm = state.vm
+                self.relayManager = state.relayManager
+                self.process = state.process
+                self.vendedProcesses = state.vendedProcesses
+                self.fileMountContext = state.fileMountContext
             }
         }
 
-        mutating func setCreating() throws {
-            switch self {
-            case .initialized, .stopped:
-                self = .creating(.init())
-            case .errored(let err):
-                throw err
-            default:
-                throw ContainerizationError(
-                    .invalidState,
-                    message: "container must be in initialized state to start"
-                )
-            }
-        }
-
-        mutating func setCreated(
-            vm: any VirtualMachineInstance,
-            relayManager: UnixSocketRelayManager
-        ) throws {
-            switch self {
-            case .creating:
-                self = .created(.init(vm: vm, relayManager: relayManager))
-            case .errored(let err):
-                throw err
-            default:
-                throw ContainerizationError(
-                    .invalidState,
-                    message: "container must be in creating state before created"
-                )
-            }
-        }
-
-        mutating func setStarting() throws -> any VirtualMachineInstance {
+        func createdState(_ operation: String) throws -> CreatedState {
             switch self {
             case .created(let state):
-                self = .starting(.init(state))
-                return state.vm
-            case .errored(let err):
-                throw err
-            default:
-                throw ContainerizationError(
-                    .invalidState,
-                    message: "container must be in created state before starting"
-                )
-            }
-        }
-
-        mutating func setStarted(process: LinuxProcess) throws {
-            switch self {
-            case .starting(let state):
-                self = .started(.init(state, process: process))
-            case .errored(let err):
-                throw err
-            default:
-                throw ContainerizationError(
-                    .invalidState,
-                    message: "container must be in starting state before started"
-                )
-            }
-        }
-
-        mutating func setResumed() throws {
-            switch self {
-            case .resuming(let state):
-                self = .started(.init(state))
-            case .errored(let err):
-                throw err
-            default:
-                throw ContainerizationError(
-                    .invalidState,
-                    message: "container must be in resuming state before being resumed"
-                )
-            }
-        }
-
-        mutating func setStopping() throws -> StartedState {
-            switch self {
-            case .started(let state):
-                self = .stopping(.init(state))
                 return state
-            case .stopping(_), .stopped:
-                throw Idempotent()
             case .errored(let err):
                 throw err
             default:
                 throw ContainerizationError(
                     .invalidState,
-                    message: "container must be in a started state before stopping"
+                    message: "failed to \(operation): container must be created"
                 )
             }
         }
@@ -347,62 +197,30 @@ public final class LinuxContainer: Container, Sendable {
             }
         }
 
-        mutating func setPausing() throws -> StartedState {
-            switch self {
-            case .started(let state):
-                self = .pausing(.init(state))
-                return state
-            case .errored(let err):
-                throw err
-            default:
-                throw ContainerizationError(
-                    .invalidState,
-                    message: "failed to pause: container must be running"
-                )
-            }
-        }
-
-        mutating func setPaused() throws {
-            switch self {
-            case .pausing(let state):
-                self = .paused(.init(state))
-            case .errored(let err):
-                throw err
-            default:
-                throw ContainerizationError(
-                    .invalidState,
-                    message: "failed to pause: container must be running"
-                )
-            }
-        }
-
-        mutating func setResuming() throws -> PausedState {
+        func pausedState(_ operation: String) throws -> PausedState {
             switch self {
             case .paused(let state):
-                self = .resuming(.init(state))
                 return state
             case .errored(let err):
                 throw err
             default:
                 throw ContainerizationError(
                     .invalidState,
-                    message: "failed to resume: container must be paused"
+                    message: "failed to \(operation): container must be paused"
                 )
             }
         }
 
-        mutating func setStopped() throws {
+        mutating func validateForCreate() throws {
             switch self {
-            case .stopping(_):
-                self = .stopped
-            case .stopped:
-                throw Idempotent()
+            case .initialized, .stopped:
+                break
             case .errored(let err):
                 throw err
             default:
                 throw ContainerizationError(
                     .invalidState,
-                    message: "container must be in a stopping state before setting to stopped"
+                    message: "container must be in initialized or stopped state to create"
                 )
             }
         }
@@ -415,29 +233,55 @@ public final class LinuxContainer: Container, Sendable {
     private let vmm: VirtualMachineManager
     private let logger: Logger?
 
-    /// Create a new `LinuxContainer`. A `Mount` that contains the contents
-    /// of the container image must be provided, as well as a `VirtualMachineManager`
-    /// instance that will handle launching the virtual machine the container will
-    /// execute inside of.
-    public init(
+    /// Create a new `LinuxContainer`.
+    ///
+    /// - Parameters:
+    ///   - id: The identifier for the container.
+    ///   - rootfs: The root filesystem mount containing the container image contents.
+    ///   - vmm: The virtual machine manager that will handle launching the VM for the container.
+    ///   - logger: Optional logger for container operations.
+    ///   - configuration: A closure that configures the container by modifying the Configuration instance.
+    public convenience init(
         _ id: String,
         rootfs: Mount,
         vmm: VirtualMachineManager,
         logger: Logger? = nil,
         configuration: (inout Configuration) throws -> Void
     ) throws {
+        var config = Configuration()
+        try configuration(&config)
+        self.init(
+            id,
+            rootfs: rootfs,
+            vmm: vmm,
+            configuration: config,
+            logger: logger
+        )
+    }
+
+    /// Create a new `LinuxContainer`.
+    ///
+    /// - Parameters:
+    ///   - id: The identifier for the container.
+    ///   - rootfs: The root filesystem mount containing the container image contents.
+    ///   - vmm: The virtual machine manager that will handle launching the VM for the container.
+    ///   - configuration: The container configuration specifying process, resources, networking, and other settings.
+    ///   - logger: Optional logger for container operations.
+    public init(
+        _ id: String,
+        rootfs: Mount,
+        vmm: VirtualMachineManager,
+        configuration: LinuxContainer.Configuration,
+        logger: Logger? = nil
+    ) {
         self.id = id
         self.vmm = vmm
         self.hostVsockPorts = Atomic<UInt32>(0x1000_0000)
         self.guestVsockPorts = Atomic<UInt32>(0x1000_0000)
-        self.rootfs = rootfs
         self.logger = logger
-
-        var config = Configuration()
-        try configuration(&config)
-
-        self.config = config
-        self.state = Mutex(.initialized)
+        self.config = configuration
+        self.state = AsyncMutex(.initialized)
+        self.rootfs = rootfs
     }
 
     private static func createDefaultRuntimeSpec(_ id: String) -> Spec {
@@ -467,19 +311,59 @@ public final class LinuxContainer: Container, Sendable {
         // Linux toggles.
         spec.linux?.sysctl = config.sysctl
 
+        // If the rootfs was requested as read-only, set it in the OCI spec.
+        // We let the OCI runtime remount as ro, instead of doing it originally.
+        spec.root?.readonly = self.rootfs.options.contains("ro")
+
+        // Resource limits.
+        // CPU: quota/period model where period is 100ms (100,000µs) and quota is cpus * period
+        // Memory: limit in bytes
+        spec.linux?.resources = LinuxResources(
+            memory: LinuxMemory(
+                limit: Int64(config.memoryInBytes)
+            ),
+            cpu: LinuxCPU(
+                quota: Int64(config.cpus * 100_000),
+                period: 100_000
+            )
+        )
+
+        spec.linux?.namespaces = [
+            LinuxNamespace(type: .cgroup),
+            LinuxNamespace(type: .ipc),
+            LinuxNamespace(type: .mount),
+            LinuxNamespace(type: .pid),
+            LinuxNamespace(type: .uts),
+        ]
+
         return spec
     }
 
+    /// The default set of mounts for a LinuxContainer.
     public static func defaultMounts() -> [Mount] {
         let defaultOptions = ["nosuid", "noexec", "nodev"]
         return [
-            .any(type: "proc", source: "proc", destination: "/proc", options: defaultOptions),
+            .any(type: "proc", source: "proc", destination: "/proc"),
             .any(type: "sysfs", source: "sysfs", destination: "/sys", options: defaultOptions),
             .any(type: "devtmpfs", source: "none", destination: "/dev", options: ["nosuid", "mode=755"]),
             .any(type: "mqueue", source: "mqueue", destination: "/dev/mqueue", options: defaultOptions),
             .any(type: "tmpfs", source: "tmpfs", destination: "/dev/shm", options: defaultOptions + ["mode=1777", "size=65536k"]),
             .any(type: "cgroup2", source: "none", destination: "/sys/fs/cgroup", options: defaultOptions),
-            .any(type: "devpts", source: "devpts", destination: "/dev/pts", options: ["nosuid", "noexec", "gid=5", "mode=620", "ptmxmode=666"]),
+            .any(type: "devpts", source: "devpts", destination: "/dev/pts", options: ["nosuid", "noexec", "newinstance", "gid=5", "mode=0620", "ptmxmode=0666"]),
+        ]
+    }
+
+    /// A more traditional default set of mounts that OCI runtimes typically employ.
+    public static func defaultOCIMounts() -> [Mount] {
+        let defaultOptions = ["nosuid", "noexec", "nodev"]
+        return [
+            .any(type: "proc", source: "proc", destination: "/proc"),
+            .any(type: "tmpfs", source: "tmpfs", destination: "/dev", options: ["nosuid", "mode=755", "size=65536k"]),
+            .any(type: "devpts", source: "devpts", destination: "/dev/pts", options: ["nosuid", "noexec", "newinstance", "gid=5", "mode=0620", "ptmxmode=0666"]),
+            .any(type: "sysfs", source: "sysfs", destination: "/sys", options: defaultOptions),
+            .any(type: "mqueue", source: "mqueue", destination: "/dev/mqueue", options: defaultOptions),
+            .any(type: "tmpfs", source: "tmpfs", destination: "/dev/shm", options: defaultOptions + ["mode=1777", "size=65536k"]),
+            .any(type: "cgroup2", source: "none", destination: "/sys/fs/cgroup", options: defaultOptions),
         ]
     }
 
@@ -513,94 +397,163 @@ extension LinuxContainer {
     /// and set up the runtime environment. The container's init process
     /// is NOT running afterwards.
     public func create() async throws {
-        try self.state.withLock { try $0.setCreating() }
+        try await self.state.withLock { state in
+            try state.validateForCreate()
 
-        let vm = try vmm.create(container: self)
-        try await vm.start()
-        do {
-            try await vm.withAgent { agent in
-                let relayManager = UnixSocketRelayManager(vm: vm)
+            // This is a bit of an annoyance, but because the type we use for the rootfs is simply
+            // the same Mount type we use for non-rootfs mounts, it's possible someone passed 'ro'
+            // in the options (which should be perfectly valid). However, the problem is when we go to
+            // setup /etc/hosts and /etc/resolv.conf, as we'd get EROFS if they did supply 'ro'.
+            // To remedy this, remove any "ro" options before passing to VZ. Having the OCI runtime
+            // remount "ro" (which is what we do later in the guest) is truthfully the right thing,
+            // but this bit here is just a tad awkward.
+            var modifiedRootfs = self.rootfs
+            modifiedRootfs.options.removeAll(where: { $0 == "ro" })
 
-                try await agent.standardSetup()
+            // Calculate VM memory with overhead for the guest agent.
+            // The container cgroup limit stays at the requested memory, but the VM
+            // gets an additional 50MB for the guest agent (could be higher, could be lower
+            // but this is a decent baseline for now).
+            //
+            // Clamp to system RAM if the total would exceed it as Virtualization.framework
+            // bounds us to this.
+            let guestAgentOverhead: UInt64 = 50.mib()
+            let vmMemory = min(
+                self.memoryInBytes + guestAgentOverhead,
+                ProcessInfo.processInfo.physicalMemory
+            )
 
-                // Mount the rootfs.
-                var rootfs = vm.mounts[0].to
-                rootfs.destination = Self.guestRootfsPath(self.id)
-                try await agent.mount(rootfs)
+            // Prepare file mounts. This transforms single-file mounts into directory shares.
+            let fileMountContext = try FileMountContext.prepare(mounts: self.config.mounts)
+            // This is dumb, but alas.
+            let fileMountContextHolder = Mutex<FileMountContext>(fileMountContext)
 
-                // Start up our friendly unix socket relays.
-                for socket in self.config.sockets {
-                    try await self.relayUnixSocket(
-                        socket: socket,
-                        relayManager: relayManager,
-                        agent: agent
-                    )
-                }
+            let vmConfig = VMConfiguration(
+                cpus: self.cpus,
+                memoryInBytes: vmMemory,
+                interfaces: self.interfaces,
+                mountsByID: [self.id: [modifiedRootfs] + fileMountContext.transformedMounts],
+                bootLog: self.config.bootLog,
+                nestedVirtualization: self.config.virtualization
+            )
+            let creationConfig = StandardVMConfig(configuration: vmConfig)
+            let vm = try await self.vmm.create(config: creationConfig)
+            let relayManager = UnixSocketRelayManager(vm: vm, log: self.logger)
 
-                // For every interface asked for:
-                // 1. Add the address requested
-                // 2. Online the adapter
-                // 3. If a gateway IP address is present, add the default route.
-                for (index, i) in self.interfaces.enumerated() {
-                    let name = "eth\(index)"
-                    try await agent.addressAdd(name: name, address: i.address)
-                    try await agent.up(name: name, mtu: 1280)
-                    if let gateway = i.gateway {
-                        try await agent.routeAddDefault(name: name, gateway: gateway)
+            try await vm.start()
+            do {
+                try await vm.withAgent { agent in
+                    try await agent.standardSetup()
+
+                    // Mount the rootfs.
+                    guard let attachments = vm.mounts[self.id], let rootfsAttachment = attachments.first else {
+                        throw ContainerizationError(.notFound, message: "rootfs mount not found")
                     }
-                }
+                    var rootfs = rootfsAttachment.to
+                    rootfs.destination = Self.guestRootfsPath(self.id)
+                    try await agent.mount(rootfs)
 
-                // Setup /etc/resolv.conf and /etc/hosts if asked for.
-                if let dns = self.config.dns {
-                    try await agent.configureDNS(config: dns, location: rootfs.destination)
-                }
-                if let hosts = self.config.hosts {
-                    try await agent.configureHosts(config: hosts, location: rootfs.destination)
-                }
+                    // Mount file mount holding directories under /run.
+                    if fileMountContext.hasFileMounts {
+                        let containerMounts = vm.mounts[self.id] ?? []
+                        var ctx = fileMountContextHolder.withLock { $0 }
+                        try await ctx.mountHoldingDirectories(
+                            vmMounts: containerMounts,
+                            agent: agent
+                        )
+                        fileMountContextHolder.withLock { $0 = ctx }
+                    }
 
-                try self.state.withLock { try $0.setCreated(vm: vm, relayManager: relayManager) }
+                    // Start up our friendly unix socket relays.
+                    for socket in self.config.sockets {
+                        try await self.relayUnixSocket(
+                            socket: socket,
+                            relayManager: relayManager,
+                            agent: agent
+                        )
+                    }
+
+                    // For every interface asked for:
+                    // 1. Add the address requested
+                    // 2. Online the adapter
+                    // 3. If a gateway IP address is present, add the default route.
+                    for (index, i) in self.interfaces.enumerated() {
+                        let name = "eth\(index)"
+                        self.logger?.debug("setting up interface \(name) with address \(i.ipv4Address)")
+                        try await agent.addressAdd(name: name, ipv4Address: i.ipv4Address)
+                        try await agent.up(name: name, mtu: i.mtu)
+                        if let ipv4Gateway = i.ipv4Gateway {
+                            if !i.ipv4Address.contains(ipv4Gateway) {
+                                self.logger?.debug("gateway \(ipv4Gateway) is outside subnet \(i.ipv4Address), adding a route first")
+                                try await agent.routeAddLink(name: name, dstIPv4Addr: ipv4Gateway, srcIPv4Addr: i.ipv4Address.address)
+                            }
+                            try await agent.routeAddDefault(name: name, ipv4Gateway: ipv4Gateway)
+                        }
+                    }
+
+                    // Setup /etc/resolv.conf and /etc/hosts if asked for.
+                    if let dns = self.config.dns {
+                        try await agent.configureDNS(config: dns, location: rootfs.destination)
+                    }
+                    if let hosts = self.config.hosts {
+                        try await agent.configureHosts(config: hosts, location: rootfs.destination)
+                    }
+
+                }
+                state = .created(.init(vm: vm, relayManager: relayManager, fileMountContext: fileMountContextHolder.withLock { $0 }))
+            } catch {
+                try? await relayManager.stopAll()
+                try? await vm.stop()
+                state.setErrored(error: error)
+                throw error
             }
-        } catch {
-            try? await vm.stop()
-            self.state.withLock { $0.setErrored(error: error) }
-            throw error
         }
     }
 
     /// Start the container's initial process.
     public func start() async throws {
-        let vm = try self.state.withLock { try $0.setStarting() }
+        try await self.state.withLock { state in
+            let createdState = try state.createdState("start")
 
-        let agent = try await vm.dialAgent()
-        do {
-            var spec = generateRuntimeSpec()
-            // We don't need the rootfs, nor do OCI runtimes want it included.
-            spec.mounts = vm.mounts.dropFirst().map { $0.to }
+            let agent = try await createdState.vm.dialAgent()
+            do {
+                var spec = self.generateRuntimeSpec()
+                // We don't need the rootfs, nor do OCI runtimes want it included.
+                // Also filter out file mount holding directories. We'll mount those separately under /run.
+                let containerMounts = createdState.vm.mounts[self.id] ?? []
+                let holdingTags = createdState.fileMountContext.holdingDirectoryTags
+                spec.mounts =
+                    containerMounts.dropFirst()
+                    .filter { !holdingTags.contains($0.source) }
+                    .map { $0.to }
+                    + createdState.fileMountContext.ociBindMounts()
 
-            let stdio = Self.setupIO(
-                portAllocator: self.hostVsockPorts,
-                stdin: self.config.process.stdin,
-                stdout: self.config.process.stdout,
-                stderr: self.config.process.stderr
-            )
+                let stdio = IOUtil.setup(
+                    portAllocator: self.hostVsockPorts,
+                    stdin: self.config.process.stdin,
+                    stdout: self.config.process.stdout,
+                    stderr: self.config.process.stderr
+                )
 
-            let process = LinuxProcess(
-                self.id,
-                containerID: self.id,
-                spec: spec,
-                io: stdio,
-                agent: agent,
-                vm: vm,
-                logger: self.logger
-            )
-            try await process.start()
+                let process = LinuxProcess(
+                    self.id,
+                    containerID: self.id,
+                    spec: spec,
+                    io: stdio,
+                    ociRuntimePath: self.config.ociRuntimePath,
+                    agent: agent,
+                    vm: createdState.vm,
+                    logger: self.logger
+                )
+                try await process.start()
 
-            try self.state.withLock { try $0.setStarted(process: process) }
-        } catch {
-            try? await agent.close()
-            try? await vm.stop()
-            self.state.withLock { $0.setErrored(error: error) }
-            throw error
+                state = .started(.init(createdState, process: process))
+            } catch {
+                try? await agent.close()
+                try? await createdState.vm.stop()
+                state.setErrored(error: error)
+                throw error
+            }
         }
     }
 
@@ -645,193 +598,284 @@ extension LinuxContainer {
     }
 
     /// Stop the container from executing. This MUST be called even if wait() has returned
-    /// as their are additional
+    /// as their are additional resources to free.
     public func stop() async throws {
-        let startedState: State.StartedState
-        do {
-            startedState = try self.state.withLock { try $0.setStopping() }
-        } catch _ as State.Idempotent {
-            return
-        }
-
-        do {
-            try await startedState.relayManager.stopAll()
-
-            // It's possible the state of the vm is not in a great spot
-            // if the guest panicked or had any sort of bug/fault.
-            // First check if the vm is even still running, as trying to
-            // use a vsock handle like below here will cause NIO to
-            // fatalError because we'll get an EBADF.
-            if startedState.vm.state == .stopped {
-                try self.state.withLock { try $0.setStopped() }
+        try await self.state.withLock { state in
+            // Allow stop to be called multiple times.
+            if case .stopped = state {
                 return
             }
 
-            try await startedState.vm.withAgent { agent in
-                // First, we need to stop any unix socket relays as this will
-                // keep the rootfs from being able to umount (EBUSY).
-                let sockets = config.sockets
-                if !sockets.isEmpty {
-                    guard let relayAgent = agent as? SocketRelayAgent else {
-                        throw ContainerizationError(
-                            .unsupported,
-                            message: "VirtualMachineAgent does not support relaySocket surface"
+            let vm: any VirtualMachineInstance
+            let relayManager: UnixSocketRelayManager
+            let fileMountContext: FileMountContext
+
+            let startedState = try? state.startedState("stop")
+            if let startedState {
+                vm = startedState.vm
+                relayManager = startedState.relayManager
+                fileMountContext = startedState.fileMountContext
+            } else {
+                let createdState = try state.createdState("stop")
+                vm = createdState.vm
+                relayManager = createdState.relayManager
+                fileMountContext = createdState.fileMountContext
+            }
+
+            var firstError: Error?
+            do {
+                try await relayManager.stopAll()
+            } catch {
+                self.logger?.error("failed to stop relay manager: \(error)")
+                firstError = firstError ?? error
+            }
+
+            do {
+                try await vm.withAgent { agent in
+                    // First, we need to stop any unix socket relays as this will
+                    // keep the rootfs from being able to umount (EBUSY).
+                    let sockets = self.config.sockets
+                    if !sockets.isEmpty {
+                        guard let relayAgent = agent as? SocketRelayAgent else {
+                            throw ContainerizationError(
+                                .unsupported,
+                                message: "VirtualMachineAgent does not support relaySocket surface"
+                            )
+                        }
+                        for socket in sockets {
+                            try await relayAgent.stopSocketRelay(configuration: socket)
+                        }
+                    }
+
+                    if let _ = startedState {
+                        // Now lets ensure every process is donezo.
+                        try await agent.kill(pid: -1, signal: SIGKILL)
+
+                        // Wait on init proc exit. Give it 5 seconds of leeway.
+                        _ = try await agent.waitProcess(
+                            id: self.id,
+                            containerID: self.id,
+                            timeoutInSeconds: 5
                         )
                     }
-                    for socket in sockets {
-                        try await relayAgent.stopSocketRelay(configuration: socket)
+
+                    // Today, we leave EBUSY looping and other fun logic up to the
+                    // guest agent.
+                    try await agent.umount(
+                        path: Self.guestRootfsPath(self.id),
+                        flags: 0
+                    )
+
+                    try await agent.sync()
+                }
+            } catch {
+                self.logger?.error("failed during guest cleanup: \(error)")
+                firstError = firstError ?? error
+            }
+
+            if let startedState {
+                for process in startedState.vendedProcesses.values {
+                    do {
+                        try await process._delete()
+                    } catch {
+                        self.logger?.error("failed to delete process \(process.id): \(error)")
+                        firstError = firstError ?? error
                     }
                 }
 
-                // Now lets ensure every process is donezo.
-                try await agent.kill(pid: -1, signal: SIGKILL)
-
-                // Wait on init proc exit. Give it 5 seconds of leeway.
-                _ = try await agent.waitProcess(
-                    id: self.id,
-                    containerID: self.id,
-                    timeoutInSeconds: 5
-                )
-
-                // Today, we leave EBUSY looping and other fun logic up to the
-                // guest agent.
-                try await agent.umount(
-                    path: Self.guestRootfsPath(self.id),
-                    flags: 0
-                )
+                do {
+                    try await startedState.process.delete()
+                } catch {
+                    self.logger?.error("failed to delete init process: \(error)")
+                    firstError = firstError ?? error
+                }
             }
 
-            // Lets free up the init procs resources, as this includes the open agent conn.
-            try? await startedState.process.delete()
+            // Clean up file mount temporary directories.
+            fileMountContext.cleanUp()
 
-            try await startedState.vm.stop()
-            try self.state.withLock { try $0.setStopped() }
-        } catch {
-            self.state.withLock { $0.setErrored(error: error) }
-            throw error
-        }
-    }
-
-    /// Pause the container.
-    public func pause() async throws {
-        do {
-            let state = try self.state.withLock { try $0.setPausing() }
-            try await state.vm.pause()
-            try self.state.withLock { try $0.setPaused() }
-        } catch {
-            self.state.withLock { $0.setErrored(error: error) }
-        }
-    }
-
-    /// Resume the container.
-    public func resume() async throws {
-        do {
-            let state = try self.state.withLock { try $0.setResuming() }
-            try await state.vm.resume()
-            try self.state.withLock { try $0.setResumed() }
-        } catch {
-            self.state.withLock { $0.setErrored(error: error) }
+            do {
+                try await vm.stop()
+                state = .stopped
+                if let firstError {
+                    throw firstError
+                }
+            } catch {
+                self.logger?.error("failed to stop VM: \(error)")
+                let finalError = firstError ?? error
+                state.setErrored(error: finalError)
+                throw finalError
+            }
         }
     }
 
     /// Send a signal to the container.
     public func kill(_ signal: Int32) async throws {
-        let state = try self.state.withLock { try $0.startedState("kill") }
-        try await state.process.kill(signal)
+        try await self.state.withLock {
+            let state = try $0.startedState("kill")
+            try await state.process.kill(signal)
+        }
     }
 
     /// Wait for the container to exit. Returns the exit code.
     @discardableResult
     public func wait(timeoutInSeconds: Int64? = nil) async throws -> ExitStatus {
-        let state = try self.state.withLock { try $0.startedState("wait") }
-        return try await state.process.wait(timeoutInSeconds: timeoutInSeconds)
+        let t = try await self.state.withLock {
+            let state = try $0.startedState("wait")
+            let t = Task {
+                try await state.process.wait(timeoutInSeconds: timeoutInSeconds)
+            }
+            return t
+        }
+        return try await t.value
     }
 
     /// Resize the container's terminal (if one was requested). This
     /// will error if terminal was set to false before creating the container.
     public func resize(to: Terminal.Size) async throws {
-        let state = try self.state.withLock { try $0.startedState("resize") }
-        try await state.process.resize(to: to)
+        try await self.state.withLock {
+            let state = try $0.startedState("resize")
+            try await state.process.resize(to: to)
+        }
     }
 
-    /// Execute a new process in the container.
-    public func exec(_ id: String, configuration: (inout Configuration.Process) throws -> Void) async throws -> LinuxProcess {
-        let state = try self.state.withLock { try $0.startedState("exec") }
+    /// Execute a new process in the container. The process is not started after this call, and must be manually started
+    /// via the `start` method.
+    public func exec(_ id: String, configuration: @Sendable @escaping (inout LinuxProcessConfiguration) throws -> Void) async throws -> LinuxProcess {
+        try await self.state.withLock { state in
+            var startedState = try state.startedState("exec")
 
-        var spec = generateRuntimeSpec()
-        var config = Configuration.Process()
-        try configuration(&config)
-        spec.process = config.toOCI()
+            var spec = self.generateRuntimeSpec()
+            var config = LinuxProcessConfiguration()
+            try configuration(&config)
+            spec.process = config.toOCI()
 
-        let stdio = Self.setupIO(
-            portAllocator: self.hostVsockPorts,
-            stdin: config.stdin,
-            stdout: config.stdout,
-            stderr: config.stderr
-        )
-        let agent = try await state.vm.dialAgent()
-        let process = LinuxProcess(
-            id,
-            containerID: self.id,
-            spec: spec,
-            io: stdio,
-            agent: agent,
-            vm: state.vm,
-            logger: self.logger
-        )
-        return process
+            let stdio = IOUtil.setup(
+                portAllocator: self.hostVsockPorts,
+                stdin: config.stdin,
+                stdout: config.stdout,
+                stderr: config.stderr
+            )
+            let agent = try await startedState.vm.dialAgent()
+            let process = LinuxProcess(
+                id,
+                containerID: self.id,
+                spec: spec,
+                io: stdio,
+                ociRuntimePath: self.config.ociRuntimePath,
+                agent: agent,
+                vm: startedState.vm,
+                logger: self.logger,
+                onDelete: { [weak self] in
+                    await self?.removeProcess(id: id)
+                }
+            )
+
+            startedState.vendedProcesses[id] = process
+            state = .started(startedState)
+
+            return process
+        }
     }
 
-    /// Execute a new process in the container.
-    public func exec(_ id: String, configuration: Configuration.Process) async throws -> LinuxProcess {
-        let state = try self.state.withLock { try $0.startedState("exec") }
+    /// Execute a new process in the container. The process is not started after this call, and must be manually started
+    /// via the `start` method.
+    public func exec(_ id: String, configuration: LinuxProcessConfiguration) async throws -> LinuxProcess {
+        try await self.state.withLock {
+            var state = try $0.startedState("exec")
 
-        var spec = generateRuntimeSpec()
-        spec.process = configuration.toOCI()
+            var spec = self.generateRuntimeSpec()
+            spec.process = configuration.toOCI()
 
-        let stdio = Self.setupIO(
-            portAllocator: self.hostVsockPorts,
-            stdin: configuration.stdin,
-            stdout: configuration.stdout,
-            stderr: configuration.stderr
-        )
-        let agent = try await state.vm.dialAgent()
-        let process = LinuxProcess(
-            id,
-            containerID: self.id,
-            spec: spec,
-            io: stdio,
-            agent: agent,
-            vm: state.vm,
-            logger: self.logger
-        )
-        return process
+            let stdio = IOUtil.setup(
+                portAllocator: self.hostVsockPorts,
+                stdin: configuration.stdin,
+                stdout: configuration.stdout,
+                stderr: configuration.stderr
+            )
+            let agent = try await state.vm.dialAgent()
+            let process = LinuxProcess(
+                id,
+                containerID: self.id,
+                spec: spec,
+                io: stdio,
+                ociRuntimePath: self.config.ociRuntimePath,
+                agent: agent,
+                vm: state.vm,
+                logger: self.logger,
+                onDelete: { [weak self] in
+                    await self?.removeProcess(id: id)
+                }
+            )
+
+            state.vendedProcesses[id] = process
+            $0 = .started(state)
+
+            return process
+        }
     }
 
     /// Dial a vsock port in the container.
     public func dialVsock(port: UInt32) async throws -> FileHandle {
-        let state = try self.state.withLock { try $0.startedState("dialVsock") }
-        return try await state.vm.dial(port)
+        try await self.state.withLock {
+            let state = try $0.startedState("dialVsock")
+            return try await state.vm.dial(port)
+        }
     }
 
     /// Close the containers standard input to signal no more input is
     /// arriving.
     public func closeStdin() async throws {
-        let state = try self.state.withLock { try $0.startedState("closeStdin") }
-        return try await state.process.closeStdin()
+        try await self.state.withLock {
+            let state = try $0.startedState("closeStdin")
+            return try await state.process.closeStdin()
+        }
+    }
+
+    /// Remove a process from the vended processes tracking.
+    private func removeProcess(id: String) async {
+        await self.state.withLock {
+            guard case .started(var state) = $0 else {
+                return
+            }
+            state.vendedProcesses.removeValue(forKey: id)
+            $0 = .started(state)
+        }
+    }
+
+    /// Get statistics for the container.
+    public func statistics(categories: StatCategory = .all) async throws -> ContainerStatistics {
+        try await self.state.withLock {
+            let state = try $0.startedState("statistics")
+
+            let stats = try await state.vm.withAgent { agent in
+                let allStats = try await agent.containerStatistics(containerIDs: [self.id], categories: categories)
+                guard let containerStats = allStats.first else {
+                    throw ContainerizationError(
+                        .notFound,
+                        message: "statistics for container \(self.id) not found"
+                    )
+                }
+                return containerStats
+            }
+
+            return stats
+        }
     }
 
     /// Relay a unix socket from in the container to the host, or from the host
     /// to inside the container.
     public func relayUnixSocket(socket: UnixSocketConfiguration) async throws {
-        let state = try self.state.withLock { try $0.startedState("relayUnixSocket") }
+        try await self.state.withLock {
+            let state = try $0.startedState("relayUnixSocket")
 
-        try await state.vm.withAgent { agent in
-            try await self.relayUnixSocket(
-                socket: socket,
-                relayManager: state.relayManager,
-                agent: agent
-            )
+            try await state.vm.withAgent { agent in
+                try await self.relayUnixSocket(
+                    socket: socket,
+                    relayManager: state.relayManager,
+                    agent: agent
+                )
+            }
         }
     }
 
@@ -850,26 +894,82 @@ extension LinuxContainer {
         var socket = socket
         let rootInGuest = URL(filePath: self.root)
 
+        let port: UInt32
         if socket.direction == .into {
+            port = self.hostVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
             socket.destination = rootInGuest.appending(path: socket.destination.path)
         } else {
+            port = self.guestVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
             socket.source = rootInGuest.appending(path: socket.source.path)
         }
 
-        let port = self.hostVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
         try await relayManager.start(port: port, socket: socket)
         try await relayAgent.relaySocket(port: port, configuration: socket)
+    }
+
+    /// Default chunk size for file transfers (1MiB).
+    public static let defaultCopyChunkSize = 1024 * 1024
+
+    /// Copy a file from the host into the container.
+    public func copyIn(
+        from source: URL,
+        to destination: URL,
+        mode: UInt32 = 0o644,
+        createParents: Bool = true,
+        chunkSize: Int = defaultCopyChunkSize,
+        progress: ProgressHandler? = nil
+    ) async throws {
+        try await self.state.withLock {
+            let state = try $0.startedState("copyIn")
+
+            let guestPath = URL(filePath: self.root).appending(path: destination.path)
+            try await state.vm.withAgent { agent in
+                try await agent.copyIn(
+                    from: source,
+                    to: guestPath,
+                    mode: mode,
+                    createParents: createParents,
+                    chunkSize: chunkSize,
+                    progress: progress
+                )
+            }
+        }
+    }
+
+    /// Copy a file from the container to the host.
+    public func copyOut(
+        from source: URL,
+        to destination: URL,
+        createParents: Bool = true,
+        chunkSize: Int = defaultCopyChunkSize,
+        progress: ProgressHandler? = nil
+    ) async throws {
+        try await self.state.withLock {
+            let state = try $0.startedState("copyOut")
+
+            let guestPath = URL(filePath: self.root).appending(path: source.path)
+            try await state.vm.withAgent { agent in
+                try await agent.copyOut(
+                    from: guestPath,
+                    to: destination,
+                    createParents: createParents,
+                    chunkSize: chunkSize,
+                    progress: progress
+                )
+            }
+        }
     }
 }
 
 extension VirtualMachineInstance {
     /// Scoped access to an agent instance to ensure the resources are always freed (mostly close(2)'ing
     /// the vsock fd)
-    fileprivate func withAgent(fn: @Sendable (VirtualMachineAgent) async throws -> Void) async throws {
+    func withAgent<T>(fn: @Sendable (VirtualMachineAgent) async throws -> T) async throws -> T {
         let agent = try await self.dialAgent()
         do {
-            try await fn(agent)
+            let result = try await fn(agent)
             try await agent.close()
+            return result
         } catch {
             try? await agent.close()
             throw error
@@ -878,12 +978,54 @@ extension VirtualMachineInstance {
 }
 
 extension AttachedFilesystem {
-    fileprivate var to: ContainerizationOCI.Mount {
+    var to: ContainerizationOCI.Mount {
         .init(
             type: self.type,
             source: self.source,
             destination: self.destination,
             options: self.options
+        )
+    }
+}
+
+struct IOUtil {
+    static func setup(
+        portAllocator: borrowing Atomic<UInt32>,
+        stdin: ReaderStream?,
+        stdout: Writer?,
+        stderr: Writer?
+    ) -> LinuxProcess.Stdio {
+        var stdinSetup: LinuxProcess.StdioReaderSetup? = nil
+        if let reader = stdin {
+            let ret = portAllocator.wrappingAdd(1, ordering: .relaxed)
+            stdinSetup = .init(
+                port: ret.oldValue,
+                reader: reader
+            )
+        }
+
+        var stdoutSetup: LinuxProcess.StdioSetup? = nil
+        if let writer = stdout {
+            let ret = portAllocator.wrappingAdd(1, ordering: .relaxed)
+            stdoutSetup = LinuxProcess.StdioSetup(
+                port: ret.oldValue,
+                writer: writer
+            )
+        }
+
+        var stderrSetup: LinuxProcess.StdioSetup? = nil
+        if let writer = stderr {
+            let ret = portAllocator.wrappingAdd(1, ordering: .relaxed)
+            stderrSetup = LinuxProcess.StdioSetup(
+                port: ret.oldValue,
+                writer: writer
+            )
+        }
+
+        return LinuxProcess.Stdio(
+            stdin: stdinSetup,
+            stdout: stdoutSetup,
+            stderr: stderrSetup
         )
     }
 }

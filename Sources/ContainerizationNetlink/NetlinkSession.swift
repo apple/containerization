@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,8 +18,8 @@ import ContainerizationExtras
 import ContainerizationOS
 import Logging
 
-/// `NetlinkSession` facilitates interacting with netlink via a provided `NetlinkSocket`. This is the
-/// core high-level type offered to perform actions to the netlink surface in the kernel.
+/// `NetlinkSession` facilitates interacting with netlink via a provided `NetlinkSocket`. This is
+/// the core high-level type offered to perform actions to the netlink surface in the kernel.
 public struct NetlinkSession {
     private static let receiveDataLength = 65536
     private static let mtu: UInt32 = 1280
@@ -102,7 +102,7 @@ public struct NetlinkSession {
                 let newRequestOffset =
                     requestBuffer.copyIn(as: UInt32.self, value: m, offset: requestOffset)
             else {
-                throw NetlinkDataError.sendMarshalFailure
+                throw BindError.sendMarshalFailure(type: "RTAttribute", field: "IFLA_MTU")
             }
             requestOffset = newRequestOffset
         }
@@ -127,7 +127,7 @@ public struct NetlinkSession {
             len: UInt16(RTAttribute.size + MemoryLayout<UInt32>.size), type: LinkAttributeType.IFLA_EXT_MASK)
         let interfaceName = try interface.map { try getInterfaceName($0) }
         let interfaceNameAttr = interfaceName.map {
-            RTAttribute(len: UInt16(RTAttribute.size + $0.count), type: LinkAttributeType.IFLA_EXT_IFNAME)
+            RTAttribute(len: UInt16(RTAttribute.size + $0.count), type: LinkAttributeType.IFLA_IFNAME)
         }
         let requestSize =
             NetlinkMessageHeader.size + InterfaceInfo.size + maskAttr.paddedLen + (interfaceNameAttr?.paddedLen ?? 0)
@@ -162,7 +162,7 @@ public struct NetlinkSession {
                 value: filters,
                 offset: requestOffset)
         else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "RTAttribute", field: "IFLA_EXT_MASK")
         }
 
         if let interfaceNameAttr {
@@ -170,7 +170,7 @@ public struct NetlinkSession {
                 requestOffset = try interfaceNameAttr.appendBuffer(&requestBuffer, offset: requestOffset)
                 guard let updatedRequestOffset = requestBuffer.copyIn(buffer: interfaceName, offset: requestOffset)
                 else {
-                    throw NetlinkDataError.sendMarshalFailure
+                    throw BindError.sendMarshalFailure(type: "RTAttribute", field: "IFLA_IFNAME")
                 }
                 requestOffset = updatedRequestOffset
             }
@@ -184,7 +184,13 @@ public struct NetlinkSession {
         let (infos, attrDataLists) = try parseResponse(infoType: NetlinkType.RTM_NEWLINK) { InterfaceInfo() }
         var linkResponses: [LinkResponse] = []
         for i in 0..<infos.count {
-            linkResponses.append(LinkResponse(interfaceIndex: infos[i].index, attrDatas: attrDataLists[i]))
+            linkResponses.append(
+                LinkResponse(
+                    interfaceIndex: infos[i].index,
+                    interfaceFlags: infos[i].flags,
+                    interfaceType: infos[i].type,
+                    attrDatas: attrDataLists[i])
+            )
         }
 
         return linkResponses
@@ -193,8 +199,8 @@ public struct NetlinkSession {
     /// Adds an IPv4 address to an interface.
     /// - Parameters:
     ///   - interface: The name of the interface.
-    ///   - address: The IPv4 address to add.
-    public func addressAdd(interface: String, address: String) throws {
+    ///   - ipv4Address: The CIDRv4 address describing the interface IP and subnet prefix length.
+    public func addressAdd(interface: String, ipv4Address: CIDRv4) throws {
         // ip addr add [addr] dev [interface]
         // ip address {add|change|replace} IFADDR dev IFNAME [ LIFETIME ] [ CONFFLAG-LIST ]
         // IFADDR := PREFIX | ADDR peer PREFIX
@@ -205,9 +211,9 @@ public struct NetlinkSession {
         // CONFFLAG  := [ home | nodad | mngtmpaddr | noprefixroute | autojoin ]
         // LIFETIME := [ valid_lft LFT ] [ preferred_lft LFT ]
         // LFT := forever | SECONDS
-        let parsed = try parseCIDR(cidr: address)
         let interfaceIndex = try getInterfaceIndex(interface)
-        let ipAddressBytes = try IPv4Address(parsed.address).networkBytes
+
+        let ipAddressBytes = ipv4Address.address.bytes
         let addressAttrSize = RTAttribute.size + MemoryLayout<UInt8>.size * ipAddressBytes.count
         let requestSize = NetlinkMessageHeader.size + AddressInfo.size + 2 * addressAttrSize
         var requestBuffer = [UInt8](repeating: 0, count: requestSize)
@@ -224,7 +230,7 @@ public struct NetlinkSession {
 
         let requestInfo = AddressInfo(
             family: UInt8(AddressFamily.AF_INET),
-            prefixLength: parsed.prefix,
+            prefixLength: ipv4Address.prefix.length,
             flags: 0,
             scope: NetlinkScope.RT_SCOPE_UNIVERSE,
             index: UInt32(interfaceIndex))
@@ -233,13 +239,13 @@ public struct NetlinkSession {
         let ipLocalAttr = RTAttribute(len: UInt16(addressAttrSize), type: AddressAttributeType.IFA_LOCAL)
         requestOffset = try ipLocalAttr.appendBuffer(&requestBuffer, offset: requestOffset)
         guard var requestOffset = requestBuffer.copyIn(buffer: ipAddressBytes, offset: requestOffset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "RTAttribute", field: "IFA_LOCAL")
         }
 
         let ipAddressAttr = RTAttribute(len: UInt16(addressAttrSize), type: AddressAttributeType.IFA_ADDRESS)
         requestOffset = try ipAddressAttr.appendBuffer(&requestBuffer, offset: requestOffset)
         guard let requestOffset = requestBuffer.copyIn(buffer: ipAddressBytes, offset: requestOffset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "RTAttribute", field: "IFA_ADDRESS")
         }
 
         guard requestOffset == requestSize else {
@@ -253,38 +259,28 @@ public struct NetlinkSession {
         }
     }
 
-    private func parseCIDR(cidr: String) throws -> (address: String, prefix: UInt8) {
-        let split = cidr.components(separatedBy: "/")
-        guard split.count == 2 else {
-            throw NetworkAddressError.invalidCIDR(cidr: cidr)
-        }
-        let address = split[0]
-        guard let prefixLength = PrefixLength(split[1]) else {
-            throw NetworkAddressError.invalidCIDR(cidr: cidr)
-        }
-        guard prefixLength >= 0 && prefixLength <= 32 else {
-            throw NetworkAddressError.invalidCIDR(cidr: cidr)
-        }
-        return (address, prefixLength)
-    }
-
-    /// Adds a route to an interface.
+    /// Adds an IPv4 route to an interface.
     /// - Parameters:
     ///   - interface: The name of the interface.
-    ///   - destinationAddress: The destination address to route to.
-    ///   - srcAddr: The source address to route from.
+    ///   - dstIpv4Addr: The CIDRv4 address describing the gateway IP and subnet prefix length.
+    ///   - srcIpv4Addr: The source IPv4 address to route from.
     public func routeAdd(
         interface: String,
-        destinationAddress: String,
-        srcAddr: String
+        dstIpv4Addr: CIDRv4,
+        srcIpv4Addr: IPv4Address?
     ) throws {
-        // ip route add [dest-cidr] dev [interface] src [src-addr] proto kernel
-        let parsed = try parseCIDR(cidr: destinationAddress)
+        // ip route add [dest-cidr] dev [interface] [src [src-addr]] proto kernel
         let interfaceIndex = try getInterfaceIndex(interface)
-        let dstAddrBytes = try IPv4Address(parsed.address).networkBytes
+
+        let dstAddrBytes = dstIpv4Addr.address.bytes
         let dstAddrAttrSize = RTAttribute.size + dstAddrBytes.count
-        let srcAddrBytes = try IPv4Address(srcAddr).networkBytes
-        let srcAddrAttrSize = RTAttribute.size + srcAddrBytes.count
+        let srcAddrAttrSize: Int
+        if let srcIpv4Addr {
+            let srcAddrBytes = srcIpv4Addr.bytes
+            srcAddrAttrSize = RTAttribute.size + srcAddrBytes.count
+        } else {
+            srcAddrAttrSize = 0
+        }
         let interfaceAttrSize = RTAttribute.size + MemoryLayout<UInt32>.size
         let requestSize =
             NetlinkMessageHeader.size + RouteInfo.size + dstAddrAttrSize + srcAddrAttrSize + interfaceAttrSize
@@ -301,7 +297,7 @@ public struct NetlinkSession {
 
         let requestInfo = RouteInfo(
             family: UInt8(AddressFamily.AF_INET),
-            dstLen: parsed.prefix,
+            dstLen: dstIpv4Addr.prefix.length,
             srcLen: 0,
             tos: 0,
             table: RouteTable.MAIN,
@@ -314,13 +310,17 @@ public struct NetlinkSession {
         let dstAddrAttr = RTAttribute(len: UInt16(dstAddrAttrSize), type: RouteAttributeType.DST)
         requestOffset = try dstAddrAttr.appendBuffer(&requestBuffer, offset: requestOffset)
         guard var requestOffset = requestBuffer.copyIn(buffer: dstAddrBytes, offset: requestOffset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "RTAttribute", field: "RTA_DST")
         }
 
-        let srcAddrAttr = RTAttribute(len: UInt16(dstAddrAttrSize), type: RouteAttributeType.PREFSRC)
-        requestOffset = try srcAddrAttr.appendBuffer(&requestBuffer, offset: requestOffset)
-        guard var requestOffset = requestBuffer.copyIn(buffer: srcAddrBytes, offset: requestOffset) else {
-            throw NetlinkDataError.sendMarshalFailure
+        if let srcIpv4Addr {
+            let srcAddrBytes = srcIpv4Addr.bytes
+            let srcAddrAttr = RTAttribute(len: UInt16(srcAddrAttrSize), type: RouteAttributeType.PREFSRC)
+            requestOffset = try srcAddrAttr.appendBuffer(&requestBuffer, offset: requestOffset)
+            guard let newOffset = requestBuffer.copyIn(buffer: srcAddrBytes, offset: requestOffset) else {
+                throw BindError.sendMarshalFailure(type: "RTAttribute", field: "RTA_PREFSRC")
+            }
+            requestOffset = newOffset
         }
 
         let interfaceAttr = RTAttribute(len: UInt16(interfaceAttrSize), type: RouteAttributeType.OIF)
@@ -331,7 +331,7 @@ public struct NetlinkSession {
                 value: UInt32(interfaceIndex),
                 offset: requestOffset)
         else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "RTAttribute", field: "RTA_OIF")
         }
 
         guard requestOffset == requestSize else {
@@ -345,16 +345,16 @@ public struct NetlinkSession {
         }
     }
 
-    /// Adds a default route to an interface.
+    /// Adds a default IPv4 route to an interface.
     /// - Parameters:
     ///   - interface: The name of the interface.
-    ///   - gateway: The gateway address.
+    ///   - ipv4Gateway: The gateway address.
     public func routeAddDefault(
         interface: String,
-        gateway: String
+        ipv4Gateway: IPv4Address
     ) throws {
         // ip route add default via [dst-address] src [src-address]
-        let dstAddrBytes = try IPv4Address(gateway).networkBytes
+        let dstAddrBytes = ipv4Gateway.bytes
         let dstAddrAttrSize = RTAttribute.size + dstAddrBytes.count
 
         let interfaceAttrSize = RTAttribute.size + MemoryLayout<UInt32>.size
@@ -387,7 +387,7 @@ public struct NetlinkSession {
         let dstAddrAttr = RTAttribute(len: UInt16(dstAddrAttrSize), type: RouteAttributeType.GATEWAY)
         requestOffset = try dstAddrAttr.appendBuffer(&requestBuffer, offset: requestOffset)
         guard var requestOffset = requestBuffer.copyIn(buffer: dstAddrBytes, offset: requestOffset) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "RTAttribute", field: "RTA_GATEWAY")
         }
         let interfaceAttr = RTAttribute(len: UInt16(interfaceAttrSize), type: RouteAttributeType.OIF)
         requestOffset = try interfaceAttr.appendBuffer(&requestBuffer, offset: requestOffset)
@@ -397,7 +397,7 @@ public struct NetlinkSession {
                 value: UInt32(interfaceIndex),
                 offset: requestOffset)
         else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "RTAttribute", field: "RTA_OIF")
         }
 
         guard requestOffset == requestSize else {
@@ -413,7 +413,7 @@ public struct NetlinkSession {
 
     private func getInterfaceName(_ interface: String) throws -> [UInt8] {
         guard let interfaceNameData = interface.data(using: .utf8) else {
-            throw NetlinkDataError.sendMarshalFailure
+            throw BindError.sendMarshalFailure(type: "String", field: "interface")
         }
 
         var interfaceName = [UInt8](interfaceNameData)
@@ -461,38 +461,50 @@ public struct NetlinkSession {
         var moreResponses = false
         repeat {
             var (buffer, size) = try receiveResponse()
-            let header: NetlinkMessageHeader
             var offset = 0
 
-            (header, offset) = try parseHeader(buffer: &buffer, offset: offset)
-            if let infoType {
-                if header.type == infoType {
-                    log.trace(
-                        "RECV-INFO-DUMP:  dump = \(buffer[offset..<offset + InterfaceInfo.size].hexEncodedString())")
-                    var info = infoProvider()
-                    offset = try info.bindBuffer(&buffer, offset: offset)
-                    log.trace("RECV-INFO: \(info)")
+            // A single buffer may contain multiple netlink messages
+            while offset < size {
+                let messageStart = offset
+                let header: NetlinkMessageHeader
+                (header, offset) = try parseHeader(buffer: &buffer, offset: offset)
 
-                    let attrDatas: [RTAttributeData]
-                    (attrDatas, offset) = try parseAttributes(
-                        buffer: &buffer,
-                        offset: offset,
-                        residualCount: size - offset)
+                if let infoType {
+                    if header.type == infoType {
+                        log.trace(
+                            "RECV-INFO-DUMP:  dump = \(buffer[offset..<offset + InterfaceInfo.size].hexEncodedString())")
+                        var info = infoProvider()
+                        offset = try info.bindBuffer(&buffer, offset: offset)
+                        log.trace("RECV-INFO: \(info)")
 
-                    infos.append(info)
-                    attrDataLists.append(attrDatas)
+                        // Calculate the number of bytes remaining in THIS message
+                        let messageEnd = messageStart + Int(header.len)
+                        let attributeBytes = messageEnd - offset
+
+                        let attrDatas: [RTAttributeData]
+                        (attrDatas, offset) = try parseAttributes(
+                            buffer: &buffer,
+                            offset: offset,
+                            residualCount: attributeBytes)
+
+                        infos.append(info)
+                        attrDataLists.append(attrDatas)
+                    } else {
+                        // Skip this message - advance offset to the end of the message
+                        offset = messageStart + Int(header.len)
+                    }
+                } else if header.type != NetlinkType.NLMSG_DONE && header.type != NetlinkType.NLMSG_ERROR
+                    && header.type != NetlinkType.NLMSG_NOOP
+                {
+                    throw Error.unexpectedInfo(type: header.type)
                 }
-            } else if header.type != NetlinkType.NLMSG_DONE && header.type != NetlinkType.NLMSG_ERROR
-                && header.type != NetlinkType.NLMSG_NOOP
-            {
-                throw Error.unexpectedInfo(type: header.type)
+
+                moreResponses = header.moreResponses
             }
 
             guard offset == size else {
                 throw Error.unexpectedOffset(offset: offset, size: size)
             }
-
-            moreResponses = header.moreResponses
         } while moreResponses
 
         return (infos, attrDataLists)
@@ -500,7 +512,7 @@ public struct NetlinkSession {
 
     private func parseErrorCode(buffer: inout [UInt8], offset: Int) throws -> (Int32, Int) {
         guard let errorPtr = buffer.bind(as: Int32.self, offset: offset) else {
-            throw NetlinkDataError.recvUnmarshalFailure
+            throw BindError.recvMarshalFailure(type: "NetlinkErrorMessage", field: "error")
         }
 
         let rc = errorPtr.pointee

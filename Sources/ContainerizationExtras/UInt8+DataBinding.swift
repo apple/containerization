@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,6 +13,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //===----------------------------------------------------------------------===//
+
+import Foundation
+
+package enum BindError: Error, CustomStringConvertible {
+    case recvMarshalFailure(type: String, field: String)
+    case sendMarshalFailure(type: String, field: String)
+
+    package var description: String {
+        switch self {
+        case .recvMarshalFailure(let type, let field):
+            return "failed to unmarshal \(type).\(field)"
+        case .sendMarshalFailure(let type, let field):
+            return "failed to marshal \(type).\(field)"
+        }
+    }
+}
+
+package protocol Bindable: Sendable {
+    static var size: Int { get }
+    func appendBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int
+    mutating func bindBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int
+}
 
 extension ArraySlice<UInt8> {
     package func hexEncodedString() -> String {
@@ -35,7 +57,7 @@ extension [UInt8] {
 
     package mutating func copyIn<T>(as type: T.Type, value: T, offset: Int = 0, size: Int? = nil) -> Int? {
         let size = size ?? MemoryLayout<T>.size
-        guard self.count >= size - offset else {
+        guard self.count >= size + offset else {
             return nil
         }
 
@@ -45,12 +67,12 @@ extension [UInt8] {
         }
     }
 
-    package mutating func copyOut<T>(as type: T.Type, offset: Int = 0, size: Int? = nil) -> (Int, T)? {
-        guard self.count >= (size ?? MemoryLayout<T>.size) - offset else {
+    package func copyOut<T>(as type: T.Type, offset: Int = 0, size: Int? = nil) -> (Int, T)? {
+        guard self.count >= (size ?? MemoryLayout<T>.size) + offset else {
             return nil
         }
 
-        return self.withUnsafeMutableBytes {
+        return self.withUnsafeBytes {
             guard let value = $0.baseAddress?.advanced(by: offset).assumingMemoryBound(to: T.self).pointee else {
                 return nil
             }
@@ -67,7 +89,7 @@ extension [UInt8] {
         return offset + buffer.count
     }
 
-    package mutating func copyOut(buffer: inout [UInt8], offset: Int = 0) -> Int? {
+    package func copyOut(buffer: inout [UInt8], offset: Int = 0) -> Int? {
         guard offset + buffer.count <= self.count else {
             return nil
         }

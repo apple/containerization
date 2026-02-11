@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -45,4 +45,11 @@ public struct AttachedFilesystem: Sendable {
         self.destination = mount.destination
     }
     #endif
+
+    public init(type: String, source: String, destination: String, options: [String]) {
+        self.type = type
+        self.source = source
+        self.destination = destination
+        self.options = options
+    }
 }

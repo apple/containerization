@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,10 +22,6 @@ import NIOCore
 import NIOPosix
 
 final class Initd: Sendable {
-    let log: Logger
-    let state: State
-    let group: MultiThreadedEventLoopGroup
-
     actor State {
         var containers: [String: ManagedContainer] = [:]
         var proxies: [String: VsockProxy] = [:]
@@ -80,7 +76,11 @@ final class Initd: Sendable {
         }
     }
 
-    init(log: Logger, group: MultiThreadedEventLoopGroup) {
+    let log: Logger
+    let state: State
+    let group: EventLoopGroup
+
+    init(log: Logger, group: EventLoopGroup) {
         self.log = log
         self.group = group
         self.state = State()
@@ -90,11 +90,11 @@ final class Initd: Sendable {
         try await withThrowingTaskGroup(of: Void.self) { group in
             log.debug("starting process supervisor")
 
-            await ProcessSupervisor.default.setLog(self.log)
-            await ProcessSupervisor.default.ready()
+            ProcessSupervisor.default.setLog(self.log)
+            ProcessSupervisor.default.ready()
 
-            log.debug(
-                "booting grpc server on vsock",
+            log.info(
+                "booting gRPC server on vsock",
                 metadata: [
                     "port": "\(port)"
                 ])
@@ -105,7 +105,7 @@ final class Initd: Sendable {
                     serviceProviders: [self])
             ).get()
             log.info(
-                "grpc api serving on vsock",
+                "gRPC API serving on vsock",
                 metadata: [
                     "port": "\(port)"
                 ])
@@ -114,6 +114,7 @@ final class Initd: Sendable {
                 try await server.onClose.get()
             }
             try await group.next()
+            log.info("closing gRPC server")
             group.cancelAll()
         }
     }

@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -50,7 +50,8 @@ public class ImageStoreTests: ContainsAuth {
 
         let tarPath = Foundation.Bundle.module.url(forResource: "scratch", withExtension: "tar")!
         let reader = try ArchiveReader(format: .pax, filter: .none, file: tarPath)
-        try reader.extractContents(to: tempDir)
+        let rejectedPaths = try reader.extractContents(to: tempDir)
+        #expect(rejectedPaths.count == 0, "unexpected rejected paths [\(rejectedPaths)]")
 
         let _ = try await self.store.load(from: tempDir)
         let loaded = try await self.store.load(from: tempDir)
@@ -86,5 +87,28 @@ public class ImageStoreTests: ContainsAuth {
         let upstreamTag = "\(remoteImageName):\(tag)"
         let _ = try await self.store.tag(existing: imageReference, new: upstreamTag)
         try await self.store.push(reference: upstreamTag, auth: authentication)
+    }
+
+    @Test func testLoadImageWithoutAnnotations() async throws {
+        let fileManager = FileManager.default
+        let tempDir = fileManager.uniqueTemporaryDirectory()
+        defer {
+            try? fileManager.removeItem(at: tempDir)
+        }
+
+        let tarPath = Foundation.Bundle.module.url(forResource: "scratch_no_annotations", withExtension: "tar")!
+        let reader = try ArchiveReader(format: .pax, filter: .none, file: tarPath)
+        let rejectedPaths = try reader.extractContents(to: tempDir)
+        #expect(rejectedPaths.count == 0, "unexpected rejected paths [\(rejectedPaths)]")
+
+        let loaded = try await self.store.load(from: tempDir)
+
+        #expect(loaded.count == 1)
+
+        let reference = loaded.first!.reference
+        #expect(reference.hasPrefix("untagged@sha256:"))
+
+        let retrieved = try await self.store.get(reference: reference)
+        #expect(retrieved.reference == reference)
     }
 }

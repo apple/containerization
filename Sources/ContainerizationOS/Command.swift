@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -68,6 +68,8 @@ public struct Command: Sendable {
         public var uid: UInt32?
         /// Set the process group ID.
         public var gid: UInt32?
+        /// Signal to send when parent process dies (Linux only).
+        public var pdeathSignal: Int32?
 
         public init(
             setPGroup: Bool = false,
@@ -77,7 +79,8 @@ public struct Command: Sendable {
             setsid: Bool = false,
             setctty: Bool = false,
             uid: UInt32? = nil,
-            gid: UInt32? = nil
+            gid: UInt32? = nil,
+            pdeathSignal: Int32? = nil
         ) {
             self.setPGroup = setPGroup
             self.resetIDs = resetIDs
@@ -87,6 +90,7 @@ public struct Command: Sendable {
             self.setctty = setctty
             self.uid = uid
             self.gid = gid
+            self.pdeathSignal = pdeathSignal
         }
     }
 
@@ -179,7 +183,9 @@ extension Command {
 
         let set = try createFileset()
         defer {
-            try? set.null.close()
+            for nullHandle in set.nullHandles {
+                try? nullHandle.close()
+            }
         }
         var fds = [Int32](repeating: 0, count: set.handles.count)
         for (i, handle) in set.handles.enumerated() {
@@ -205,6 +211,10 @@ extension Command {
         }
         if let gid = self.attrs.gid {
             attrs.gid = gid
+        }
+
+        if let pdeathSignal = self.attrs.pdeathSignal {
+            attrs.pdeathSignal = pdeathSignal
         }
 
         var pid: pid_t = 0
@@ -240,21 +250,22 @@ extension Command {
     }
 
     /// Create a posix_spawn file actions set of fds to pass to the new process
-    private func createFileset() throws -> (null: FileHandle, handles: [FileHandle]) {
-        // grab dev null incase a handle passed by the user is nil
-        let null = try openDevNull()
+    private func createFileset() throws -> (nullHandles: [FileHandle], handles: [FileHandle]) {
+        // grab dev null handles for different purposes
+        let nullRead = try openDevNull(flags: O_RDONLY)
+        let nullWrite = try openDevNull(flags: O_WRONLY)
         var files = [FileHandle]()
-        files.append(stdin ?? null)
-        files.append(stdout ?? null)
-        files.append(stderr ?? null)
+        files.append(stdin ?? nullRead)
+        files.append(stdout ?? nullWrite)
+        files.append(stderr ?? nullWrite)
         files.append(contentsOf: extraFiles)
-        return (null: null, handles: files)
+        return (nullHandles: [nullRead, nullWrite], handles: files)
     }
 
-    /// Returns a file handle to /dev/null.
-    private func openDevNull() throws -> FileHandle {
-        let fd = open("/dev/null", O_WRONLY, 0)
-        guard fd > 0 else {
+    /// Returns a file handle to /dev/null with the specified flags.
+    private func openDevNull(flags: Int32) throws -> FileHandle {
+        let fd = open("/dev/null", flags, 0)
+        guard fd >= 0 else {
             throw POSIXError(.init(rawValue: errno)!)
         }
         return FileHandle(fileDescriptor: fd, closeOnDealloc: false)

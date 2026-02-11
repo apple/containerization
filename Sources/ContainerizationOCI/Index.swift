@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@ public struct Index: Codable, Sendable {
     public let schemaVersion: Int
 
     /// mediaType specifies the type of this document data structure e.g. `application/vnd.oci.image.index.v1+json`
+    /// This field is optional per the OCI Image Index Specification (omitempty)
     public let mediaType: String
 
     /// manifests references platform specific manifests.
@@ -41,5 +42,13 @@ public struct Index: Codable, Sendable {
         self.mediaType = mediaType
         self.manifests = manifests
         self.annotations = annotations
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        self.mediaType = try container.decodeIfPresent(String.self, forKey: .mediaType) ?? ""
+        self.manifests = try container.decode([Descriptor].self, forKey: .manifests)
+        self.annotations = try container.decodeIfPresent([String: String].self, forKey: .annotations)
     }
 }

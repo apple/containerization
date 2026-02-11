@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -365,19 +365,19 @@ extension EXT4 {
     public typealias InodeNumber = UInt32
 
     public struct Inode {
-        var mode: UInt16 = 0
-        var uid: UInt16 = 0
-        var sizeLow: UInt32 = 0
-        var atime: UInt32 = 0
-        var ctime: UInt32 = 0
-        var mtime: UInt32 = 0
-        var dtime: UInt32 = 0
-        var gid: UInt16 = 0
-        var linksCount: UInt16 = 0
-        var blocksLow: UInt32 = 0
-        var flags: UInt32 = 0
-        var version: UInt32 = 0
-        var block:
+        public var mode: UInt16 = 0
+        public var uid: UInt16 = 0
+        public var sizeLow: UInt32 = 0
+        public var atime: UInt32 = 0
+        public var ctime: UInt32 = 0
+        public var mtime: UInt32 = 0
+        public var dtime: UInt32 = 0
+        public var gid: UInt16 = 0
+        public var linksCount: UInt16 = 0
+        public var blocksLow: UInt32 = 0
+        public var flags: UInt32 = 0
+        public var version: UInt32 = 0
+        public var block:
             (
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
@@ -393,26 +393,26 @@ extension EXT4 {
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
             )
-        var generation: UInt32 = 0
-        var xattrBlockLow: UInt32 = 0
-        var sizeHigh: UInt32 = 0
-        var obsoleteFragmentAddr: UInt32 = 0
-        var blocksHigh: UInt16 = 0
-        var xattrBlockHigh: UInt16 = 0
-        var uidHigh: UInt16 = 0
-        var gidHigh: UInt16 = 0
-        var checksumLow: UInt16 = 0
-        var reserved: UInt16 = 0
-        var extraIsize: UInt16 = 0
-        var checksumHigh: UInt16 = 0
-        var ctimeExtra: UInt32 = 0
-        var mtimeExtra: UInt32 = 0
-        var atimeExtra: UInt32 = 0
-        var crtime: UInt32 = 0
-        var crtimeExtra: UInt32 = 0
-        var versionHigh: UInt32 = 0
-        var projid: UInt32 = 0  // Size until this point is 160 bytes
-        var inlineXattrs:
+        public var generation: UInt32 = 0
+        public var xattrBlockLow: UInt32 = 0
+        public var sizeHigh: UInt32 = 0
+        public var obsoleteFragmentAddr: UInt32 = 0
+        public var blocksHigh: UInt16 = 0
+        public var xattrBlockHigh: UInt16 = 0
+        public var uidHigh: UInt16 = 0
+        public var gidHigh: UInt16 = 0
+        public var checksumLow: UInt16 = 0
+        public var reserved: UInt16 = 0
+        public var extraIsize: UInt16 = 0
+        public var checksumHigh: UInt16 = 0
+        public var ctimeExtra: UInt32 = 0
+        public var mtimeExtra: UInt32 = 0
+        public var atimeExtra: UInt32 = 0
+        public var crtime: UInt32 = 0
+        public var crtimeExtra: UInt32 = 0
+        public var versionHigh: UInt32 = 0
+        public var projid: UInt32 = 0  // Size until this point is 160 bytes
+        public var inlineXattrs:
             (  // 96 bytes for extended attributes
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
                 UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,

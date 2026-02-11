@@ -1,6 +1,6 @@
 // swift-tools-version: 6.2
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
 
 import PackageDescription
 
-let scVersion = "0.6.2"
+let scVersion = "0.13.0"
 
 let package = Package(
     name: "ctr-example",

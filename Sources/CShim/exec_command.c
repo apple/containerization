@@ -1,5 +1,5 @@
 /*
- * Copyright © 2025 Apple Inc. and the Containerization project authors.
+ * Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,6 +32,9 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#if defined(__linux__)
+#include <sys/prctl.h>
+#endif
 
 #include "exec_command.h"
 
@@ -98,6 +101,7 @@ void exec_command_attrs_init(struct exec_command_attrs *attrs) {
   attrs->mask = 0;
   attrs->uid = -1;
   attrs->gid = -1;
+  attrs->pdeathSignal = 0;
 }
 
 static void child_handler(const int sync_pipes[2], const char *executable,
@@ -252,6 +256,15 @@ static void child_handler(const int sync_pipes[2], const char *executable,
       goto fail;
     }
   }
+
+#if defined(__linux__)
+  // Set parent death signal if specified
+  if (attrs.pdeathSignal != 0) {
+    if (prctl(PR_SET_PDEATHSIG, attrs.pdeathSignal) != 0) {
+      goto fail;
+    }
+  }
+#endif
 
   // close exec everything outside of our child's fd_table.
   if (cloexec_from(file_handle_count) != 0) {

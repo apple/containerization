@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -33,16 +33,14 @@ public protocol VirtualMachineInstance: Sendable {
     // The state of the virtual machine.
     var state: VirtualMachineInstanceState { get }
 
-    var mounts: [AttachedFilesystem] { get }
+    var mounts: [String: [AttachedFilesystem]] { get }
     /// Dial the Agent. It's up the VirtualMachineInstance to determine
     /// what port the agent is listening on.
     func dialAgent() async throws -> Agent
     /// Dial a vsock port in the guest.
     func dial(_ port: UInt32) async throws -> FileHandle
     /// Listen on a host vsock port.
-    func listen(_ port: UInt32) throws -> VsockConnectionStream
-    /// Stop listening on a vsock port.
-    func stopListen(_ port: UInt32) throws
+    func listen(_ port: UInt32) throws -> VsockListener
     /// Start the virtual machine.
     func start() async throws
     /// Stop the virtual machine.

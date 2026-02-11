@@ -33,8 +33,8 @@ The API allows the runtime environment to be configured and containerized proces
 To build the Containerization package, you need:
 
 - Mac with Apple silicon
-- macOS 26 beta
-- Xcode 26 beta
+- macOS 26
+- Xcode 26
 
 Older versions of macOS are not supported. 
 
@@ -144,6 +144,10 @@ make protos
 ## Building a kernel
 
 If you'd like to build your own kernel please see the instructions in the [kernel directory](./kernel/README.md).
+
+## Pre-commit hook
+
+Run `make pre-commit` to install a pre-commit hook that ensures that your changes have correct formatting and license headers when you run `git commit`.
 
 ## Documentation
 

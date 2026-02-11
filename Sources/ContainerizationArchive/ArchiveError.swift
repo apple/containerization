@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -41,39 +41,39 @@ public enum ArchiveError: Error, CustomStringConvertible {
     public var description: String {
         switch self {
         case .unableToCreateArchive:
-            return "Unable to create an archive."
+            return "unable to create an archive."
         case .noUnderlyingArchive:
-            return "No underlying archive was provided."
+            return "no underlying archive was provided."
         case .noArchiveInCallback:
-            return "No archive was provided in the callback."
+            return "no archive was provided in the callback."
         case .noDelegateConfigured:
-            return "No delegate was configured."
+            return "no delegate was configured."
         case .delegateFreedBeforeCallback:
-            return "The delegate was freed before the callback was invoked."
+            return "the delegate was freed before the callback was invoked."
         case .unableToSetFormat(let code, let name):
-            return "Unable to set the archive format \(name), code \(code)"
+            return "unable to set the archive format \(name), code \(code)"
         case .unableToAddFilter(let code, let name):
-            return "Unable to set the archive filter \(name), code \(code)"
+            return "unable to set the archive filter \(name), code \(code)"
         case .unableToWriteEntryHeader(let code):
-            return "Unable to write the entry header to the archive. Error code \(code)"
+            return "unable to write the entry header to the archive, code \(code)"
         case .unableToWriteData(let code):
-            return "Unable to write data to the archive. Error code \(code)"
+            return "unable to write data to the archive, code \(code)"
         case .unableToCloseArchive(let code):
-            return "Unable to close the archive. Error code \(code)"
+            return "unable to close the archive, code \(code)"
         case .unableToOpenArchive(let code):
-            return "Unable to open the archive. Error code \(code)"
+            return "unable to open the archive, code \(code)"
         case .unableToSetOption(_):
-            return "Unable to set an option on the archive."
+            return "unable to set an option on the archive."
         case .failedToSetLocale(let locales):
-            return "Failed to set locale to \(locales)"
+            return "failed to set locale to \(locales)"
         case .failedToGetProperty(let path, let propertyName):
-            return "Failed to read property \(propertyName) from file at path \(path)"
+            return "failed to read property \(propertyName) from file at path \(path)"
         case .failedToDetectFilter:
-            return "Failed to detect filter from archive."
+            return "failed to detect filter from archive."
         case .failedToDetectFormat:
-            return "Failed to detect format from archive."
+            return "failed to detect format from archive."
         case .failedToExtractArchive(let reason):
-            return "Failed to extract archive: \(reason)"
+            return "failed to extract archive: \(reason)"
         }
     }
 }

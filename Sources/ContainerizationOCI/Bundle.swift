@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -110,9 +110,11 @@ public struct Bundle: Sendable {
     public func delete() throws {
         // Unmount, and then blow away the dir.
         #if os(Linux)
-        let rootfs = self.rootfsPath.path
-        guard _umount(rootfs, 0) == 0 else {
-            throw POSIXError.fromErrno()
+        let rootfs = self.rootfsPath
+        if Self.isMountpoint(rootfs) {
+            guard _umount(rootfs.path, 0) == 0 else {
+                throw POSIXError.fromErrno()
+            }
         }
         #endif
         // removeItem is recursive so should blow away the rootfs dir inside as well.
@@ -124,5 +126,21 @@ public struct Bundle: Sendable {
     public func loadConfig() throws -> ContainerizationOCI.Spec {
         let data = try Data(contentsOf: self.configPath)
         return try JSONDecoder().decode(ContainerizationOCI.Spec.self, from: data)
+    }
+
+    private static func isMountpoint(_ path: URL) -> Bool {
+        var st = stat()
+        var parent_st = stat()
+
+        guard stat(path.path, &st) == 0 else {
+            return false
+        }
+
+        let parentPath = path.deletingLastPathComponent()
+        guard stat(parentPath.path, &parent_st) == 0 else {
+            return false
+        }
+
+        return st.st_dev != parent_st.st_dev
     }
 }

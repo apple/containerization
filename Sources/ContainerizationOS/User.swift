@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -57,13 +57,13 @@ public enum User {
         init(rawString: String) throws {
             let args = rawString.split(separator: ":", omittingEmptySubsequences: false)
             guard args.count == 7 else {
-                throw Error.parseError("Cannot parse User from '\(rawString)'")
+                throw Error.parseError("cannot parse User from '\(rawString)'")
             }
             guard let uid = UInt32(args[2]) else {
-                throw Error.parseError("Cannot parse uid from '\(args[2])'")
+                throw Error.parseError("cannot parse uid from '\(args[2])'")
             }
             guard let gid = UInt32(args[3]) else {
-                throw Error.parseError("Cannot parse gid from '\(args[3])'")
+                throw Error.parseError("cannot parse gid from '\(args[3])'")
             }
             self.name = String(args[0])
             self.password = String(args[1])
@@ -86,10 +86,10 @@ public enum User {
         init(rawString: String) throws {
             let args = rawString.split(separator: ":", omittingEmptySubsequences: false)
             guard args.count == 4 else {
-                throw Error.parseError("Cannot parse Group from '\(rawString)'")
+                throw Error.parseError("cannot parse Group from '\(rawString)'")
             }
             guard let gid = UInt32(args[2]) else {
-                throw Error.parseError("Cannot parse gid from '\(args[2])'")
+                throw Error.parseError("cannot parse gid from '\(args[2])'")
             }
             self.name = String(args[0])
             self.password = String(args[1])

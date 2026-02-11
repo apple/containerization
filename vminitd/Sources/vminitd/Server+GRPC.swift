@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,8 +14,10 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import Cgroup
 import Containerization
 import ContainerizationError
+import ContainerizationExtras
 import ContainerizationNetlink
 import ContainerizationOCI
 import ContainerizationOS
@@ -25,7 +27,6 @@ import Logging
 import NIOCore
 import NIOPosix
 import SwiftProtobuf
-import _NIOFileSystem
 
 private let _setenv = Foundation.setenv
 
@@ -43,12 +44,45 @@ private let _kill = Glibc.kill
 private let _sync = Glibc.sync
 #endif
 
+extension ContainerizationError {
+    func toGRPCStatus(operation: String) -> GRPCStatus {
+        let message = "\(operation): \(self)"
+        let code: GRPCStatus.Code = {
+            switch self.code {
+            case .invalidArgument:
+                return .invalidArgument
+            case .notFound:
+                return .notFound
+            case .exists:
+                return .alreadyExists
+            case .cancelled:
+                return .cancelled
+            case .unsupported:
+                return .unimplemented
+            case .unknown:
+                return .unknown
+            case .internalError:
+                return .internalError
+            case .interrupted:
+                return .unavailable
+            case .invalidState:
+                return .failedPrecondition
+            case .timeout:
+                return .deadlineExceeded
+            default:
+                return .internalError
+            }
+        }()
+        return GRPCStatus(code: code, message: message, cause: self)
+    }
+}
+
 extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvider {
     func setTime(
         request: Com_Apple_Containerization_Sandbox_V3_SetTimeRequest,
         context: GRPC.GRPCAsyncServerCallContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_SetTimeResponse {
-        log.debug(
+        log.trace(
             "setTime",
             metadata: [
                 "sec": "\(request.sec)",
@@ -305,6 +339,154 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         return .init()
     }
 
+    // Chunk size for streaming file transfers (1MB).
+    private static let copyChunkSize = 1024 * 1024
+
+    func copyIn(
+        requestStream: GRPCAsyncRequestStream<Com_Apple_Containerization_Sandbox_V3_CopyInChunk>,
+        context: GRPC.GRPCAsyncServerCallContext
+    ) async throws -> Com_Apple_Containerization_Sandbox_V3_CopyInResponse {
+        var fileHandle: FileHandle?
+        var path: String = ""
+        var totalBytes: Int = 0
+
+        do {
+            for try await chunk in requestStream {
+                switch chunk.content {
+                case .init_p(let initMsg):
+                    path = initMsg.path
+                    log.debug(
+                        "copyIn",
+                        metadata: [
+                            "path": "\(path)",
+                            "mode": "\(initMsg.mode)",
+                            "createParents": "\(initMsg.createParents)",
+                        ])
+
+                    if initMsg.createParents {
+                        let fileURL = URL(fileURLWithPath: path)
+                        let parentDir = fileURL.deletingLastPathComponent()
+                        try FileManager.default.createDirectory(
+                            at: parentDir,
+                            withIntermediateDirectories: true
+                        )
+                    }
+
+                    let mode = initMsg.mode > 0 ? mode_t(initMsg.mode) : mode_t(0o644)
+                    let fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, mode)
+                    guard fd != -1 else {
+                        throw GRPCStatus(
+                            code: .internalError,
+                            message: "copyIn: failed to open file '\(path)': \(swiftErrno("open"))"
+                        )
+                    }
+                    fileHandle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+                case .data(let bytes):
+                    guard let fh = fileHandle else {
+                        throw GRPCStatus(
+                            code: .failedPrecondition,
+                            message: "copyIn: received data before init message"
+                        )
+                    }
+                    if !bytes.isEmpty {
+                        try fh.write(contentsOf: bytes)
+                        totalBytes += bytes.count
+                    }
+                case .none:
+                    break
+                }
+            }
+
+            log.debug(
+                "copyIn complete",
+                metadata: [
+                    "path": "\(path)",
+                    "totalBytes": "\(totalBytes)",
+                ])
+
+            return .init()
+        } catch {
+            log.error(
+                "copyIn",
+                metadata: [
+                    "path": "\(path)",
+                    "error": "\(error)",
+                ])
+            if error is GRPCStatus {
+                throw error
+            }
+            throw GRPCStatus(
+                code: .internalError,
+                message: "copyIn: \(error)"
+            )
+        }
+    }
+
+    func copyOut(
+        request: Com_Apple_Containerization_Sandbox_V3_CopyOutRequest,
+        responseStream: GRPCAsyncResponseStreamWriter<Com_Apple_Containerization_Sandbox_V3_CopyOutChunk>,
+        context: GRPC.GRPCAsyncServerCallContext
+    ) async throws {
+        let path = request.path
+        log.debug(
+            "copyOut",
+            metadata: [
+                "path": "\(path)"
+            ])
+
+        do {
+            let fileURL = URL(fileURLWithPath: path)
+            let attrs = try FileManager.default.attributesOfItem(atPath: path)
+            guard let fileSize = attrs[.size] as? UInt64 else {
+                throw GRPCStatus(
+                    code: .internalError,
+                    message: "copyOut: failed to get file size for '\(path)'"
+                )
+            }
+
+            let fileHandle = try FileHandle(forReadingFrom: fileURL)
+            defer { try? fileHandle.close() }
+
+            // Send init message with total size.
+            try await responseStream.send(
+                .with {
+                    $0.content = .init_p(.with { $0.totalSize = fileSize })
+                }
+            )
+
+            var totalSent: UInt64 = 0
+            while true {
+                guard let data = try fileHandle.read(upToCount: Self.copyChunkSize), !data.isEmpty else {
+                    break
+                }
+
+                try await responseStream.send(.with { $0.content = .data(data) })
+                totalSent += UInt64(data.count)
+            }
+
+            log.debug(
+                "copyOut complete",
+                metadata: [
+                    "path": "\(path)",
+                    "totalBytes": "\(totalSent)",
+                ])
+        } catch {
+            log.error(
+                "copyOut",
+                metadata: [
+                    "path": "\(path)",
+                    "error": "\(error)",
+                ])
+            if error is GRPCStatus {
+                throw error
+            }
+            throw GRPCStatus(
+                code: .internalError,
+                message: "copyOut: \(error)"
+            )
+        }
+    }
+
     func mount(request: Com_Apple_Containerization_Sandbox_V3_MountRequest, context: GRPC.GRPCAsyncServerCallContext)
         async throws -> Com_Apple_Containerization_Sandbox_V3_MountResponse
     {
@@ -430,14 +612,14 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 "stderr": "Port: \(request.stderr)",
             ])
 
-        if !request.hasContainerID {
-            throw ContainerizationError(
-                .invalidArgument,
-                message: "processes in the root of the vm not implemented"
-            )
-        }
-
         do {
+            if !request.hasContainerID {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "processes in the root of the vm not implemented"
+                )
+            }
+
             var ociSpec = try JSONDecoder().decode(
                 ContainerizationOCI.Spec.self,
                 from: request.configuration
@@ -486,16 +668,26 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                     try hostname.write(toFile: hostnamePath.path, atomically: true, encoding: .utf8)
                 }
 
-                let ctr = try ManagedContainer(
+                let ctr = try await ManagedContainer(
                     id: request.id,
                     stdio: stdioPorts,
                     spec: ociSpec,
+                    ociRuntimePath: request.hasOciRuntimePath ? request.ociRuntimePath : nil,
                     log: self.log
                 )
                 try await self.state.add(container: ctr)
             }
 
             return .init()
+        } catch let err as ContainerizationError {
+            log.error(
+                "createProcess",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(err)",
+                ])
+            throw err.toGRPCStatus(operation: "createProcess: failed to create process")
         } catch {
             log.error(
                 "createProcess",
@@ -504,10 +696,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                     "containerID": "\(request.containerID)",
                     "error": "\(error)",
                 ])
-            if error is GRPCStatus {
-                throw error
-            }
-            throw GRPCStatus(code: .internalError, message: "create managed process: \(error)")
+            throw GRPCStatus(code: .internalError, message: "createProcess: failed to create process: \(error)")
         }
     }
 
@@ -523,17 +712,37 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 "signal": "\(request.signal)",
             ])
 
-        if !request.hasContainerID {
-            throw ContainerizationError(
-                .invalidArgument,
-                message: "processes in the root of the vm not implemented"
-            )
+        do {
+            if !request.hasContainerID {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "processes in the root of the vm not implemented"
+                )
+            }
+
+            let ctr = try await self.state.get(container: request.containerID)
+            try await ctr.kill(execID: request.id, request.signal)
+
+            return .init()
+        } catch let err as ContainerizationError {
+            log.error(
+                "killProcess",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(err)",
+                ])
+            throw err.toGRPCStatus(operation: "killProcess: failed to kill process")
+        } catch {
+            log.error(
+                "killProcess",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(error)",
+                ])
+            throw GRPCStatus(code: .internalError, message: "killProcess: failed to kill process: \(error)")
         }
-
-        let ctr = try await self.state.get(container: request.containerID)
-        try await ctr.kill(execID: request.id, request.signal)
-
-        return .init()
     }
 
     func deleteProcess(
@@ -546,25 +755,45 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 "containerID": "\(request.containerID)",
             ])
 
-        if !request.hasContainerID {
-            throw ContainerizationError(
-                .invalidArgument,
-                message: "processes in the root of the vm not implemented"
-            )
+        do {
+            if !request.hasContainerID {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "processes in the root of the vm not implemented"
+                )
+            }
+
+            let ctr = try await self.state.get(container: request.containerID)
+
+            // Are we trying to delete the container itself?
+            if request.id == request.containerID {
+                try await ctr.delete()
+                try await state.remove(container: request.id)
+            } else {
+                // Or just a single exec.
+                try await ctr.deleteExec(id: request.id)
+            }
+
+            return .init()
+        } catch let err as ContainerizationError {
+            log.error(
+                "deleteProcess",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(err)",
+                ])
+            throw err.toGRPCStatus(operation: "deleteProcess: failed to delete process")
+        } catch {
+            log.error(
+                "deleteProcess",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(error)",
+                ])
+            throw GRPCStatus(code: .internalError, message: "deleteProcess: failed to delete process: \(error)")
         }
-
-        let ctr = try await self.state.get(container: request.containerID)
-
-        // Are we trying to delete the container itself?
-        if request.id == request.containerID {
-            try await ctr.delete()
-            try await state.remove(container: request.id)
-        } else {
-            // Or just a single exec.
-            try await ctr.deleteExec(id: request.id)
-        }
-
-        return .init()
     }
 
     func startProcess(
@@ -577,20 +806,29 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 "containerID": "\(request.containerID)",
             ])
 
-        if !request.hasContainerID {
-            throw ContainerizationError(
-                .invalidArgument,
-                message: "processes in the root of the vm not implemented"
-            )
-        }
-
         do {
+            if !request.hasContainerID {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "processes in the root of the vm not implemented"
+                )
+            }
+
             let ctr = try await self.state.get(container: request.containerID)
             let pid = try await ctr.start(execID: request.id)
 
             return .with {
                 $0.pid = pid
             }
+        } catch let err as ContainerizationError {
+            log.error(
+                "startProcess",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(err)",
+                ])
+            throw err.toGRPCStatus(operation: "startProcess: failed to start process")
         } catch {
             log.error(
                 "startProcess",
@@ -616,20 +854,29 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 "containerID": "\(request.containerID)",
             ])
 
-        if !request.hasContainerID {
-            throw ContainerizationError(
-                .invalidArgument,
-                message: "processes in the root of the vm not implemented"
-            )
-        }
-
         do {
+            if !request.hasContainerID {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "processes in the root of the vm not implemented"
+                )
+            }
+
             let ctr = try await self.state.get(container: request.containerID)
             let size = Terminal.Size(
                 width: UInt16(request.columns),
                 height: UInt16(request.rows)
             )
             try await ctr.resize(execID: request.id, size: size)
+        } catch let err as ContainerizationError {
+            log.error(
+                "resizeProcess",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(err)",
+                ])
+            throw err.toGRPCStatus(operation: "resizeProcess: failed to resize process")
         } catch {
             log.error(
                 "resizeProcess",
@@ -657,21 +904,30 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 "containerID": "\(request.containerID)",
             ])
 
-        if !request.hasContainerID {
-            throw ContainerizationError(
-                .invalidArgument,
-                message: "processes in the root of the vm not implemented"
-            )
-        }
-
         do {
+            if !request.hasContainerID {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "processes in the root of the vm not implemented"
+                )
+            }
+
             let ctr = try await self.state.get(container: request.containerID)
             let exitStatus = try await ctr.wait(execID: request.id)
 
             return .with {
-                $0.exitCode = exitStatus.exitStatus
+                $0.exitCode = exitStatus.exitCode
                 $0.exitedAt = Google_Protobuf_Timestamp(date: exitStatus.exitedAt)
             }
+        } catch let err as ContainerizationError {
+            log.error(
+                "waitProcess",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(err)",
+                ])
+            throw err.toGRPCStatus(operation: "waitProcess: failed to wait on process")
         } catch {
             log.error(
                 "waitProcess",
@@ -697,19 +953,28 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 "containerID": "\(request.containerID)",
             ])
 
-        if !request.hasContainerID {
-            throw ContainerizationError(
-                .invalidArgument,
-                message: "processes in the root of the vm not implemented"
-            )
-        }
-
         do {
+            if !request.hasContainerID {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "processes in the root of the vm not implemented"
+                )
+            }
+
             let ctr = try await self.state.get(container: request.containerID)
 
             try await ctr.closeStdin(execID: request.id)
 
             return .init()
+        } catch let err as ContainerizationError {
+            log.error(
+                "closeProcessStdin",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(err)",
+                ])
+            throw err.toGRPCStatus(operation: "closeProcessStdin: failed to close process stdin")
         } catch {
             log.error(
                 "closeProcessStdin",
@@ -729,7 +994,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         request: Com_Apple_Containerization_Sandbox_V3_IpLinkSetRequest, context: GRPC.GRPCAsyncServerCallContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_IpLinkSetResponse {
         log.debug(
-            "ip-link-set",
+            "ipLinkSet",
             metadata: [
                 "interface": "\(request.interface)",
                 "up": "\(request.up)",
@@ -742,7 +1007,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             try session.linkSet(interface: request.interface, up: request.up, mtu: mtuValue)
         } catch {
             log.error(
-                "ip-link-set",
+                "ipLinkSet",
                 metadata: [
                     "error": "\(error)"
                 ])
@@ -756,23 +1021,24 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         request: Com_Apple_Containerization_Sandbox_V3_IpAddrAddRequest, context: GRPC.GRPCAsyncServerCallContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_IpAddrAddResponse {
         log.debug(
-            "ip-addr-add",
+            "ipAddrAdd",
             metadata: [
                 "interface": "\(request.interface)",
-                "addr": "\(request.address)",
+                "ipv4Address": "\(request.ipv4Address)",
             ])
 
         do {
             let socket = try DefaultNetlinkSocket()
             let session = NetlinkSession(socket: socket, log: log)
-            try session.addressAdd(interface: request.interface, address: request.address)
+            let ipv4Address = try CIDRv4(request.ipv4Address)
+            try session.addressAdd(interface: request.interface, ipv4Address: ipv4Address)
         } catch {
             log.error(
-                "ip-addr-add",
+                "ipAddrAdd",
                 metadata: [
                     "error": "\(error)"
                 ])
-            throw GRPCStatus(code: .internalError, message: "ip-addr-add: \(error)")
+            throw GRPCStatus(code: .internalError, message: "failed to set IP address on interface \(request.interface): \(error)")
         }
 
         return .init()
@@ -782,24 +1048,26 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         request: Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest, context: GRPC.GRPCAsyncServerCallContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkResponse {
         log.debug(
-            "ip-route-add-link",
+            "ipRouteAddLink",
             metadata: [
                 "interface": "\(request.interface)",
-                "address": "\(request.address)",
-                "srcAddr": "\(request.srcAddr)",
+                "dstIpv4Addr": "\(request.dstIpv4Addr)",
+                "srcIpv4Addr": "\(request.srcIpv4Addr)",
             ])
 
         do {
             let socket = try DefaultNetlinkSocket()
             let session = NetlinkSession(socket: socket, log: log)
+            let dstIpv4Addr = try CIDRv4(request.dstIpv4Addr)
+            let srcIpv4Addr = request.srcIpv4Addr.isEmpty ? nil : try IPv4Address(request.srcIpv4Addr)
             try session.routeAdd(
                 interface: request.interface,
-                destinationAddress: request.address,
-                srcAddr: request.srcAddr
+                dstIpv4Addr: dstIpv4Addr,
+                srcIpv4Addr: srcIpv4Addr
             )
         } catch {
             log.error(
-                "ip-route-add-link",
+                "ipRouteAddLink",
                 metadata: [
                     "error": "\(error)"
                 ])
@@ -814,23 +1082,24 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         context: GRPC.GRPCAsyncServerCallContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultResponse {
         log.debug(
-            "ip-route-add-default",
+            "ipRouteAddDefault",
             metadata: [
                 "interface": "\(request.interface)",
-                "gateway": "\(request.gateway)",
+                "ipv4Gateway": "\(request.ipv4Gateway)",
             ])
 
         do {
             let socket = try DefaultNetlinkSocket()
             let session = NetlinkSession(socket: socket, log: log)
-            try session.routeAddDefault(interface: request.interface, gateway: request.gateway)
+            let ipv4Gateway = try IPv4Address(request.ipv4Gateway)
+            try session.routeAddDefault(interface: request.interface, ipv4Gateway: ipv4Gateway)
         } catch {
             log.error(
-                "ip-route-add-default",
+                "ipRouteAddDefault",
                 metadata: [
                     "error": "\(error)"
                 ])
-            throw GRPCStatus(code: .internalError, message: "ip-route-add-default: \(error)")
+            throw GRPCStatus(code: .internalError, message: "failed to set default gateway on interface \(request.interface): \(error)")
         }
 
         return .init()
@@ -842,11 +1111,13 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_ConfigureDnsResponse {
         let domain = request.hasDomain ? request.domain : nil
         log.debug(
-            "configure-dns",
+            "configureDns",
             metadata: [
                 "location": "\(request.location)",
                 "nameservers": "\(request.nameservers)",
                 "domain": "\(domain ?? "")",
+                "searchDomains": "\(request.searchDomains)",
+                "options": "\(request.options)",
             ])
 
         do {
@@ -865,11 +1136,11 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             log.debug("wrote resolver configuration", metadata: ["path": "\(resolvConf.path)"])
         } catch {
             log.error(
-                "configure-dns",
+                "configureDns",
                 metadata: [
                     "error": "\(error)"
                 ])
-            throw GRPCStatus(code: .internalError, message: "configure-dns: \(error)")
+            throw GRPCStatus(code: .internalError, message: "failed to configure DNS at location \(request.location): \(error)")
         }
 
         return .init()
@@ -907,44 +1178,106 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         return .init()
     }
 
-    func interfaceStatistics(
-        request: Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsRequest,
+    func containerStatistics(
+        request: Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest,
         context: GRPC.GRPCAsyncServerCallContext
-    ) async throws -> Com_Apple_Containerization_Sandbox_V3_InterfaceStatisticsResponse {
+    ) async throws -> Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsResponse {
         log.debug(
-            "interfaceStatistics",
+            "containerStatistics",
             metadata: [
-                "name": "\(request.interface)"
+                "container_ids": "\(request.containerIds)",
+                "categories": "\(request.categories)",
             ])
 
         do {
-            let socket = try DefaultNetlinkSocket()
-            let session = NetlinkSession(socket: socket, log: log)
-            let responses = try session.linkGet(interface: request.interface, includeStats: true)
-            guard responses.count == 1 else {
-                throw ContainerizationError(
-                    .internalError,
-                    message: "linkGet returned invalid number of interfaces: \(responses.count)"
+            // Parse requested categories (empty = all)
+            let categories = Set(request.categories)
+            let wantAll = categories.isEmpty
+            let wantProcess = wantAll || categories.contains(.process)
+            let wantMemory = wantAll || categories.contains(.memory)
+            let wantCPU = wantAll || categories.contains(.cpu)
+            let wantBlockIO = wantAll || categories.contains(.blockIo)
+            let wantNetwork = wantAll || categories.contains(.network)
+            let wantMemoryEvents = wantAll || categories.contains(.memoryEvents)
+
+            // Get all network interfaces (skip loopback) only if needed
+            let interfaces = wantNetwork ? try getNetworkInterfaces() : []
+
+            // Get containers to query
+            let containerIDs: [String]
+            if request.containerIds.isEmpty {
+                containerIDs = await Array(state.containers.keys)
+            } else {
+                containerIDs = request.containerIds
+            }
+
+            var containerStats: [Com_Apple_Containerization_Sandbox_V3_ContainerStats] = []
+
+            for containerID in containerIDs {
+                let container = try await state.get(container: containerID)
+
+                // Only fetch cgroup stats if needed
+                let cgStats: Cgroup2Stats?
+                if wantProcess || wantMemory || wantCPU || wantBlockIO {
+                    cgStats = try await container.stats()
+                } else {
+                    cgStats = nil
+                }
+
+                // Get network stats only if requested
+                var networkStats: [Com_Apple_Containerization_Sandbox_V3_NetworkStats] = []
+                if wantNetwork {
+                    let socket = try DefaultNetlinkSocket()
+                    let session = NetlinkSession(socket: socket, log: log)
+                    for interface in interfaces {
+                        let responses = try session.linkGet(interface: interface, includeStats: true)
+                        if responses.count == 1, let stats = try responses[0].getStatistics() {
+                            networkStats.append(
+                                .with {
+                                    $0.interface = interface
+                                    $0.receivedPackets = stats.rxPackets
+                                    $0.transmittedPackets = stats.txPackets
+                                    $0.receivedBytes = stats.rxBytes
+                                    $0.transmittedBytes = stats.txBytes
+                                    $0.receivedErrors = stats.rxErrors
+                                    $0.transmittedErrors = stats.txErrors
+                                })
+                        }
+                    }
+                }
+
+                // Get memory events only if requested
+                var memoryEvents: MemoryEvents?
+                if wantMemoryEvents {
+                    memoryEvents = try await container.getMemoryEvents()
+                }
+
+                containerStats.append(
+                    mapStatsToProto(
+                        containerID: containerID,
+                        cgStats: cgStats,
+                        networkStats: networkStats,
+                        memoryEvents: memoryEvents,
+                        wantProcess: wantProcess,
+                        wantMemory: wantMemory,
+                        wantCPU: wantCPU,
+                        wantBlockIO: wantBlockIO,
+                        wantNetwork: wantNetwork,
+                        wantMemoryEvents: wantMemoryEvents
+                    )
                 )
             }
-            let stats = try responses[0].getStatistics()
+
             return .with {
-                if let stats {
-                    $0.receivedPackets = stats.rxPackets
-                    $0.transmittedPackets = stats.txPackets
-                    $0.receivedBytes = stats.rxBytes
-                    $0.transmittedBytes = stats.txBytes
-                    $0.receivedErrors = stats.rxErrors
-                    $0.transmittedErrors = stats.txErrors
-                }
+                $0.containers = containerStats
             }
         } catch {
             log.error(
-                "interfaceStatistics",
+                "containerStatistics",
                 metadata: [
                     "error": "\(error)"
                 ])
-            throw GRPCStatus(code: .internalError, message: "interfaceStatistics: \(error)")
+            throw GRPCStatus(code: .internalError, message: "containerStatistics: \(error)")
         }
     }
 
@@ -956,6 +1289,101 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 "error": "\(error)"
             ])
         return error
+    }
+
+    // NOTE: This is just crummy. It works because today the assumption is
+    // every NIC in the root net namespace is for the container(s), but if we
+    // ever supported individual containers having their own NICs/IPs then this
+    // logic needs to change. We only create ethernet devices today too, so that's
+    // what this filters for as well.
+    private func getNetworkInterfaces() throws -> [String] {
+        let netPath = URL(filePath: "/sys/class/net")
+        let interfaces = try FileManager.default.contentsOfDirectory(
+            at: netPath,
+            includingPropertiesForKeys: nil
+        )
+        return
+            interfaces
+            .map { $0.lastPathComponent }
+            .filter { $0.hasPrefix("eth") }
+    }
+
+    private func mapStatsToProto(
+        containerID: String,
+        cgStats: Cgroup2Stats?,
+        networkStats: [Com_Apple_Containerization_Sandbox_V3_NetworkStats],
+        memoryEvents: MemoryEvents?,
+        wantProcess: Bool,
+        wantMemory: Bool,
+        wantCPU: Bool,
+        wantBlockIO: Bool,
+        wantNetwork: Bool,
+        wantMemoryEvents: Bool
+    ) -> Com_Apple_Containerization_Sandbox_V3_ContainerStats {
+        .with {
+            $0.containerID = containerID
+
+            if wantProcess, let pids = cgStats?.pids {
+                $0.process = .with {
+                    $0.current = pids.current
+                    $0.limit = pids.max ?? 0
+                }
+            }
+
+            if wantMemory, let memory = cgStats?.memory {
+                $0.memory = .with {
+                    $0.usageBytes = memory.usage
+                    $0.limitBytes = memory.usageLimit ?? 0
+                    $0.swapUsageBytes = memory.swapUsage ?? 0
+                    $0.swapLimitBytes = memory.swapLimit ?? 0
+                    $0.cacheBytes = memory.file
+                    $0.kernelStackBytes = memory.kernelStack
+                    $0.slabBytes = memory.slab
+                    $0.pageFaults = memory.pgfault
+                    $0.majorPageFaults = memory.pgmajfault
+                }
+            }
+
+            if wantCPU, let cpu = cgStats?.cpu {
+                $0.cpu = .with {
+                    $0.usageUsec = cpu.usageUsec
+                    $0.userUsec = cpu.userUsec
+                    $0.systemUsec = cpu.systemUsec
+                    $0.throttlingPeriods = cpu.nrPeriods
+                    $0.throttledPeriods = cpu.nrThrottled
+                    $0.throttledTimeUsec = cpu.throttledUsec
+                }
+            }
+
+            if wantBlockIO, let io = cgStats?.io {
+                $0.blockIo = .with {
+                    $0.devices = io.entries.map { entry in
+                        .with {
+                            $0.major = entry.major
+                            $0.minor = entry.minor
+                            $0.readBytes = entry.rbytes
+                            $0.writeBytes = entry.wbytes
+                            $0.readOperations = entry.rios
+                            $0.writeOperations = entry.wios
+                        }
+                    }
+                }
+            }
+
+            if wantNetwork {
+                $0.networks = networkStats
+            }
+
+            if wantMemoryEvents, let events = memoryEvents {
+                $0.memoryEvents = .with {
+                    $0.low = events.low
+                    $0.high = events.high
+                    $0.max = events.max
+                    $0.oom = events.oom
+                    $0.oomKill = events.oomKill
+                }
+            }
+        }
     }
 
     func sync(
@@ -1042,6 +1470,10 @@ extension Initd {
         var seenSuppGids = Set<UInt32>()
         process.user.additionalGids = process.user.additionalGids.filter {
             seenSuppGids.insert($0).inserted
+        }
+
+        if !process.env.contains(where: { $0.hasPrefix("PATH=") }) {
+            process.env.append("PATH=\(LinuxProcessConfiguration.defaultPath)")
         }
 
         if !process.env.contains(where: { $0.hasPrefix("HOME=") }) {

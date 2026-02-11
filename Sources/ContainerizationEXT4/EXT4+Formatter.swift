@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 
 //  swiftlint: disable discouraged_direct_init shorthand_operator syntactic_sugar
 
+import ContainerizationArchive
 import ContainerizationOS
 import Foundation
 import SystemPackage
@@ -24,7 +25,7 @@ extension EXT4 {
     /// The `EXT4.Formatter` class provides methods to format a block device with the ext4 filesystem.
     /// It allows customization of block size and maximum disk size.
     public class Formatter {
-        private let blockSize: UInt32
+        let blockSize: UInt32
         private var size: UInt64
         private let groupDescriptorSize: UInt32 = 32
 
@@ -264,7 +265,7 @@ extension EXT4 {
         //    - path: The FilePath representing the path where the file, directory, or symlink should be created.
         //    - link: An optional FilePath representing the target path for a symlink. If `nil`, a regular file or directory will be created. Preceding '/' should be omitted
         //    - mode: The permissions to set for the created file, directory, or symlink.
-        //    - buf: An `InputStream` object providing the contents for the created file. Ignored when creating directories or symlinks.
+        //    - buf: A `ReadableStream` object providing the contents for the created file. Ignored when creating directories or symlinks.
         //
         //  - Note:
         //    - This function recursively creates parent directories if they don't already exist. The `uid` and `gid` of the created parent directories are set to the values of their parent's `uid` and `gid`.
@@ -295,11 +296,12 @@ extension EXT4 {
             link: FilePath? = nil,  // to create symbolic links
             mode: UInt16,
             ts: FileTimestamps = FileTimestamps(),
-            buf: InputStream? = nil,
+            buf: (any ReadableStream)? = nil,
             uid: UInt32? = nil,
             gid: UInt32? = nil,
             xattrs: [String: Data]? = nil,
-            recursion: Bool = false
+            recursion: Bool = false,
+            fileBuffer: UnsafeMutableBufferPointer<UInt8>? = nil
         ) throws {
             if let nodePtr = self.tree.lookup(path: path) {
                 let node = nodePtr.pointee
@@ -439,7 +441,6 @@ extension EXT4 {
                         buffer[89],
                         buffer[90], buffer[91], buffer[92], buffer[93], buffer[94], buffer[95]
                     )
-                    childInode.flags |= InodeFlag.inlineData.rawValue
                 }
                 if !state.blockAttributes.isEmpty {
                     var buffer: [UInt8] = .init(repeating: 0, count: Int(blockSize))
@@ -539,14 +540,29 @@ extension EXT4 {
             if mode.isReg() {
                 startBlock = self.currentBlock
                 if let buf {  // in case of empty files, this will be nil
-                    let tempBuf = Ptr<UInt8>.allocate(capacity: Int(self.blockSize))
-                    defer { tempBuf.deallocate() }
-                    while case let block = buf.read(tempBuf.underlying, maxLength: Int(self.blockSize)), block > 0 {
+                    let tempBuf: UnsafeMutablePointer<UInt8>
+                    let bufferSize: Int
+                    let shouldDeallocate: Bool
+                    if let fileBuffer {
+                        tempBuf = fileBuffer.baseAddress!
+                        bufferSize = fileBuffer.count
+                        shouldDeallocate = false
+                    } else {
+                        tempBuf = UnsafeMutablePointer<UInt8>.allocate(capacity: Int(self.blockSize))
+                        bufferSize = Int(self.blockSize)
+                        shouldDeallocate = true
+                    }
+                    defer {
+                        if shouldDeallocate {
+                            tempBuf.deallocate()
+                        }
+                    }
+                    while case let block = buf.read(tempBuf, maxLength: bufferSize), block > 0 {
                         size += UInt64(block)
                         if size > EXT4.MaxFileSize {
                             throw Error.fileTooBig(size)
                         }
-                        let data = UnsafeRawBufferPointer(start: tempBuf.underlying, count: block)
+                        let data = UnsafeRawBufferPointer(start: tempBuf, count: block)
                         try withUnsafeLittleEndianBuffer(of: data) { b in
                             try self.handle.write(contentsOf: b)
                         }
@@ -563,29 +579,6 @@ extension EXT4 {
             }
             // FIFO, Socket and other types are not handled
             throw Error.unsupportedFiletype
-        }
-
-        public func setOwner(path: FilePath, uid: UInt16? = nil, gid: UInt16? = nil, recursive: Bool = false) throws {
-            // ensure that target exists
-            guard let pathPtr = self.tree.lookup(path: path) else {
-                throw Error.notFound(path)
-            }
-            let pathNode = pathPtr.pointee
-            let pathInodePtr = self.inodes[Int(pathNode.inode) - 1]
-            var pathInode = pathInodePtr.pointee
-            if let uid {
-                pathInode.uid = uid
-            }
-            if let gid {
-                pathInode.gid = gid
-            }
-            pathInodePtr.initialize(to: pathInode)
-            if recursive {
-                for childPtr in pathNode.children {
-                    let child = childPtr.pointee
-                    try self.setOwner(path: path.join(child.name), uid: uid, gid: gid, recursive: recursive)
-                }
-            }
         }
 
         //  Completes the formatting of an ext4 filesystem after writing the necessary structures.
@@ -908,7 +901,7 @@ extension EXT4 {
             superblock.inodeSize = UInt16(EXT4.InodeSize)
             superblock.featureCompat = CompatFeature.sparseSuper2 | CompatFeature.extAttr
             superblock.featureIncompat =
-                IncompatFeature.filetype | IncompatFeature.extents | IncompatFeature.flexBg | IncompatFeature.inlineData
+                IncompatFeature.filetype | IncompatFeature.extents | IncompatFeature.flexBg
             superblock.featureRoCompat =
                 RoCompatFeature.largeFile | RoCompatFeature.hugeFile | RoCompatFeature.extraIsize
             superblock.minExtraIsize = EXT4.ExtraIsize

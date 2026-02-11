@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,15 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-#if os(Linux)
-
 #if canImport(Musl)
 import Musl
-#elseif canImport(Glibc)
-import Glibc
-#else
-#error("Epoll not supported on this platform")
-#endif
 
 import Foundation
 import Synchronization
@@ -169,7 +162,11 @@ public final class Epoll: Sendable {
 
 extension Epoll.Mask {
     public var isHangup: Bool {
-        (self & (EPOLLHUP | EPOLLERR | EPOLLRDHUP)) != 0
+        (self & (EPOLLHUP | EPOLLERR)) != 0
+    }
+
+    public var isRhangup: Bool {
+        (self & EPOLLRDHUP) != 0
     }
 
     public var readyToRead: Bool {
@@ -181,4 +178,4 @@ extension Epoll.Mask {
     }
 }
 
-#endif  // os(Linux)
+#endif  // canImport(Musl)

@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,10 +28,13 @@ struct CtrExample {
         try current.setraw()
         defer { current.tryReset() }
 
+        let initfsReference = "ghcr.io/apple/containerization/vminit:0.13.0"
+        let kernelPath = "./vmlinux"
+        print("Fetching base container filesystem...")
         // Create container manager with file-based initfs
         var manager = try await ContainerManager(
-            kernel: Kernel(path: URL(fileURLWithPath: "./vmlinux"), platform: .linuxArm),
-            initfsReference: "vminit:latest",
+            kernel: Kernel(path: URL(fileURLWithPath: kernelPath), platform: .linuxArm),
+            initfsReference: initfsReference,
             network: try ContainerManager.VmnetNetwork()
         )
 

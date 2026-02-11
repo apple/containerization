@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -271,10 +271,14 @@ extension ArchiveWriter {
     /// Note: Symlinks are added to the archive if both the source and target for the symlink are both contained in the top level directory.
     public func archiveDirectory(_ dir: URL) throws {
         let fm = FileManager.default
-        let resourceKeys = Set<URLResourceKey>([
+        var resourceKeys = Set<URLResourceKey>([
             .fileSizeKey, .fileResourceTypeKey,
-            .creationDateKey, .contentAccessDateKey, .contentModificationDateKey, .fileSecurityKey,
+            .creationDateKey, .contentAccessDateKey, .contentModificationDateKey,
         ])
+        #if os(macOS)
+        resourceKeys.insert(.fileSecurityKey)
+        #endif
+
         guard let directoryEnumerator = fm.enumerator(at: dir, includingPropertiesForKeys: Array(resourceKeys), options: .producesRelativePathURLs) else {
             throw POSIXError(.ENOTDIR)
         }
@@ -316,12 +320,26 @@ extension ArchiveWriter {
             guard let modified = resourceValues.contentModificationDate else {
                 throw ArchiveError.failedToGetProperty(fileURL.path(), .contentModificationDateKey)
             }
+
+            #if os(macOS)
             guard let perms = resourceValues.fileSecurity else {
                 throw ArchiveError.failedToGetProperty(fileURL.path(), .fileSecurityKey)
             }
             CFFileSecurityGetMode(perms, &mode)
             CFFileSecurityGetOwner(perms, &uid)
             CFFileSecurityGetGroup(perms, &gid)
+            #else
+            let path = fileURL.path()
+            var statInfo = stat()
+            guard lstat(path, &statInfo) == 0 else {
+                let err = POSIXErrorCode(rawValue: errno)!
+                throw POSIXError(err)
+            }
+            mode = statInfo.st_mode
+            uid = statInfo.st_uid
+            gid = statInfo.st_gid
+            #endif
+
             entry.path = fileURL.relativePath
             entry.size = size
             entry.creationDate = created

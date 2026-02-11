@@ -1,4 +1,4 @@
-# Copyright © 2025 Apple Inc. and the Containerization project authors.
+# Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,10 +13,9 @@
 # limitations under the License.
 
 # Build configuration variables
-# The default version ID 0.0.0 indicates a local development build or PRB
 BUILD_CONFIGURATION ?= debug
 WARNINGS_AS_ERRORS ?= true
-SWIFT_CONFIGURATION = $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors)
+SWIFT_CONFIGURATION := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors) --disable-automatic-resolution
 
 # Commonly used locations
 SWIFT := "/usr/bin/swift"
@@ -111,7 +110,7 @@ ifeq (,$(wildcard bin/vmlinux))
 	@exit 1
 endif
 	@echo Running the integration tests...
-	@./bin/containerization-integration --bootlog ./bin/boot.log
+	@./bin/containerization-integration
 
 .PHONY: fetch-default-kernel
 fetch-default-kernel:
@@ -127,6 +126,9 @@ ifeq (,$(wildcard bin/vmlinux))
 	@cp .local/vmlinux bin/vmlinux
 endif
 
+.PHONY: check
+check: swift-fmt-check check-licenses
+
 .PHONY: fmt
 fmt: swift-fmt update-licenses
 
@@ -135,6 +137,10 @@ SWIFT_SRC = $(shell find . -type f -name '*.swift' -not -path "*/.*" -not -path 
 swift-fmt:
 	@echo Applying the standard code formatting...
 	@$(SWIFT) format --recursive --configuration .swift-format -i $(SWIFT_SRC)
+
+swift-fmt-check:
+	   @echo Applying the standard code formatting...
+	   @$(SWIFT) format lint --recursive --strict --configuration .swift-format-nolint $(SWIFT_SRC)
 
 .PHONY: update-licenses
 update-licenses:
@@ -147,6 +153,15 @@ check-licenses:
 	@echo Checking license headers existence in source files...
 	@./scripts/ensure-hawkeye-exists.sh
 	@.local/bin/hawkeye check --fail-if-unknown
+
+.PHONY: pre-commit
+pre-commit:
+	   cp Scripts/pre-commit.fmt .git/hooks
+	   touch .git/hooks/pre-commit
+	   cat .git/hooks/pre-commit | grep -v 'hooks/pre-commit\.fmt' > /tmp/pre-commit.new || true
+	   echo 'PRECOMMIT_NOFMT=$${PRECOMMIT_NOFMT} $$(git rev-parse --show-toplevel)/.git/hooks/pre-commit.fmt' >> /tmp/pre-commit.new
+	   mv /tmp/pre-commit.new .git/hooks/pre-commit
+	   chmod +x .git/hooks/pre-commit
 
 .PHONY: serve-docs
 serve-docs:

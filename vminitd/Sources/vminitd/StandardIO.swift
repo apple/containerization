@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,6 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import ContainerizationError
 import ContainerizationOS
 import Foundation
 import Logging
@@ -119,8 +120,9 @@ final class StandardIO: ManagedProcess.IO & Sendable {
         }
     }
 
-    // NOP
-    func resize(size: Terminal.Size) throws {}
+    func resize(size: Terminal.Size) throws {
+        throw ContainerizationError(.unsupported, message: "resize not supported")
+    }
 
     func close() throws {
         self.state.withLock {

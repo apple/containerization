@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,14 +21,18 @@ import Foundation
 public struct Path {
     /// lookPath looks up an executable's path from $PATH
     public static func lookPath(_ name: String) -> URL? {
-        lookup(name, path: getPath())
+        lookup(name, path: getCurrentPath())
+    }
+
+    public static func lookPath(_ name: String, path: String) -> URL? {
+        lookup(name, path: path)
     }
 
     // getEnv returns the default environment of the process
     // with the default $PATH added for the context of a macOS application bundle
     public static func getEnv() -> [String: String] {
         var env = ProcessInfo.processInfo.environment
-        env["PATH"] = getPath()
+        env["PATH"] = getCurrentPath()
         return env
     }
 
@@ -58,17 +62,18 @@ public struct Path {
     }
 
     /// getPath returns $PATH for the current process
-    private static func getPath() -> String {
+    public static func getCurrentPath() -> String {
         let env = ProcessInfo.processInfo.environment
         return env["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
     }
 
     // findPath returns a string containing the 'PATH' environment variable
-    private static func findPath(_ env: [String]) -> String? {
-        env.first(where: { path in
-            let split = path.split(separator: "=")
-            return split.count == 2 && split[0] == "PATH"
-        })
+    public static func findPath(_ env: [String]?) -> String? {
+        guard let env = env else {
+            return nil
+        }
+        return env.first(where: { $0.hasPrefix("PATH=") })
+            .map { String($0.dropFirst(5)) }
     }
 
     // findExec returns true if the provided path is an executable

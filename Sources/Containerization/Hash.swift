@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,9 +18,12 @@
 
 import Crypto
 import ContainerizationError
+import Foundation
 
-func hashMountSource(source: String) throws -> String {
-    guard let data = source.data(using: .utf8) else {
+public func hashMountSource(source: String) throws -> String {
+    // Resolve symlinks so different paths to the same directory get the same hash.
+    let resolvedSource = URL(fileURLWithPath: source).resolvingSymlinksInPath().path
+    guard let data = resolvedSource.data(using: .utf8) else {
         throw ContainerizationError(.invalidArgument, message: "\(source) could not be converted to Data")
     }
     return String(SHA256.hash(data: data).encoded.prefix(36))

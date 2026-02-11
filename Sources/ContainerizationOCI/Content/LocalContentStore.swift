@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -154,7 +154,7 @@ public actor LocalContentStore: ContentStore {
     @discardableResult
     public func completeIngestSession(_ id: String) async throws -> [String] {
         guard await activeIngestSessions.contains(id) else {
-            throw ContainerizationError(.internalError, message: "Invalid session id \(id)")
+            throw ContainerizationError(.internalError, message: "invalid session id \(id)")
         }
         await activeIngestSessions.remove(id)
         let temporaryPath = self._ingestPath.appendingPathComponent(id)

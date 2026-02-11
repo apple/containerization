@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -63,7 +63,7 @@ extension ImageStore {
                     for chunk in layerGroup.chunks(ofCount: 8) {
                         for desc in chunk {
                             guard let content = try await self.contentStore.get(digest: desc.digest) else {
-                                throw ContainerizationError(.notFound, message: "Content with digest \(desc.digest)")
+                                throw ContainerizationError(.notFound, message: "content with digest \(desc.digest)")
                             }
                             group.addTask {
                                 let readStream = try ReadStream(url: content.path)
@@ -104,7 +104,7 @@ extension ImageStore {
 
         private func createIndex(from index: Descriptor, matching: (Platform) -> Bool) async throws -> Data {
             guard let content = try await self.contentStore.get(digest: index.digest) else {
-                throw ContainerizationError(.notFound, message: "Content with digest \(index.digest)")
+                throw ContainerizationError(.notFound, message: "content with digest \(index.digest)")
             }
             var idx: Index = try content.decode()
             let manifests = idx.manifests
@@ -156,7 +156,7 @@ extension ImageStore {
             for desc in descs {
                 let mediaType = desc.mediaType
                 guard let content = try await self.contentStore.get(digest: desc.digest) else {
-                    throw ContainerizationError(.notFound, message: "Content with digest \(desc.digest)")
+                    throw ContainerizationError(.notFound, message: "content with digest \(desc.digest)")
                 }
                 switch mediaType {
                 case MediaTypes.index, MediaTypes.dockerManifestList:

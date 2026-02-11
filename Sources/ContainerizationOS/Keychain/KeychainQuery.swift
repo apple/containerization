@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,8 +19,8 @@ import Foundation
 
 /// Holds the result of a query to the keychain.
 public struct KeychainQueryResult {
-    public var account: String
-    public var data: String
+    public var username: String
+    public var password: String
     public var modifiedDate: Date
     public var createdDate: Date
 }
@@ -30,20 +30,20 @@ public struct KeychainQuery {
     public init() {}
 
     /// Save a value to the keychain.
-    public func save(id: String, host: String, user: String, token: String) throws {
-        if try exists(id: id, host: host) {
-            try delete(id: id, host: host)
+    public func save(securityDomain: String, hostname: String, username: String, password: String) throws {
+        if try exists(securityDomain: securityDomain, hostname: hostname) {
+            try delete(securityDomain: securityDomain, hostname: hostname)
         }
 
-        guard let tokenEncoded = token.data(using: String.Encoding.utf8) else {
-            throw Self.Error.invalidTokenConversion
+        guard let passwordEncoded = password.data(using: String.Encoding.utf8) else {
+            throw Self.Error.invalidPasswordConversion
         }
         let query: [String: Any] = [
             kSecClass as String: kSecClassInternetPassword,
-            kSecAttrSecurityDomain as String: id,
-            kSecAttrServer as String: host,
-            kSecAttrAccount as String: user,
-            kSecValueData as String: tokenEncoded,
+            kSecAttrSecurityDomain as String: securityDomain,
+            kSecAttrServer as String: hostname,
+            kSecAttrAccount as String: username,
+            kSecValueData as String: passwordEncoded,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
             kSecAttrSynchronizable as String: false,
         ]
@@ -52,11 +52,11 @@ public struct KeychainQuery {
     }
 
     /// Delete a value from the keychain.
-    public func delete(id: String, host: String) throws {
+    public func delete(securityDomain: String, hostname: String) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassInternetPassword,
-            kSecAttrSecurityDomain as String: id,
-            kSecAttrServer as String: host,
+            kSecAttrSecurityDomain as String: securityDomain,
+            kSecAttrServer as String: hostname,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
         let status = SecItemDelete(query as CFDictionary)
@@ -66,11 +66,11 @@ public struct KeychainQuery {
     }
 
     /// Retrieve a value from the keychain.
-    public func get(id: String, host: String) throws -> KeychainQueryResult? {
+    public func get(securityDomain: String, hostname: String) throws -> KeychainQueryResult? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassInternetPassword,
-            kSecAttrSecurityDomain as String: id,
-            kSecAttrServer as String: host,
+            kSecAttrSecurityDomain as String: securityDomain,
+            kSecAttrServer as String: hostname,
             kSecReturnAttributes as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
             kSecReturnData as String: true,
@@ -88,10 +88,10 @@ public struct KeychainQuery {
         guard let data = fetched[kSecValueData as String] as? Data else {
             throw Self.Error.keyNotPresent(key: kSecValueData as String)
         }
-        guard let decodedData = String(data: data, encoding: String.Encoding.utf8) else {
+        guard let password = String(data: data, encoding: String.Encoding.utf8) else {
             throw Self.Error.unexpectedDataFetched
         }
-        guard let account = fetched[kSecAttrAccount as String] as? String else {
+        guard let username = fetched[kSecAttrAccount as String] as? String else {
             throw Self.Error.keyNotPresent(key: kSecAttrAccount as String)
         }
         guard let modifiedDate = fetched[kSecAttrModificationDate as String] as? Date else {
@@ -101,11 +101,57 @@ public struct KeychainQuery {
             throw Self.Error.keyNotPresent(key: kSecAttrCreationDate as String)
         }
         return KeychainQueryResult(
-            account: account,
-            data: decodedData,
+            username: username,
+            password: password,
             modifiedDate: modifiedDate,
             createdDate: createdDate
         )
+    }
+
+    /// List all registry entries in the keychain for a domain.
+    /// - Parameter securityDomain: The security domain used to fetch registry entries in the keychain.
+    /// - Returns: An array of registry metadata for each matching entry, or an empty array if none are found.
+    /// - Throws: An error if the keychain query fails or returns unexpected data.
+    public func list(securityDomain: String) throws -> [RegistryInfo] {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassInternetPassword,
+            kSecAttrSecurityDomain as String: securityDomain,
+            kSecReturnAttributes as String: true,
+            kSecReturnData as String: false,
+            kSecMatchLimit as String: kSecMatchLimitAll,
+        ]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        let exists = try isQuerySuccessful(status)
+        if !exists {
+            return []
+        }
+
+        guard let fetched = item as? [[String: Any]] else {
+            throw Self.Error.unexpectedDataFetched
+        }
+
+        return try fetched.map { registry in
+            guard let hostname = registry[kSecAttrServer as String] as? String else {
+                throw Self.Error.keyNotPresent(key: kSecAttrServer as String)
+            }
+            guard let username = registry[kSecAttrAccount as String] as? String else {
+                throw Self.Error.keyNotPresent(key: kSecAttrAccount as String)
+            }
+            guard let modifiedDate = registry[kSecAttrModificationDate as String] as? Date else {
+                throw Self.Error.keyNotPresent(key: kSecAttrModificationDate as String)
+            }
+            guard let createdDate = registry[kSecAttrCreationDate as String] as? Date else {
+                throw Self.Error.keyNotPresent(key: kSecAttrCreationDate as String)
+            }
+
+            return RegistryInfo(
+                hostname: hostname,
+                username: username,
+                modifiedDate: modifiedDate,
+                createdDate: createdDate
+            )
+        }
     }
 
     private func isQuerySuccessful(_ status: Int32) throws -> Bool {
@@ -119,11 +165,11 @@ public struct KeychainQuery {
     }
 
     /// Check if a value exists in the keychain.
-    public func exists(id: String, host: String) throws -> Bool {
+    public func exists(securityDomain: String, hostname: String) throws -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassInternetPassword,
-            kSecAttrSecurityDomain as String: id,
-            kSecAttrServer as String: host,
+            kSecAttrSecurityDomain as String: securityDomain,
+            kSecAttrServer as String: hostname,
             kSecReturnAttributes as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
             kSecReturnData as String: false,
@@ -139,7 +185,7 @@ extension KeychainQuery {
         case unhandledError(status: Int32)
         case unexpectedDataFetched
         case keyNotPresent(key: String)
-        case invalidTokenConversion
+        case invalidPasswordConversion
     }
 }
 #endif

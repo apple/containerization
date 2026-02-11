@@ -24,6 +24,10 @@ service SandboxContext {
   rpc SetupEmulator(SetupEmulatorRequest) returns (SetupEmulatorResponse);
   // Write data to an existing or new file.
   rpc WriteFile(WriteFileRequest) returns (WriteFileResponse);
+  // Copy a file from the host into the guest.
+  rpc CopyIn(stream CopyInChunk) returns (CopyInResponse);
+  // Copy a file from the guest to the host.
+  rpc CopyOut(CopyOutRequest) returns (stream CopyOutChunk);
 
   // Create a new process inside the container.
   rpc CreateProcess(CreateProcessRequest) returns (CreateProcessResponse);
@@ -40,6 +44,9 @@ service SandboxContext {
   rpc ResizeProcess(ResizeProcessRequest) returns (ResizeProcessResponse);
   // Close IO for a given process.
   rpc CloseProcessStdin(CloseProcessStdinRequest) returns (CloseProcessStdinResponse);
+
+  // Get statistics for containers.
+  rpc ContainerStatistics(ContainerStatisticsRequest) returns (ContainerStatisticsResponse);
 
   // Proxy a vsock port to a unix domain socket in the guest, or vice versa.
   rpc ProxyVsock(ProxyVsockRequest) returns (ProxyVsockResponse);
@@ -58,8 +65,6 @@ service SandboxContext {
   rpc ConfigureDns(ConfigureDnsRequest) returns (ConfigureDnsResponse);
   // Configure /etc/hosts.
   rpc ConfigureHosts(ConfigureHostsRequest) returns (ConfigureHostsResponse);
-  // Get statistics about an interface.
-  rpc InterfaceStatistics(InterfaceStatisticsRequest) returns (InterfaceStatisticsResponse);
 
   // Perform the sync syscall.
   rpc Sync(SyncRequest) returns (SyncResponse);
@@ -147,8 +152,9 @@ message CreateProcessRequest {
   optional uint32 stdin = 3;
   optional uint32 stdout = 4;
   optional uint32 stderr = 5;
-  bytes configuration = 6;
-  optional bytes options = 7;
+  optional string ociRuntimePath = 6;
+  bytes configuration = 7;
+  optional bytes options = 8;
 }
 
 message CreateProcessResponse {}
@@ -223,6 +229,45 @@ message WriteFileRequest {
 
 message WriteFileResponse {}
 
+message CopyInChunk {
+  oneof content {
+    // Initialization message (must be first).
+    CopyInInit init = 1;
+    // File data chunk.
+    bytes data = 2;
+  }
+}
+
+message CopyInInit {
+  // Destination path in the guest.
+  string path = 1;
+  // File mode (defaults to 0644 if not set).
+  uint32 mode = 2;
+  // Create parent directories if they don't exist.
+  bool create_parents = 3;
+}
+
+message CopyInResponse {}
+
+message CopyOutRequest {
+  // Source path in the guest.
+  string path = 1;
+}
+
+message CopyOutChunk {
+  oneof content {
+    // Initialization message with metadata (first chunk).
+    CopyOutInit init = 1;
+    // File data chunk.
+    bytes data = 2;
+  }
+}
+
+message CopyOutInit {
+  // Total file size in bytes.
+  uint64 total_size = 1;
+}
+
 message IpLinkSetRequest {
   string interface = 1;
   bool up = 2;
@@ -233,22 +278,22 @@ message IpLinkSetResponse {}
 
 message IpAddrAddRequest {
   string interface = 1;
-  string address = 2;
+  string ipv4Address = 2;
 }
 
 message IpAddrAddResponse {}
 
 message IpRouteAddLinkRequest {
   string interface = 1;
-  string address = 2;
-  string srcAddr = 3;
+  string dstIpv4Addr = 2;
+  string srcIpv4Addr = 3;
 }
 
 message IpRouteAddLinkResponse {}
 
 message IpRouteAddDefaultRequest {
   string interface = 1;
-  string gateway = 2;
+  string ipv4Gateway = 2;
 }
 
 message IpRouteAddDefaultResponse {}
@@ -276,19 +321,6 @@ message ConfigureHostsRequest {
 
 message ConfigureHostsResponse {}
 
-message InterfaceStatisticsRequest {
-  string interface = 1;
-}
-
-message InterfaceStatisticsResponse {
-  optional uint64 receivedPackets = 1;
-  optional uint64 transmittedPackets = 2;
-  optional uint64 receivedBytes = 3;
-  optional uint64 transmittedBytes = 4;
-  optional uint64 receivedErrors = 5;
-  optional uint64 transmittedErrors = 6;
-}
-
 message SyncRequest {}
 message SyncResponse {}
 
@@ -298,3 +330,98 @@ message KillRequest {
 }
 
 message KillResponse { int32 result = 1; }
+
+// Categories of statistics that can be requested.
+enum StatCategory {
+  STAT_CATEGORY_UNSPECIFIED = 0;
+  STAT_CATEGORY_PROCESS = 1;
+  STAT_CATEGORY_MEMORY = 2;
+  STAT_CATEGORY_CPU = 3;
+  STAT_CATEGORY_BLOCK_IO = 4;
+  STAT_CATEGORY_NETWORK = 5;
+  STAT_CATEGORY_MEMORY_EVENTS = 6;
+}
+
+message ContainerStatisticsRequest {
+  repeated string container_ids = 1;  // Empty = all containers
+  repeated StatCategory categories = 2;  // Empty = all categories
+}
+
+message ContainerStatisticsResponse {
+  repeated ContainerStats containers = 1;
+}
+
+message ContainerStats {
+  string container_id = 1;
+  ProcessStats process = 2;
+  MemoryStats memory = 3;
+  CPUStats cpu = 4;
+  BlockIOStats block_io = 5;
+  repeated NetworkStats networks = 6;
+  MemoryEventStats memory_events = 7;
+}
+
+message ProcessStats {
+  uint64 current = 1;
+  uint64 limit = 2;  // 0 or max value = unlimited
+}
+
+message MemoryStats {
+  uint64 usage_bytes = 1;
+  uint64 limit_bytes = 2;
+  uint64 swap_usage_bytes = 3;
+  uint64 swap_limit_bytes = 4;
+  uint64 cache_bytes = 5;
+  uint64 kernel_stack_bytes = 6;
+  uint64 slab_bytes = 7;
+  uint64 page_faults = 8;
+  uint64 major_page_faults = 9;
+}
+
+message CPUStats {
+  uint64 usage_usec = 1;
+  uint64 user_usec = 2;
+  uint64 system_usec = 3;
+  uint64 throttling_periods = 4;
+  uint64 throttled_periods = 5;
+  uint64 throttled_time_usec = 6;
+}
+
+message BlockIOStats {
+  repeated BlockIOEntry devices = 1;
+}
+
+message BlockIOEntry {
+  uint64 major = 1;
+  uint64 minor = 2;
+  uint64 read_bytes = 3;
+  uint64 write_bytes = 4;
+  uint64 read_operations = 5;
+  uint64 write_operations = 6;
+}
+
+message NetworkStats {
+  string interface = 1;
+  uint64 receivedPackets = 2;
+  uint64 transmittedPackets = 3;
+  uint64 receivedBytes = 4;
+  uint64 transmittedBytes = 5;
+  uint64 receivedErrors = 6;
+  uint64 transmittedErrors = 7;
+}
+
+// Memory event counters from cgroup2's memory.events file.
+message MemoryEventStats {
+  // Number of times the cgroup was reclaimed due to low memory.
+  uint64 low = 1;
+  // Number of times the cgroup exceeded its high memory limit.
+  uint64 high = 2;
+  // Number of times the cgroup hit its max memory limit.
+  uint64 max = 3;
+  // Number of times the cgroup triggered OOM.
+  uint64 oom = 4;
+  // Number of processes killed by OOM killer.
+  uint64 oom_kill = 5;
+  // Number of times charge for memory failed because of limit.
+  uint64 oom_group_kill = 6;
+}

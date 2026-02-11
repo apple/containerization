@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,6 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import CShim
 import Foundation
 import Synchronization
 
@@ -42,6 +43,7 @@ let sysListen = listen
 let sysAccept = accept
 let sysConnect = connect
 let sysIoctl: @convention(c) (CInt, CUnsignedLong, UnsafeMutableRawPointer) -> CInt = ioctl
+let sysRecvmsg = recvmsg
 #endif
 
 /// Thread-safe socket wrapper.
@@ -95,6 +97,20 @@ public final class Socket: Sendable {
         _closeOnDeinit = closeOnDeinit
         let state = State(
             socketState: .created,
+            handle: FileHandle(fileDescriptor: fd, closeOnDealloc: false),
+            type: type,
+            acceptSource: nil
+        )
+        self.state = Mutex(state)
+    }
+
+    /// Internal initializer for wrapping already-connected file descriptors (e.g., from socketpair)
+    /// Ideally we just get rid of the state machine in this class. Not sure how much value it provides..
+    init(fd: Int32, type: SocketType, closeOnDeinit: Bool, connected: Bool) {
+        _queue = DispatchQueue(label: "com.apple.containerization.socket")
+        _closeOnDeinit = closeOnDeinit
+        let state = State(
+            socketState: connected ? .connected : .created,
             handle: FileHandle(fileDescriptor: fd, closeOnDealloc: false),
             type: type,
             acceptSource: nil
@@ -284,8 +300,74 @@ extension Socket {
         return Socket(
             fd: clientFD,
             type: newSocketType,
-            closeOnDeinit: closeOnDeinit
+            closeOnDeinit: closeOnDeinit,
+            connected: true
         )
+    }
+
+    /// Receive a file descriptor via SCM_RIGHTS control message.
+    /// This is commonly used for passing file descriptors between processes via Unix domain sockets.
+    public func receiveFileDescriptor() throws -> Int32 {
+        let handle = try state.withLock { currentState in
+            guard currentState.socketState == .connected else {
+                throw SocketError.invalidOperationOnSocket("receiveFileDescriptor")
+            }
+            guard let handle = currentState.handle else {
+                throw SocketError.closed
+            }
+            return handle
+        }
+
+        var msg = msghdr()
+        var iov = iovec()
+        var buf: UInt8 = 0
+
+        iov.iov_base = withUnsafeMutablePointer(to: &buf) { UnsafeMutableRawPointer($0) }
+        iov.iov_len = 1
+
+        msg.msg_iov = withUnsafeMutablePointer(to: &iov) { $0 }
+        msg.msg_iovlen = 1
+
+        var cmsgBuf = [UInt8](repeating: 0, count: Int(CZ_CMSG_SPACE(Int(MemoryLayout<Int32>.size))))
+        msg.msg_control = withUnsafeMutablePointer(to: &cmsgBuf[0]) { UnsafeMutableRawPointer($0) }
+
+        #if canImport(Glibc)
+        msg.msg_controllen = size_t(cmsgBuf.count)
+        #else
+        msg.msg_controllen = socklen_t(cmsgBuf.count)
+        #endif
+
+        let recvResult = withUnsafeMutablePointer(to: &msg) { msgPtr in
+            sysRecvmsg(handle.fileDescriptor, msgPtr, 0)
+        }
+
+        guard recvResult >= 0 else {
+            throw Socket.errnoToError(msg: "recvmsg failed")
+        }
+
+        // Extract file descriptor from control message
+        let cmsgPtr = withUnsafeMutablePointer(to: &msg) { CZ_CMSG_FIRSTHDR($0) }
+        guard let cmsg = cmsgPtr else {
+            throw SocketError.invalidFileDescriptor
+        }
+
+        guard cmsg.pointee.cmsg_level == SOL_SOCKET,
+            cmsg.pointee.cmsg_type == SCM_RIGHTS
+        else {
+            throw SocketError.invalidFileDescriptor
+        }
+
+        guard let dataPtr = CZ_CMSG_DATA(cmsg) else {
+            throw SocketError.invalidFileDescriptor
+        }
+
+        let fdPtr = dataPtr.assumingMemoryBound(to: Int32.self)
+        let fd = fdPtr.pointee
+        guard fd >= 0 else {
+            throw SocketError.invalidFileDescriptor
+        }
+
+        return fd
     }
 
     public func read(buffer: inout Data) throws -> Int {
@@ -310,7 +392,7 @@ extension Socket {
                 sysRead(handle.fileDescriptor, baseAddress, bufferSize)
             }
             if bytesRead < 0 {
-                throw Socket.errnoToError(msg: "Error reading from connection")
+                throw Socket.errnoToError(msg: "error reading from connection")
             } else if bytesRead == 0 {
                 throw SocketError.closed
             }
@@ -396,6 +478,7 @@ public enum SocketError: Error, Equatable, CustomStringConvertible {
     case invalidOperationOnSocket(String)
     case missingBaseAddress
     case withErrno(_ msg: String, errno: Int32)
+    case invalidFileDescriptor
 
     public var description: String {
         switch self {
@@ -409,6 +492,8 @@ public enum SocketError: Error, Equatable, CustomStringConvertible {
             return "socket: missing base address"
         case .withErrno(let msg, _):
             return "socket: error \(msg)"
+        case .invalidFileDescriptor:
+            return "socket: invalid file descriptor received"
         }
     }
 }

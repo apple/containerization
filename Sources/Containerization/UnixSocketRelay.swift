@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -86,14 +86,9 @@ package final class SocketRelay: Sendable {
     private let state: Mutex<State>
 
     private struct State {
-        var relaySources: [String: ConnectionSources] = [:]
+        var activeRelays: [String: BidirectionalRelay] = [:]
         var t: Task<(), Never>? = nil
-    }
-
-    // `DispatchSourceRead` is thread-safe.
-    private struct ConnectionSources: @unchecked Sendable {
-        let hostSource: DispatchSourceRead
-        let guestSource: DispatchSourceRead
+        var listener: VsockListener? = nil
     }
 
     init(
@@ -136,16 +131,19 @@ extension SocketRelay {
             }
             t.cancel()
             $0.t = nil
-            $0.relaySources.removeAll()
-        }
+            for (_, relay) in $0.activeRelays {
+                relay.stop()
+            }
+            $0.activeRelays.removeAll()
 
-        switch configuration.direction {
-        case .outOf:
-            // If we created the host conn, lets unlink it also. It's possible it was
-            // already unlinked if the relay failed earlier.
-            try? FileManager.default.removeItem(at: self.configuration.destination)
-        case .into:
-            try self.vm.stopListen(self.port)
+            switch configuration.direction {
+            case .outOf:
+                // If we created the host conn, lets unlink it also. It's possible it was
+                // already unlinked if the relay failed earlier.
+                try? FileManager.default.removeItem(at: self.configuration.destination)
+            case .into:
+                try $0.listener?.finish()
+            }
         }
     }
 
@@ -159,6 +157,12 @@ extension SocketRelay {
         let hostSocket = try Socket(type: socketType)
         try hostSocket.listen()
 
+        log?.info(
+            "listening on host UDS",
+            metadata: [
+                "path": "\(hostConn.path)",
+                "vport": "\(self.port)",
+            ])
         let connectionStream = try hostSocket.acceptStream(closeOnDeinit: false)
         self.state.withLock {
             $0.t = Task {
@@ -184,12 +188,20 @@ extension SocketRelay {
         let port = self.port
         let log = self.log
 
-        let connectionStream = try self.vm.listen(self.port)
+        let listener = try self.vm.listen(self.port)
+        log?.info(
+            "listening on guest vsock",
+            metadata: [
+                "path": "\(hostPath)",
+                "vport": "\(port)",
+            ])
+
         self.state.withLock {
+            $0.listener = listener
             $0.t = Task {
                 do {
-                    defer { connectionStream.finish() }
-                    for await connection in connectionStream.connections {
+                    defer { try? listener.finish() }
+                    for await connection in listener {
                         try await self.handleGuestVsockConn(
                             vsockConn: connection,
                             hostConnectionPath: hostPath,
@@ -212,6 +224,13 @@ extension SocketRelay {
     ) async throws {
         do {
             let guestConn = try await vm.dial(port)
+            log?.debug(
+                "initiating connection from host to guest",
+                metadata: [
+                    "vport": "\(port)",
+                    "hostFd": "\(guestConn.fileDescriptor)",
+                    "guestFd": "\(hostConn.fileDescriptor)",
+                ])
             try await self.relay(
                 hostConn: hostConn,
                 guestFd: guestConn.fileDescriptor
@@ -234,6 +253,13 @@ extension SocketRelay {
             type: socketType,
             closeOnDeinit: false
         )
+        log?.debug(
+            "initiating connection from guest to host",
+            metadata: [
+                "vport": "\(port)",
+                "hostFd": "\(hostSocket.fileDescriptor)",
+                "guestFd": "\(vsockConn.fileDescriptor)",
+            ])
         try hostSocket.connect()
 
         do {
@@ -250,135 +276,20 @@ extension SocketRelay {
         hostConn: Socket,
         guestFd: Int32
     ) async throws {
-        let connSource = DispatchSource.makeReadSource(
-            fileDescriptor: hostConn.fileDescriptor,
-            queue: self.q
-        )
-        let vsockConnectionSource = DispatchSource.makeReadSource(
-            fileDescriptor: guestFd,
-            queue: self.q
+        let hostFd = hostConn.fileDescriptor
+
+        let relayID = UUID().uuidString
+        let relay = BidirectionalRelay(
+            fd1: hostFd,
+            fd2: guestFd,
+            queue: self.q,
+            log: self.log
         )
 
-        let pairID = UUID().uuidString
         self.state.withLock {
-            $0.relaySources[pairID] = ConnectionSources(
-                hostSource: connSource,
-                guestSource: vsockConnectionSource
-            )
+            $0.activeRelays[relayID] = relay
         }
 
-        // `buf1` isn't used concurrently.
-        nonisolated(unsafe) let buf1 = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: Int(getpagesize()))
-        connSource.setEventHandler {
-            Self.fdCopyHandler(
-                buffer: buf1,
-                source: connSource,
-                from: hostConn.fileDescriptor,
-                to: guestFd
-            )
-        }
-
-        nonisolated(unsafe) let buf2 = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: Int(getpagesize()))
-        // `buf2` isn't used concurrently.
-        vsockConnectionSource.setEventHandler {
-            Self.fdCopyHandler(
-                buffer: buf2,
-                source: vsockConnectionSource,
-                from: guestFd,
-                to: hostConn.fileDescriptor
-            )
-        }
-
-        connSource.setCancelHandler {
-            if !connSource.isCancelled {
-                connSource.cancel()
-            }
-            if !vsockConnectionSource.isCancelled {
-                vsockConnectionSource.cancel()
-            }
-            try? hostConn.close()
-        }
-
-        vsockConnectionSource.setCancelHandler {
-            if !vsockConnectionSource.isCancelled {
-                vsockConnectionSource.cancel()
-            }
-            if !connSource.isCancelled {
-                connSource.cancel()
-            }
-            close(guestFd)
-        }
-
-        connSource.activate()
-        vsockConnectionSource.activate()
-    }
-
-    private static func fdCopyHandler(
-        buffer: UnsafeMutableBufferPointer<UInt8>,
-        source: DispatchSourceRead,
-        from sourceFd: Int32,
-        to destinationFd: Int32,
-        log: Logger? = nil
-    ) {
-        if source.data == 0 {
-            if !source.isCancelled {
-                source.cancel()
-            }
-            return
-        }
-
-        do {
-            try self.fileDescriptorCopy(
-                buffer: buffer,
-                size: source.data,
-                from: sourceFd,
-                to: destinationFd
-            )
-        } catch {
-            log?.error("file descriptor copy failed \(error)")
-            if !source.isCancelled {
-                source.cancel()
-            }
-        }
-    }
-
-    private static func fileDescriptorCopy(
-        buffer: UnsafeMutableBufferPointer<UInt8>,
-        size: UInt,
-        from sourceFd: Int32,
-        to destinationFd: Int32
-    ) throws {
-        let bufferSize = buffer.count
-        var readBytesRemaining = min(Int(size), bufferSize)
-
-        guard let baseAddr = buffer.baseAddress else {
-            throw ContainerizationError(
-                .invalidState,
-                message: "buffer has no base address"
-            )
-        }
-
-        while readBytesRemaining > 0 {
-            let readResult = read(sourceFd, baseAddr, min(bufferSize, readBytesRemaining))
-            if readResult <= 0 {
-                throw ContainerizationError(
-                    .internalError,
-                    message: "missing pointer base address"
-                )
-            }
-            readBytesRemaining -= readResult
-
-            var writeBytesRemaining = readResult
-            while writeBytesRemaining > 0 {
-                let writeResult = write(destinationFd, baseAddr, writeBytesRemaining)
-                if writeResult <= 0 {
-                    throw ContainerizationError(
-                        .internalError,
-                        message: "zero byte write or error in socket relay"
-                    )
-                }
-                writeBytesRemaining -= writeResult
-            }
-        }
+        relay.start()
     }
 }

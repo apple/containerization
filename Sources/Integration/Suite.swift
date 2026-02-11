@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -23,6 +23,66 @@ import ContainerizationOS
 import Foundation
 import Logging
 import NIOCore
+import NIOPosix
+import Synchronization
+
+actor UnpackCoordinator {
+    private var inFlight: [String: Task<Containerization.Mount, Error>] = [:]
+
+    func unpack(
+        key: String,
+        operation: @escaping @Sendable () async throws -> Containerization.Mount
+    ) async throws -> Containerization.Mount {
+        if let existing = inFlight[key] {
+            return try await existing.value
+        }
+
+        let task = Task {
+            try await operation()
+        }
+        inFlight[key] = task
+
+        defer {
+            inFlight.removeValue(forKey: key)
+        }
+
+        return try await task.value
+    }
+}
+
+struct Test: Sendable {
+    var name: String
+    var work: @Sendable () async throws -> Void
+
+    init(_ name: String, _ work: @escaping @Sendable () async throws -> Void) {
+        self.name = name
+        self.work = work
+    }
+}
+
+final class JobQueue<T>: Sendable where T: Sendable {
+    struct State: Sendable {
+        var next = 0
+        var jobs: [T]
+    }
+
+    private let lock: Mutex<State>
+    init(_ jobs: [T]) {
+        self.lock = Mutex(State(jobs: jobs))
+    }
+
+    func pop() -> T? {
+        self.lock.withLock { state in
+            guard state.next < state.jobs.count else {
+                return nil
+            }
+            defer {
+                state.next += 1
+            }
+            return state.jobs[state.next]
+        }
+    }
+}
 
 let log = {
     LoggingSystem.bootstrap(StreamLogHandler.standardError)
@@ -83,11 +143,19 @@ struct IntegrationSuite: AsyncParsableCommand {
 
     static let initImage = "vminit:latest"
 
-    @Option(name: .shortAndLong, help: "Path to a log file")
-    var bootlog: String
+    private static let unpackCoordinator = UnpackCoordinator()
+
+    @Option(name: .shortAndLong, help: "Path to a directory for boot logs")
+    var bootlogDir: String = "./bin/integration-bootlogs"
 
     @Option(name: .shortAndLong, help: "Path to a kernel binary")
     var kernel: String = "./bin/vmlinux"
+
+    @Option(name: .shortAndLong, help: "Maximum number of concurrent tests")
+    var maxConcurrency: Int = 4
+
+    @Option(name: .shortAndLong, help: "Only run tests whose names contain this string")
+    var filter: String?
 
     static func binPath(name: String) -> URL {
         URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
@@ -95,7 +163,9 @@ struct IntegrationSuite: AsyncParsableCommand {
             .appendingPathComponent(name)
     }
 
-    func bootstrap() async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image) {
+    static let eventLoop = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
+
+    func bootstrap(_ testID: String) async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image, bootLog: BootLog) {
         let reference = "ghcr.io/linuxcontainers/alpine:3.20"
         let store = Self.imageStore
 
@@ -122,8 +192,9 @@ struct IntegrationSuite: AsyncParsableCommand {
         let image = try await Self.fetchImage(reference: reference, store: store)
         let platform = Platform(arch: "arm64", os: "linux", variant: "v8")
 
-        let fs: Containerization.Mount = try await {
-            let fsPath = Self.testDir.appending(component: "rootfs.ext4")
+        // Unpack to shared location with coordination to prevent concurrent unpacks
+        let fsPath = Self.testDir.appending(component: image.digest)
+        let fs = try await Self.unpackCoordinator.unpack(key: fsPath.absolutePath()) {
             do {
                 let unpacker = EXT4Unpacker(blockSizeInBytes: 2.gib())
                 return try await unpacker.unpack(image, for: platform, at: fsPath)
@@ -138,20 +209,28 @@ struct IntegrationSuite: AsyncParsableCommand {
                 }
                 throw err
             }
-        }()
+        }
 
-        let clPath = Self.testDir.appending(component: "rn.ext4").absolutePath()
+        // Clone to test-specific path
+        let clPath = Self.testDir.appending(component: "\(testID).ext4").absolutePath()
         try? FileManager.default.removeItem(atPath: clPath)
 
         let cl = try fs.clone(to: clPath)
+
+        // Create bootLog directory and per-container bootLog path
+        let bootlogDirURL = URL(filePath: bootlogDir)
+        try? FileManager.default.createDirectory(at: bootlogDirURL, withIntermediateDirectories: true)
+        let bootlogURL = bootlogDirURL.appendingPathComponent("\(testID).log")
+
         return (
             cl,
             VZVirtualMachineManager(
                 kernel: testKernel,
                 initialFilesystem: initfs,
-                bootlog: bootlog
+                group: Self.eventLoop
             ),
-            image
+            image,
+            BootLog.file(path: bootlogURL)
         )
     }
 
@@ -179,6 +258,15 @@ struct IntegrationSuite: AsyncParsableCommand {
         }
     }
 
+    private func macOS26Tests() -> [Test] {
+        if #available(macOS 26.0, *) {
+            return [
+                Test("container interface custom MTU", testInterfaceMTU)
+            ]
+        }
+        return []
+    }
+
     // Why does this exist?
     //
     // We need the virtualization entitlement to execute these tests.
@@ -195,61 +283,148 @@ struct IntegrationSuite: AsyncParsableCommand {
         let suiteStarted = CFAbsoluteTimeGetCurrent()
         log.info("starting integration suite\n")
 
-        let tests: [String: () async throws -> Void] = [
-            "process true": testProcessTrue,
-            "process false": testProcessFalse,
-            "process echo hi": testProcessEchoHi,
-            "process user": testProcessUser,
-            "process stdin": testProcessStdin,
-            "process home envvar": testProcessHomeEnvvar,
-            "process custom home envvar": testProcessCustomHomeEnvvar,
-            "process tty ensure TERM": testProcessTtyEnvvar,
-            "multiple concurrent processes": testMultipleConcurrentProcesses,
-            "multiple concurrent processes with output stress": testMultipleConcurrentProcessesOutputStress,
-            "container hostname": testHostname,
-            "container hosts": testHostsFile,
-            "container mount": testMounts,
-            "container pause and resume": testPauseResume,
-            "container pause, resume and wait": testPauseResumeWait,
-            "container pause, resume and verify io": testPauseResumeIO,
-            "nested virt": testNestedVirtualizationEnabled,
-            "container manager": testContainerManagerCreate,
-            "container reuse": testContainerReuse,
-            "container /dev/console": testContainerDevConsole,
-        ]
+        let tests: [Test] =
+            [
+                // Containers
+                Test("process true", testProcessTrue),
+                Test("process false", testProcessFalse),
+                Test("process echo hi", testProcessEchoHi),
+                Test("process user", testProcessUser),
+                Test("process stdin", testProcessStdin),
+                Test("process home envvar", testProcessHomeEnvvar),
+                Test("process custom home envvar", testProcessCustomHomeEnvvar),
+                Test("process tty ensure TERM", testProcessTtyEnvvar),
+                Test("multiple concurrent processes", testMultipleConcurrentProcesses),
+                Test("multiple concurrent processes with output stress", testMultipleConcurrentProcessesOutputStress),
+                Test("container hostname", testHostname),
+                Test("container hosts", testHostsFile),
+                Test("container mount", testMounts),
+                Test("container stop idempotency", testContainerStopIdempotency),
+                Test("nested virt", testNestedVirtualizationEnabled),
+                Test("container manager", testContainerManagerCreate),
+                Test("container reuse", testContainerReuse),
+                Test("container /dev/console", testContainerDevConsole),
+                Test("container statistics", testContainerStatistics),
+                Test("container cgroup limits", testCgroupLimits),
+                Test("container memory events OOM kill", testMemoryEventsOOMKill),
+                Test("container no serial console", testNoSerialConsole),
+                Test("unix socket into guest", testUnixSocketIntoGuest),
+                Test("container non-closure constructor", testNonClosureConstructor),
+                Test("container test large stdio ingest", testLargeStdioOutput),
+                Test("process delete idempotency", testProcessDeleteIdempotency),
+                Test("multiple execs without delete", testMultipleExecsWithoutDelete),
+                Test("container bootlog using filehandle", testBootLogFileHandle),
+                Test("container capabilities sys admin", testCapabilitiesSysAdmin),
+                Test("container capabilities net admin", testCapabilitiesNetAdmin),
+                Test("container capabilities OCI default", testCapabilitiesOCIDefault),
+                Test("container capabilities all capabilities", testCapabilitiesAllCapabilities),
+                Test("container capabilities file ownership", testCapabilitiesFileOwnership),
+                Test("container copy in", testCopyIn),
+                Test("container copy out", testCopyOut),
+                Test("container copy large file", testCopyLargeFile),
+                Test("container read-only rootfs", testReadOnlyRootfs),
+                Test("container read-only rootfs hosts file", testReadOnlyRootfsHostsFileWritten),
+                Test("container read-only rootfs DNS", testReadOnlyRootfsDNSConfigured),
+                Test("large stdin input", testLargeStdinInput),
+                Test("exec large stdin input", testExecLargeStdinInput),
+                Test("stdin explicit close", testStdinExplicitClose),
+                Test("stdin binary data", testStdinBinaryData),
+                Test("stdin multiple chunks", testStdinMultipleChunks),
+                Test("stdin very large", testStdinVeryLarge),
+                // FIXME: reenable when single file mount issues resolved
+                //Test("container single file mount", testSingleFileMount),
+                //Test("container single file mount read-only", testSingleFileMountReadOnly),
+                //Test("container single file mount write-back", testSingleFileMountWriteBack),
+                //Test("container single file mount symlink", testSingleFileMountSymlink),
+                Test("container rlimit open files", testRLimitOpenFiles),
+                Test("container rlimit multiple", testRLimitMultiple),
+                Test("container rlimit exec", testRLimitExec),
+                Test("container duplicate virtiofs mount", testDuplicateVirtiofsMount),
+                Test("container duplicate virtiofs mount via symlink", testDuplicateVirtiofsMountViaSymlink),
 
-        var passed = 0
-        var skipped = 0
-        for (name, test) in tests {
-            do {
-                log.info("test \(name) started...")
+                // Pods
+                Test("pod single container", testPodSingleContainer),
+                Test("pod multiple containers", testPodMultipleContainers),
+                Test("pod container output", testPodContainerOutput),
+                Test("pod concurrent containers", testPodConcurrentContainers),
+                Test("pod exec in container", testPodExecInContainer),
+                Test("pod container hostname", testPodContainerHostname),
+                Test("pod stop container idempotency", testPodStopContainerIdempotency),
+                Test("pod list containers", testPodListContainers),
+                Test("pod container statistics", testPodContainerStatistics),
+                Test("pod memory events OOM kill", testPodMemoryEventsOOMKill),
+                Test("pod container resource limits", testPodContainerResourceLimits),
+                Test("pod container filesystem isolation", testPodContainerFilesystemIsolation),
+                Test("pod container PID namespace isolation", testPodContainerPIDNamespaceIsolation),
+                Test("pod container independent resource limits", testPodContainerIndependentResourceLimits),
+                Test("pod shared PID namespace", testPodSharedPIDNamespace),
+                Test("pod read-only rootfs", testPodReadOnlyRootfs),
+                Test("pod read-only rootfs DNS", testPodReadOnlyRootfsDNSConfigured),
+                //Test("pod single file mount", testPodSingleFileMount),
+                Test("pod container hosts config", testPodContainerHostsConfig),
+                Test("pod multiple containers different DNS", testPodMultipleContainersDifferentDNS),
+                Test("pod multiple containers different hosts", testPodMultipleContainersDifferentHosts),
+                Test("pod level DNS", testPodLevelDNS),
+                Test("pod level DNS with container override", testPodLevelDNSWithContainerOverride),
+                Test("pod level hosts", testPodLevelHosts),
+                Test("pod level hosts with container override", testPodLevelHostsWithContainerOverride),
+                Test("pod rlimit open files", testPodRLimitOpenFiles),
+                Test("pod rlimit exec", testPodRLimitExec),
+            ] + macOS26Tests()
 
-                let started = CFAbsoluteTimeGetCurrent()
-                try await test()
-                let lasted = CFAbsoluteTimeGetCurrent() - started
-                log.info("✅ test \(name) complete in \(lasted)s.")
-                passed += 1
-            } catch let err as SkipTest {
-                log.info("⏭️ skipped test: \(err)")
-                skipped += 1
-            } catch {
-                log.error("❌ test \(name) failed: \(error)")
-            }
+        let filteredTests: [Test]
+        if let filter {
+            filteredTests = tests.filter { $0.name.contains(filter) }
+            log.info("filter '\(filter)' matched \(filteredTests.count)/\(tests.count) tests")
+        } else {
+            filteredTests = tests
         }
 
+        let passed: Atomic<Int> = Atomic(0)
+        let skipped: Atomic<Int> = Atomic(0)
+
+        await withTaskGroup(of: Void.self) { group in
+            let jobQueue = JobQueue(filteredTests)
+            for _ in 0..<maxConcurrency {
+                group.addTask { @Sendable in
+                    while let job = jobQueue.pop() {
+                        do {
+                            log.info("test \(job.name) started...")
+
+                            let started = CFAbsoluteTimeGetCurrent()
+                            try await job.work()
+                            let lasted = CFAbsoluteTimeGetCurrent() - started
+
+                            log.info("✅ test \(job.name) complete in \(lasted)s.")
+                            passed.add(1, ordering: .relaxed)
+                        } catch let err as SkipTest {
+                            log.info("⏭️ skipped test: \(err)")
+                            skipped.add(1, ordering: .relaxed)
+                        } catch {
+                            log.error("❌ test \(job.name) failed: \(error)")
+                        }
+                    }
+                }
+            }
+            await group.waitForAll()
+        }
+
+        let passedCount = passed.load(ordering: .acquiring)
+        let skippedCount = skipped.load(ordering: .acquiring)
+
         let ended = CFAbsoluteTimeGetCurrent() - suiteStarted
-        var finishingText = "\n\nIntegration suite completed in \(ended)s with \(passed)/\(tests.count) passed"
-        if skipped > 0 {
-            finishingText += " and \(skipped)/\(tests.count) skipped"
+        var finishingText = "\n\nIntegration suite completed in \(ended)s with \(passedCount)/\(filteredTests.count) passed"
+        if skipped.load(ordering: .acquiring) > 0 {
+            finishingText += " and \(skippedCount)/\(filteredTests.count) skipped"
         }
         finishingText += "!"
 
         log.info("\(finishingText)")
 
-        if passed + skipped < tests.count {
+        try? FileManager.default.removeItem(at: Self.testDir)
+        if passedCount + skippedCount < filteredTests.count {
             log.error("❌")
             throw ExitCode(1)
         }
-        try? FileManager.default.removeItem(at: Self.testDir)
     }
 }

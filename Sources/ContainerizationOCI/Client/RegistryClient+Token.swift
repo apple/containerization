@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025 Apple Inc. and the Containerization project authors.
+// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -137,7 +137,7 @@ extension RegistryClient {
     /// See https://docs.docker.com/registry/spec/auth/token/
     internal func fetchToken(request: TokenRequest) async throws -> TokenResponse {
         guard var components = URLComponents(string: request.realm) else {
-            throw ContainerizationError(.invalidArgument, message: "Cannot create URL from \(request.realm)")
+            throw ContainerizationError(.invalidArgument, message: "cannot create URL from \(request.realm)")
         }
         components.queryItems = [
             URLQueryItem(name: "client_id", value: request.clientId),
@@ -161,13 +161,13 @@ extension RegistryClient {
         let parsedHeaders = Self.parseWWWAuthenticateHeaders(headers: authenticateHeaders)
         let bearerChallenge = parsedHeaders.first { $0.type == "Bearer" }
         guard let bearerChallenge else {
-            throw ContainerizationError(.invalidArgument, message: "Missing Bearer challenge in \(TokenRequest.authenticateHeaderName) header")
+            throw ContainerizationError(.invalidArgument, message: "missing Bearer challenge in \(TokenRequest.authenticateHeaderName) header")
         }
         guard let realm = bearerChallenge.realm else {
-            throw ContainerizationError(.invalidArgument, message: "Cannot parse realm from \(TokenRequest.authenticateHeaderName) header")
+            throw ContainerizationError(.invalidArgument, message: "cannot parse realm from \(TokenRequest.authenticateHeaderName) header")
         }
         guard let service = bearerChallenge.service else {
-            throw ContainerizationError(.invalidArgument, message: "Cannot parse service from \(TokenRequest.authenticateHeaderName) header")
+            throw ContainerizationError(.invalidArgument, message: "cannot parse service from \(TokenRequest.authenticateHeaderName) header")
         }
         let scope = bearerChallenge.scope
         let tokenRequest = TokenRequest(realm: realm, service: service, clientId: self.clientID, scope: scope, authentication: self.authentication)
