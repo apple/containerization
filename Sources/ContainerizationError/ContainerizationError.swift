@@ -14,11 +14,13 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import Foundation
+
 /// The core error type for Containerization.
 ///
 /// Most API surfaces for the core container/process/agent types will
 /// return a ContainerizationError.
-public struct ContainerizationError: Swift.Error, Sendable {
+public struct ContainerizationError: Swift.Error, LocalizedError, Sendable {
     /// A code describing the error encountered.
     public var code: Code
     /// A description of the error.
@@ -64,6 +66,10 @@ public struct ContainerizationError: Swift.Error, Sendable {
     /// Checks if the given error has the provided code.
     public func isCode(_ code: Code) -> Bool {
         self.code == code
+    }
+
+    public var errorDescription: String? {
+        message
     }
 }
 
