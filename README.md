@@ -41,7 +41,6 @@ Older versions of macOS are not supported.
 ## Example Usage
 
 The cctl executable provides a good example of the library surfaces. It serves as a playground to try out the API and includes commands that exercise core functionality, such as:
-For examples of how to use some of the libraries surface, the cctl executable is a good start. This app is a useful playground for exploring the API. It contains commands that exercise some of the core functionality of the various products, such as:
 
 1. [Manipulating OCI images](./Sources/cctl/ImageCommand.swift)
 2. [Logging in to container registries](./Sources/cctl/LoginCommand.swift)
