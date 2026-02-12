@@ -198,19 +198,20 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 "action": "\(request.action)",
             ])
 
-        do {
-            let proxy = VsockProxy(
-                id: request.id,
-                action: request.action == .into ? .dial : .listen,
-                port: request.vsockPort,
-                path: URL(fileURLWithPath: request.guestPath),
-                udsPerms: request.guestSocketPermissions,
-                log: log
-            )
+        let proxy = VsockProxy(
+            id: request.id,
+            action: request.action == .into ? .dial : .listen,
+            port: request.vsockPort,
+            path: URL(fileURLWithPath: request.guestPath),
+            udsPerms: request.guestSocketPermissions,
+            log: log
+        )
 
+        do {
             try await proxy.start()
             try await state.add(proxy: proxy)
         } catch {
+            try? await proxy.close()
             log.error(
                 "proxyVsock",
                 metadata: [
@@ -221,6 +222,14 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 message: "proxyVsock: failed to setup vsock proxy: \(error)"
             )
         }
+
+        log.info(
+            "proxyVsock started",
+            metadata: [
+                "id": "\(request.id)",
+                "port": "\(request.vsockPort)",
+                "guestPath": "\(request.guestPath)",
+            ])
 
         return .init()
     }
@@ -249,6 +258,12 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 message: "stopVsockProxy: failed to stop vsock proxy: \(error)"
             )
         }
+
+        log.info(
+            "stopVsockProxy completed",
+            metadata: [
+                "id": "\(request.id)"
+            ])
 
         return .init()
     }
