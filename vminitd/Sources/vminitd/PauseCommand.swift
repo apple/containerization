@@ -14,12 +14,22 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import ArgumentParser
 import Dispatch
 import Logging
 import Musl
 
-struct PauseCommand {
-    static func run(log: Logger) throws {
+struct PauseCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "pause",
+        abstract: "Run the pause container"
+    )
+
+    @OptionGroup var options: LogLevelOption
+
+    mutating func run() throws {
+        let log = makeLogger(label: "pause", level: options.resolvedLogLevel())
+
         if getpid() != 1 {
             log.warning("pause should be the first process")
         }
