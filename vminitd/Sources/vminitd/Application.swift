@@ -14,45 +14,43 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import ArgumentParser
 import ContainerizationOS
 import Foundation
 import Logging
 
 @main
-struct Application {
+struct Application: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "vminitd",
+        abstract: "Virtual machine init daemon",
+        version: "0.1.0",
+        subcommands: [
+            InitCommand.self,
+            PauseCommand.self,
+        ],
+        defaultSubcommand: InitCommand.self
+    )
+
     static func main() async throws {
-        LoggingSystem.bootstrap(StreamLogHandler.standardError)
+        // Swift has issues spawning threads if /proc isn't mounted,
+        // so we do this synchronously before any async code runs.
+        try mountProc()
 
-        // Parse command line arguments
-        let args = CommandLine.arguments
-        let command = args.count > 1 ? args[1] : "init"
-
-        switch command {
-        case "pause":
-            let log = Logger(label: "pause")
-
-            log.info("Running pause command")
-            try PauseCommand.run(log: log)
-        case "init":
-            fallthrough
-        default:
-            let log = Logger(label: "vminitd")
-
-            log.info("Running init command")
-            try Self.mountProc(log: log)
-            try await InitCommand.run(log: log)
+        var command = try parseAsRoot()
+        if let asyncCommand = command as? AsyncParsableCommand {
+            nonisolated(unsafe) var unsafeCommand = asyncCommand
+            try await unsafeCommand.run()
+        } else {
+            try command.run()
         }
     }
 
-    // Swift seems like it has some fun issues trying to spawn threads if /proc isn't around, so we
-    // do this before calling our first async function.
-    static func mountProc(log: Logger) throws {
+    private static func mountProc() throws {
         // Is it already mounted (would only be true in debug builds where we re-exec ourselves)?
         if isProcMounted() {
             return
         }
-
-        log.info("mounting /proc")
 
         let mnt = ContainerizationOS.Mount(
             type: "proc",
@@ -63,7 +61,7 @@ struct Application {
         try mnt.mount(createWithPerms: 0o755)
     }
 
-    static func isProcMounted() -> Bool {
+    private static func isProcMounted() -> Bool {
         guard let data = try? String(contentsOfFile: "/proc/mounts", encoding: .utf8) else {
             return false
         }
@@ -80,4 +78,37 @@ struct Application {
 
         return false
     }
+}
+
+struct LogLevelOption: ParsableArguments {
+    @Option(name: .long, help: "Set the log level (trace, debug, info, notice, warning, error, critical)")
+    var logLevel: String = "info"
+
+    func resolvedLogLevel() -> Logger.Level {
+        switch logLevel.lowercased() {
+        case "trace":
+            return .trace
+        case "debug":
+            return .debug
+        case "info":
+            return .info
+        case "notice":
+            return .notice
+        case "warning":
+            return .warning
+        case "error":
+            return .error
+        case "critical":
+            return .critical
+        default:
+            return .info
+        }
+    }
+}
+
+func makeLogger(label: String, level: Logger.Level) -> Logger {
+    LoggingSystem.bootstrap(StreamLogHandler.standardError)
+    var log = Logger(label: label)
+    log.logLevel = level
+    return log
 }
