@@ -29,6 +29,7 @@ let package = Package(
         .library(name: "ContainerizationEXT4", targets: ["ContainerizationEXT4"]),
         .library(name: "ContainerizationOCI", targets: ["ContainerizationOCI"]),
         .library(name: "ContainerizationNetlink", targets: ["ContainerizationNetlink"]),
+        .library(name: "ContainerizationICMP", targets: ["ContainerizationICMP"]),
         .library(name: "ContainerizationIO", targets: ["ContainerizationIO"]),
         .library(name: "ContainerizationOS", targets: ["ContainerizationOS"]),
         .library(name: "ContainerizationExtras", targets: ["ContainerizationExtras"]),
@@ -194,6 +195,20 @@ let package = Package(
                 "ContainerizationIO",
                 .product(name: "NIO", package: "swift-nio"),
                 .product(name: "Crypto", package: "swift-crypto"),
+            ]
+        ),
+        .target(
+            name: "ContainerizationICMP",
+            dependencies: [
+                .product(name: "Logging", package: "swift-log"),
+                "ContainerizationExtras",
+            ]
+        ),
+        .testTarget(
+            name: "ContainerizationICMPTests",
+            dependencies: [
+                "ContainerizationExtras",
+                "ContainerizationICMP",
             ]
         ),
         .target(

@@ -19,7 +19,6 @@ import Foundation
 import GRPC
 import Logging
 import NIOCore
-import NIOPosix
 
 final class Initd: Sendable {
     actor State {
@@ -77,12 +76,14 @@ final class Initd: Sendable {
     }
 
     let log: Logger
-    let state: State
     let group: EventLoopGroup
+    let dnsMonitor: DNSMonitor
+    let state: State
 
-    init(log: Logger, group: EventLoopGroup) {
+    init(log: Logger, group: EventLoopGroup, dnsMonitor: DNSMonitor) {
         self.log = log
         self.group = group
+        self.dnsMonitor = dnsMonitor
         self.state = State()
     }
 
@@ -111,8 +112,12 @@ final class Initd: Sendable {
                 ])
 
             group.addTask {
+                try await self.dnsMonitor.run()
+            }
+            group.addTask {
                 try await server.onClose.get()
             }
+
             try await group.next()
             log.info("closing gRPC server")
             group.cancelAll()
