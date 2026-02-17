@@ -16,6 +16,7 @@
 
 import ArgumentParser
 import Containerization
+import ContainerizationEXT4
 import ContainerizationError
 import ContainerizationExtras
 import ContainerizationOCI
@@ -23,6 +24,7 @@ import ContainerizationOS
 import Crypto
 import Foundation
 import Logging
+import SystemPackage
 
 extension IntegrationSuite {
     func testProcessTrue() async throws {
@@ -1069,7 +1071,7 @@ extension IntegrationSuite {
         let config = LinuxContainer.Configuration(
             process: LinuxProcessConfiguration(arguments: ["/bin/true"])
         )
-        let container = LinuxContainer(
+        let container = try LinuxContainer(
             id,
             rootfs: bs.rootfs,
             vmm: bs.vmm,
@@ -2585,6 +2587,302 @@ extension IntegrationSuite {
         } catch {
             try? await container.stop()
             throw error
+        }
+    }
+
+    func testWritableLayer() async throws {
+        let id = "test-writable-layer"
+
+        let bs = try await bootstrap(id)
+
+        let writableLayerPath = Self.testDir.appending(component: "\(id)-writable.ext4")
+        try? FileManager.default.removeItem(at: writableLayerPath)
+        let filesystem = try EXT4.Formatter(FilePath(writableLayerPath.absolutePath()), minDiskSize: 512.mib())
+        try filesystem.close()
+        let writableLayer = Mount.block(
+            format: "ext4",
+            source: writableLayerPath.absolutePath(),
+            destination: "/",
+            options: []
+        )
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, writableLayer: writableLayer, vmm: bs.vmm) { config in
+            // Write a file, then read it back to verify writes work
+            config.process.arguments = ["/bin/sh", "-c", "echo 'writable layer test' > /tmp/testfile && cat /tmp/testfile"]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process failed with status \(status)")
+        }
+
+        guard let output = String(data: buffer.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+        }
+
+        guard output.trimmingCharacters(in: .whitespacesAndNewlines) == "writable layer test" else {
+            throw IntegrationError.assert(msg: "unexpected output: \(output)")
+        }
+    }
+
+    func testWritableLayerPreservesLowerLayer() async throws {
+        let id = "test-writable-layer-preserves-lower"
+
+        let bs = try await bootstrap(id)
+
+        let writableLayerPath = Self.testDir.appending(component: "\(id)-writable.ext4")
+        try? FileManager.default.removeItem(at: writableLayerPath)
+        let filesystem = try EXT4.Formatter(FilePath(writableLayerPath.absolutePath()), minDiskSize: 512.mib())
+        try filesystem.close()
+        let writableLayer = Mount.block(
+            format: "ext4",
+            source: writableLayerPath.absolutePath(),
+            destination: "/",
+            options: []
+        )
+
+        // Get the size of /bin/sh before any modifications
+        let buffer1 = BufferWriter()
+        let container1 = try LinuxContainer("\(id)-1", rootfs: bs.rootfs, writableLayer: writableLayer, vmm: bs.vmm) { config in
+            // Modify a file in /bin. This should go in the writable layer.
+            config.process.arguments = ["/bin/sh", "-c", "ls -la /bin/sh && echo 'modified' > /bin/test-file"]
+            config.process.stdout = buffer1
+            config.bootLog = bs.bootLog
+        }
+
+        try await container1.create()
+        try await container1.start()
+        let status1 = try await container1.wait()
+        try await container1.stop()
+
+        guard status1.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "first container failed with status \(status1)")
+        }
+
+        // Now run a second container with the SAME rootfs but without the writable layer
+        // The /bin/test-file should NOT exist because it was written to the writable layer
+        let buffer2 = BufferWriter()
+        let container2 = try LinuxContainer("\(id)-2", rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/sh", "-c", "test -f /bin/test-file && echo 'exists' || echo 'not-exists'"]
+            config.process.stdout = buffer2
+            config.bootLog = bs.bootLog
+        }
+
+        try await container2.create()
+        try await container2.start()
+        let status2 = try await container2.wait()
+        try await container2.stop()
+
+        guard status2.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "second container failed with status \(status2)")
+        }
+
+        guard let output2 = String(data: buffer2.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+        }
+
+        guard output2.trimmingCharacters(in: .whitespacesAndNewlines) == "not-exists" else {
+            throw IntegrationError.assert(msg: "expected 'not-exists' but got: \(output2)")
+        }
+    }
+
+    func testWritableLayerReadsFromLower() async throws {
+        let id = "test-writable-layer-reads-lower"
+
+        let bs = try await bootstrap(id)
+
+        let writableLayerPath = Self.testDir.appending(component: "\(id)-writable.ext4")
+        try? FileManager.default.removeItem(at: writableLayerPath)
+        let filesystem = try EXT4.Formatter(FilePath(writableLayerPath.absolutePath()), minDiskSize: 512.mib())
+        try filesystem.close()
+        let writableLayer = Mount.block(
+            format: "ext4",
+            source: writableLayerPath.absolutePath(),
+            destination: "/",
+            options: []
+        )
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, writableLayer: writableLayer, vmm: bs.vmm) { config in
+            config.process.arguments = ["head", "-1", "/etc/passwd"]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process failed with status \(status)")
+        }
+
+        guard let output = String(data: buffer.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+        }
+
+        // Alpine's first line of /etc/passwd should be root
+        guard output.hasPrefix("root:") else {
+            throw IntegrationError.assert(msg: "expected /etc/passwd to start with 'root:', got: \(output)")
+        }
+    }
+
+    func testWritableLayerWithReadOnlyLower() async throws {
+        let id = "test-writable-layer-ro-lower"
+
+        let bs = try await bootstrap(id)
+        var rootfs = bs.rootfs
+        rootfs.options.append("ro")
+
+        let writableLayerPath = Self.testDir.appending(component: "\(id)-writable.ext4")
+        try? FileManager.default.removeItem(at: writableLayerPath)
+        let filesystem = try EXT4.Formatter(FilePath(writableLayerPath.absolutePath()), minDiskSize: 512.mib())
+        try filesystem.close()
+        let writableLayer = Mount.block(
+            format: "ext4",
+            source: writableLayerPath.absolutePath(),
+            destination: "/",
+            options: []
+        )
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: rootfs, writableLayer: writableLayer, vmm: bs.vmm) { config in
+            // Even though lower layer is ro, writes should succeed via overlay
+            config.process.arguments = ["/bin/sh", "-c", "echo 'overlay write test' > /tmp/test && cat /tmp/test"]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process failed with status \(status)")
+        }
+
+        guard let output = String(data: buffer.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+        }
+
+        guard output.trimmingCharacters(in: .whitespacesAndNewlines) == "overlay write test" else {
+            throw IntegrationError.assert(msg: "unexpected output: \(output)")
+        }
+    }
+
+    func testWritableLayerSize() async throws {
+        let id = "test-writable-layer-size"
+
+        let bs = try await bootstrap(id)
+
+        // Create a 1 GiB writable layer
+        let expectedSizeBytes: UInt64 = 1.gib()
+        let writableLayerPath = Self.testDir.appending(component: "\(id)-writable.ext4")
+        try? FileManager.default.removeItem(at: writableLayerPath)
+        let filesystem = try EXT4.Formatter(FilePath(writableLayerPath.absolutePath()), minDiskSize: expectedSizeBytes)
+        try filesystem.close()
+        let writableLayer = Mount.block(
+            format: "ext4",
+            source: writableLayerPath.absolutePath(),
+            destination: "/",
+            options: []
+        )
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, writableLayer: writableLayer, vmm: bs.vmm) { config in
+            // Use df to check the available space on the root filesystem
+            // The overlay will report the size of the upper layer's backing store
+            config.process.arguments = ["/bin/sh", "-c", "df -B1 / | tail -1 | awk '{print $2}'"]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process failed with status \(status)")
+        }
+
+        guard let output = String(data: buffer.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+        }
+
+        guard let reportedSize = UInt64(output.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            throw IntegrationError.assert(msg: "failed to parse df output as UInt64: \(output)")
+        }
+
+        // The reported size should be close to our expected size (within 10%)
+        let minExpected: UInt64 = (expectedSizeBytes * 90) / 100
+        let maxExpected: UInt64 = (expectedSizeBytes * 110) / 100
+
+        guard reportedSize >= minExpected && reportedSize <= maxExpected else {
+            throw IntegrationError.assert(msg: "expected size ~\(expectedSizeBytes) bytes, but df reported \(reportedSize) bytes")
+        }
+    }
+
+    func testWritableLayerWithDNSAndHosts() async throws {
+        let id = "test-writable-layer-dns-hosts"
+
+        let bs = try await bootstrap(id)
+
+        let writableLayerPath = Self.testDir.appending(component: "\(id)-writable.ext4")
+        try? FileManager.default.removeItem(at: writableLayerPath)
+        let filesystem = try EXT4.Formatter(FilePath(writableLayerPath.absolutePath()), minDiskSize: 512.mib())
+        try filesystem.close()
+        let writableLayer = Mount.block(
+            format: "ext4",
+            source: writableLayerPath.absolutePath(),
+            destination: "/",
+            options: []
+        )
+
+        let buffer = BufferWriter()
+        let dnsEntry = "8.8.8.8"
+        let hostsEntry = Hosts.Entry.localHostIPV4(comment: "WritableLayerTest")
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, writableLayer: writableLayer, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/sh", "-c", "cat /etc/resolv.conf && echo '---' && cat /etc/hosts"]
+            config.process.stdout = buffer
+            config.dns = DNS(nameservers: [dnsEntry])
+            config.hosts = Hosts(entries: [hostsEntry])
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process failed with status \(status)")
+        }
+
+        guard let output = String(data: buffer.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+        }
+
+        guard output.contains(dnsEntry) else {
+            throw IntegrationError.assert(msg: "expected /etc/resolv.conf to contain \(dnsEntry), got: \(output)")
+        }
+
+        guard output.contains("WritableLayerTest") else {
+            throw IntegrationError.assert(msg: "expected /etc/hosts to contain our entry, got: \(output)")
         }
     }
 }
