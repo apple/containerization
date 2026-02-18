@@ -54,6 +54,8 @@ public struct Command: Sendable {
     public struct Attrs: Sendable {
         /// Set pgroup for the new process.
         public var setPGroup: Bool
+        /// Make the new process group the foreground process group (requires setPGroup).
+        public var setForegroundPGroup: Bool
         /// Inherit the real uid/gid of the parent.
         public var resetIDs: Bool
         /// Reset the child's signal handlers to the default.
@@ -73,6 +75,7 @@ public struct Command: Sendable {
 
         public init(
             setPGroup: Bool = false,
+            setForegroundPGroup: Bool = false,
             resetIDs: Bool = false,
             setSignalDefault: Bool = true,
             signalMask: UInt32 = 0,
@@ -83,6 +86,7 @@ public struct Command: Sendable {
             pdeathSignal: Int32? = nil
         ) {
             self.setPGroup = setPGroup
+            self.setForegroundPGroup = setForegroundPGroup
             self.resetIDs = resetIDs
             self.setSignalDefault = setSignalDefault
             self.signalMask = signalMask
@@ -195,6 +199,7 @@ extension Command {
         attrs.setsid = self.attrs.setsid ? 1 : 0
         attrs.setctty = self.attrs.setctty ? 1 : 0
         attrs.setpgid = self.attrs.setPGroup ? 1 : 0
+        attrs.setfgpgrp = self.attrs.setForegroundPGroup ? 1 : 0
 
         var cwdPath: UnsafeMutablePointer<CChar>?
         if let chdir = self.directory {

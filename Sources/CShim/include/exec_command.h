@@ -40,6 +40,8 @@ struct exec_command_attrs {
   int mask;
   /// parent death signal (Linux only, 0 to disable)
   int pdeathSignal;
+  /// make the new process group the foreground process group
+  int setfgpgrp;
 };
 
 void exec_command_attrs_init(struct exec_command_attrs *attrs);

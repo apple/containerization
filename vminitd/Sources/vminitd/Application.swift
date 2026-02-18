@@ -26,13 +26,23 @@ struct Application: AsyncParsableCommand {
         abstract: "Virtual machine init daemon",
         version: "0.1.0",
         subcommands: [
+            AgentCommand.self,
             InitCommand.self,
             PauseCommand.self,
         ],
-        defaultSubcommand: InitCommand.self
+        defaultSubcommand: AgentCommand.self
     )
 
     static func main() async throws {
+        // Busybox-style: if invoked as .cz-init, run init mode directly.
+        let invoked = CommandLine.arguments.first?.split(separator: "/").last.map(String.init) ?? ""
+        if invoked == ".cz-init" {
+            let args = Array(CommandLine.arguments.dropFirst())
+            var command = try InitCommand.parse(args)
+            try command.run()
+            return
+        }
+
         // Swift has issues spawning threads if /proc isn't mounted,
         // so we do this synchronously before any async code runs.
         try mountProc()

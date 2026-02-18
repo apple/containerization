@@ -59,6 +59,9 @@ extension Application {
         @Flag(name: .long, help: "Make rootfs readonly")
         var readOnly: Bool = false
 
+        @Flag(name: .long, help: "Run with an init process for signal forwarding and zombie reaping")
+        var `init`: Bool = false
+
         @Option(
             name: [.customLong("kernel"), .customShort("k")], help: "Kernel binary path", completion: .file(),
             transform: { str in
@@ -152,6 +155,8 @@ extension Application {
                     config.ociRuntimePath = ociRuntimePath
                     config.mounts = LinuxContainer.defaultOCIMounts()
                 }
+
+                config.useInit = self.`init`
             }
 
             defer {

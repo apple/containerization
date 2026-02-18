@@ -347,6 +347,12 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container rlimit exec", testRLimitExec),
                 Test("container duplicate virtiofs mount", testDuplicateVirtiofsMount),
                 Test("container duplicate virtiofs mount via symlink", testDuplicateVirtiofsMountViaSymlink),
+                Test("container useInit basic", testUseInitBasic),
+                Test("container useInit exit code propagation", testUseInitExitCodePropagation),
+                Test("container useInit signal forwarding", testUseInitSignalForwarding),
+                Test("container useInit zombie reaping", testUseInitZombieReaping),
+                Test("container useInit with terminal", testUseInitWithTerminal),
+                Test("container useInit with stdin", testUseInitWithStdin),
 
                 // Pods
                 Test("pod single container", testPodSingleContainer),
@@ -376,6 +382,11 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("pod level hosts with container override", testPodLevelHostsWithContainerOverride),
                 Test("pod rlimit open files", testPodRLimitOpenFiles),
                 Test("pod rlimit exec", testPodRLimitExec),
+                Test("pod useInit basic", testPodUseInitBasic),
+                Test("pod useInit exit code propagation", testPodUseInitExitCodePropagation),
+                Test("pod useInit signal forwarding", testPodUseInitSignalForwarding),
+                Test("pod useInit multiple containers", testPodUseInitMultipleContainers),
+                Test("pod useInit with shared PID namespace", testPodUseInitWithSharedPIDNamespace),
             ] + macOS26Tests()
 
         let filteredTests: [Test]

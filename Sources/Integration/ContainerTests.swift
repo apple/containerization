@@ -2885,4 +2885,230 @@ extension IntegrationSuite {
             throw IntegrationError.assert(msg: "expected /etc/hosts to contain our entry, got: \(output)")
         }
     }
+
+    func testUseInitBasic() async throws {
+        let id = "test-use-init-basic"
+
+        let bs = try await bootstrap(id)
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/echo", "hello from init"]
+            config.process.stdout = buffer
+            config.useInit = true
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        guard String(data: buffer.data, encoding: .utf8) == "hello from init\n" else {
+            throw IntegrationError.assert(
+                msg: "expected 'hello from init', got '\(String(data: buffer.data, encoding: .utf8) ?? "nil")'")
+        }
+    }
+
+    func testUseInitExitCodePropagation() async throws {
+        let id = "test-use-init-exit-code"
+
+        let bs = try await bootstrap(id)
+
+        // Test exit code 0
+        var container = try LinuxContainer("\(id)-success", rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/true"]
+            config.useInit = true
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+        var status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "expected exit code 0, got \(status.exitCode)")
+        }
+
+        // Test non-zero exit code
+        container = try LinuxContainer("\(id)-failure", rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/false"]
+            config.useInit = true
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+        status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 1 else {
+            throw IntegrationError.assert(msg: "expected exit code 1, got \(status.exitCode)")
+        }
+
+        // Test custom exit code
+        container = try LinuxContainer("\(id)-custom", rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sh", "-c", "exit 42"]
+            config.useInit = true
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+        status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 42 else {
+            throw IntegrationError.assert(msg: "expected exit code 42, got \(status.exitCode)")
+        }
+    }
+
+    func testUseInitSignalForwarding() async throws {
+        let id = "test-use-init-signal"
+
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "300"]
+            config.useInit = true
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            try await Task.sleep(for: .milliseconds(100))
+
+            try await container.kill(SIGTERM)
+
+            let status = try await container.wait(timeoutInSeconds: 5)
+            try await container.stop()
+
+            // SIGTERM should result in exit code 128 + 15 = 143
+            guard status.exitCode == 143 else {
+                throw IntegrationError.assert(msg: "expected exit code 143 (SIGTERM), got \(status.exitCode)")
+            }
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testUseInitZombieReaping() async throws {
+        let id = "test-use-init-zombie-reaping"
+
+        let bs = try await bootstrap(id)
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            // This script creates an orphaned process that init must reap.
+            // The subshell exits immediately, orphaning the sleep process.
+            // Init should reap it when it exits.
+            config.process.arguments = [
+                "/bin/sh", "-c",
+                """
+                # Create orphans: subshell exits before its children
+                (/bin/sleep 0.1 &)
+                (/bin/sleep 0.1 &)
+                # Wait for orphans to complete
+                /bin/sleep 0.3
+                # Check for zombie processes (Z state)
+                zombies=$(ps -eo stat 2>/dev/null | grep -c '^Z' || echo 0)
+                echo "zombie_count:$zombies"
+                """,
+            ]
+            config.process.stdout = buffer
+            config.useInit = true
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let status = try await container.wait()
+            try await container.stop()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "process status \(status) != 0")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert output to UTF8")
+            }
+
+            // Should report 0 zombies
+            guard output.contains("zombie_count:0") else {
+                throw IntegrationError.assert(msg: "expected zero zombies, got: \(output)")
+            }
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testUseInitWithTerminal() async throws {
+        let id = "test-use-init-terminal"
+
+        let bs = try await bootstrap(id)
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/sh", "-c", "tty && echo 'has tty'"]
+            config.process.terminal = true
+            config.process.stdout = buffer
+            config.useInit = true
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        guard let output = String(data: buffer.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert output to UTF8")
+        }
+
+        guard output.contains("has tty") else {
+            throw IntegrationError.assert(msg: "expected 'has tty' in output, got: \(output)")
+        }
+    }
+
+    func testUseInitWithStdin() async throws {
+        let id = "test-use-init-stdin"
+
+        let bs = try await bootstrap(id)
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["cat"]
+            config.process.stdin = StdinBuffer(data: "input through init\n".data(using: .utf8)!)
+            config.process.stdout = buffer
+            config.useInit = true
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        guard String(data: buffer.data, encoding: .utf8) == "input through init\n" else {
+            throw IntegrationError.assert(
+                msg: "expected 'input through init', got '\(String(data: buffer.data, encoding: .utf8) ?? "nil")'")
+        }
+    }
 }
