@@ -54,6 +54,7 @@ extension UnixSocketRelayManager {
             try await relay.start()
         } catch {
             relays.removeValue(forKey: socket.id)
+            throw error
         }
     }
 
