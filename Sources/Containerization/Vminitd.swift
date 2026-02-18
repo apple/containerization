@@ -406,6 +406,7 @@ extension Vminitd {
 
     /// Configure DNS within the sandbox's environment.
     public func configureDNS(config: DNS, location: String) async throws {
+        try config.validate()
         _ = try await client.configureDns(
             .with {
                 $0.location = location
