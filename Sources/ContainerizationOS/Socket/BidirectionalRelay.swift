@@ -182,7 +182,7 @@ public final class BidirectionalRelay: Sendable {
                 )
                 source.cancel()
                 if shutdown(destinationFd, SHUT_WR) != 0 {
-                    log?.warning(
+                    log?.debug(
                         "failed to shut down writes",
                         metadata: [
                             "errno": "\(errno)",
