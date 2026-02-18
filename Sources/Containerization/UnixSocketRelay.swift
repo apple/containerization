@@ -26,7 +26,7 @@ package final class UnixSocketRelay: Sendable {
     private let configuration: UnixSocketConfiguration
     private let log: Logger?
     private let vm: any VirtualMachineInstance
-    private let q: DispatchQueue
+    private let queue: DispatchQueue
     private let state: Mutex<State>
 
     private struct State {
@@ -47,7 +47,7 @@ package final class UnixSocketRelay: Sendable {
         self.state = Mutex<State>(.init())
         self.vm = vm
         self.log = log
-        self.q = queue
+        self.queue = queue
     }
 
     deinit {
@@ -224,7 +224,7 @@ extension UnixSocketRelay {
         let relay = BidirectionalRelay(
             fd1: hostFd,
             fd2: guestFd,
-            queue: q,
+            queue: queue,
             log: log
         )
 
