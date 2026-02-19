@@ -430,12 +430,6 @@ extension VZVirtualMachineInstance.Configuration {
     }
 }
 
-extension Mount {
-    var isBlock: Bool {
-        type == "ext4"
-    }
-}
-
 extension Kernel {
     func linuxCommandline(initialFilesystem: Mount) -> String {
         var args = self.commandLine.kernelArgs

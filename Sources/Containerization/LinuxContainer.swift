@@ -31,7 +31,16 @@ public final class LinuxContainer: Container, Sendable {
     public let id: String
 
     /// Rootfs for the container.
+    ///
+    /// Note: The `destination` field of this mount is ignored as mounting is handled internally.
     public let rootfs: Mount
+
+    /// Optional writable layer for the container. When provided, the rootfs
+    /// is mounted as the lower layer of an overlayfs, with this as the upper layer.
+    /// All writes will go to this layer instead of the rootfs.
+    ///
+    /// Note: The `destination` field of this mount is ignored as mounting is handled internally.
+    public let writableLayer: Mount?
 
     /// Configuration for the container.
     public let config: Configuration
@@ -238,21 +247,27 @@ public final class LinuxContainer: Container, Sendable {
     /// - Parameters:
     ///   - id: The identifier for the container.
     ///   - rootfs: The root filesystem mount containing the container image contents.
+    ///     The `destination` field is ignored as mounting is handled internally.
+    ///   - writableLayer: Optional writable layer mount. When provided, an overlayfs is used with
+    ///     rootfs as the lower layer and this as the upper layer. Must be a block device.
+    ///     The `destination` field is ignored as mounting is handled internally.
     ///   - vmm: The virtual machine manager that will handle launching the VM for the container.
     ///   - logger: Optional logger for container operations.
     ///   - configuration: A closure that configures the container by modifying the Configuration instance.
     public convenience init(
         _ id: String,
         rootfs: Mount,
+        writableLayer: Mount? = nil,
         vmm: VirtualMachineManager,
         logger: Logger? = nil,
         configuration: (inout Configuration) throws -> Void
     ) throws {
         var config = Configuration()
         try configuration(&config)
-        self.init(
+        try self.init(
             id,
             rootfs: rootfs,
+            writableLayer: writableLayer,
             vmm: vmm,
             configuration: config,
             logger: logger
@@ -264,16 +279,29 @@ public final class LinuxContainer: Container, Sendable {
     /// - Parameters:
     ///   - id: The identifier for the container.
     ///   - rootfs: The root filesystem mount containing the container image contents.
+    ///     The `destination` field is ignored as mounting is handled internally.
+    ///   - writableLayer: Optional writable layer mount. When provided, an overlayfs is used with
+    ///     rootfs as the lower layer and this as the upper layer. Must be a block device.
+    ///     The `destination` field is ignored as mounting is handled internally.
     ///   - vmm: The virtual machine manager that will handle launching the VM for the container.
     ///   - configuration: The container configuration specifying process, resources, networking, and other settings.
     ///   - logger: Optional logger for container operations.
     public init(
         _ id: String,
         rootfs: Mount,
+        writableLayer: Mount? = nil,
         vmm: VirtualMachineManager,
         configuration: LinuxContainer.Configuration,
         logger: Logger? = nil
-    ) {
+    ) throws {
+        if let writableLayer {
+            guard writableLayer.isBlock else {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "writableLayer must be a block device"
+                )
+            }
+        }
         self.id = id
         self.vmm = vmm
         self.hostVsockPorts = Atomic<UInt32>(0x1000_0000)
@@ -282,6 +310,7 @@ public final class LinuxContainer: Container, Sendable {
         self.config = configuration
         self.state = AsyncMutex(.initialized)
         self.rootfs = rootfs
+        self.writableLayer = writableLayer
     }
 
     private static func createDefaultRuntimeSpec(_ id: String) -> Spec {
@@ -313,7 +342,8 @@ public final class LinuxContainer: Container, Sendable {
 
         // If the rootfs was requested as read-only, set it in the OCI spec.
         // We let the OCI runtime remount as ro, instead of doing it originally.
-        spec.root?.readonly = self.rootfs.options.contains("ro")
+        // However, if we have a writable layer, the overlay allows writes so we don't mark it read-only.
+        spec.root?.readonly = self.rootfs.options.contains("ro") && self.writableLayer == nil
 
         // Resource limits.
         // CPU: quota/period model where period is 100ms (100,000µs) and quota is cpus * period
@@ -393,6 +423,67 @@ extension LinuxContainer {
         config.interfaces
     }
 
+    private func mountRootfs(
+        attachments: [AttachedFilesystem],
+        rootfsPath: String,
+        agent: VirtualMachineAgent
+    ) async throws {
+        guard let rootfsAttachment = attachments.first else {
+            throw ContainerizationError(.notFound, message: "rootfs mount not found")
+        }
+
+        if self.writableLayer != nil {
+            // Set up overlayfs with image as lower layer and writable layer as upper.
+            guard attachments.count >= 2 else {
+                throw ContainerizationError(
+                    .notFound,
+                    message: "writable layer mount not found"
+                )
+            }
+            let writableAttachment = attachments[1]
+
+            let lowerPath = "/run/container/\(self.id)/lower"
+            let upperMountPath = "/run/container/\(self.id)/upper"
+            let upperPath = "/run/container/\(self.id)/upper/diff"
+            let workPath = "/run/container/\(self.id)/upper/work"
+
+            // Mount the image (lower layer) as read-only.
+            var lowerMount = rootfsAttachment.to
+            lowerMount.destination = lowerPath
+            if !lowerMount.options.contains("ro") {
+                lowerMount.options.append("ro")
+            }
+            try await agent.mount(lowerMount)
+
+            // Mount the writable layer.
+            var upperMount = writableAttachment.to
+            upperMount.destination = upperMountPath
+            try await agent.mount(upperMount)
+
+            // Create the upper and work directories inside the writable layer.
+            try await agent.mkdir(path: upperPath, all: true, perms: 0o755)
+            try await agent.mkdir(path: workPath, all: true, perms: 0o755)
+
+            // Mount the overlay.
+            let overlayMount = ContainerizationOCI.Mount(
+                type: "overlay",
+                source: "overlay",
+                destination: rootfsPath,
+                options: [
+                    "lowerdir=\(lowerPath)",
+                    "upperdir=\(upperPath)",
+                    "workdir=\(workPath)",
+                ]
+            )
+            try await agent.mount(overlayMount)
+        } else {
+            // No writable layer. Mount rootfs directly.
+            var rootfs = rootfsAttachment.to
+            rootfs.destination = rootfsPath
+            try await agent.mount(rootfs)
+        }
+    }
+
     /// Create and start the underlying container's virtual machine
     /// and set up the runtime environment. The container's init process
     /// is NOT running afterwards.
@@ -428,11 +519,17 @@ extension LinuxContainer {
             // This is dumb, but alas.
             let fileMountContextHolder = Mutex<FileMountContext>(fileMountContext)
 
+            // Build the list of mounts to attach to the VM.
+            var containerMounts = [modifiedRootfs] + fileMountContext.transformedMounts
+            if let writableLayer = self.writableLayer {
+                containerMounts.insert(writableLayer, at: 1)
+            }
+
             let vmConfig = VMConfiguration(
                 cpus: self.cpus,
                 memoryInBytes: vmMemory,
                 interfaces: self.interfaces,
-                mountsByID: [self.id: [modifiedRootfs] + fileMountContext.transformedMounts],
+                mountsByID: [self.id: containerMounts],
                 bootLog: self.config.bootLog,
                 nestedVirtualization: self.config.virtualization
             )
@@ -445,13 +542,11 @@ extension LinuxContainer {
                 try await vm.withAgent { agent in
                     try await agent.standardSetup()
 
-                    // Mount the rootfs.
-                    guard let attachments = vm.mounts[self.id], let rootfsAttachment = attachments.first else {
+                    guard let attachments = vm.mounts[self.id] else {
                         throw ContainerizationError(.notFound, message: "rootfs mount not found")
                     }
-                    var rootfs = rootfsAttachment.to
-                    rootfs.destination = Self.guestRootfsPath(self.id)
-                    try await agent.mount(rootfs)
+                    let rootfsPath = Self.guestRootfsPath(self.id)
+                    try await self.mountRootfs(attachments: attachments, rootfsPath: rootfsPath, agent: agent)
 
                     // Mount file mount holding directories under /run.
                     if fileMountContext.hasFileMounts {
@@ -493,10 +588,10 @@ extension LinuxContainer {
 
                     // Setup /etc/resolv.conf and /etc/hosts if asked for.
                     if let dns = self.config.dns {
-                        try await agent.configureDNS(config: dns, location: rootfs.destination)
+                        try await agent.configureDNS(config: dns, location: rootfsPath)
                     }
                     if let hosts = self.config.hosts {
-                        try await agent.configureHosts(config: hosts, location: rootfs.destination)
+                        try await agent.configureHosts(config: hosts, location: rootfsPath)
                     }
 
                 }
@@ -518,12 +613,14 @@ extension LinuxContainer {
             let agent = try await createdState.vm.dialAgent()
             do {
                 var spec = self.generateRuntimeSpec()
-                // We don't need the rootfs, nor do OCI runtimes want it included.
+                // We don't need the rootfs (or writable layer), nor do OCI runtimes want it included.
                 // Also filter out file mount holding directories. We'll mount those separately under /run.
                 let containerMounts = createdState.vm.mounts[self.id] ?? []
                 let holdingTags = createdState.fileMountContext.holdingDirectoryTags
+                // Drop rootfs, and writable layer if present.
+                let mountsToSkip = self.writableLayer != nil ? 2 : 1
                 spec.mounts =
-                    containerMounts.dropFirst()
+                    containerMounts.dropFirst(mountsToSkip)
                     .filter { !holdingTags.contains($0.source) }
                     .map { $0.to }
                     + createdState.fileMountContext.ociBindMounts()
@@ -665,6 +762,14 @@ extension LinuxContainer {
                         path: Self.guestRootfsPath(self.id),
                         flags: 0
                     )
+
+                    // If we have a writable layer, we also need to unmount the lower and upper layers.
+                    if self.writableLayer != nil {
+                        let upperPath = "/run/container/\(self.id)/upper"
+                        let lowerPath = "/run/container/\(self.id)/lower"
+                        try await agent.umount(path: upperPath, flags: 0)
+                        try await agent.umount(path: lowerPath, flags: 0)
+                    }
 
                     try await agent.sync()
                 }

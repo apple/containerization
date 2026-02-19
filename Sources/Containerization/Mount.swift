@@ -226,4 +226,12 @@ extension Mount {
     fileprivate var readonly: Bool {
         self.options.contains("ro")
     }
+
+    /// Returns true if this mount is a virtio block device.
+    public var isBlock: Bool {
+        if case .virtioblk = self.runtimeOptions {
+            return true
+        }
+        return false
+    }
 }
