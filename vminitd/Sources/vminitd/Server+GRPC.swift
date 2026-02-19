@@ -1356,6 +1356,8 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                     $0.slabBytes = memory.slab
                     $0.pageFaults = memory.pgfault
                     $0.majorPageFaults = memory.pgmajfault
+                    $0.inactiveFile = memory.inactiveFile
+                    $0.anon = memory.anon
                 }
             }
 

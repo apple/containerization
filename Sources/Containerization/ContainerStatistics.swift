@@ -64,6 +64,8 @@ public struct ContainerStatistics: Sendable {
         public var slabBytes: UInt64
         public var pageFaults: UInt64
         public var majorPageFaults: UInt64
+        public var inactiveFile: UInt64
+        public var anon: UInt64
 
         public init(
             usageBytes: UInt64,
@@ -74,7 +76,9 @@ public struct ContainerStatistics: Sendable {
             kernelStackBytes: UInt64,
             slabBytes: UInt64,
             pageFaults: UInt64,
-            majorPageFaults: UInt64
+            majorPageFaults: UInt64,
+            inactiveFile: UInt64,
+            anon: UInt64
         ) {
             self.usageBytes = usageBytes
             self.limitBytes = limitBytes
@@ -85,6 +89,8 @@ public struct ContainerStatistics: Sendable {
             self.slabBytes = slabBytes
             self.pageFaults = pageFaults
             self.majorPageFaults = majorPageFaults
+            self.inactiveFile = inactiveFile
+            self.anon = anon
         }
     }
 
