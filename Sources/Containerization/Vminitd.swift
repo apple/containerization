@@ -106,7 +106,9 @@ extension Vminitd: VirtualMachineAgent {
                         kernelStackBytes: protoStats.memory.kernelStackBytes,
                         slabBytes: protoStats.memory.slabBytes,
                         pageFaults: protoStats.memory.pageFaults,
-                        majorPageFaults: protoStats.memory.majorPageFaults
+                        majorPageFaults: protoStats.memory.majorPageFaults,
+                        inactiveFile: protoStats.memory.inactiveFile,
+                        anon: protoStats.memory.anon
                     ) : nil,
                 cpu: categories.contains(.cpu) && protoStats.hasCpu
                     ? .init(

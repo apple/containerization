@@ -21,13 +21,13 @@ import Logging
 package actor UnixSocketRelayManager {
     private let vm: any VirtualMachineInstance
     private var relays: [String: UnixSocketRelay]
-    private let q: DispatchQueue
+    private let queue: DispatchQueue
     private let log: Logger?
 
     init(vm: any VirtualMachineInstance, log: Logger? = nil) {
         self.vm = vm
         self.relays = [:]
-        self.q = DispatchQueue(label: "com.apple.containerization.socket-relay")
+        self.queue = DispatchQueue(label: "com.apple.containerization.socket-relay")
         self.log = log
     }
 }
@@ -45,7 +45,7 @@ extension UnixSocketRelayManager {
             port: port,
             socket: socket,
             vm: vm,
-            queue: q,
+            queue: queue,
             log: log
         )
 
@@ -54,6 +54,7 @@ extension UnixSocketRelayManager {
             try await relay.start()
         } catch {
             relays.removeValue(forKey: socket.id)
+            throw error
         }
     }
 

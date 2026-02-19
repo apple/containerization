@@ -14,6 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import ArgumentParser
 import Cgroup
 import Containerization
 import ContainerizationError
@@ -28,12 +29,19 @@ import Musl
 import LCShim
 #endif
 
-struct InitCommand {
+struct InitCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "init",
+        abstract: "Run the init daemon"
+    )
+
     private static let foregroundEnvVar = "FOREGROUND"
     private static let vsockPort = 1024
 
-    static func run(log: Logger) async throws {
-        var log = log
+    @OptionGroup var options: LogLevelOption
+
+    mutating func run() async throws {
+        let log = makeLogger(label: "vminitd", level: options.resolvedLogLevel())
         try Self.adjustLimits(log)
 
         // when running under debug mode, launch vminitd as a sub process of pid1
@@ -43,11 +51,11 @@ struct InitCommand {
         log.info("DEBUG mode active, checking FOREGROUND env var")
         let environment = ProcessInfo.processInfo.environment
         let foreground = environment[Self.foregroundEnvVar]
-        log.info("checking for shim var \(foregroundEnvVar)=\(String(describing: foreground))")
+        log.info("checking for shim var \(Self.foregroundEnvVar)=\(String(describing: foreground))")
 
         if foreground == nil {
-            try runInForeground(log)
-            exit(0)
+            try Self.runInForeground(log, logLevel: options.logLevel)
+            _exit(0)
         }
 
         log.info("FOREGROUND is set, running as subprocess, setting subreaper")
@@ -56,8 +64,6 @@ struct InitCommand {
         // passed onto our parent.
         CZ_set_sub_reaper()
         #endif
-
-        log.logLevel = .debug
 
         signal(SIGPIPE, SIG_IGN)
 
@@ -137,7 +143,7 @@ struct InitCommand {
 
         do {
             log.info("serving vminitd API")
-            try await server.serve(port: vsockPort)
+            try await server.serve(port: Self.vsockPort)
             log.info("vminitd API returned, syncing filesystems")
 
             #if os(Linux)
@@ -150,14 +156,14 @@ struct InitCommand {
             Musl.sync()
             #endif
 
-            exit(1)
+            _exit(1)
         }
     }
 
-    private static func runInForeground(_ log: Logger) throws {
+    private static func runInForeground(_ log: Logger, logLevel: String) throws {
         log.info("running vminitd under pid1")
 
-        var command = Command("/sbin/vminitd")
+        var command = Command("/sbin/vminitd", arguments: ["init", "--log-level", logLevel])
         command.attrs = .init(setsid: true)
         command.stdin = .standardInput
         command.stdout = .standardOutput

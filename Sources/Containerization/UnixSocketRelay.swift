@@ -24,9 +24,9 @@ import Synchronization
 package final class UnixSocketRelay: Sendable {
     private let port: UInt32
     private let configuration: UnixSocketConfiguration
-    private let log: Logger?
     private let vm: any VirtualMachineInstance
-    private let q: DispatchQueue
+    private let queue: DispatchQueue
+    private let log: Logger?
     private let state: Mutex<State>
 
     private struct State {
@@ -44,10 +44,10 @@ package final class UnixSocketRelay: Sendable {
     ) throws {
         self.port = port
         self.configuration = socket
-        self.state = Mutex<State>(.init())
         self.vm = vm
+        self.queue = queue
         self.log = log
-        self.q = queue
+        self.state = Mutex<State>(.init())
     }
 
     deinit {
@@ -224,7 +224,7 @@ extension UnixSocketRelay {
         let relay = BidirectionalRelay(
             fd1: hostFd,
             fd2: guestFd,
-            queue: q,
+            queue: queue,
             log: log
         )
 
