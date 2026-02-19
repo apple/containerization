@@ -1329,6 +1329,10 @@ public struct Com_Apple_Containerization_Sandbox_V3_MemoryStats: Sendable {
 
   public var majorPageFaults: UInt64 = 0
 
+  public var inactiveFile: UInt64 = 0
+
+  public var anon: UInt64 = 0
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -3847,6 +3851,8 @@ extension Com_Apple_Containerization_Sandbox_V3_MemoryStats: SwiftProtobuf.Messa
     7: .standard(proto: "slab_bytes"),
     8: .standard(proto: "page_faults"),
     9: .standard(proto: "major_page_faults"),
+    10: .standard(proto: "inactive_file"),
+    11: .same(proto: "anon"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -3864,6 +3870,8 @@ extension Com_Apple_Containerization_Sandbox_V3_MemoryStats: SwiftProtobuf.Messa
       case 7: try { try decoder.decodeSingularUInt64Field(value: &self.slabBytes) }()
       case 8: try { try decoder.decodeSingularUInt64Field(value: &self.pageFaults) }()
       case 9: try { try decoder.decodeSingularUInt64Field(value: &self.majorPageFaults) }()
+      case 10: try { try decoder.decodeSingularUInt64Field(value: &self.inactiveFile) }()
+      case 11: try { try decoder.decodeSingularUInt64Field(value: &self.anon) }()
       default: break
       }
     }
@@ -3897,6 +3905,12 @@ extension Com_Apple_Containerization_Sandbox_V3_MemoryStats: SwiftProtobuf.Messa
     if self.majorPageFaults != 0 {
       try visitor.visitSingularUInt64Field(value: self.majorPageFaults, fieldNumber: 9)
     }
+    if self.inactiveFile != 0 {
+      try visitor.visitSingularUInt64Field(value: self.inactiveFile, fieldNumber: 10)
+    }
+    if self.anon != 0 {
+      try visitor.visitSingularUInt64Field(value: self.anon, fieldNumber: 11)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -3910,6 +3924,8 @@ extension Com_Apple_Containerization_Sandbox_V3_MemoryStats: SwiftProtobuf.Messa
     if lhs.slabBytes != rhs.slabBytes {return false}
     if lhs.pageFaults != rhs.pageFaults {return false}
     if lhs.majorPageFaults != rhs.majorPageFaults {return false}
+    if lhs.inactiveFile != rhs.inactiveFile {return false}
+    if lhs.anon != rhs.anon {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
