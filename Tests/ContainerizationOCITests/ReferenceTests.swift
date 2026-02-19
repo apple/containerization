@@ -56,6 +56,16 @@ struct ReferenceParseTests {
             digest: "sha256:\(String(repeating: "abcd", count: 16))"),
         ReferenceParseTestCase(input: "192.168.1.1:5544/local/swift:6.0", domain: "192.168.1.1:5544", path: "local/swift", tag: "6.0"),
         ReferenceParseTestCase(input: "[abc12::4]:5683/swift", domain: "[abc12::4]:5683", path: "swift"),
+        // Verify names longer than 127 characters are accepted (OCI spec allows up to 255).
+        ReferenceParseTestCase(
+            input: "reg.io/\(String(repeating: "a", count: 121))",
+            domain: "reg.io",
+            path: String(repeating: "a", count: 121)),
+        // Verify a name of exactly 255 characters (the OCI spec maximum) is accepted.
+        ReferenceParseTestCase(
+            input: "registry.example.com/\(String(repeating: "a", count: 234))",
+            domain: "registry.example.com",
+            path: String(repeating: "a", count: 234)),
     ])
     func validReferenceParse(testCase: ReferenceParseTestCase) async throws {
         #expect(throws: Never.self) {
@@ -81,6 +91,8 @@ struct ReferenceParseTests {
         "[abc12::4]:abc12::4",
         "[2001:db8:3:4::192.0.2.33]:5000/debian",
         "1a3f5e7d9c1b3a5f7e9d1c3b5a7f9e1d3c5b7a9f1e3d5d7c9b1a3f5e7d9c1b3a",
+        // A name of 256 characters exceeds the OCI spec limit of 255 and must be rejected.
+        "registry.example.com/\(String(repeating: "a", count: 235))",
     ])
     func invalidReferenceParse(input: String) async throws {
         #expect(throws: ContainerizationError.self) {

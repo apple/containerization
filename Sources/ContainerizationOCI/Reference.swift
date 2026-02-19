@@ -17,8 +17,13 @@
 import ContainerizationError
 import Foundation
 
-private let referenceTotalLengthMax = 255
-private let nameTotalLengthMax = 127
+// nameTotalLengthMax matches the OCI distribution spec which allows up to 255 bytes for the
+// repository name component (domain + "/" + path).
+private let nameTotalLengthMax = 255
+// referenceTotalLengthMax is the upper bound for the full reference string: max name (255) +
+// separator (1) + max tag length (128) = 384.
+private let tagLengthMax = 128
+private let referenceTotalLengthMax = nameTotalLengthMax + 1 + tagLengthMax
 private let legacyDockerRegistryHost = "docker.io"
 private let dockerRegistryHost = "registry-1.docker.io"
 private let defaultDockerRegistryRepo = "library"
