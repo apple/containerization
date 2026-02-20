@@ -57,10 +57,14 @@ service SandboxContext {
   rpc IpLinkSet(IpLinkSetRequest) returns (IpLinkSetResponse);
   // Add an IPv4 address to a network interface.
   rpc IpAddrAdd(IpAddrAddRequest) returns (IpAddrAddResponse);
+  // Add an IPv6 address to a network interface.
+  rpc IpAddrAdd6(IpAddrAdd6Request) returns (IpAddrAdd6Response);
   // Add an IP route for a network interface.
   rpc IpRouteAddLink(IpRouteAddLinkRequest) returns (IpRouteAddLinkResponse);
   // Add an IP route for a network interface.
   rpc IpRouteAddDefault(IpRouteAddDefaultRequest) returns (IpRouteAddDefaultResponse);
+  // Add an IPv6 default route for a network interface.
+  rpc IpRouteAddDefault6(IpRouteAddDefault6Request) returns (IpRouteAddDefault6Response);
   // Configure DNS resolver.
   rpc ConfigureDns(ConfigureDnsRequest) returns (ConfigureDnsResponse);
   // Configure /etc/hosts.
@@ -297,6 +301,20 @@ message IpRouteAddDefaultRequest {
 }
 
 message IpRouteAddDefaultResponse {}
+
+message IpAddrAdd6Request {
+  string interface = 1;
+  string ipv6Address = 2;
+}
+
+message IpAddrAdd6Response {}
+
+message IpRouteAddDefault6Request {
+  string interface = 1;
+  string ipv6Gateway = 2;
+}
+
+message IpRouteAddDefault6Response {}
 
 message ConfigureDnsRequest {
   string location = 1;

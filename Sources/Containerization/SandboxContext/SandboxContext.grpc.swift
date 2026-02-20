@@ -1,19 +1,3 @@
-//===----------------------------------------------------------------------===//
-// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//   https://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-//===----------------------------------------------------------------------===//
-
 //
 // DO NOT EDIT.
 // swift-format-ignore-file
@@ -149,6 +133,11 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtoc
     callOptions: CallOptions?
   ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_IpAddrAddRequest, Com_Apple_Containerization_Sandbox_V3_IpAddrAddResponse>
 
+  func ipAddrAdd6(
+    _ request: Com_Apple_Containerization_Sandbox_V3_IpAddrAdd6Request,
+    callOptions: CallOptions?
+  ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_IpAddrAdd6Request, Com_Apple_Containerization_Sandbox_V3_IpAddrAdd6Response>
+
   func ipRouteAddLink(
     _ request: Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest,
     callOptions: CallOptions?
@@ -158,6 +147,11 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtoc
     _ request: Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRequest,
     callOptions: CallOptions?
   ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRequest, Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultResponse>
+
+  func ipRouteAddDefault6(
+    _ request: Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefault6Request,
+    callOptions: CallOptions?
+  ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefault6Request, Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefault6Response>
 
   func configureDns(
     _ request: Com_Apple_Containerization_Sandbox_V3_ConfigureDnsRequest,
@@ -603,6 +597,24 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtocol {
     )
   }
 
+  /// Add an IPv6 address to a network interface.
+  ///
+  /// - Parameters:
+  ///   - request: Request to send to IpAddrAdd6.
+  ///   - callOptions: Call options.
+  /// - Returns: A `UnaryCall` with futures for the metadata, status and response.
+  public func ipAddrAdd6(
+    _ request: Com_Apple_Containerization_Sandbox_V3_IpAddrAdd6Request,
+    callOptions: CallOptions? = nil
+  ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_IpAddrAdd6Request, Com_Apple_Containerization_Sandbox_V3_IpAddrAdd6Response> {
+    return self.makeUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.ipAddrAdd6.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeIpAddrAdd6Interceptors() ?? []
+    )
+  }
+
   /// Add an IP route for a network interface.
   ///
   /// - Parameters:
@@ -636,6 +648,24 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtocol {
       request: request,
       callOptions: callOptions ?? self.defaultCallOptions,
       interceptors: self.interceptors?.makeIpRouteAddDefaultInterceptors() ?? []
+    )
+  }
+
+  /// Add an IPv6 default route for a network interface.
+  ///
+  /// - Parameters:
+  ///   - request: Request to send to IpRouteAddDefault6.
+  ///   - callOptions: Call options.
+  /// - Returns: A `UnaryCall` with futures for the metadata, status and response.
+  public func ipRouteAddDefault6(
+    _ request: Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefault6Request,
+    callOptions: CallOptions? = nil
+  ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefault6Request, Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefault6Response> {
+    return self.makeUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.ipRouteAddDefault6.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeIpRouteAddDefault6Interceptors() ?? []
     )
   }
 
@@ -889,6 +919,11 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientP
     callOptions: CallOptions?
   ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_IpAddrAddRequest, Com_Apple_Containerization_Sandbox_V3_IpAddrAddResponse>
 
+  func makeIpAddrAdd6Call(
+    _ request: Com_Apple_Containerization_Sandbox_V3_IpAddrAdd6Request,
+    callOptions: CallOptions?
+  ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_IpAddrAdd6Request, Com_Apple_Containerization_Sandbox_V3_IpAddrAdd6Response>
+
   func makeIpRouteAddLinkCall(
     _ request: Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest,
     callOptions: CallOptions?
@@ -898,6 +933,11 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientP
     _ request: Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRequest,
     callOptions: CallOptions?
   ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRequest, Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultResponse>
+
+  func makeIpRouteAddDefault6Call(
+    _ request: Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefault6Request,
+    callOptions: CallOptions?
+  ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefault6Request, Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefault6Response>
 
   func makeConfigureDnsCall(
     _ request: Com_Apple_Containerization_Sandbox_V3_ConfigureDnsRequest,
@@ -1204,6 +1244,18 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientProtoco
     )
   }
 
+  public func makeIpAddrAdd6Call(
+    _ request: Com_Apple_Containerization_Sandbox_V3_IpAddrAdd6Request,
+    callOptions: CallOptions? = nil
+  ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_IpAddrAdd6Request, Com_Apple_Containerization_Sandbox_V3_IpAddrAdd6Response> {
+    return self.makeAsyncUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.ipAddrAdd6.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeIpAddrAdd6Interceptors() ?? []
+    )
+  }
+
   public func makeIpRouteAddLinkCall(
     _ request: Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest,
     callOptions: CallOptions? = nil
@@ -1225,6 +1277,18 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientProtoco
       request: request,
       callOptions: callOptions ?? self.defaultCallOptions,
       interceptors: self.interceptors?.makeIpRouteAddDefaultInterceptors() ?? []
+    )
+  }
+
+  public func makeIpRouteAddDefault6Call(
+    _ request: Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefault6Request,
+    callOptions: CallOptions? = nil
+  ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefault6Request, Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefault6Response> {
+    return self.makeAsyncUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.ipRouteAddDefault6.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeIpRouteAddDefault6Interceptors() ?? []
     )
   }
 
@@ -1567,6 +1631,18 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientProtoco
     )
   }
 
+  public func ipAddrAdd6(
+    _ request: Com_Apple_Containerization_Sandbox_V3_IpAddrAdd6Request,
+    callOptions: CallOptions? = nil
+  ) async throws -> Com_Apple_Containerization_Sandbox_V3_IpAddrAdd6Response {
+    return try await self.performAsyncUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.ipAddrAdd6.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeIpAddrAdd6Interceptors() ?? []
+    )
+  }
+
   public func ipRouteAddLink(
     _ request: Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest,
     callOptions: CallOptions? = nil
@@ -1588,6 +1664,18 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientProtoco
       request: request,
       callOptions: callOptions ?? self.defaultCallOptions,
       interceptors: self.interceptors?.makeIpRouteAddDefaultInterceptors() ?? []
+    )
+  }
+
+  public func ipRouteAddDefault6(
+    _ request: Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefault6Request,
+    callOptions: CallOptions? = nil
+  ) async throws -> Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefault6Response {
+    return try await self.performAsyncUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.ipRouteAddDefault6.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeIpRouteAddDefault6Interceptors() ?? []
     )
   }
 
@@ -1728,11 +1816,17 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextClientInterc
   /// - Returns: Interceptors to use when invoking 'ipAddrAdd'.
   func makeIpAddrAddInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_IpAddrAddRequest, Com_Apple_Containerization_Sandbox_V3_IpAddrAddResponse>]
 
+  /// - Returns: Interceptors to use when invoking 'ipAddrAdd6'.
+  func makeIpAddrAdd6Interceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_IpAddrAdd6Request, Com_Apple_Containerization_Sandbox_V3_IpAddrAdd6Response>]
+
   /// - Returns: Interceptors to use when invoking 'ipRouteAddLink'.
   func makeIpRouteAddLinkInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest, Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkResponse>]
 
   /// - Returns: Interceptors to use when invoking 'ipRouteAddDefault'.
   func makeIpRouteAddDefaultInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRequest, Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultResponse>]
+
+  /// - Returns: Interceptors to use when invoking 'ipRouteAddDefault6'.
+  func makeIpRouteAddDefault6Interceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefault6Request, Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefault6Response>]
 
   /// - Returns: Interceptors to use when invoking 'configureDns'.
   func makeConfigureDnsInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_ConfigureDnsRequest, Com_Apple_Containerization_Sandbox_V3_ConfigureDnsResponse>]
@@ -1775,8 +1869,10 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.stopVsockProxy,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.ipLinkSet,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.ipAddrAdd,
+      Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.ipAddrAdd6,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.ipRouteAddLink,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.ipRouteAddDefault,
+      Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.ipRouteAddDefault6,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.configureDns,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.configureHosts,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.sync,
@@ -1923,6 +2019,12 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
       type: GRPCCallType.unary
     )
 
+    public static let ipAddrAdd6 = GRPCMethodDescriptor(
+      name: "IpAddrAdd6",
+      path: "/com.apple.containerization.sandbox.v3.SandboxContext/IpAddrAdd6",
+      type: GRPCCallType.unary
+    )
+
     public static let ipRouteAddLink = GRPCMethodDescriptor(
       name: "IpRouteAddLink",
       path: "/com.apple.containerization.sandbox.v3.SandboxContext/IpRouteAddLink",
@@ -1932,6 +2034,12 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
     public static let ipRouteAddDefault = GRPCMethodDescriptor(
       name: "IpRouteAddDefault",
       path: "/com.apple.containerization.sandbox.v3.SandboxContext/IpRouteAddDefault",
+      type: GRPCCallType.unary
+    )
+
+    public static let ipRouteAddDefault6 = GRPCMethodDescriptor(
+      name: "IpRouteAddDefault6",
+      path: "/com.apple.containerization.sandbox.v3.SandboxContext/IpRouteAddDefault6",
       type: GRPCCallType.unary
     )
 
@@ -2037,11 +2145,17 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider: Ca
   /// Add an IPv4 address to a network interface.
   func ipAddrAdd(request: Com_Apple_Containerization_Sandbox_V3_IpAddrAddRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_IpAddrAddResponse>
 
+  /// Add an IPv6 address to a network interface.
+  func ipAddrAdd6(request: Com_Apple_Containerization_Sandbox_V3_IpAddrAdd6Request, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_IpAddrAdd6Response>
+
   /// Add an IP route for a network interface.
   func ipRouteAddLink(request: Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkResponse>
 
   /// Add an IP route for a network interface.
   func ipRouteAddDefault(request: Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultResponse>
+
+  /// Add an IPv6 default route for a network interface.
+  func ipRouteAddDefault6(request: Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefault6Request, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefault6Response>
 
   /// Configure DNS resolver.
   func configureDns(request: Com_Apple_Containerization_Sandbox_V3_ConfigureDnsRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_ConfigureDnsResponse>
@@ -2275,6 +2389,15 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider {
         userFunction: self.ipAddrAdd(request:context:)
       )
 
+    case "IpAddrAdd6":
+      return UnaryServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_IpAddrAdd6Request>(),
+        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_IpAddrAdd6Response>(),
+        interceptors: self.interceptors?.makeIpAddrAdd6Interceptors() ?? [],
+        userFunction: self.ipAddrAdd6(request:context:)
+      )
+
     case "IpRouteAddLink":
       return UnaryServerHandler(
         context: context,
@@ -2291,6 +2414,15 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider {
         responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultResponse>(),
         interceptors: self.interceptors?.makeIpRouteAddDefaultInterceptors() ?? [],
         userFunction: self.ipRouteAddDefault(request:context:)
+      )
+
+    case "IpRouteAddDefault6":
+      return UnaryServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefault6Request>(),
+        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefault6Response>(),
+        interceptors: self.interceptors?.makeIpRouteAddDefault6Interceptors() ?? [],
+        userFunction: self.ipRouteAddDefault6(request:context:)
       )
 
     case "ConfigureDns":
@@ -2483,6 +2615,12 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvide
     context: GRPCAsyncServerCallContext
   ) async throws -> Com_Apple_Containerization_Sandbox_V3_IpAddrAddResponse
 
+  /// Add an IPv6 address to a network interface.
+  func ipAddrAdd6(
+    request: Com_Apple_Containerization_Sandbox_V3_IpAddrAdd6Request,
+    context: GRPCAsyncServerCallContext
+  ) async throws -> Com_Apple_Containerization_Sandbox_V3_IpAddrAdd6Response
+
   /// Add an IP route for a network interface.
   func ipRouteAddLink(
     request: Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest,
@@ -2494,6 +2632,12 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvide
     request: Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRequest,
     context: GRPCAsyncServerCallContext
   ) async throws -> Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultResponse
+
+  /// Add an IPv6 default route for a network interface.
+  func ipRouteAddDefault6(
+    request: Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefault6Request,
+    context: GRPCAsyncServerCallContext
+  ) async throws -> Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefault6Response
 
   /// Configure DNS resolver.
   func configureDns(
@@ -2746,6 +2890,15 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvider {
         wrapping: { try await self.ipAddrAdd(request: $0, context: $1) }
       )
 
+    case "IpAddrAdd6":
+      return GRPCAsyncServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_IpAddrAdd6Request>(),
+        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_IpAddrAdd6Response>(),
+        interceptors: self.interceptors?.makeIpAddrAdd6Interceptors() ?? [],
+        wrapping: { try await self.ipAddrAdd6(request: $0, context: $1) }
+      )
+
     case "IpRouteAddLink":
       return GRPCAsyncServerHandler(
         context: context,
@@ -2762,6 +2915,15 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvider {
         responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultResponse>(),
         interceptors: self.interceptors?.makeIpRouteAddDefaultInterceptors() ?? [],
         wrapping: { try await self.ipRouteAddDefault(request: $0, context: $1) }
+      )
+
+    case "IpRouteAddDefault6":
+      return GRPCAsyncServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefault6Request>(),
+        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefault6Response>(),
+        interceptors: self.interceptors?.makeIpRouteAddDefault6Interceptors() ?? [],
+        wrapping: { try await self.ipRouteAddDefault6(request: $0, context: $1) }
       )
 
     case "ConfigureDns":
@@ -2900,6 +3062,10 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextServerInterc
   ///   Defaults to calling `self.makeInterceptors()`.
   func makeIpAddrAddInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_IpAddrAddRequest, Com_Apple_Containerization_Sandbox_V3_IpAddrAddResponse>]
 
+  /// - Returns: Interceptors to use when handling 'ipAddrAdd6'.
+  ///   Defaults to calling `self.makeInterceptors()`.
+  func makeIpAddrAdd6Interceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_IpAddrAdd6Request, Com_Apple_Containerization_Sandbox_V3_IpAddrAdd6Response>]
+
   /// - Returns: Interceptors to use when handling 'ipRouteAddLink'.
   ///   Defaults to calling `self.makeInterceptors()`.
   func makeIpRouteAddLinkInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest, Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkResponse>]
@@ -2907,6 +3073,10 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextServerInterc
   /// - Returns: Interceptors to use when handling 'ipRouteAddDefault'.
   ///   Defaults to calling `self.makeInterceptors()`.
   func makeIpRouteAddDefaultInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRequest, Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultResponse>]
+
+  /// - Returns: Interceptors to use when handling 'ipRouteAddDefault6'.
+  ///   Defaults to calling `self.makeInterceptors()`.
+  func makeIpRouteAddDefault6Interceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefault6Request, Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefault6Response>]
 
   /// - Returns: Interceptors to use when handling 'configureDns'.
   ///   Defaults to calling `self.makeInterceptors()`.
@@ -2953,8 +3123,10 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.stopVsockProxy,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.ipLinkSet,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.ipAddrAdd,
+      Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.ipAddrAdd6,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.ipRouteAddLink,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.ipRouteAddDefault,
+      Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.ipRouteAddDefault6,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.configureDns,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.configureHosts,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.sync,
@@ -3101,6 +3273,12 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
       type: GRPCCallType.unary
     )
 
+    public static let ipAddrAdd6 = GRPCMethodDescriptor(
+      name: "IpAddrAdd6",
+      path: "/com.apple.containerization.sandbox.v3.SandboxContext/IpAddrAdd6",
+      type: GRPCCallType.unary
+    )
+
     public static let ipRouteAddLink = GRPCMethodDescriptor(
       name: "IpRouteAddLink",
       path: "/com.apple.containerization.sandbox.v3.SandboxContext/IpRouteAddLink",
@@ -3110,6 +3288,12 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
     public static let ipRouteAddDefault = GRPCMethodDescriptor(
       name: "IpRouteAddDefault",
       path: "/com.apple.containerization.sandbox.v3.SandboxContext/IpRouteAddDefault",
+      type: GRPCCallType.unary
+    )
+
+    public static let ipRouteAddDefault6 = GRPCMethodDescriptor(
+      name: "IpRouteAddDefault6",
+      path: "/com.apple.containerization.sandbox.v3.SandboxContext/IpRouteAddDefault6",
       type: GRPCCallType.unary
     )
 
