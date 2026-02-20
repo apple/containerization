@@ -211,7 +211,14 @@ public final class BidirectionalRelay: Sendable {
                 to: destinationFd
             )
         } catch {
-            log?.error("file descriptor copy failed \(error)")
+            log?.warning(
+                "file descriptor copy failed",
+                metadata: [
+                    "error": "\(error)",
+                    "sourceFd": "\(sourceFd)",
+                    "destinationFd": "\(destinationFd)",
+                ]
+            )
             if !source.isCancelled {
                 source.cancel()
                 if shutdown(destinationFd, Int32(SHUT_RDWR)) != 0 {
