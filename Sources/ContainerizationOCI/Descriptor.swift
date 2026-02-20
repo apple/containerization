@@ -42,9 +42,14 @@ public struct Descriptor: Codable, Sendable, Equatable {
     /// This should only be used when referring to a manifest.
     public var platform: Platform?
 
+    /// artifactType specifies the IANA media type of the artifact.
+    ///
+    /// Used in referrers API responses to indicate the type of each referring artifact.
+    public let artifactType: String?
+
     public init(
         mediaType: String, digest: String, size: Int64, urls: [String]? = nil, annotations: [String: String]? = nil,
-        platform: Platform? = nil
+        platform: Platform? = nil, artifactType: String? = nil
     ) {
         self.mediaType = mediaType
         self.digest = digest
@@ -52,5 +57,6 @@ public struct Descriptor: Codable, Sendable, Equatable {
         self.urls = urls
         self.annotations = annotations
         self.platform = platform
+        self.artifactType = artifactType
     }
 }
