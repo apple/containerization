@@ -173,6 +173,7 @@ extension ManagedProcess {
                 try $0.io.closeAfterExec()
                 try self.ackPipe.fileHandleForReading.close()
                 try self.syncPipe.fileHandleForWriting.close()
+                try self.errorPipe.fileHandleForWriting.close()
 
                 let size = MemoryLayout<Int32>.size
                 guard let piddata = try syncPipe.fileHandleForReading.read(upToCount: size) else {
@@ -235,8 +236,16 @@ extension ManagedProcess {
                     try self.ackPipe.fileHandleForWriting.write(contentsOf: Self.ackConsole.data(using: .utf8)!)
                 }
 
-                // Wait for the syncPipe to close (after exec).
-                _ = try self.syncPipe.fileHandleForReading.readToEnd()
+                // Wait for the errorPipe to close (after exec).
+                if let errorData = try? self.errorPipe.fileHandleForReading.readToEnd(),
+                    let errorString = String(data: errorData, encoding: .utf8),
+                    !errorString.isEmpty
+                {
+                    throw ContainerizationError(
+                        .internalError,
+                        message: "vmexec error: \(errorString.trimmingCharacters(in: .whitespacesAndNewlines))"
+                    )
+                }
 
                 log.info(
                     "started managed process",
