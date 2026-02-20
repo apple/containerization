@@ -53,6 +53,12 @@ let package = Package(
         .target(
             name: "ContainerizationError"
         ),
+        .testTarget(
+            name: "ContainerizationErrorTests",
+            dependencies: [
+                "ContainerizationError"
+            ]
+        ),
         .target(
             name: "Containerization",
             dependencies: [
@@ -237,6 +243,13 @@ let package = Package(
                 .product(name: "NIO", package: "swift-nio"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOFoundationCompat", package: "swift-nio"),
+            ]
+        ),
+        .testTarget(
+            name: "ContainerizationIOTests",
+            dependencies: [
+                "ContainerizationIO",
+                .product(name: "NIO", package: "swift-nio"),
             ]
         ),
         .target(
