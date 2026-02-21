@@ -18,11 +18,18 @@
 
 import Crypto
 import ContainerizationError
+import ContainerizationOS
 import Foundation
 
 public func hashMountSource(source: String) throws -> String {
-    // Resolve symlinks so different paths to the same directory get the same hash.
-    let resolvedSource = URL(fileURLWithPath: source).resolvingSymlinksInPath().path
+    let sourceURL = URL(fileURLWithPath: source)
+    let resolvedSource: String
+    if sourceURL.isSymlink, let rawTarget = sourceURL.rawSymlinkTarget() {
+        resolvedSource = URL(fileURLWithPath: rawTarget, relativeTo: sourceURL.deletingLastPathComponent())
+            .standardized.path
+    } else {
+        resolvedSource = sourceURL.standardizedFileURL.path
+    }
     guard let data = resolvedSource.data(using: .utf8) else {
         throw ContainerizationError(.invalidArgument, message: "\(source) could not be converted to Data")
     }
