@@ -168,6 +168,35 @@ extension IntegrationSuite {
         }
     }
 
+    func testProcessNoExecutable() async throws {
+        let id = "test-process-no-executable"
+        let bs = try await bootstrap(id)
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["foobarbaz"]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let _ = try await container.wait()
+            try await container.stop()
+
+            throw IntegrationError.assert(msg: "process didn't throw 'no executable' error")
+        } catch {
+            try? await container.stop()
+            guard let err = error as? ContainerizationError,
+                err.isCode(.internalError), err.description.contains("failed to find target executable")
+            else {
+                throw error
+            }
+        }
+    }
+
     func testMultipleConcurrentProcesses() async throws {
         let id = "test-concurrent-processes"
 
