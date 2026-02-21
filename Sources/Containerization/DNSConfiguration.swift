@@ -14,6 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import ContainerizationExtras
+
 /// DNS configuration for a container. The values will be used to
 /// construct /etc/resolv.conf for a given container.
 public struct DNS: Sendable {
@@ -40,6 +42,26 @@ public struct DNS: Sendable {
         self.domain = domain
         self.searchDomains = searchDomains
         self.options = options
+    }
+
+    /// Validates the DNS configuration.
+    ///
+    /// Ensures that all nameserver entries are valid IPv4 or IPv6 addresses.
+    /// Arbitrary hostnames are not permitted as nameservers.
+    ///
+    /// - Throws: ``ContainerizationError`` with code `.invalidArgument` if
+    ///   any nameserver is not a valid IP address.
+    public func validate() throws {
+        for nameserver in nameservers {
+            let isValidIPv4 = (try? IPv4Address(nameserver)) != nil
+            let isValidIPv6 = (try? IPv6Address(nameserver)) != nil
+            if !isValidIPv4 && !isValidIPv6 {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "nameserver '\(nameserver)' is not a valid IPv4 or IPv6 address"
+                )
+            }
+        }
     }
 }
 

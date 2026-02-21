@@ -51,4 +51,34 @@ struct DNSTests {
         let expected = "nameserver 8.8.8.8\n"
         #expect(dns.resolvConf == expected)
     }
+
+    @Test func dnsValidateAcceptsValidIPv4Nameservers() throws {
+        let dns = DNS(nameservers: ["8.8.8.8", "1.1.1.1"])
+        #expect(throws: Never.self) { try dns.validate() }
+    }
+
+    @Test func dnsValidateAcceptsValidIPv6Nameservers() throws {
+        let dns = DNS(nameservers: ["2001:4860:4860::8888", "::1"])
+        #expect(throws: Never.self) { try dns.validate() }
+    }
+
+    @Test func dnsValidateAcceptsMixedIPv4AndIPv6Nameservers() throws {
+        let dns = DNS(nameservers: ["8.8.8.8", "2001:4860:4860::8844"])
+        #expect(throws: Never.self) { try dns.validate() }
+    }
+
+    @Test func dnsValidateAcceptsEmptyNameservers() throws {
+        let dns = DNS(nameservers: [])
+        #expect(throws: Never.self) { try dns.validate() }
+    }
+
+    @Test func dnsValidateRejectsHostname() {
+        let dns = DNS(nameservers: ["dns.example.com"])
+        #expect(throws: (any Error).self) { try dns.validate() }
+    }
+
+    @Test func dnsValidateRejectsInvalidAddress() {
+        let dns = DNS(nameservers: ["not-an-ip"])
+        #expect(throws: (any Error).self) { try dns.validate() }
+    }
 }
