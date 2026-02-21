@@ -55,6 +55,7 @@ let package = Package(
                 .product(name: "ContainerizationIO", package: "containerization"),
                 .product(name: "ContainerizationOS", package: "containerization"),
                 .product(name: "SystemPackage", package: "swift-system"),
+                .product(name: "_ContainerizationTar", package: "containerization"),
                 "LCShim",
                 "Cgroup",
             ]
