@@ -81,6 +81,9 @@ public final class LinuxPod: Sendable {
         public var dns: DNS?
         /// The hosts file configuration for the container.
         public var hosts: Hosts?
+        /// Run the container with a minimal init process that handles signal
+        /// forwarding and zombie reaping.
+        public var useInit: Bool = false
 
         public init() {}
     }
@@ -209,6 +212,12 @@ public final class LinuxPod: Sendable {
 
         // Process configuration
         spec.process = config.process.toOCI()
+
+        // Wrap with init process if requested.
+        if config.useInit {
+            let originalArgs = spec.process?.args ?? []
+            spec.process?.args = ["/.cz-init", "--"] + originalArgs
+        }
 
         // General toggles
         spec.hostname = config.hostname
@@ -508,11 +517,25 @@ extension LinuxPod {
                 // Also filter out file mount holding directories - we mount those separately under /run.
                 let containerMounts = createdState.vm.mounts[containerID] ?? []
                 let holdingTags = container.fileMountContext.holdingDirectoryTags
-                spec.mounts =
+                var mounts: [ContainerizationOCI.Mount] =
                     containerMounts.dropFirst()
                     .filter { !holdingTags.contains($0.source) }
                     .map { $0.to }
                     + container.fileMountContext.ociBindMounts()
+
+                // When useInit is enabled, bind mount vminitd from the VM's filesystem
+                // into the container so it can be executed.
+                if container.config.useInit {
+                    mounts.append(
+                        ContainerizationOCI.Mount(
+                            type: "bind",
+                            source: "/sbin/vminitd",
+                            destination: "/.cz-init",
+                            options: ["bind", "ro"]
+                        ))
+                }
+
+                spec.mounts = mounts
 
                 // Configure namespaces for the container
                 var namespaces: [LinuxNamespace] = [

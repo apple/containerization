@@ -74,6 +74,9 @@ public final class LinuxContainer: Container, Sendable {
         /// EXPERIMENTAL: Path in the root filesystem for the virtual
         /// machine where the OCI runtime used to spawn the container lives.
         public var ociRuntimePath: String?
+        /// Run the container with a minimal init process that handles signal
+        /// forwarding and zombie reaping.
+        public var useInit: Bool = false
 
         public init() {}
 
@@ -90,7 +93,8 @@ public final class LinuxContainer: Container, Sendable {
             hosts: Hosts? = nil,
             virtualization: Bool = false,
             bootLog: BootLog? = nil,
-            ociRuntimePath: String? = nil
+            ociRuntimePath: String? = nil,
+            useInit: Bool = false
         ) {
             self.process = process
             self.cpus = cpus
@@ -105,6 +109,7 @@ public final class LinuxContainer: Container, Sendable {
             self.virtualization = virtualization
             self.bootLog = bootLog
             self.ociRuntimePath = ociRuntimePath
+            self.useInit = useInit
         }
     }
 
@@ -333,6 +338,12 @@ public final class LinuxContainer: Container, Sendable {
 
         // Process toggles.
         spec.process = config.process.toOCI()
+
+        // Wrap with init process if requested.
+        if config.useInit {
+            let originalArgs = spec.process?.args ?? []
+            spec.process?.args = ["/.cz-init", "--"] + originalArgs
+        }
 
         // General toggles.
         spec.hostname = config.hostname
@@ -619,11 +630,25 @@ extension LinuxContainer {
                 let holdingTags = createdState.fileMountContext.holdingDirectoryTags
                 // Drop rootfs, and writable layer if present.
                 let mountsToSkip = self.writableLayer != nil ? 2 : 1
-                spec.mounts =
+                var mounts: [ContainerizationOCI.Mount] =
                     containerMounts.dropFirst(mountsToSkip)
                     .filter { !holdingTags.contains($0.source) }
                     .map { $0.to }
                     + createdState.fileMountContext.ociBindMounts()
+
+                // When useInit is enabled, bind mount vminitd from the VM's filesystem
+                // into the container so it can be executed.
+                if self.config.useInit {
+                    mounts.append(
+                        ContainerizationOCI.Mount(
+                            type: "bind",
+                            source: "/sbin/vminitd",
+                            destination: "/.cz-init",
+                            options: ["bind", "ro"]
+                        ))
+                }
+
+                spec.mounts = mounts
 
                 let stdio = IOUtil.setup(
                     portAllocator: self.hostVsockPorts,
