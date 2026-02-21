@@ -18,6 +18,7 @@
 
 import ContainerizationError
 import ContainerizationOCI
+import ContainerizationOS
 import Foundation
 
 /// Manages single-file mounts by transforming them into virtiofs directory shares
@@ -132,8 +133,14 @@ extension FileMountContext {
         mount: Mount,
         runtimeOptions: [String]
     ) throws -> PreparedMount {
-        let resolvedSource = URL(fileURLWithPath: mount.source).resolvingSymlinksInPath()
         let sourceURL = URL(fileURLWithPath: mount.source)
+        let resolvedSource: URL
+        if sourceURL.isSymlink, let rawTarget = sourceURL.rawSymlinkTarget() {
+            resolvedSource = URL(fileURLWithPath: rawTarget, relativeTo: sourceURL.deletingLastPathComponent())
+                .standardized
+        } else {
+            resolvedSource = sourceURL
+        }
         let filename = sourceURL.lastPathComponent
 
         let tempDir = FileManager.default.temporaryDirectory

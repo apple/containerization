@@ -15,6 +15,7 @@
 //===----------------------------------------------------------------------===//
 
 import CArchive
+import ContainerizationOS
 import Foundation
 
 /// A class responsible for writing archives in various formats.
@@ -302,13 +303,18 @@ extension ArchiveWriter {
                 }
                 size = Int64(_size)
             } else if type == .symbolicLink {
-                let target = fileURL.resolvingSymlinksInPath().absoluteString
-                let root = dir.absoluteString
-                guard target.hasPrefix(root) else {
+                guard let rawTarget = fileURL.rawSymlinkTarget() else {
                     continue
                 }
-                let linkTarget = target.dropFirst(root.count + 1)
-                entry.symlinkTarget = String(linkTarget)
+                let resolvedTarget = URL(
+                    fileURLWithPath: rawTarget,
+                    relativeTo: fileURL.deletingLastPathComponent()
+                ).standardized
+                let rootPath = dir.standardizedFileURL.path
+                guard resolvedTarget.path.hasPrefix(rootPath) else {
+                    continue
+                }
+                entry.symlinkTarget = rawTarget
             }
 
             guard let created = resourceValues.creationDate else {

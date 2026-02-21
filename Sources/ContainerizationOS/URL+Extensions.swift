@@ -50,4 +50,13 @@ extension URL {
     public var isSymlink: Bool {
         (try? resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true
     }
+
+    #if os(macOS)
+    public func rawSymlinkTarget() -> String? {
+        var buf = [CChar](repeating: 0, count: Int(PATH_MAX))
+        let len = Darwin.readlink(self.path(percentEncoded: false), &buf, buf.count - 1)
+        guard len > 0 else { return nil }
+        return String(decoding: buf[0..<len].map { UInt8(bitPattern: $0) }, as: UTF8.self)
+    }
+    #endif
 }
