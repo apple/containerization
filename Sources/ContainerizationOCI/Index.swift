@@ -34,14 +34,22 @@ public struct Index: Codable, Sendable {
     /// annotations contains arbitrary metadata for the image index.
     public var annotations: [String: String]?
 
+    /// `subject` references another manifest this index is an artifact of.
+    public let subject: Descriptor?
+
+    /// `artifactType` specifies the IANA media type of the artifact this index represents.
+    public let artifactType: String?
+
     public init(
         schemaVersion: Int = 2, mediaType: String = MediaTypes.index, manifests: [Descriptor],
-        annotations: [String: String]? = nil
+        annotations: [String: String]? = nil, subject: Descriptor? = nil, artifactType: String? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.mediaType = mediaType
         self.manifests = manifests
         self.annotations = annotations
+        self.subject = subject
+        self.artifactType = artifactType
     }
 
     public init(from decoder: Decoder) throws {
@@ -50,5 +58,7 @@ public struct Index: Codable, Sendable {
         self.mediaType = try container.decodeIfPresent(String.self, forKey: .mediaType) ?? ""
         self.manifests = try container.decode([Descriptor].self, forKey: .manifests)
         self.annotations = try container.decodeIfPresent([String: String].self, forKey: .annotations)
+        self.subject = try container.decodeIfPresent(Descriptor.self, forKey: .subject)
+        self.artifactType = try container.decodeIfPresent(String.self, forKey: .artifactType)
     }
 }
