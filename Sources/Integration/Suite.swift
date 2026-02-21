@@ -289,6 +289,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("process true", testProcessTrue),
                 Test("process false", testProcessFalse),
                 Test("process echo hi", testProcessEchoHi),
+                Test("process no executable", testProcessNoExecutable),
                 Test("process user", testProcessUser),
                 Test("process stdin", testProcessStdin),
                 Test("process home envvar", testProcessHomeEnvvar),
