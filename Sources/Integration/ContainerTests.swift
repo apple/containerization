@@ -3140,4 +3140,111 @@ extension IntegrationSuite {
                 msg: "expected 'input through init', got '\(String(data: buffer.data, encoding: .utf8) ?? "nil")'")
         }
     }
+
+    @available(macOS 26.0, *)
+    func testNetworkingDisabled() async throws {
+        let id = "test-networking-disabled"
+        let bs = try await bootstrap(id)
+
+        let network = try ContainerManager.VmnetNetwork()
+        var manager = try ContainerManager(vmm: bs.vmm, network: network)
+        defer {
+            try? manager.delete(id)
+        }
+
+        let buffer = BufferWriter()
+        let container = try await manager.create(
+            id,
+            image: bs.image,
+            rootfs: bs.rootfs,
+            networking: false
+        ) { config in
+            config.process.arguments = ["ls", "-1", "/sys/class/net/"]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let status = try await container.wait()
+            try await container.stop()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ls /sys/class/net/ failed with status \(status)")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert output to UTF8")
+            }
+
+            // With networking disabled, only the loopback interface should exist
+            let interfaces = output.trimmingCharacters(in: .whitespacesAndNewlines)
+                .split(separator: "\n")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+            guard interfaces == ["lo"] else {
+                throw IntegrationError.assert(
+                    msg: "expected only 'lo' interface, got: \(interfaces)")
+            }
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    @available(macOS 26.0, *)
+    func testNetworkingEnabled() async throws {
+        let id = "test-networking-enabled"
+        let bs = try await bootstrap(id)
+
+        let network = try ContainerManager.VmnetNetwork()
+        var manager = try ContainerManager(vmm: bs.vmm, network: network)
+        defer {
+            try? manager.delete(id)
+        }
+
+        let buffer = BufferWriter()
+        let container = try await manager.create(
+            id,
+            image: bs.image,
+            rootfs: bs.rootfs
+        ) { config in
+            config.process.arguments = ["ls", "-1", "/sys/class/net/"]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let status = try await container.wait()
+            try await container.stop()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ls /sys/class/net/ failed with status \(status)")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert output to UTF8")
+            }
+
+            // With networking enabled (default), eth0 should be present alongside lo
+            let interfaces = Set(
+                output.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .split(separator: "\n")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+            )
+            guard interfaces.contains("lo") else {
+                throw IntegrationError.assert(msg: "expected 'lo' interface, got: \(interfaces)")
+            }
+            guard interfaces.contains("eth0") else {
+                throw IntegrationError.assert(msg: "expected 'eth0' interface, got: \(interfaces)")
+            }
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
 }
