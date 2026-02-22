@@ -1909,6 +1909,63 @@ extension IntegrationSuite {
         }
     }
 
+    func testExecCustomPathResolution() async throws {
+        let id = "test-exec-custom-path"
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/sleep", "1000"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Create a script in a non-standard directory
+            let setup = try await container.exec("setup") { config in
+                config.arguments = [
+                    "sh", "-c",
+                    "mkdir -p /tmp/custom-bin && printf '#!/bin/sh\\necho CUSTOM_PATH_OK' > /tmp/custom-bin/mytest && chmod +x /tmp/custom-bin/mytest",
+                ]
+            }
+            try await setup.start()
+            let setupStatus = try await setup.wait()
+            try await setup.delete()
+            guard setupStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "setup failed: \(setupStatus)")
+            }
+
+            // Exec bare command with custom PATH — this exercises ExecCommand.swift
+            let buffer = BufferWriter()
+            let exec = try await container.exec("custom-path") { config in
+                config.arguments = ["mytest"]
+                config.environmentVariables = ["PATH=/tmp/custom-bin"]
+                config.stdout = buffer
+            }
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "exec with custom PATH failed: \(status)")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to read output")
+            }
+            guard output.contains("CUSTOM_PATH_OK") else {
+                throw IntegrationError.assert(msg: "expected CUSTOM_PATH_OK, got: \(output)")
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
     func testStdinExplicitClose() async throws {
         let id = "test-stdin-explicit-close"
         let bs = try await bootstrap(id)
