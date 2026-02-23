@@ -98,7 +98,18 @@ public struct Vminitd: Sendable {
     private let grpcClient: GRPCClient<HTTP2ClientTransport.WrappedChannel>
     private let connectionTask: Task<Void, Error>
 
+    /// Retains the underlying vsock connection to keep the file descriptor
+    /// valid for the gRPC client's lifetime. The Virtualization framework
+    /// tears down the vsock endpoint when the connection is closed, which
+    /// invalidates dup'd descriptors. Must remain open until the gRPC
+    /// channel is shut down.
+    private let transport: VsockTransport?
+
     public init(connection: FileHandle, group: any EventLoopGroup) throws {
+        try self.init(connection: connection, transport: nil, group: group)
+    }
+
+    init(connection: FileHandle, transport: VsockTransport?, group: any EventLoopGroup) throws {
         let channel = try ClientBootstrap(group: group)
             .channelInitializer { channel in
                 channel.eventLoop.makeCompletedFuture(withResultOf: {
@@ -106,12 +117,13 @@ public struct Vminitd: Sendable {
                 })
             }
             .withConnectedSocket(connection.fileDescriptor).wait()
-        let transport = HTTP2ClientTransport.WrappedChannel.wrapping(
+        let channelTransport = HTTP2ClientTransport.WrappedChannel.wrapping(
             channel: channel,
         )
-        let grpcClient = GRPCClient(transport: transport)
+        let grpcClient = GRPCClient(transport: channelTransport)
         self.grpcClient = grpcClient
         self.client = Com_Apple_Containerization_Sandbox_V3_SandboxContext.Client(wrapping: self.grpcClient)
+        self.transport = transport
         // Not very structured concurrency friendly, but we'd need to expose a way on the protocol to "run" the
         // agent otherwise, which some agents might not even need.
         self.connectionTask = Task {
@@ -122,6 +134,7 @@ public struct Vminitd: Sendable {
     /// Close the connection to the guest agent.
     public func close() async throws {
         self.grpcClient.beginGracefulShutdown()
+        defer { transport?.close() }
         try await self.connectionTask.value
     }
 }
