@@ -36,14 +36,22 @@ public struct Manifest: Codable, Sendable {
     /// `annotations` contains arbitrary metadata for the image manifest.
     public let annotations: [String: String]?
 
+    /// `subject` references another manifest this manifest is an artifact of.
+    public let subject: Descriptor?
+
+    /// `artifactType` specifies the IANA media type of the artifact this manifest represents.
+    public let artifactType: String?
+
     public init(
         schemaVersion: Int = 2, mediaType: String = MediaTypes.imageManifest, config: Descriptor, layers: [Descriptor],
-        annotations: [String: String]? = nil
+        annotations: [String: String]? = nil, subject: Descriptor? = nil, artifactType: String? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.mediaType = mediaType
         self.config = config
         self.layers = layers
         self.annotations = annotations
+        self.subject = subject
+        self.artifactType = artifactType
     }
 }
