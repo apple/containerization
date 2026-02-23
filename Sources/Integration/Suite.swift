@@ -261,7 +261,9 @@ struct IntegrationSuite: AsyncParsableCommand {
     private func macOS26Tests() -> [Test] {
         if #available(macOS 26.0, *) {
             return [
-                Test("container interface custom MTU", testInterfaceMTU)
+                Test("container interface custom MTU", testInterfaceMTU),
+                Test("container networking disabled", testNetworkingDisabled),
+                Test("container networking enabled", testNetworkingEnabled),
             ]
         }
         return []
