@@ -76,6 +76,10 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 "Containerization",
+                "ContainerizationArchive",
+                "ContainerizationEXT4",
+                "ContainerizationExtras",
+                "ContainerizationOCI",
                 "ContainerizationOS",
             ]
         ),
