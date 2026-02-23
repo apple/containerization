@@ -336,6 +336,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container writable layer DNS and hosts", testWritableLayerWithDNSAndHosts),
                 Test("large stdin input", testLargeStdinInput),
                 Test("exec large stdin input", testExecLargeStdinInput),
+                Test("exec custom path resolution", testExecCustomPathResolution),
                 Test("stdin explicit close", testStdinExplicitClose),
                 Test("stdin binary data", testStdinBinaryData),
                 Test("stdin multiple chunks", testStdinMultipleChunks),
