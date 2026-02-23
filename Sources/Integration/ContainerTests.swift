@@ -3208,6 +3208,12 @@ extension IntegrationSuite {
     /// where the fd must remain valid — if the VZVirtioSocketConnection is
     /// closed prematurely, the fd may be invalidated by the time NIO tries
     /// fcntl(F_SETNOSIGPIPE), causing a precondition failure.
+    ///
+    /// The same VsockTransport fix also applies to the waitForAgent() startup
+    /// path (where the first RPC is setTime via TimeSyncer). That path is
+    /// implicitly exercised by every integration test that boots a container,
+    /// but isn't stress-tested with an artificial delay here because the timing
+    /// depends on VM boot and Rosetta setup, which aren't controllable.
     func testExecDeferredConnectionStability() async throws {
         let id = "test-exec-deferred-connection-stability"
 
