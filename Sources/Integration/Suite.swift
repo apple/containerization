@@ -369,6 +369,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container useInit zombie reaping", testUseInitZombieReaping),
                 Test("container useInit with terminal", testUseInitWithTerminal),
                 Test("container useInit with stdin", testUseInitWithStdin),
+                Test("exec deferred connection stability", testExecDeferredConnectionStability),
                 Test("container sysctl", testSysctl),
                 Test("container sysctl multiple", testSysctlMultiple),
                 Test("container noNewPrivileges", testNoNewPrivileges),
