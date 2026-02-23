@@ -52,6 +52,13 @@ public final class VsockListener: NSObject, Sendable, AsyncSequence {
 #if os(macOS)
 
 extension VsockListener: VZVirtioSocketListenerDelegate {
+    /// Accepts a new vsock connection by dup'ing its fd and closing the original.
+    ///
+    /// The dup'd fd is yielded into the `AsyncStream` for immediate consumption.
+    /// Callers must use the `FileHandle` before any suspension point — the
+    /// Virtualization framework tears down the vsock endpoint when the connection
+    /// is closed, which can invalidate dup'd descriptors if the underlying kernel
+    /// object is reclaimed. For deferred use (e.g., gRPC/NIO), see `VsockTransport`.
     public func listener(
         _: VZVirtioSocketListener, shouldAcceptNewConnection conn: VZVirtioSocketConnection,
         from _: VZVirtioSocketDevice
