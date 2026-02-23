@@ -3198,6 +3198,70 @@ extension IntegrationSuite {
         }
     }
 
+    /// Exercises the dialAgent() → gRPC RPC path that previously crashed with
+    /// EBADF when the VZVirtioSocketConnection was closed before the gRPC
+    /// client made its first call.
+    ///
+    /// Each exec() call creates a new vsock connection via dialAgent(). The
+    /// gRPC ClientConnection defers NIO channel creation until the first RPC
+    /// (createProcess). A delay between exec() and start() widens the window
+    /// where the fd must remain valid — if the VZVirtioSocketConnection is
+    /// closed prematurely, the fd may be invalidated by the time NIO tries
+    /// fcntl(F_SETNOSIGPIPE), causing a precondition failure.
+    func testExecDeferredConnectionStability() async throws {
+        let id = "test-exec-deferred-connection-stability"
+
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/sleep", "1000"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Run multiple sequential exec calls with delays between creating the
+            // gRPC connection (exec) and making the first RPC (start). This is the
+            // pattern that triggered the EBADF crash: the fd was dup'd, the
+            // VZVirtioSocketConnection was closed, and by the time NIO tried to
+            // create the channel the fd was invalid.
+            for i in 0..<10 {
+                let buffer = BufferWriter()
+                let exec = try await container.exec("deferred-\(i)") { config in
+                    config.arguments = ["/bin/echo", "exec-\(i)"]
+                    config.stdout = buffer
+                }
+
+                // Delay between exec() (which calls dialAgent/creates gRPC connection)
+                // and start() (which triggers the first RPC/NIO channel creation).
+                try await Task.sleep(for: .milliseconds(100))
+
+                try await exec.start()
+                let status = try await exec.wait()
+                try await exec.delete()
+
+                guard status.exitCode == 0 else {
+                    throw IntegrationError.assert(msg: "exec deferred-\(i) status \(status) != 0")
+                }
+
+                guard let output = String(data: buffer.data, encoding: .utf8) else {
+                    throw IntegrationError.assert(msg: "failed to read output from deferred-\(i)")
+                }
+                guard output.trimmingCharacters(in: .whitespacesAndNewlines) == "exec-\(i)" else {
+                    throw IntegrationError.assert(msg: "deferred-\(i) output mismatch: \(output)")
+                }
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
     @available(macOS 26.0, *)
     func testNetworkingDisabled() async throws {
         let id = "test-networking-disabled"
