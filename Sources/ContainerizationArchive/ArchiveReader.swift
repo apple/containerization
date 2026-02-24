@@ -19,7 +19,6 @@ import ContainerizationError
 import ContainerizationOS
 import Foundation
 import SystemPackage
-import libzstd
 
 /// A protocol for reading data in chunks, compatible with both `InputStream` and zero-allocation archive readers.
 public protocol ReadableStream {
@@ -127,78 +126,24 @@ public final class ArchiveReader {
 
     /// Decompress a zstd file to a temporary location
     private static func decompressZstd(_ source: URL) throws -> URL {
-        let inputStream: InputStream?
-        if source.scheme == nil || source.scheme == "" {
-            // can't use InputStream(url:) with nil scheme
-            inputStream = .init(fileAtPath: source.path)
-        } else {
-            inputStream = InputStream(url: source)
-        }
-
-        guard let inputStream else {
-            throw ArchiveError.noUnderlyingArchive
-        }
-        inputStream.open()
-        defer { inputStream.close() }
-
-        // Create temp file into which the source zstd archived is decompressed
         guard let tempDir = createTemporaryDirectory(baseName: "zstd-decompress") else {
             throw ArchiveError.failedToDetectFormat
         }
-
         let tempFile = tempDir.appendingPathComponent(
             source.deletingPathExtension().lastPathComponent
         )
 
-        guard let outputStream = OutputStream(url: tempFile, append: false) else {
-            throw ArchiveError.noUnderlyingArchive
-        }
-        outputStream.open()
-        defer { outputStream.close() }
+        let srcPath = source.scheme == nil || source.scheme == "" ? source.path : source.path
+        let srcFd = open(srcPath, O_RDONLY)
+        guard srcFd >= 0 else { throw ArchiveError.failedToDetectFormat }
+        defer { close(srcFd) }
 
-        // Use streaming decompression since content size may be unknown
-        guard let dstream = ZSTD_createDStream() else {
+        let dstFd = open(tempFile.path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
+        guard dstFd >= 0 else { throw ArchiveError.failedToDetectFormat }
+        defer { close(dstFd) }
+
+        guard zstd_decompress_fd(srcFd, dstFd) == 0 else {
             throw ArchiveError.failedToDetectFormat
-        }
-        defer { ZSTD_freeDStream(dstream) }
-
-        let initResult = ZSTD_initDStream(dstream)
-        guard ZSTD_isError(initResult) == 0 else {
-            throw ArchiveError.failedToDetectFormat
-        }
-
-        let inputBufferSize = ZSTD_DStreamInSize()
-        let outputBufferSize = ZSTD_DStreamOutSize()
-
-        var inputBuffer = [UInt8](repeating: 0, count: inputBufferSize)
-
-        while case let amount = inputStream.read(&inputBuffer, maxLength: inputBufferSize), amount > 0 {
-            try inputBuffer.withUnsafeBufferPointer { ptr in
-                var input = ZSTD_inBuffer(
-                    src: ptr.baseAddress,
-                    size: amount,
-                    pos: 0
-                )
-                while input.pos < input.size {
-                    var outputBuffer = [UInt8](repeating: 0, count: outputBufferSize)
-                    var decompressedBytes = 0
-                    try outputBuffer.withUnsafeMutableBytes { outputBytes in
-                        var output = ZSTD_outBuffer(
-                            dst: outputBytes.baseAddress,
-                            size: outputBufferSize,
-                            pos: 0
-                        )
-                        let result = ZSTD_decompressStream(dstream, &output, &input)
-                        guard ZSTD_isError(result) == 0 else {
-                            throw ArchiveError.failedToDetectFormat
-                        }
-                        decompressedBytes = output.pos
-                    }
-                    if decompressedBytes > 0 {
-                        outputStream.write(outputBuffer, maxLength: decompressedBytes)
-                    }
-                }
-            }
         }
         return tempFile
     }
