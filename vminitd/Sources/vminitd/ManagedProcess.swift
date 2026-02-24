@@ -263,7 +263,8 @@ extension ManagedProcess {
             {
                 throw ContainerizationError(
                     .internalError,
-                    message: "vmexec error: \(errorString.trimmingCharacters(in: .whitespacesAndNewlines))"
+                    message: "vmexec error: \(errorString.trimmingCharacters(in: .whitespacesAndNewlines))",
+                    cause: error
                 )
             }
             throw error
