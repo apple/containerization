@@ -19,6 +19,20 @@ import Foundation
 
 // MARK: - Configuration Types
 
+public enum CapabilityParsingError: Swift.Error, CustomStringConvertible {
+    case invalidCapabilitySet(String)
+    case invalidCapabilityName(String)
+
+    public var description: String {
+        switch self {
+        case .invalidCapabilitySet(let value):
+            return "invalid CapabilitySet value '\(value)'"
+        case .invalidCapabilityName(let value):
+            return "invalid CapabilityName '\(value)'"
+        }
+    }
+}
+
 public struct CapabilitySet: Sendable, Hashable {
     private enum Value: Hashable, Sendable, CaseIterable {
         case bounding
@@ -33,14 +47,13 @@ public struct CapabilitySet: Sendable, Hashable {
         self.value = value
     }
 
-    public init(rawValue: String) {
+    public init(rawValue: String) throws {
         let values = Value.allCases.reduce(into: [String: Value]()) {
-            $0[String(describing: $1)] = $1
+            $0[String(describing: $1).lowercased()] = $1
         }
 
-        let match = values[rawValue]
-        guard let match else {
-            fatalError("invalid CapabilitySet Value \(rawValue)")
+        guard let match = values[rawValue.lowercased()] else {
+            throw CapabilityParsingError.invalidCapabilitySet(rawValue)
         }
         self.value = match
     }
@@ -108,8 +121,9 @@ public struct CapabilityName: Sendable, Hashable {
         self.value = value
     }
 
-    public init(rawValue: String) {
-        let normalized = rawValue.hasPrefix("CAP_") ? rawValue : "CAP_\(rawValue)"
+    public init(rawValue: String) throws {
+        let uppercased = rawValue.uppercased()
+        let normalized = uppercased.hasPrefix("CAP_") ? uppercased : "CAP_\(uppercased)"
 
         let capNameMap: [String: Value] = [
             "CAP_CHOWN": .chown,
@@ -156,7 +170,7 @@ public struct CapabilityName: Sendable, Hashable {
         ]
 
         guard let match = capNameMap[normalized] else {
-            fatalError("invalid CapabilityName \(normalized)")
+            throw CapabilityParsingError.invalidCapabilityName(rawValue)
         }
         self.value = match
     }
