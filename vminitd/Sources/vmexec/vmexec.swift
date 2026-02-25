@@ -192,11 +192,11 @@ extension App {
         // Create capabilities instance from OCI config
         var caps = ContainerizationOS.LinuxCapabilities()
 
-        caps.set(which: [.effective], caps: (capabilities.effective ?? []).compactMap { CapabilityName(rawValue: $0) })
-        caps.set(which: [.permitted], caps: (capabilities.permitted ?? []).compactMap { CapabilityName(rawValue: $0) })
-        caps.set(which: [.inheritable], caps: (capabilities.inheritable ?? []).compactMap { CapabilityName(rawValue: $0) })
-        caps.set(which: [.bounding], caps: (capabilities.bounding ?? []).compactMap { CapabilityName(rawValue: $0) })
-        caps.set(which: [.ambient], caps: (capabilities.ambient ?? []).compactMap { CapabilityName(rawValue: $0) })
+        caps.set(which: [.effective], caps: (capabilities.effective ?? []).compactMap { try? CapabilityName(rawValue: $0) })
+        caps.set(which: [.permitted], caps: (capabilities.permitted ?? []).compactMap { try? CapabilityName(rawValue: $0) })
+        caps.set(which: [.inheritable], caps: (capabilities.inheritable ?? []).compactMap { try? CapabilityName(rawValue: $0) })
+        caps.set(which: [.bounding], caps: (capabilities.bounding ?? []).compactMap { try? CapabilityName(rawValue: $0) })
+        caps.set(which: [.ambient], caps: (capabilities.ambient ?? []).compactMap { try? CapabilityName(rawValue: $0) })
 
         // Apply bounding set BEFORE user change (drop capabilities early)
         do {
