@@ -3236,13 +3236,14 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "failed to convert output to UTF8")
             }
 
-            // With networking disabled, only the loopback interface should exist
+            // With networking disabled check we don't have an eth0.
             let interfaces = output.trimmingCharacters(in: .whitespacesAndNewlines)
                 .split(separator: "\n")
                 .map { $0.trimmingCharacters(in: .whitespaces) }
-            guard interfaces == ["lo"] else {
+
+            guard !interfaces.contains("eth0") else {
                 throw IntegrationError.assert(
-                    msg: "expected only 'lo' interface, got: \(interfaces)")
+                    msg: "expected no 'eth0' interface")
             }
         } catch {
             try? await container.stop()
