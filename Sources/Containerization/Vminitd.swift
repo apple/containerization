@@ -22,6 +22,8 @@ import Foundation
 import GRPC
 import NIOCore
 import NIOPosix
+import SystemPackage
+import _ContainerizationTar
 
 /// A remote connection into the vminitd Linux guest agent via a port (vsock).
 /// Used to modify the runtime environment of the Linux sandbox.
@@ -525,6 +527,152 @@ extension Vminitd {
                 await progress?([ProgressEvent(event: "add-size", value: Int64(data.count))])
             case .none:
                 break
+            }
+        }
+    }
+    
+    /// Copy a directory from the host into the guest by streaming a tar archive.
+    public func copyDirIn(
+        from source: URL,
+        to destination: URL,
+        createParents: Bool,
+        chunkSize: Int,
+        progress: ProgressHandler?
+    ) async throws {
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + ".tar")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let writeFD = try FileDescriptor.open(
+            FilePath(tempURL.path),
+            .writeOnly,
+            options: [.create, .truncate],
+            permissions: [.ownerReadWrite]
+        )
+        let writer = TarWriter(fileDescriptor: writeFD, ownsFileDescriptor: false)
+        try Vminitd.tarDirectory(source: source, writer: writer, basePath: "")
+        try writer.finalize()
+        try writeFD.close()
+
+        let call = client.makeCopyDirInCall()
+
+        try await call.requestStream.send(.with {
+            $0.content = .init_p(.with {
+                $0.path = destination.path
+                $0.createParents = createParents
+            })
+        })
+
+        let readHandle = try FileHandle(forReadingFrom: tempURL)
+        defer { try? readHandle.close() }
+
+        while true {
+            guard let data = try readHandle.read(upToCount: chunkSize), !data.isEmpty else {
+                break
+            }
+            try await call.requestStream.send(.with { $0.content = .data(data) })
+        }
+
+        call.requestStream.finish()
+        _ = try await call.response
+    }
+
+    /// Copy a directory from the guest to the host by receiving a tar archive.
+    public func copyDirOut(
+        from source: URL,
+        to destination: URL,
+        createParents: Bool,
+        chunkSize: Int,
+        progress: ProgressHandler?
+    ) async throws {
+        if createParents {
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        }
+
+        let request = Com_Apple_Containerization_Sandbox_V3_CopyDirOutRequest.with {
+            $0.path = source.path
+        }
+
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + ".tar")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let fd = open(tempURL.path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
+        guard fd != -1 else {
+            throw ContainerizationError(
+                .internalError,
+                message: "copyDirOut: failed to create temp file '\(tempURL.path)': \(String(cString: strerror(errno)))"
+            )
+        }
+        let writeHandle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+
+        let stream = client.copyDirOut(request)
+        for try await chunk in stream {
+            writeHandle.write(chunk.data)
+        }
+        try writeHandle.close()
+
+        let readFD = try FileDescriptor.open(FilePath(tempURL.path), .readOnly)
+        defer { try? readFD.close() }
+        let reader = TarReader(fileDescriptor: readFD, ownsFileDescriptor: false)
+        try Vminitd.extractTar(reader: reader, to: destination)
+    }
+
+    /// Recursively walk a directory and write entries to a TarWriter.
+    private static func tarDirectory(source: URL, writer: TarWriter, basePath: String) throws {
+        let fm = FileManager.default
+        let items = try fm.contentsOfDirectory(at: source, includingPropertiesForKeys: nil)
+        for item in items {
+            let name = item.lastPathComponent
+            let entryPath = basePath.isEmpty ? name : "\(basePath)/\(name)"
+            let attrs = try fm.attributesOfItem(atPath: item.path)
+            let mode = (attrs[.posixPermissions] as? Int).map { UInt32($0) }
+            let fileType = attrs[.type] as? FileAttributeType
+
+            if fileType == .typeSymbolicLink {
+                let target = try fm.destinationOfSymbolicLink(atPath: item.path)
+                try writer.writeSymlink(path: entryPath, target: target)
+            } else if fileType == .typeDirectory {
+                try writer.writeDirectory(path: entryPath, mode: mode ?? 0o755)
+                try tarDirectory(source: item, writer: writer, basePath: entryPath)
+            } else {
+                let fd = try FileDescriptor.open(FilePath(item.path), .readOnly)
+                defer { try? fd.close() }
+                try writer.writeFile(path: entryPath, from: fd, mode: mode ?? 0o644)
+            }
+        }
+    }
+
+    /// Extract a tar archive to a destination directory.
+    private static func extractTar(reader: TarReader, to destURL: URL) throws {
+        let fm = FileManager.default
+        while let header = try reader.nextHeader() {
+            let relativePath = header.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            guard !relativePath.contains("..") else {
+                try reader.skipRemainingContent()
+                continue
+            }
+            let fullURL = relativePath.isEmpty ? destURL : destURL.appending(path: relativePath)
+
+            switch header.entryType {
+            case .directory:
+                try fm.createDirectory(at: fullURL, withIntermediateDirectories: true)
+            case .regular, .regularAlt, .contiguous:
+                let parentDir = fullURL.deletingLastPathComponent()
+                try fm.createDirectory(at: parentDir, withIntermediateDirectories: true)
+                let fd = open(fullURL.path, O_WRONLY | O_CREAT | O_TRUNC, mode_t(header.mode > 0 ? header.mode : 0o644))
+                guard fd != -1 else {
+                    try reader.skipRemainingContent()
+                    continue
+                }
+                let fileFD = FileDescriptor(rawValue: fd)
+                defer { try? fileFD.close() }
+                try reader.readFile(to: fileFD)
+            case .symbolicLink:
+                try? fm.removeItem(at: fullURL)
+                try fm.createSymbolicLink(atPath: fullURL.path, withDestinationPath: header.linkName)
+            default:
+                try reader.skipRemainingContent()
             }
         }
     }

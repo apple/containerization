@@ -27,6 +27,8 @@ import Logging
 import NIOCore
 import NIOPosix
 import SwiftProtobuf
+import SystemPackage
+import _ContainerizationTar
 
 private let _setenv = Foundation.setenv
 
@@ -1293,6 +1295,164 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                     "error": "\(error)"
                 ])
             throw GRPCStatus(code: .internalError, message: "containerStatistics: \(error)")
+        }
+    }
+
+    func copyDirIn(
+        requestStream: GRPCAsyncRequestStream<Com_Apple_Containerization_Sandbox_V3_CopyDirInChunk>,
+        context: GRPC.GRPCAsyncServerCallContext
+    ) async throws -> Com_Apple_Containerization_Sandbox_V3_CopyDirInResponse {
+        var destPath = ""
+        var createParents = false
+        var writeHandle: FileHandle?
+
+        let tempPath = "/tmp/\(UUID().uuidString).tar"
+        defer { unlink(tempPath) }
+
+        for try await chunk in requestStream {
+            switch chunk.content {
+            case .init_p(let initMsg):
+                destPath = initMsg.path
+                createParents = initMsg.createParents
+
+                log.debug("copyDirIn", metadata: ["path": "\(destPath)", "createParents": "\(createParents)"])
+
+                if createParents {
+                    try FileManager.default.createDirectory(
+                        at: URL(fileURLWithPath: destPath),
+                        withIntermediateDirectories: true
+                    )
+                }
+
+                let fd = open(tempPath, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
+                guard fd != -1 else {
+                    throw GRPCStatus(
+                        code: .internalError,
+                        message: "copyDirIn: failed to create temp file: \(swiftErrno("open"))"
+                    )
+                }
+                writeHandle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+
+            case .data(let bytes):
+                if let wh = writeHandle, !bytes.isEmpty {
+                    wh.write(bytes)
+                }
+
+            case .none:
+                break
+            }
+        }
+
+        guard !destPath.isEmpty else {
+            throw GRPCStatus(code: .failedPrecondition, message: "copyDirIn: missing init message")
+        }
+
+        try writeHandle?.close()
+
+        let readFD = try FileDescriptor.open(FilePath(tempPath), .readOnly)
+        defer { try? readFD.close() }
+        let reader = TarReader(fileDescriptor: readFD, ownsFileDescriptor: false)
+        try Self.extractTar(reader: reader, to: URL(fileURLWithPath: destPath))
+
+        log.debug("copyDirIn complete", metadata: ["path": "\(destPath)"])
+        return .init()
+    }
+
+    func copyDirOut(
+        request: Com_Apple_Containerization_Sandbox_V3_CopyDirOutRequest,
+        responseStream: GRPCAsyncResponseStreamWriter<Com_Apple_Containerization_Sandbox_V3_CopyDirOutChunk>,
+        context: GRPC.GRPCAsyncServerCallContext
+    ) async throws {
+        let path = request.path
+        log.debug("copyDirOut", metadata: ["path": "\(path)"])
+
+        // Write tar to a temp file, then stream it.
+        let tempPath = "/tmp/\(UUID().uuidString).tar"
+        defer { unlink(tempPath) }
+
+        let sourceURL = URL(fileURLWithPath: path)
+
+        let writeFD = try FileDescriptor.open(
+            FilePath(tempPath),
+            .writeOnly,
+            options: [.create, .truncate],
+            permissions: [.ownerReadWrite]
+        )
+        let writer = TarWriter(fileDescriptor: writeFD, ownsFileDescriptor: false)
+        try Self.tarDirectory(source: sourceURL, writer: writer, basePath: "")
+        try writer.finalize()
+        try writeFD.close()
+
+        let readHandle = try FileHandle(forReadingFrom: URL(fileURLWithPath: tempPath))
+        defer { try? readHandle.close() }
+
+        while true {
+            guard let data = try readHandle.read(upToCount: Self.copyChunkSize), !data.isEmpty else {
+                break
+            }
+            try await responseStream.send(.with { $0.data = data })
+        }
+
+        log.debug("copyDirOut complete", metadata: ["path": "\(path)"])
+    }
+
+    /// Recursively walk a directory and write entries to a TarWriter.
+    private static func tarDirectory(source: URL, writer: TarWriter, basePath: String) throws {
+        let fm = FileManager.default
+        let items = try fm.contentsOfDirectory(at: source, includingPropertiesForKeys: nil)
+        for item in items {
+            let name = item.lastPathComponent
+            let entryPath = basePath.isEmpty ? name : "\(basePath)/\(name)"
+            let attrs = try fm.attributesOfItem(atPath: item.path)
+            let mode = (attrs[.posixPermissions] as? Int).map { UInt32($0) }
+            let fileType = attrs[.type] as? FileAttributeType
+
+            if fileType == .typeSymbolicLink {
+                let target = try fm.destinationOfSymbolicLink(atPath: item.path)
+                try writer.writeSymlink(path: entryPath, target: target)
+            } else if fileType == .typeDirectory {
+                try writer.writeDirectory(path: entryPath, mode: mode ?? 0o755)
+                try tarDirectory(source: item, writer: writer, basePath: entryPath)
+            } else {
+                let fd = try FileDescriptor.open(FilePath(item.path), .readOnly)
+                defer { try? fd.close() }
+                try writer.writeFile(path: entryPath, from: fd, mode: mode ?? 0o644)
+            }
+        }
+    }
+
+    /// Extract a tar archive into a destination directory.
+    private static func extractTar(reader: TarReader, to destURL: URL) throws {
+        let fm = FileManager.default
+        while let header = try reader.nextHeader() {
+            let relativePath = header.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            guard !relativePath.contains("..") else {
+                try reader.skipRemainingContent()
+                continue
+            }
+            let fullURL = relativePath.isEmpty ? destURL : destURL.appending(path: relativePath)
+
+            switch header.entryType {
+            case .directory:
+                try fm.createDirectory(at: fullURL, withIntermediateDirectories: true)
+            case .regular, .regularAlt, .contiguous:
+                let parentDir = fullURL.deletingLastPathComponent()
+                try fm.createDirectory(at: parentDir, withIntermediateDirectories: true)
+                let mode = mode_t(header.mode > 0 ? header.mode : 0o644)
+                let fd = open(fullURL.path, O_WRONLY | O_CREAT | O_TRUNC, mode)
+                guard fd != -1 else {
+                    try reader.skipRemainingContent()
+                    continue
+                }
+                let fileFD = FileDescriptor(rawValue: fd)
+                defer { try? fileFD.close() }
+                try reader.readFile(to: fileFD)
+            case .symbolicLink:
+                try? fm.removeItem(at: fullURL)
+                try fm.createSymbolicLink(atPath: fullURL.path, withDestinationPath: header.linkName)
+            default:
+                try reader.skipRemainingContent()
+            }
         }
     }
 

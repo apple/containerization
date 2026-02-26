@@ -3140,4 +3140,130 @@ extension IntegrationSuite {
                 msg: "expected 'input through init', got '\(String(data: buffer.data, encoding: .utf8) ?? "nil")'")
         }
     }
+
+    func testCopyDirIn() async throws {
+        let id = "test-copy-dir-in"
+        let bs = try await bootstrap(id)
+
+        let hostDir = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("mydir")
+        try FileManager.default.createDirectory(at: hostDir, withIntermediateDirectories: true)
+        try "hello from file1".write(to: hostDir.appendingPathComponent("file1.txt"), atomically: true, encoding: .utf8)
+        try "hello from file2".write(to: hostDir.appendingPathComponent("file2.txt"), atomically: true, encoding: .utf8)
+
+        let subdir = hostDir.appendingPathComponent("subdir")
+        try FileManager.default.createDirectory(at: subdir, withIntermediateDirectories: true)
+        try "hello from nested".write(to: subdir.appendingPathComponent("nested.txt"), atomically: true, encoding: .utf8)
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            try await container.copyDirIn(
+                from: hostDir,
+                to: URL(filePath: "/tmp/mydir")
+            )
+
+            let checks: [(path: String, expected: String)] = [
+                ("/tmp/mydir/file1.txt", "hello from file1"),
+                ("/tmp/mydir/file2.txt", "hello from file2"),
+                ("/tmp/mydir/subdir/nested.txt", "hello from nested"),
+            ]
+
+            for check in checks {
+                let buf = BufferWriter()
+                let exec = try await container.exec("check-\(check.path.split(separator: "/").last!)") { config in
+                    config.arguments = ["cat", check.path]
+                    config.stdout = buf
+                }
+                try await exec.start()
+                let status = try await exec.wait()
+                try await exec.delete()
+
+                guard status.exitCode == 0 else {
+                    throw IntegrationError.assert(msg: "cat \(check.path) failed with status \(status)")
+                }
+                let got = String(data: buf.data, encoding: .utf8) ?? ""
+                guard got == check.expected else {
+                    throw IntegrationError.assert(
+                        msg: "content mismatch for \(check.path): expected '\(check.expected)', got '\(got)'"
+                    )
+                }
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testCopyDirOut() async throws {
+        let id = "test-copy-dir-out"
+        let bs = try await bootstrap(id)
+
+        let hostDestination = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("out")
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let setup = try await container.exec("setup") { config in
+                config.arguments = ["sh", "-c", """
+                    mkdir -p /tmp/guestdir/subdir && \
+                    echo -n 'alpha' > /tmp/guestdir/alpha.txt && \
+                    echo -n 'beta' > /tmp/guestdir/beta.txt && \
+                    echo -n 'nested' > /tmp/guestdir/subdir/nested.txt
+                    """]
+            }
+            try await setup.start()
+            let setupStatus = try await setup.wait()
+            try await setup.delete()
+
+            guard setupStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "guest dir setup failed with status \(setupStatus)")
+            }
+
+            try await container.copyDirOut(
+                from: URL(filePath: "/tmp/guestdir"),
+                to: hostDestination
+            )
+
+            let checks: [(path: String, expected: String)] = [
+                ("alpha.txt", "alpha"),
+                ("beta.txt", "beta"),
+                ("subdir/nested.txt", "nested"),
+            ]
+
+            for check in checks {
+                let fileURL = hostDestination.appendingPathComponent(check.path)
+                let got = try String(contentsOf: fileURL, encoding: .utf8)
+                guard got == check.expected else {
+                    throw IntegrationError.assert(
+                        msg: "content mismatch for \(check.path): expected '\(check.expected)', got '\(got)'"
+                    )
+                }
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
 }

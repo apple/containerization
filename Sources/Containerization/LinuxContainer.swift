@@ -1089,6 +1089,54 @@ extension LinuxContainer {
             }
         }
     }
+
+    /// Copy a directory from the host into the container.
+    public func copyDirIn(
+        from source: URL,
+        to destination: URL,
+        createParents: Bool = true,
+        chunkSize: Int = defaultCopyChunkSize,
+        progress: ProgressHandler? = nil
+    ) async throws {
+        try await self.state.withLock {
+            let state = try $0.startedState("copyDirIn")
+
+            let guestPath = URL(filePath: self.root).appending(path: destination.path)
+            try await state.vm.withAgent { agent in
+                try await agent.copyDirIn(
+                    from: source,
+                    to: guestPath,
+                    createParents: createParents,
+                    chunkSize: chunkSize,
+                    progress: progress
+                )
+            }
+        }
+    }
+
+    /// Copy a directory from the container to the host.
+    public func copyDirOut(
+        from source: URL,
+        to destination: URL,
+        createParents: Bool = true,
+        chunkSize: Int = defaultCopyChunkSize,
+        progress: ProgressHandler? = nil
+    ) async throws {
+        try await self.state.withLock {
+            let state = try $0.startedState("copyDirOut")
+
+            let guestPath = URL(filePath: self.root).appending(path: source.path)
+            try await state.vm.withAgent { agent in
+                try await agent.copyDirOut(
+                    from: guestPath,
+                    to: destination,
+                    createParents: createParents,
+                    chunkSize: chunkSize,
+                    progress: progress
+                )
+            }
+        }
+    }
 }
 
 extension VirtualMachineInstance {

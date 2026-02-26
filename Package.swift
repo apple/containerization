@@ -65,6 +65,7 @@ let package = Package(
                 "ContainerizationOS",
                 "ContainerizationIO",
                 "ContainerizationExtras",
+                "_ContainerizationTar",
                 .target(name: "ContainerizationEXT4", condition: .when(platforms: [.macOS])),
             ],
             exclude: [

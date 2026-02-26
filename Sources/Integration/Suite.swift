@@ -323,6 +323,8 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container copy in", testCopyIn),
                 Test("container copy out", testCopyOut),
                 Test("container copy large file", testCopyLargeFile),
+                Test("container copy dir in", testCopyDirIn),
+                Test("container copy dir out", testCopyDirOut),
                 Test("container read-only rootfs", testReadOnlyRootfs),
                 Test("container read-only rootfs hosts file", testReadOnlyRootfsHostsFileWritten),
                 Test("container read-only rootfs DNS", testReadOnlyRootfsDNSConfigured),

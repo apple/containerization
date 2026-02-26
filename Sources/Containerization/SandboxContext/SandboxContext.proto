@@ -28,7 +28,10 @@ service SandboxContext {
   rpc CopyIn(stream CopyInChunk) returns (CopyInResponse);
   // Copy a file from the guest to the host.
   rpc CopyOut(CopyOutRequest) returns (stream CopyOutChunk);
-
+  // Copy a dir from the host into the guest
+  rpc CopyDirIn(stream CopyDirInChunk) returns (CopyDirInResponse);
+  // Copy a dir from the guest to the host.
+  rpc CopyDirOut(CopyDirOutRequest) returns (stream CopyDirOutChunk);
   // Create a new process inside the container.
   rpc CreateProcess(CreateProcessRequest) returns (CreateProcessResponse);
   // Delete an existing process inside the container.
@@ -266,6 +269,32 @@ message CopyOutChunk {
 message CopyOutInit {
   // Total file size in bytes.
   uint64 total_size = 1;
+}
+
+message CopyDirInChunk {
+  oneof content {
+    // Initialization message (must be first).
+    CopyDirInInit init = 1;
+    // File adta chunk
+    bytes data = 2;
+  }
+}
+
+message CopyDirInInit {
+  // Destination path in the guest.
+  string path = 1;
+  // Create parent directories if they don't exist.
+  bool create_parents = 2;
+}
+
+message CopyDirInResponse {}
+
+message CopyDirOutRequest {
+  string path = 1;
+}
+
+message CopyDirOutChunk {
+    bytes data = 1;
 }
 
 message IpLinkSetRequest {

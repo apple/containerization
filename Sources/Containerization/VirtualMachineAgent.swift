@@ -66,6 +66,24 @@ public protocol VirtualMachineAgent: Sendable {
         chunkSize: Int,
         progress: ProgressHandler?
     ) async throws
+    
+    /// Copy a dir from the host into the guest.
+    func copyDirIn(
+        from source: URL,
+        to destination: URL,
+        createParents: Bool,
+        chunkSize: Int,
+        progress: ProgressHandler?
+    ) async throws
+    
+    /// Copy a dir from the guest to the host.
+    func copyDirOut(
+        from source: URL,
+        to destination: URL,
+        createParents: Bool,
+        chunkSize: Int,
+        progress: ProgressHandler?
+    ) async throws
 
     // Process lifecycle
     func createProcess(
@@ -138,5 +156,25 @@ extension VirtualMachineAgent {
         progress: ProgressHandler?
     ) async throws {
         throw ContainerizationError(.unsupported, message: "copyOut")
+    }
+
+    public func copyDirIn(
+        from source: URL,
+        to destination: URL,
+        createParents: Bool,
+        chunkSize: Int,
+        progress: ProgressHandler?
+    ) async throws {
+        throw ContainerizationError(.unsupported, message: "copyDirIn")
+    }
+
+    public func copyDirOut(
+        from source: URL,
+        to destination: URL,
+        createParents: Bool,
+        chunkSize: Int,
+        progress: ProgressHandler?
+    ) async throws {
+        throw ContainerizationError(.unsupported, message: "copyDirOut")
     }
 }
