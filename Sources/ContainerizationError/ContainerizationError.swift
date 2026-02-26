@@ -20,7 +20,7 @@ import Foundation
 ///
 /// Most API surfaces for the core container/process/agent types will
 /// return a ContainerizationError.
-public struct ContainerizationError: Swift.Error, LocalizedError, Sendable {
+public struct ContainerizationError: Swift.Error, Sendable {
     /// A code describing the error encountered.
     public var code: Code
     /// A description of the error.
@@ -67,10 +67,6 @@ public struct ContainerizationError: Swift.Error, LocalizedError, Sendable {
     public func isCode(_ code: Code) -> Bool {
         self.code == code
     }
-
-    public var errorDescription: String? {
-        message
-    }
 }
 
 extension ContainerizationError: CustomStringConvertible {
@@ -80,6 +76,16 @@ extension ContainerizationError: CustomStringConvertible {
             return "\(self.code): \"\(self.message)\""
         }
         return "\(self.code): \"\(self.message)\" (cause: \"\(cause)\")"
+    }
+}
+
+extension ContainerizationError: LocalizedError {
+    /// A localized message describing what error occurred.
+    public var errorDescription: String? {
+        guard let cause = self.cause else {
+            return message
+        }
+        return "\(message) (cause: \"\(cause)\")"
     }
 }
 

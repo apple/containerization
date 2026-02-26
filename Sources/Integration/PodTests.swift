@@ -1439,4 +1439,243 @@ extension IntegrationSuite {
             throw error
         }
     }
+
+    func testPodUseInitBasic() async throws {
+        let id = "test-pod-use-init-basic"
+
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        let buffer = BufferWriter()
+        try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
+            config.process.arguments = ["/bin/echo", "hello from pod init"]
+            config.process.stdout = buffer
+            config.useInit = true
+        }
+
+        try await pod.create()
+        try await pod.startContainer("container1")
+
+        let status = try await pod.waitContainer("container1")
+        try await pod.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        guard String(data: buffer.data, encoding: .utf8) == "hello from pod init\n" else {
+            throw IntegrationError.assert(
+                msg: "expected 'hello from pod init', got '\(String(data: buffer.data, encoding: .utf8) ?? "nil")'")
+        }
+    }
+
+    func testPodUseInitExitCodePropagation() async throws {
+        let id = "test-pod-use-init-exit-code"
+
+        let bs = try await bootstrap(id)
+
+        // Test exit code 0
+        var pod = try LinuxPod("\(id)-success", vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        try await pod.addContainer("container1", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "success")) { config in
+            config.process.arguments = ["/bin/true"]
+            config.useInit = true
+        }
+
+        try await pod.create()
+        try await pod.startContainer("container1")
+        var status = try await pod.waitContainer("container1")
+        try await pod.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "expected exit code 0, got \(status.exitCode)")
+        }
+
+        // Test non-zero exit code
+        pod = try LinuxPod("\(id)-failure", vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        try await pod.addContainer("container1", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "failure")) { config in
+            config.process.arguments = ["/bin/false"]
+            config.useInit = true
+        }
+
+        try await pod.create()
+        try await pod.startContainer("container1")
+        status = try await pod.waitContainer("container1")
+        try await pod.stop()
+
+        guard status.exitCode == 1 else {
+            throw IntegrationError.assert(msg: "expected exit code 1, got \(status.exitCode)")
+        }
+
+        // Test custom exit code
+        pod = try LinuxPod("\(id)-custom", vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        try await pod.addContainer("container1", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "custom")) { config in
+            config.process.arguments = ["sh", "-c", "exit 42"]
+            config.useInit = true
+        }
+
+        try await pod.create()
+        try await pod.startContainer("container1")
+        status = try await pod.waitContainer("container1")
+        try await pod.stop()
+
+        guard status.exitCode == 42 else {
+            throw IntegrationError.assert(msg: "expected exit code 42, got \(status.exitCode)")
+        }
+    }
+
+    func testPodUseInitSignalForwarding() async throws {
+        let id = "test-pod-use-init-signal"
+
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
+            config.process.arguments = ["sleep", "300"]
+            config.useInit = true
+        }
+
+        do {
+            try await pod.create()
+            try await pod.startContainer("container1")
+
+            try await Task.sleep(for: .milliseconds(100))
+
+            // Send SIGTERM, should be forwarded to the child and cause exit
+            try await pod.killContainer("container1", signal: SIGTERM)
+
+            let status = try await pod.waitContainer("container1", timeoutInSeconds: 5)
+            try await pod.stop()
+
+            // SIGTERM should result in exit code 128 + 15 = 143
+            guard status.exitCode == 143 else {
+                throw IntegrationError.assert(msg: "expected exit code 143 (SIGTERM), got \(status.exitCode)")
+            }
+        } catch {
+            try? await pod.stop()
+            throw error
+        }
+    }
+
+    func testPodUseInitMultipleContainers() async throws {
+        let id = "test-pod-use-init-multiple"
+
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        let buffer1 = BufferWriter()
+        let buffer2 = BufferWriter()
+
+        // Container1 with useInit
+        try await pod.addContainer("container1", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container1")) { config in
+            config.process.arguments = ["/bin/echo", "container1 with init"]
+            config.process.stdout = buffer1
+            config.useInit = true
+        }
+
+        // Container2 without useInit
+        try await pod.addContainer("container2", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container2")) { config in
+            config.process.arguments = ["/bin/echo", "container2 without init"]
+            config.process.stdout = buffer2
+            config.useInit = false
+        }
+
+        try await pod.create()
+
+        try await pod.startContainer("container1")
+        let status1 = try await pod.waitContainer("container1")
+
+        try await pod.startContainer("container2")
+        let status2 = try await pod.waitContainer("container2")
+
+        try await pod.stop()
+
+        guard status1.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container1 exit code \(status1.exitCode) != 0")
+        }
+
+        guard status2.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container2 exit code \(status2.exitCode) != 0")
+        }
+
+        guard String(data: buffer1.data, encoding: .utf8) == "container1 with init\n" else {
+            throw IntegrationError.assert(
+                msg: "container1 output mismatch: '\(String(data: buffer1.data, encoding: .utf8) ?? "nil")'")
+        }
+
+        guard String(data: buffer2.data, encoding: .utf8) == "container2 without init\n" else {
+            throw IntegrationError.assert(
+                msg: "container2 output mismatch: '\(String(data: buffer2.data, encoding: .utf8) ?? "nil")'")
+        }
+    }
+
+    func testPodUseInitWithSharedPIDNamespace() async throws {
+        let id = "test-pod-use-init-shared-pid"
+
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+            config.shareProcessNamespace = true
+        }
+
+        try await pod.addContainer("container1", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container1")) { config in
+            config.process.arguments = ["sleep", "300"]
+            config.useInit = true
+        }
+
+        let psBuffer = BufferWriter()
+        try await pod.addContainer("container2", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container2")) { config in
+            // Check if we can see container1's sleep process through the shared PID namespace
+            config.process.arguments = ["sh", "-c", "ps aux | grep 'sleep 300' | grep -v grep"]
+            config.process.stdout = psBuffer
+        }
+
+        try await pod.create()
+        try await pod.startContainer("container1")
+        try await Task.sleep(for: .milliseconds(100))
+
+        try await pod.startContainer("container2")
+        let status = try await pod.waitContainer("container2")
+
+        try await pod.killContainer("container1", signal: SIGKILL)
+        _ = try await pod.waitContainer("container1")
+        try await pod.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container2 should have found the sleep process (status: \(status))")
+        }
+
+        let output = String(data: psBuffer.data, encoding: .utf8) ?? ""
+        guard output.contains("sleep 300") else {
+            throw IntegrationError.assert(msg: "ps output should contain 'sleep 300', got: '\(output)'")
+        }
+    }
 }

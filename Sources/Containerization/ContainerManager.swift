@@ -17,10 +17,12 @@
 #if os(macOS)
 
 import ContainerizationError
+import ContainerizationEXT4
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
 import ContainerizationExtras
+import SystemPackage
 import Virtualization
 import vmnet
 
@@ -369,12 +371,18 @@ public struct ContainerManager: Sendable {
     ///   - id: The container ID.
     ///   - reference: The image reference.
     ///   - rootfsSizeInBytes: The size of the root filesystem in bytes. Defaults to 8 GiB.
+    ///   - writableLayerSizeInBytes: Optional size for a separate writable layer. When provided,
+    ///     the rootfs becomes read-only and an overlayfs is used with a separate writable layer of this size.
     ///   - readOnly: Whether to mount the root filesystem as read-only.
+    ///   - networking: Whether to create a network interface for this container. Defaults to `true`.
+    ///     When `false`, no network resources are allocated and `releaseNetwork`/`delete` remain safe to call.
     public mutating func create(
         _ id: String,
         reference: String,
         rootfsSizeInBytes: UInt64 = 8.gib(),
+        writableLayerSizeInBytes: UInt64? = nil,
         readOnly: Bool = false,
+        networking: Bool = true,
         configuration: (inout LinuxContainer.Configuration) throws -> Void
     ) async throws -> LinuxContainer {
         let image = try await imageStore.get(reference: reference, pull: true)
@@ -382,7 +390,9 @@ public struct ContainerManager: Sendable {
             id,
             image: image,
             rootfsSizeInBytes: rootfsSizeInBytes,
+            writableLayerSizeInBytes: writableLayerSizeInBytes,
             readOnly: readOnly,
+            networking: networking,
             configuration: configuration
         )
     }
@@ -392,12 +402,18 @@ public struct ContainerManager: Sendable {
     ///   - id: The container ID.
     ///   - image: The image.
     ///   - rootfsSizeInBytes: The size of the root filesystem in bytes. Defaults to 8 GiB.
+    ///   - writableLayerSizeInBytes: Optional size for a separate writable layer. When provided,
+    ///     the rootfs becomes read-only and an overlayfs is used with a separate writable layer of this size.
     ///   - readOnly: Whether to mount the root filesystem as read-only.
+    ///   - networking: Whether to create a network interface for this container. Defaults to `true`.
+    ///     When `false`, no network resources are allocated and `releaseNetwork`/`delete` remain safe to call.
     public mutating func create(
         _ id: String,
         image: Image,
         rootfsSizeInBytes: UInt64 = 8.gib(),
+        writableLayerSizeInBytes: UInt64? = nil,
         readOnly: Bool = false,
+        networking: Bool = true,
         configuration: (inout LinuxContainer.Configuration) throws -> Void
     ) async throws -> LinuxContainer {
         let path = try createContainerRoot(id)
@@ -410,10 +426,22 @@ public struct ContainerManager: Sendable {
         if readOnly {
             rootfs.options.append("ro")
         }
+
+        // Create writable layer if size is specified.
+        var writableLayer: Mount? = nil
+        if let writableLayerSize = writableLayerSizeInBytes {
+            writableLayer = try createEmptyFilesystem(
+                at: path.appendingPathComponent("writable.ext4"),
+                size: writableLayerSize
+            )
+        }
+
         return try await create(
             id,
             image: image,
             rootfs: rootfs,
+            writableLayer: writableLayer,
+            networking: networking,
             configuration: configuration
         )
     }
@@ -423,22 +451,31 @@ public struct ContainerManager: Sendable {
     ///   - id: The container ID.
     ///   - image: The image.
     ///   - rootfs: The root filesystem mount pointing to an existing block file.
+    ///     The `destination` field is ignored as mounting is handled internally.
+    ///   - writableLayer: Optional writable layer mount. When provided, an overlayfs is used with
+    ///     rootfs as the lower layer and this as the upper layer.
+    ///     The `destination` field is ignored as mounting is handled internally.
+    ///   - networking: Whether to create a network interface for this container. Defaults to `true`.
+    ///     When `false`, no network resources are allocated and `releaseNetwork`/`delete` remain safe to call.
     public mutating func create(
         _ id: String,
         image: Image,
         rootfs: Mount,
+        writableLayer: Mount? = nil,
+        networking: Bool = true,
         configuration: (inout LinuxContainer.Configuration) throws -> Void
     ) async throws -> LinuxContainer {
         let imageConfig = try await image.config(for: .current).config
         return try LinuxContainer(
             id,
             rootfs: rootfs,
+            writableLayer: writableLayer,
             vmm: self.vmm
         ) { config in
             if let imageConfig {
                 config.process = .init(from: imageConfig)
             }
-            if let interface = try self.network?.create(id) {
+            if networking, let interface = try self.network?.create(id) {
                 config.interfaces = [interface]
                 guard let gateway = interface.ipv4Gateway else {
                     throw ContainerizationError(
@@ -489,6 +526,21 @@ public struct ContainerManager: Sendable {
             }
             throw err
         }
+    }
+
+    private func createEmptyFilesystem(at destination: URL, size: UInt64) throws -> Mount {
+        let path = destination.absolutePath()
+        guard !FileManager.default.fileExists(atPath: path) else {
+            throw ContainerizationError(.exists, message: "filesystem already exists at \(path)")
+        }
+        let filesystem = try EXT4.Formatter(FilePath(path), minDiskSize: size)
+        try filesystem.close()
+        return .block(
+            format: "ext4",
+            source: path,
+            destination: "/",
+            options: []
+        )
     }
 }
 

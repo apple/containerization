@@ -181,8 +181,8 @@ public final class BidirectionalRelay: Sendable {
                     ]
                 )
                 source.cancel()
-                if shutdown(destinationFd, SHUT_WR) != 0 {
-                    log?.warning(
+                if shutdown(destinationFd, Int32(SHUT_WR)) != 0 {
+                    log?.debug(
                         "failed to shut down writes",
                         metadata: [
                             "errno": "\(errno)",
@@ -211,10 +211,17 @@ public final class BidirectionalRelay: Sendable {
                 to: destinationFd
             )
         } catch {
-            log?.error("file descriptor copy failed \(error)")
+            log?.warning(
+                "file descriptor copy failed",
+                metadata: [
+                    "error": "\(error)",
+                    "sourceFd": "\(sourceFd)",
+                    "destinationFd": "\(destinationFd)",
+                ]
+            )
             if !source.isCancelled {
                 source.cancel()
-                if shutdown(destinationFd, SHUT_RDWR) != 0 {
+                if shutdown(destinationFd, Int32(SHUT_RDWR)) != 0 {
                     log?.warning(
                         "failed to shut down destination after I/O error",
                         metadata: [

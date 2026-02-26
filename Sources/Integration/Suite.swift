@@ -261,7 +261,9 @@ struct IntegrationSuite: AsyncParsableCommand {
     private func macOS26Tests() -> [Test] {
         if #available(macOS 26.0, *) {
             return [
-                Test("container interface custom MTU", testInterfaceMTU)
+                Test("container interface custom MTU", testInterfaceMTU),
+                Test("container networking disabled", testNetworkingDisabled),
+                Test("container networking enabled", testNetworkingEnabled),
             ]
         }
         return []
@@ -289,6 +291,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("process true", testProcessTrue),
                 Test("process false", testProcessFalse),
                 Test("process echo hi", testProcessEchoHi),
+                Test("process no executable", testProcessNoExecutable),
                 Test("process user", testProcessUser),
                 Test("process stdin", testProcessStdin),
                 Test("process home envvar", testProcessHomeEnvvar),
@@ -325,8 +328,15 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container read-only rootfs", testReadOnlyRootfs),
                 Test("container read-only rootfs hosts file", testReadOnlyRootfsHostsFileWritten),
                 Test("container read-only rootfs DNS", testReadOnlyRootfsDNSConfigured),
+                Test("container writable layer", testWritableLayer),
+                Test("container writable layer preserves lower", testWritableLayerPreservesLowerLayer),
+                Test("container writable layer reads from lower", testWritableLayerReadsFromLower),
+                Test("container writable layer with ro lower", testWritableLayerWithReadOnlyLower),
+                Test("container writable layer size", testWritableLayerSize),
+                Test("container writable layer DNS and hosts", testWritableLayerWithDNSAndHosts),
                 Test("large stdin input", testLargeStdinInput),
                 Test("exec large stdin input", testExecLargeStdinInput),
+                Test("exec custom path resolution", testExecCustomPathResolution),
                 Test("stdin explicit close", testStdinExplicitClose),
                 Test("stdin binary data", testStdinBinaryData),
                 Test("stdin multiple chunks", testStdinMultipleChunks),
@@ -341,6 +351,12 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container rlimit exec", testRLimitExec),
                 Test("container duplicate virtiofs mount", testDuplicateVirtiofsMount),
                 Test("container duplicate virtiofs mount via symlink", testDuplicateVirtiofsMountViaSymlink),
+                Test("container useInit basic", testUseInitBasic),
+                Test("container useInit exit code propagation", testUseInitExitCodePropagation),
+                Test("container useInit signal forwarding", testUseInitSignalForwarding),
+                Test("container useInit zombie reaping", testUseInitZombieReaping),
+                Test("container useInit with terminal", testUseInitWithTerminal),
+                Test("container useInit with stdin", testUseInitWithStdin),
 
                 // Pods
                 Test("pod single container", testPodSingleContainer),
@@ -370,6 +386,11 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("pod level hosts with container override", testPodLevelHostsWithContainerOverride),
                 Test("pod rlimit open files", testPodRLimitOpenFiles),
                 Test("pod rlimit exec", testPodRLimitExec),
+                Test("pod useInit basic", testPodUseInitBasic),
+                Test("pod useInit exit code propagation", testPodUseInitExitCodePropagation),
+                Test("pod useInit signal forwarding", testPodUseInitSignalForwarding),
+                Test("pod useInit multiple containers", testPodUseInitMultipleContainers),
+                Test("pod useInit with shared PID namespace", testPodUseInitWithSharedPIDNamespace),
             ] + macOS26Tests()
 
         let filteredTests: [Test]

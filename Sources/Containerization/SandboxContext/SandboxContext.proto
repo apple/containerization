@@ -185,7 +185,7 @@ message DeleteProcessRequest {
 
 message DeleteProcessResponse {}
 
-message StartProcessRequest { 
+message StartProcessRequest {
   string id = 1;
   optional string containerID = 2;
 }
@@ -376,6 +376,8 @@ message MemoryStats {
   uint64 slab_bytes = 7;
   uint64 page_faults = 8;
   uint64 major_page_faults = 9;
+  uint64 inactive_file = 10;
+  uint64 anon = 11;
 }
 
 message CPUStats {

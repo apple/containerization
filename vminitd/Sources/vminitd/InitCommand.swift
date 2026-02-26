@@ -15,176 +15,84 @@
 //===----------------------------------------------------------------------===//
 
 import ArgumentParser
-import Cgroup
-import Containerization
-import ContainerizationError
 import ContainerizationOS
-import Foundation
-import Logging
-import NIOCore
-import NIOPosix
-
-#if os(Linux)
-import Musl
 import LCShim
-#endif
+import Musl
 
-struct InitCommand: AsyncParsableCommand {
+/// A minimal init process that:
+/// - Spawns and monitors a child process
+/// - Forwards signals to the child
+/// - Reaps zombie processes
+/// - Exits with the child's exit code
+struct InitCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "init",
-        abstract: "Run the init daemon"
+        abstract: "Run as a minimal init process"
     )
 
-    private static let foregroundEnvVar = "FOREGROUND"
-    private static let vsockPort = 1024
+    @Flag(name: .shortAndLong, help: "Send signals to the child's process group instead of just the child")
+    var processGroup: Bool = false
 
-    @OptionGroup var options: LogLevelOption
+    @Argument(help: "The command to run")
+    var command: String
 
-    mutating func run() async throws {
-        let log = makeLogger(label: "vminitd", level: options.resolvedLogLevel())
-        try Self.adjustLimits(log)
+    @Argument(parsing: .captureForPassthrough, help: "Arguments for the command")
+    var arguments: [String] = []
 
-        // when running under debug mode, launch vminitd as a sub process of pid1
-        // so that we get a chance to collect better logs and errors before pid1 exists
-        // and the kernel panics.
-        #if DEBUG
-        log.info("DEBUG mode active, checking FOREGROUND env var")
-        let environment = ProcessInfo.processInfo.environment
-        let foreground = environment[Self.foregroundEnvVar]
-        log.info("checking for shim var \(Self.foregroundEnvVar)=\(String(describing: foreground))")
+    /// Signals that should NOT be forwarded to the child.
+    private static let ignoredSignals: Set<Int32> = [
+        SIGCHLD,  // We handle this for zombie reaping
+        SIGFPE, SIGILL, SIGSEGV, SIGBUS, SIGABRT, SIGTRAP, SIGSYS,  // Synchronous signals
+    ]
 
-        if foreground == nil {
-            try Self.runInForeground(log, logLevel: options.logLevel)
-            _exit(0)
+    mutating func run() throws {
+        // If we're not PID 1, register as a child subreaper so orphaned
+        // processes get reparented to us and we can reap them.
+        if getpid() != 1 {
+            CZ_set_sub_reaper()
         }
 
-        log.info("FOREGROUND is set, running as subprocess, setting subreaper")
-        // since we are not running as pid1 in this mode we must set ourselves
-        // as a subpreaper so that all child processes are reaped by us and not
-        // passed onto our parent.
-        CZ_set_sub_reaper()
-        #endif
+        // Block all signals. We'll handle them synchronously via sigtimedwait
+        var allSignals = sigset_t()
+        sigfillset(&allSignals)
+        sigprocmask(SIG_BLOCK, &allSignals, nil)
 
-        signal(SIGPIPE, SIG_IGN)
+        let resolvedCommand = Path.lookPath(command)?.path ?? command
 
-        log.info("vminitd booting")
+        var cmd = Command(resolvedCommand, arguments: arguments)
+        cmd.stdin = .standardInput
+        cmd.stdout = .standardOutput
+        cmd.stderr = .standardError
 
-        // Set of mounts necessary to be mounted prior to taking any RPCs.
-        // 1. /proc as the sysctl rpc wouldn't make sense if it wasn't there (NOTE: This is done before this method
-        // due to Swift seemingly requiring /proc to be present for the async runtime to spin up).
-        // 2. /run as that is where we store container state.
-        // 3. /sys as we need it for /sys/fs/cgroup
-        // 4. /sys/fs/cgroup to add the agent to a cgroup, as well as containers later.
-        let mounts = [
-            ContainerizationOS.Mount(
-                type: "tmpfs",
-                source: "tmpfs",
-                target: "/run",
-                options: []
-            ),
-            ContainerizationOS.Mount(
-                type: "sysfs",
-                source: "sysfs",
-                target: "/sys",
-                options: []
-            ),
-            ContainerizationOS.Mount(
-                type: "cgroup2",
-                source: "none",
-                target: "/sys/fs/cgroup",
-                options: []
-            ),
-        ]
+        cmd.attrs = .init(setPGroup: true, setForegroundPGroup: true, setSignalDefault: true)
 
-        for mnt in mounts {
-            log.info("mounting \(mnt.target)")
+        try cmd.start()
+        let childPid = cmd.pid
+        let signalTarget = processGroup ? -childPid : childPid
+        var timeout = timespec(tv_sec: 0, tv_nsec: 100_000_000)
 
-            try mnt.mount(createWithPerms: 0o755)
-        }
-        try Binfmt.mount()
+        // Handle signals and reap zombies
+        var childExitStatus: Int32?
+        while childExitStatus == nil {
+            var siginfo = siginfo_t()
+            let sig = sigtimedwait(&allSignals, &siginfo, &timeout)
 
-        let cgManager = Cgroup2Manager(
-            group: URL(filePath: "/vminitd"),
-            logger: log
-        )
-        try cgManager.create()
-        try cgManager.toggleAllAvailableControllers(enable: true)
+            if sig > 0 && !Self.ignoredSignals.contains(sig) {
+                _ = Musl.kill(signalTarget, sig)
+            }
 
-        // Set memory.high threshold to 75 MiB
-        let threshold: UInt64 = 75 * 1024 * 1024
-        try cgManager.setMemoryHigh(bytes: threshold)
-        try cgManager.addProcess(pid: getpid())
-
-        let memoryMonitor = try MemoryMonitor(
-            cgroupManager: cgManager,
-            threshold: threshold,
-            logger: log
-        ) { [log] (currentUsage, highMark) in
-            log.warning(
-                "vminitd memory threshold exceeded",
-                metadata: [
-                    "threshold_bytes": "\(threshold)",
-                    "current_bytes": "\(currentUsage)",
-                    "high_events_total": "\(highMark)",
-                ])
-        }
-
-        let t = Thread { [log] in
-            do {
-                try memoryMonitor.run()
-            } catch {
-                log.error("memory monitor failed: \(error)")
+            while true {
+                var status: Int32 = 0
+                let pid = waitpid(-1, &status, WNOHANG)
+                if pid <= 0 {
+                    break
+                }
+                if pid == childPid {
+                    childExitStatus = Command.toExitStatus(status)
+                }
             }
         }
-        t.start()
 
-        let eg = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
-        let server = Initd(log: log, group: eg)
-
-        do {
-            log.info("serving vminitd API")
-            try await server.serve(port: Self.vsockPort)
-            log.info("vminitd API returned, syncing filesystems")
-
-            #if os(Linux)
-            Musl.sync()
-            #endif
-        } catch {
-            log.error("vminitd boot error \(error)")
-
-            #if os(Linux)
-            Musl.sync()
-            #endif
-
-            _exit(1)
-        }
-    }
-
-    private static func runInForeground(_ log: Logger, logLevel: String) throws {
-        log.info("running vminitd under pid1")
-
-        var command = Command("/sbin/vminitd", arguments: ["init", "--log-level", logLevel])
-        command.attrs = .init(setsid: true)
-        command.stdin = .standardInput
-        command.stdout = .standardOutput
-        command.stderr = .standardError
-        command.environment = ["\(foregroundEnvVar)=1"]
-
-        try command.start()
-        let exitCode = try command.wait()
-        log.info("child process exited with code: \(exitCode)")
-    }
-
-    private static func adjustLimits(_ log: Logger) throws {
-        let nrOpen = try String(contentsOfFile: "/proc/sys/fs/nr_open", encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let max = rlim_t(nrOpen) else {
-            throw POSIXError(.EINVAL)
-        }
-        log.debug("setting RLIMIT_NOFILE to \(max)")
-        var limits = rlimit(rlim_cur: max, rlim_max: max)
-        guard setrlimit(RLIMIT_NOFILE, &limits) == 0 else {
-            throw POSIXError(.init(rawValue: errno)!)
-        }
+        Musl.exit(childExitStatus ?? 1)
     }
 }

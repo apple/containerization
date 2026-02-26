@@ -102,6 +102,7 @@ void exec_command_attrs_init(struct exec_command_attrs *attrs) {
   attrs->uid = -1;
   attrs->gid = -1;
   attrs->pdeathSignal = 0;
+  attrs->setfgpgrp = 0;
 }
 
 static void child_handler(const int sync_pipes[2], const char *executable,
@@ -117,9 +118,25 @@ static void child_handler(const int sync_pipes[2], const char *executable,
   int syncfd = sync_pipes[1];
   struct sigaction action = {0};
 
-  // closing our parent's side of the pipe
+  // Closing our parent's side of the pipe
   if (close(sync_pipes[0]) < 0) {
     goto fail;
+  }
+
+  // Setup process group and foreground before clearing signal mask.
+  if (attrs.setpgid) {
+    if (setpgid(0, attrs.pgid) < 0) {
+      goto fail;
+    }
+  }
+
+  // Make the new process group the foreground process group so it can read from the TTY.
+  if (attrs.setfgpgrp) {
+    if (tcsetpgrp(STDIN_FILENO, getpgrp()) < 0) {
+      if (errno != ENOTTY && errno != ENXIO) {
+        goto fail;
+      }
+    }
   }
 
   // clear sighandlers
@@ -242,11 +259,6 @@ static void child_handler(const int sync_pipes[2], const char *executable,
 
   if (attrs.setsid) {
     if (setsid() == -1) {
-      goto fail;
-    }
-  }
-  if (attrs.setpgid) {
-    if (setpgid(0, attrs.pgid) < 0) {
       goto fail;
     }
   }
