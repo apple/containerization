@@ -125,10 +125,8 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
 
             try await self.vm.start(queue: self.queue)
 
-            let agent = Vminitd(
-                connection: try await self.vm.waitForAgent(queue: self.queue),
-                group: self.group
-            )
+            let (handle, transport) = try await self.vm.waitForAgent(queue: self.queue)
+            let agent = Vminitd(connection: handle, transport: transport, group: self.group)
 
             do {
                 if self.config.rosetta {
@@ -189,9 +187,8 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
                     queue: queue,
                     port: Vminitd.port
                 )
-                let handle = try conn.dupHandle()
-                let agent = Vminitd(connection: handle, group: self.group)
-                return agent
+                let handle = try conn.dupFileDescriptor()
+                return Vminitd(connection: handle, transport: VsockTransport(conn), group: self.group)
             } catch {
                 if let err = error as? ContainerizationError {
                     throw err
