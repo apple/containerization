@@ -243,6 +243,38 @@ extension IntegrationSuite {
         }
     }
 
+    func testPodContainerHostnameDefaultsToContainerID() async throws {
+        let id = "test-pod-container-hostname-default"
+
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        let buffer = BufferWriter()
+        try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
+            config.process.arguments = ["/bin/hostname"]
+            config.process.stdout = buffer
+        }
+
+        try await pod.create()
+        try await pod.startContainer("container1")
+
+        let status = try await pod.waitContainer("container1")
+        try await pod.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        guard String(data: buffer.data, encoding: .utf8) == "container1\n" else {
+            throw IntegrationError.assert(
+                msg: "hostname should default to container id 'container1', got '\(String(data: buffer.data, encoding: .utf8)!)'")
+        }
+    }
+
     func testPodStopContainerIdempotency() async throws {
         let id = "test-pod-stop-container-idempotency"
 
@@ -1345,6 +1377,112 @@ extension IntegrationSuite {
         }
         guard !output2.contains("10.0.0.100") && !output2.contains("shared-service.local") else {
             throw IntegrationError.assert(msg: "container2 should NOT have pod-level hosts entry, got: \(output2)")
+        }
+    }
+
+    func testPodLevelHostname() async throws {
+        let id = "test-pod-level-hostname"
+
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+            // Set hostname at the pod level
+            config.hostname = "pod-host"
+        }
+
+        let buffer1 = BufferWriter()
+        let buffer2 = BufferWriter()
+
+        // Neither container specifies a hostname. Both should inherit from pod.
+        try await pod.addContainer("container1", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container1")) { config in
+            config.process.arguments = ["/bin/hostname"]
+            config.process.stdout = buffer1
+        }
+
+        try await pod.addContainer("container2", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container2")) { config in
+            config.process.arguments = ["/bin/hostname"]
+            config.process.stdout = buffer2
+        }
+
+        try await pod.create()
+
+        try await pod.startContainer("container1")
+        let status1 = try await pod.waitContainer("container1")
+
+        try await pod.startContainer("container2")
+        let status2 = try await pod.waitContainer("container2")
+
+        try await pod.stop()
+
+        guard status1.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container1 hostname failed with status \(status1)")
+        }
+        guard status2.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container2 hostname failed with status \(status2)")
+        }
+
+        guard String(data: buffer1.data, encoding: .utf8) == "pod-host\n" else {
+            throw IntegrationError.assert(msg: "container1 should have pod-level hostname 'pod-host', got: '\(String(data: buffer1.data, encoding: .utf8) ?? "nil")'")
+        }
+        guard String(data: buffer2.data, encoding: .utf8) == "pod-host\n" else {
+            throw IntegrationError.assert(msg: "container2 should have pod-level hostname 'pod-host', got: '\(String(data: buffer2.data, encoding: .utf8) ?? "nil")'")
+        }
+    }
+
+    func testPodLevelHostnameWithContainerOverride() async throws {
+        let id = "test-pod-level-hostname-override"
+
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+            // Set hostname at the pod level
+            config.hostname = "pod-host"
+        }
+
+        let buffer1 = BufferWriter()
+        let buffer2 = BufferWriter()
+
+        // Container1 does NOT specify a hostname. It should inherit from pod.
+        try await pod.addContainer("container1", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container1")) { config in
+            config.process.arguments = ["/bin/hostname"]
+            config.process.stdout = buffer1
+        }
+
+        // Container2 specifies its own hostname. It should override the pod-level value.
+        try await pod.addContainer("container2", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container2")) { config in
+            config.process.arguments = ["/bin/hostname"]
+            config.process.stdout = buffer2
+            config.hostname = "container-host"
+        }
+
+        try await pod.create()
+
+        try await pod.startContainer("container1")
+        let status1 = try await pod.waitContainer("container1")
+
+        try await pod.startContainer("container2")
+        let status2 = try await pod.waitContainer("container2")
+
+        try await pod.stop()
+
+        guard status1.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container1 hostname failed with status \(status1)")
+        }
+        guard status2.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container2 hostname failed with status \(status2)")
+        }
+
+        // Container1 should have the pod-level hostname
+        guard String(data: buffer1.data, encoding: .utf8) == "pod-host\n" else {
+            throw IntegrationError.assert(msg: "container1 should have pod-level hostname 'pod-host', got: '\(String(data: buffer1.data, encoding: .utf8) ?? "nil")'")
+        }
+        // Container2 should have its own hostname, not the pod-level one
+        guard String(data: buffer2.data, encoding: .utf8) == "container-host\n" else {
+            throw IntegrationError.assert(msg: "container2 should have container-level hostname 'container-host', got: '\(String(data: buffer2.data, encoding: .utf8) ?? "nil")'")
         }
     }
 
