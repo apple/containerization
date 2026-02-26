@@ -530,6 +530,33 @@ extension IntegrationSuite {
         }
     }
 
+    func testHostnameDefaultsToContainerID() async throws {
+        let id = "test-container-hostname-default"
+
+        let bs = try await bootstrap(id)
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/hostname"]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        guard String(data: buffer.data, encoding: .utf8) == "\(id)\n" else {
+            throw IntegrationError.assert(
+                msg: "hostname should default to container id '\(id)', got '\(String(data: buffer.data, encoding: .utf8)!)'")
+        }
+    }
+
     func testHostsFile() async throws {
         let id = "test-container-hosts-file"
 

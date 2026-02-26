@@ -51,6 +51,9 @@ public final class LinuxPod: Sendable {
         /// Whether containers in the pod should share a PID namespace.
         /// When enabled, all containers can see each other's processes.
         public var shareProcessNamespace: Bool = false
+        /// The default hostname for all containers in the pod.
+        /// Individual containers can override this by setting their own `hostname` configuration.
+        public var hostname: String?
         /// The default DNS configuration for all containers in the pod.
         /// Individual containers can override this by setting their own `dns` configuration.
         public var dns: DNS?
@@ -70,7 +73,7 @@ public final class LinuxPod: Sendable {
         /// Optional per-container memory limit in bytes (can exceed pod total for oversubscription).
         public var memoryInBytes: UInt64?
         /// The hostname for the container.
-        public var hostname: String = ""
+        public var hostname: String?
         /// The system control options for the container.
         public var sysctl: [String: String] = [:]
         /// The mounts for the container.
@@ -220,7 +223,10 @@ public final class LinuxPod: Sendable {
         }
 
         // General toggles
-        spec.hostname = config.hostname
+        // Container-level hostname takes precedence; fall back to pod-level hostname.
+        if let hostname = config.hostname ?? self.config.hostname {
+            spec.hostname = hostname
+        }
 
         // Linux toggles
         spec.linux?.sysctl = config.sysctl
