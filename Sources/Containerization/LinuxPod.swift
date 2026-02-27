@@ -439,9 +439,11 @@ extension LinuxPod {
                     }
 
                     // For every interface asked for:
-                    // 1. Add the address requested
+                    // 1. Add the IPv4 address requested
                     // 2. Online the adapter
-                    // 3. If a gateway IP address is present, add the default route.
+                    // 3. If an IPv4 gateway IP address is present, add the default route.
+                    // 4. Add the IPv6 address if present
+                    // 5. If an IPv6 gateway IP address is present, add the IPv6 default route.
                     for (index, i) in self.interfaces.enumerated() {
                         let name = "eth\(index)"
                         self.logger?.debug("setting up interface \(name) with address \(i.ipv4Address)")
@@ -453,6 +455,15 @@ extension LinuxPod {
                                 try await agent.routeAddLink(name: name, dstIPv4Addr: ipv4Gateway, srcIPv4Addr: nil)
                             }
                             try await agent.routeAddDefault(name: name, ipv4Gateway: ipv4Gateway)
+                        }
+
+                        // Configure IPv6 if address is present
+                        if let ipv6Address = i.ipv6Address {
+                            self.logger?.debug("setting up interface \(name) with IPv6 address \(ipv6Address)")
+                            try await agent.addressAdd(name: name, ipv6Address: ipv6Address)
+                            if let ipv6Gateway = i.ipv6Gateway {
+                                try await agent.routeAddDefault(name: name, ipv6Gateway: ipv6Gateway)
+                            }
                         }
                     }
 

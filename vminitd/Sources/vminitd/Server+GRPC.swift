@@ -1059,6 +1059,33 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         return .init()
     }
 
+    func ipAddrAdd6(
+        request: Com_Apple_Containerization_Sandbox_V3_IpAddrAdd6Request, context: GRPC.GRPCAsyncServerCallContext
+    ) async throws -> Com_Apple_Containerization_Sandbox_V3_IpAddrAdd6Response {
+        log.debug(
+            "ipAddrAdd6",
+            metadata: [
+                "interface": "\(request.interface)",
+                "ipv6Address": "\(request.ipv6Address)",
+            ])
+
+        do {
+            let socket = try DefaultNetlinkSocket()
+            let session = NetlinkSession(socket: socket, log: log)
+            let ipv6Address = try CIDRv6(request.ipv6Address)
+            try session.addressAdd(interface: request.interface, ipv6Address: ipv6Address)
+        } catch {
+            log.error(
+                "ipAddrAdd6",
+                metadata: [
+                    "error": "\(error)"
+                ])
+            throw GRPCStatus(code: .internalError, message: "ip-addr-add6: \(error)")
+        }
+
+        return .init()
+    }
+
     func ipRouteAddLink(
         request: Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest, context: GRPC.GRPCAsyncServerCallContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkResponse {
@@ -1115,6 +1142,34 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                     "error": "\(error)"
                 ])
             throw GRPCStatus(code: .internalError, message: "failed to set default gateway on interface \(request.interface): \(error)")
+        }
+
+        return .init()
+    }
+
+    func ipRouteAddDefault6(
+        request: Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefault6Request,
+        context: GRPC.GRPCAsyncServerCallContext
+    ) async throws -> Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefault6Response {
+        log.debug(
+            "ipRouteAddDefault6",
+            metadata: [
+                "interface": "\(request.interface)",
+                "ipv6Gateway": "\(request.ipv6Gateway)",
+            ])
+
+        do {
+            let socket = try DefaultNetlinkSocket()
+            let session = NetlinkSession(socket: socket, log: log)
+            let ipv6Gateway = try IPv6Address(request.ipv6Gateway)
+            try session.routeAddDefault(interface: request.interface, ipv6Gateway: ipv6Gateway)
+        } catch {
+            log.error(
+                "ipRouteAddDefault6",
+                metadata: [
+                    "error": "\(error)"
+                ])
+            throw GRPCStatus(code: .internalError, message: "ip-route-add-default6: \(error)")
         }
 
         return .init()
