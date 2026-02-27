@@ -54,7 +54,7 @@ public final class LinuxContainer: Container, Sendable {
         /// The memory in bytes to give to the container.
         public var memoryInBytes: UInt64 = 1024.mib()
         /// The hostname for the container.
-        public var hostname: String = ""
+        public var hostname: String?
         /// The system control options for the container.
         public var sysctl: [String: String] = [:]
         /// The network interfaces for the container.
@@ -84,7 +84,7 @@ public final class LinuxContainer: Container, Sendable {
             process: LinuxProcessConfiguration,
             cpus: Int = 4,
             memoryInBytes: UInt64 = 1024.mib(),
-            hostname: String = "",
+            hostname: String? = nil,
             sysctl: [String: String] = [:],
             interfaces: [any Interface] = [],
             sockets: [UnixSocketConfiguration] = [],
@@ -346,7 +346,9 @@ public final class LinuxContainer: Container, Sendable {
         }
 
         // General toggles.
-        spec.hostname = config.hostname
+        if let hostname = config.hostname {
+            spec.hostname = hostname
+        }
 
         // Linux toggles.
         spec.linux?.sysctl = config.sysctl
