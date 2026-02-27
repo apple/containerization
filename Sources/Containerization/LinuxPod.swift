@@ -778,7 +778,14 @@ extension LinuxPod {
             }
 
             var spec = self.generateRuntimeSpec(containerID: containerID, config: container.config, rootfs: container.rootfs)
-            var config = LinuxProcessConfiguration()
+            // Inherit environment variables, working directory, user, capabilities, rlimits from container process.
+            // Reset: process arguments, terminal, stdio as these are not supposed to be inherited.
+            var config = container.config.process
+            config.arguments = []
+            config.terminal = false
+            config.stdin = nil
+            config.stdout = nil
+            config.stderr = nil
             try configuration(&config)
             spec.process = config.toOCI()
 

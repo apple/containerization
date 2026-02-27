@@ -365,6 +365,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("pod container output", testPodContainerOutput),
                 Test("pod concurrent containers", testPodConcurrentContainers),
                 Test("pod exec in container", testPodExecInContainer),
+                Test("pod exec in container env", testPodExecInContainerEnv),
                 Test("pod container hostname", testPodContainerHostname),
                 Test("pod container hostname defaults to container id", testPodContainerHostnameDefaultsToContainerID),
                 Test("pod stop container idempotency", testPodStopContainerIdempotency),
