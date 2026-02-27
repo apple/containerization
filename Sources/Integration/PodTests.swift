@@ -210,6 +210,48 @@ extension IntegrationSuite {
         }
     }
 
+    func testPodExecInContainerEnv() async throws {
+        let id = "test-pod-exec-in-container-env"
+
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
+            config.process.arguments = ["/bin/sleep", "100"]
+            config.process.environmentVariables.append("MY_VAR=hello_from_container")
+        }
+
+        try await pod.create()
+        try await pod.startContainer("container1")
+
+        let buffer = BufferWriter()
+        let exec = try await pod.execInContainer("container1", processID: "exec1") { config in
+            config.arguments = ["/bin/sh", "-c", "printenv MY_VAR"]
+            config.stdout = buffer
+        }
+
+        try await exec.start()
+        let status = try await exec.wait()
+        try await exec.delete()
+
+        try await pod.killContainer("container1", signal: SIGKILL)
+        try await pod.waitContainer("container1")
+        try await pod.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "exec env status \(status) != 0")
+        }
+
+        guard String(data: buffer.data, encoding: .utf8) == "hello_from_container\n" else {
+            throw IntegrationError.assert(
+                msg: "exec should have inherited container env MY_VAR=hello_from_container, got '\(String(data: buffer.data, encoding: .utf8) ?? "nil")'")
+        }
+    }
+
     func testPodContainerHostname() async throws {
         let id = "test-pod-container-hostname"
 
