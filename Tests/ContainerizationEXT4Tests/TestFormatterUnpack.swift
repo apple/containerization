@@ -184,7 +184,13 @@ struct UnpackProgressTest {
 
         // Set up progress collection
         let collector = ProgressCollector()
+        let shouldPrintProgress = ProcessInfo.processInfo.environment["PRINT_UNPACK_PROGRESS"] == "1"
         let progressHandler: ProgressHandler = { events in
+            if shouldPrintProgress {
+                for event in events {
+                    print("unpack-progress \(event.event): \(event.value)")
+                }
+            }
             await collector.append(events)
         }
 
@@ -241,6 +247,41 @@ struct UnpackProgressTest {
         #expect(
             reportedSizes == [0, 512, 1024, 4096],
             "Individual file sizes should be [0, 512, 1024, 4096], got \(reportedSizes)")
+
+        // Verify event-by-event behavior expected by clients:
+        // total remains stable and written bytes are monotonic as progress updates arrive.
+        var runningTotal: Int64?
+        var runningWritten: Int64 = 0
+        var previousSnapshot: (written: Int64, total: Int64?)?
+        var progressSnapshotCount = 0
+
+        for event in allEvents {
+            switch event.event {
+            case "add-total-size":
+                let value = try #require(event.value as? Int64, "add-total-size value should be Int64")
+                runningTotal = (runningTotal ?? 0) + value
+            case "add-size":
+                let value = try #require(event.value as? Int64, "add-size value should be Int64")
+                runningWritten += value
+                let currentSnapshot = (written: runningWritten, total: runningTotal)
+                if let previousSnapshot {
+                    #expect(
+                        currentSnapshot.written >= previousSnapshot.written,
+                        "Written bytes should be monotonic: \(currentSnapshot.written) < \(previousSnapshot.written)")
+                    #expect(
+                        currentSnapshot.total == previousSnapshot.total,
+                        "Total bytes should remain stable across progress updates")
+                }
+                previousSnapshot = currentSnapshot
+                progressSnapshotCount += 1
+            default:
+                break
+            }
+        }
+
+        #expect(
+            progressSnapshotCount == addSizeEvents.count,
+            "Should produce one monotonic snapshot per add-size update")
 
         // Verify add-total-size comes before add-size events (first pass before second pass)
         if let totalSizeIndex = allEvents.firstIndex(where: { $0.event == "add-total-size" }),
