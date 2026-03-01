@@ -554,12 +554,13 @@ extension Vminitd {
         try writer.finalize()
         try writeFD.close()
 
-        let call = client.makeCopyDirInCall()
+        let call = client.makeCopyInCall()
 
         try await call.requestStream.send(.with {
             $0.content = .init_p(.with {
                 $0.path = destination.path
                 $0.createParents = createParents
+                $0.isDirectory = true
             })
         })
 
@@ -589,8 +590,9 @@ extension Vminitd {
             try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
         }
 
-        let request = Com_Apple_Containerization_Sandbox_V3_CopyDirOutRequest.with {
+        let request = Com_Apple_Containerization_Sandbox_V3_CopyOutRequest.with {
             $0.path = source.path
+            $0.isDirectory = true
         }
 
         let tempURL = FileManager.default.temporaryDirectory
@@ -606,9 +608,14 @@ extension Vminitd {
         }
         let writeHandle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
 
-        let stream = client.copyDirOut(request)
+        let stream = client.copyOut(request)
         for try await chunk in stream {
-            writeHandle.write(chunk.data)
+            switch chunk.content {
+            case .data(let data):
+                writeHandle.write(data)
+            case .init_p, .none:
+                break
+            }
         }
         try writeHandle.close()
 
