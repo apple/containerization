@@ -113,4 +113,4 @@ AI tools should be used to **enhance, not replace** the human elements that make
 
 ## Code of conduct
 
-To clarify of what is expected of our contributors and community members, the Containerization team has adopted the code of conduct defined by the Contributor Covenant. This document is used across many open source communities and articulates our values well. For more detail, please read the [Code of Conduct](https://github.com/apple/.github/blob/main/CODE_OF_CONDUCT.md "Code of Conduct").
+To clarify what is expected of our contributors and community members, the Containerization team has adopted the code of conduct defined by the Contributor Covenant. This document is used across many open source communities and articulates our values well. For more detail, please read the [Code of Conduct](https://github.com/apple/.github/blob/main/CODE_OF_CONDUCT.md "Code of Conduct").
