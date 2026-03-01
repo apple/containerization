@@ -28,7 +28,7 @@ struct CtrExample {
         try current.setraw()
         defer { current.tryReset() }
 
-        let initfsReference = "ghcr.io/apple/containerization/vminit:0.13.0"
+        let initfsReference = "ghcr.io/apple/containerization/vminit:0.26.3"
         let kernelPath = "./vmlinux"
         print("Fetching base container filesystem...")
         // Create container manager with file-based initfs
