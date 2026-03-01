@@ -122,6 +122,28 @@ extension EXT4.Formatter {
         compression: ContainerizationArchive.Filter = .gzip,
         progress: ProgressHandler? = nil
     ) throws {
+        // Optional first pass: scan headers to get total size (fast, metadata only)
+        if let progress {
+            let sizeReader = try ArchiveReader(
+                format: format,
+                filter: compression,
+                file: source
+            )
+            var totalSize: Int64 = 0
+            for (entry, _) in sizeReader.makeStreamingIterator() {
+                try Task.checkCancellation()
+                if entry.fileType == .regular, let size = entry.size {
+                    totalSize += Int64(size)
+                }
+            }
+            if totalSize > 0 {
+                Task {
+                    await progress([ProgressEvent(event: "add-total-size", value: totalSize)])
+                }
+            }
+        }
+
+        // Second pass: unpack
         let reader = try ArchiveReader(
             format: format,
             filter: compression,
