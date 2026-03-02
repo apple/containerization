@@ -122,13 +122,15 @@ extension VZVirtualMachine {
 }
 
 extension VZVirtualMachine {
-    func waitForAgent(queue: DispatchQueue) async throws -> FileHandle {
+    func waitForAgent(queue: DispatchQueue) async throws -> (FileHandle, VsockTransport) {
         let agentConnectionRetryCount: Int = 150
         let agentConnectionSleepDuration: Duration = .milliseconds(20)
 
         for _ in 0...agentConnectionRetryCount {
             do {
-                return try await self.connect(queue: queue, port: Vminitd.port).dupHandle()
+                let conn = try await self.connect(queue: queue, port: Vminitd.port)
+                let handle = try conn.dupFileDescriptor()
+                return (handle, VsockTransport(conn))
             } catch {
                 try await Task.sleep(for: agentConnectionSleepDuration)
                 continue
@@ -139,12 +141,32 @@ extension VZVirtualMachine {
 }
 
 extension VZVirtioSocketConnection {
+    /// Duplicates the file descriptor and immediately closes the connection.
+    ///
+    /// Only safe when the returned fd is used synchronously before any
+    /// suspension point. For deferred use (e.g., gRPC/NIO), use
+    /// ``dupFileDescriptor()`` and keep the connection alive via
+    /// ``VsockTransport``.
     func dupHandle() throws -> FileHandle {
         let fd = dup(self.fileDescriptor)
         if fd == -1 {
             throw POSIXError.fromErrno()
         }
         self.close()
+        return FileHandle(fileDescriptor: fd, closeOnDealloc: false)
+    }
+
+    /// Duplicates the connection's file descriptor without closing the connection.
+    ///
+    /// The caller must keep the `VZVirtioSocketConnection` alive until the dup'd
+    /// descriptor is no longer needed. The Virtualization framework tears down the
+    /// vsock endpoint when the connection is closed, which invalidates dup'd
+    /// descriptors.
+    func dupFileDescriptor() throws -> FileHandle {
+        let fd = dup(self.fileDescriptor)
+        if fd == -1 {
+            throw POSIXError.fromErrno()
+        }
         return FileHandle(fileDescriptor: fd, closeOnDealloc: false)
     }
 }
