@@ -35,23 +35,29 @@ jobs:
       contents: read
       packages: write 
     steps:
-      - name: Check branch 
+      - name: Check branch
+        env:
+          GH_REF: ${{ github.ref }}
+          PUBLISH: ${{ inputs.publish }}
         run: |
-          if [[ "${{ github.ref }}" != "refs/heads/main" ]] && [[ "${{ github.ref }}" != refs/heads/release* ]] && [[ "${{ inputs.publish }}" == "true" ]]; then
+          if [[ "${GH_REF}" != "refs/heads/main" ]] && [[ "${GH_REF}" != refs/heads/release* ]] && [[ "${PUBLISH}" == "true" ]]; then
             echo "❌ Cannot publish an image if we are not on main or a release branch."
             exit 1
           fi
       - name: Check inputs
+        env:
+          IMAGE: ${{ inputs.image }}
+          USE_BUILDX: ${{ inputs.useBuildx }}
         run: |
-          if [[ "${{ inputs.image }}" == "dockermanifestimage" ]] && [[ "${{ inputs.useBuildx }}" == "true" ]]; then
+          if [[ "${IMAGE}" == "dockermanifestimage" ]] && [[ "${USE_BUILDX}" == "true" ]]; then
             echo "❌ dockermanifestimage cannot be built with buildx"
             exit 1
-          fi 
+          fi
 
-          if [[ "${{ inputs.image }}" == "emptyimage" ]] && [[ "${{ inputs.useBuildx }}" != "true" ]]; then
+          if [[ "${IMAGE}" == "emptyimage" ]] && [[ "${USE_BUILDX}" != "true" ]]; then
             echo "❌ emptyimage should be built with buildx"
             exit 1
-          fi 
+          fi
       - name: Checkout repository
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6 
       - name: Login to GitHub Container Registry
