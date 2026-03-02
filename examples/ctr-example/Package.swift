@@ -17,7 +17,7 @@
 
 import PackageDescription
 
-let scVersion = "0.26.3"
+let scVersion = "0.26.5"
 
 let package = Package(
     name: "ctr-example",
