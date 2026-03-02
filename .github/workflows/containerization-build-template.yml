@@ -75,13 +75,14 @@ jobs:
 
       - name: Push vminitd image
         if: ${{ inputs.release }}
-        run: |
-          bin/cctl images tag vminit:latest ghcr.io/apple/containerization/vminit:${{ inputs.version }}
-          bin/cctl images push ghcr.io/apple/containerization/vminit:${{ inputs.version }}
         env:
           REGISTRY_TOKEN: ${{ github.token }}
           REGISTRY_USERNAME: ${{ github.actor }}
           REGISTRY_HOST: ghcr.io
+          VERSION: ${{ inputs.version }}
+        run: |
+          bin/cctl images tag vminit:latest "ghcr.io/apple/containerization/vminit:${VERSION}"
+          bin/cctl images push "ghcr.io/apple/containerization/vminit:${VERSION}"
 
       - name: Create image tar 
         if: ${{ !inputs.release }}
