@@ -254,6 +254,10 @@ public final class LinuxPod: Sendable {
     private static func guestRootfsPath(_ containerID: String) -> String {
         "/run/container/\(containerID)/rootfs"
     }
+
+    private static func guestSocketStagingPath(_ containerID: String, socketID: String) -> String {
+        "/run/container/\(containerID)/sockets/\(socketID).sock"
+    }
 }
 
 extension LinuxPod {
@@ -538,6 +542,19 @@ extension LinuxPod {
                             source: "/sbin/vminitd",
                             destination: "/.cz-init",
                             options: ["bind", "ro"]
+                        ))
+                }
+
+                // Bind mount staged sockets into the container. Sockets relayed
+                // .into the container are created in a staging directory outside
+                // the rootfs to avoid symlink traversal and mount shadowing.
+                for socket in container.config.sockets where socket.direction == .into {
+                    mounts.append(
+                        ContainerizationOCI.Mount(
+                            type: "bind",
+                            source: Self.guestSocketStagingPath(containerID, socketID: socket.id),
+                            destination: socket.destination.path,
+                            options: ["bind"]
                         ))
                 }
 
@@ -897,7 +914,7 @@ extension LinuxPod {
         let port: UInt32
         if socket.direction == .into {
             port = self.hostVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
-            socket.destination = rootInGuest.appending(path: socket.destination.path)
+            socket.destination = URL(filePath: Self.guestSocketStagingPath(containerID, socketID: socket.id))
         } else {
             port = self.guestVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
             socket.source = rootInGuest.appending(path: socket.source.path)
