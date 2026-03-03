@@ -156,7 +156,7 @@ extension Mount {
         if isBindMount {
             var sourceStat = stat()
             if stat(self.source, &sourceStat) == 0 {
-                leafIsFile = (sourceStat.st_mode & S_IFMT) == S_IFREG
+                leafIsFile = (sourceStat.st_mode & S_IFMT) != S_IFDIR
             }
         }
 
@@ -317,13 +317,13 @@ extension Mount {
             // For bind mounts, check if the source is a file and create the target accordingly.
             let isBindMount = (originalFlags & Int32(MS_BIND)) != 0
             if isBindMount {
-                var sourceIsFile = false
+                var sourceIsNonDir = false
                 var sourceStat = stat()
                 if stat(self.source, &sourceStat) == 0 {
-                    sourceIsFile = (sourceStat.st_mode & S_IFMT) == S_IFREG
+                    sourceIsNonDir = (sourceStat.st_mode & S_IFMT) != S_IFDIR
                 }
 
-                if sourceIsFile {
+                if sourceIsNonDir {
                     // Create parent directories and touch the target file
                     try mkdirAll(targetParent, 0o755)
                     let fd = open(target, O_WRONLY | O_CREAT, 0o644)

@@ -1161,6 +1161,63 @@ extension IntegrationSuite {
         return dir
     }
 
+    func testUnixSocketIntoGuestSymlink() async throws {
+        let id = "test-unixsocket-into-guest-symlink"
+
+        let bs = try await bootstrap(id)
+
+        let hostSocketPath = try createHostUnixSocket()
+
+        let buffer = BufferWriter()
+        // Use /var/run/test.sock. Alpine has /var/run -> /run symlink
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.sockets = [
+                UnixSocketConfiguration(
+                    source: URL(filePath: hostSocketPath),
+                    destination: URL(filePath: "/var/run/test.sock"),
+                    direction: .into
+                )
+            ]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let lsExec = try await container.exec("ls-socket") { config in
+                config.arguments = ["ls", "-l", "/var/run/test.sock"]
+                config.stdout = buffer
+            }
+
+            try await lsExec.start()
+            let status = try await lsExec.wait()
+            try await lsExec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ls command failed with status \(status)")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert ls output to UTF8")
+            }
+
+            // Socket files in ls -l output start with 's'
+            guard output.hasPrefix("s") else {
+                throw IntegrationError.assert(
+                    msg: "expected socket file (starting with 's'), got: \(output)")
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
     func testBootLogFileHandle() async throws {
         let id = "test-bootlog-filehandle"
 
