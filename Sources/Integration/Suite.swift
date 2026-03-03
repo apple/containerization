@@ -313,6 +313,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container memory events OOM kill", testMemoryEventsOOMKill),
                 Test("container no serial console", testNoSerialConsole),
                 Test("unix socket into guest", testUnixSocketIntoGuest),
+                Test("unix socket into guest symlink", testUnixSocketIntoGuestSymlink),
                 Test("container non-closure constructor", testNonClosureConstructor),
                 Test("container test large stdio ingest", testLargeStdioOutput),
                 Test("process delete idempotency", testProcessDeleteIdempotency),
@@ -396,6 +397,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("pod useInit signal forwarding", testPodUseInitSignalForwarding),
                 Test("pod useInit multiple containers", testPodUseInitMultipleContainers),
                 Test("pod useInit with shared PID namespace", testPodUseInitWithSharedPIDNamespace),
+                Test("pod unix socket into guest symlink", testPodUnixSocketIntoGuestSymlink),
             ] + macOS26Tests()
 
         let filteredTests: [Test]

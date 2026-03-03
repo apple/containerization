@@ -413,6 +413,10 @@ public final class LinuxContainer: Container, Sendable {
     private static func guestRootfsPath(_ id: String) -> String {
         "/run/container/\(id)/rootfs"
     }
+
+    private static func guestSocketStagingPath(_ containerID: String, socketID: String) -> String {
+        "/run/container/\(containerID)/sockets/\(socketID).sock"
+    }
 }
 
 extension LinuxContainer {
@@ -647,6 +651,19 @@ extension LinuxContainer {
                             source: "/sbin/vminitd",
                             destination: "/.cz-init",
                             options: ["bind", "ro"]
+                        ))
+                }
+
+                // Bind mount staged sockets into the container. Sockets relayed
+                // .into the container are created in a staging directory outside
+                // the rootfs to avoid symlink traversal and mount shadowing.
+                for socket in self.config.sockets where socket.direction == .into {
+                    mounts.append(
+                        ContainerizationOCI.Mount(
+                            type: "bind",
+                            source: Self.guestSocketStagingPath(self.id, socketID: socket.id),
+                            destination: socket.destination.path,
+                            options: ["bind"]
                         ))
                 }
 
@@ -995,22 +1012,6 @@ extension LinuxContainer {
         }
     }
 
-    /// Relay a unix socket from in the container to the host, or from the host
-    /// to inside the container.
-    public func relayUnixSocket(socket: UnixSocketConfiguration) async throws {
-        try await self.state.withLock {
-            let state = try $0.startedState("relayUnixSocket")
-
-            try await state.vm.withAgent { agent in
-                try await self.relayUnixSocket(
-                    socket: socket,
-                    relayManager: state.relayManager,
-                    agent: agent
-                )
-            }
-        }
-    }
-
     private func relayUnixSocket(
         socket: UnixSocketConfiguration,
         relayManager: UnixSocketRelayManager,
@@ -1029,7 +1030,7 @@ extension LinuxContainer {
         let port: UInt32
         if socket.direction == .into {
             port = self.hostVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
-            socket.destination = rootInGuest.appending(path: socket.destination.path)
+            socket.destination = URL(filePath: Self.guestSocketStagingPath(self.id, socketID: socket.id))
         } else {
             port = self.guestVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
             socket.source = rootInGuest.appending(path: socket.source.path)

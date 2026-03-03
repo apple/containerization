@@ -1858,4 +1858,75 @@ extension IntegrationSuite {
             throw IntegrationError.assert(msg: "ps output should contain 'sleep 300', got: '\(output)'")
         }
     }
+
+    func testPodUnixSocketIntoGuestSymlink() async throws {
+        let id = "test-pod-unixsocket-into-guest-symlink"
+
+        let bs = try await bootstrap(id)
+
+        let hostSocketPath = try createPodHostUnixSocket()
+
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        // Use /var/run/test.sock. Alpine has /var/run -> /run symlink
+        try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.sockets = [
+                UnixSocketConfiguration(
+                    source: URL(filePath: hostSocketPath),
+                    destination: URL(filePath: "/var/run/test.sock"),
+                    direction: .into
+                )
+            ]
+        }
+
+        do {
+            try await pod.create()
+            try await pod.startContainer("container1")
+
+            let buffer = BufferWriter()
+            let lsExec = try await pod.execInContainer("container1", processID: "ls-socket") { config in
+                config.arguments = ["ls", "-l", "/var/run/test.sock"]
+                config.stdout = buffer
+            }
+
+            try await lsExec.start()
+            let status2 = try await lsExec.wait()
+            try await lsExec.delete()
+
+            guard status2.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ls command failed with status \(status2)")
+            }
+
+            guard let lsOutput = String(data: buffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert ls output to UTF8")
+            }
+
+            guard lsOutput.hasPrefix("s") else {
+                throw IntegrationError.assert(
+                    msg: "expected socket file (starting with 's'), got: \(lsOutput)")
+            }
+
+            try await pod.killContainer("container1", signal: SIGKILL)
+            _ = try await pod.waitContainer("container1")
+            try await pod.stop()
+        } catch {
+            try? await pod.stop()
+            throw error
+        }
+    }
+
+    private func createPodHostUnixSocket() throws -> String {
+        let dir = FileManager.default.uniqueTemporaryDirectory(create: true)
+        let socketPath = dir.appendingPathComponent("test.sock").path
+
+        let socket = try Socket(type: UnixType(path: socketPath))
+        try socket.listen()
+
+        return socketPath
+    }
 }
