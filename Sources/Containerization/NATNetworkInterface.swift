@@ -29,6 +29,8 @@ import Synchronization
 public final class NATNetworkInterface: Interface, Sendable {
     public let ipv4Address: CIDRv4
     public let ipv4Gateway: IPv4Address?
+    public let ipv6Address: CIDRv6?
+    public let ipv6Gateway: IPv6Address?
     public let macAddress: MACAddress?
     public let mtu: UInt32
 
@@ -40,12 +42,16 @@ public final class NATNetworkInterface: Interface, Sendable {
     public init(
         ipv4Address: CIDRv4,
         ipv4Gateway: IPv4Address?,
+        ipv6Address: CIDRv6? = nil,
+        ipv6Gateway: IPv6Address? = nil,
         reference: sending vmnet_network_ref,
         macAddress: MACAddress? = nil,
         mtu: UInt32 = 1500
     ) {
         self.ipv4Address = ipv4Address
         self.ipv4Gateway = ipv4Gateway
+        self.ipv6Address = ipv6Address
+        self.ipv6Gateway = ipv6Gateway
         self.macAddress = macAddress
         self.mtu = mtu
         self.reference = reference
@@ -55,11 +61,15 @@ public final class NATNetworkInterface: Interface, Sendable {
     public init(
         ipv4Address: CIDRv4,
         ipv4Gateway: IPv4Address?,
+        ipv6Address: CIDRv6? = nil,
+        ipv6Gateway: IPv6Address? = nil,
         macAddress: MACAddress? = nil,
         mtu: UInt32 = 1500
     ) {
         self.ipv4Address = ipv4Address
         self.ipv4Gateway = ipv4Gateway
+        self.ipv6Address = ipv6Address
+        self.ipv6Gateway = ipv6Gateway
         self.macAddress = macAddress
         self.mtu = mtu
         self.reference = nil
