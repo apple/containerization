@@ -84,27 +84,24 @@ public struct EXT4Unpacker: Unpacker {
         )
         defer { try? filesystem.close() }
 
+        if let progress {
+            let totalSize = try await totalRegularFileBytes(in: manifest.layers, image: image)
+            if totalSize > 0 {
+                await progress([ProgressEvent(event: "add-total-size", value: totalSize)])
+            }
+        }
+
         for layer in manifest.layers {
             try Task.checkCancellation()
             let content = try await image.getContent(digest: layer.digest)
 
-            let compression: ContainerizationArchive.Filter
-            switch layer.mediaType {
-            case MediaTypes.imageLayer, MediaTypes.dockerImageLayer:
-                compression = .none
-            case MediaTypes.imageLayerGzip, MediaTypes.dockerImageLayerGzip:
-                compression = .gzip
-            case MediaTypes.imageLayerZstd, MediaTypes.dockerImageLayerZstd:
-                compression = .zstd
-            default:
-                throw ContainerizationError(.unsupported, message: "media type \(layer.mediaType) not supported.")
-            }
-            try filesystem.unpack(
-                source: content.path,
+            let compression = try compressionFilter(for: layer.mediaType)
+            let reader = try ArchiveReader(
                 format: .paxRestricted,
-                compression: compression,
-                progress: progress
+                filter: compression,
+                file: content.path
             )
+            try filesystem.unpack(reader: reader, progress: progress)
         }
 
         return .block(
@@ -123,4 +120,50 @@ public struct EXT4Unpacker: Unpacker {
         }
         return blockPath
     }
+
+    #if os(macOS)
+    private func compressionFilter(for mediaType: String) throws -> ContainerizationArchive.Filter {
+        switch mediaType {
+        case MediaTypes.imageLayer, MediaTypes.dockerImageLayer:
+            return .none
+        case MediaTypes.imageLayerGzip, MediaTypes.dockerImageLayerGzip:
+            return .gzip
+        case MediaTypes.imageLayerZstd, MediaTypes.dockerImageLayerZstd:
+            return .zstd
+        default:
+            throw ContainerizationError(.unsupported, message: "media type \(mediaType) not supported.")
+        }
+    }
+
+    private func totalRegularFileBytes(in layers: [Descriptor], image: Image) async throws -> Int64 {
+        var totalSize: Int64 = 0
+
+        for layer in layers {
+            try Task.checkCancellation()
+
+            let compression = try compressionFilter(for: layer.mediaType)
+            let content = try await image.getContent(digest: layer.digest)
+            let reader = try ArchiveReader(
+                format: .paxRestricted,
+                filter: compression,
+                file: content.path
+            )
+
+            for (entry, _) in reader.makeStreamingIterator() {
+                try Task.checkCancellation()
+                guard entry.fileType == .regular, let size = entry.size else {
+                    continue
+                }
+
+                let fileSize = Int64(clamping: size)
+                if totalSize > Int64.max - fileSize {
+                    return Int64.max
+                }
+                totalSize += fileSize
+            }
+        }
+
+        return totalSize
+    }
+    #endif
 }
