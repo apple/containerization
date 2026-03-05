@@ -30,15 +30,28 @@ public struct KeychainQuery {
     public init() {}
 
     /// Save a value to the keychain.
-    public func save(securityDomain: String, hostname: String, username: String, password: String) throws {
-        if try exists(securityDomain: securityDomain, hostname: hostname) {
-            try delete(securityDomain: securityDomain, hostname: hostname)
+    /// - Parameters:
+    ///   - securityDomain: The security domain used to fetch keychain entries.
+    ///   - accessGroup: If present, the access group used to fetch keychain entries.
+    ///   - hostname: The hostname for the authenticating server.
+    ///   - username: The username to present to the server.
+    ///   - password: The password to present to the server.
+    /// - Throws: An error if the keychain query fails or returns unexpected data.
+    public func save(
+        securityDomain: String,
+        accessGroup: String? = nil,
+        hostname: String,
+        username: String,
+        password: String
+    ) throws {
+        if try exists(securityDomain: securityDomain, accessGroup: accessGroup, hostname: hostname) {
+            try delete(securityDomain: securityDomain, accessGroup: accessGroup, hostname: hostname)
         }
 
         guard let passwordEncoded = password.data(using: String.Encoding.utf8) else {
             throw Self.Error.invalidPasswordConversion
         }
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassInternetPassword,
             kSecAttrSecurityDomain as String: securityDomain,
             kSecAttrServer as String: hostname,
@@ -47,18 +60,30 @@ public struct KeychainQuery {
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
             kSecAttrSynchronizable as String: false,
         ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
+
         let status = SecItemAdd(query as CFDictionary, nil)
         guard status == errSecSuccess else { throw Self.Error.unhandledError(status: status) }
     }
 
     /// Delete a value from the keychain.
-    public func delete(securityDomain: String, hostname: String) throws {
-        let query: [String: Any] = [
+    /// - Parameters:
+    ///   - securityDomain: The security domain used to fetch keychain entries.
+    ///   - accessGroup: If present, the access group used to fetch keychain entries.
+    ///   - hostname: The hostname for the authenticating server.
+    /// - Throws: An error if the keychain query fails or returns unexpected data.
+    public func delete(securityDomain: String, accessGroup: String? = nil, hostname: String) throws {
+        var query: [String: Any] = [
             kSecClass as String: kSecClassInternetPassword,
             kSecAttrSecurityDomain as String: securityDomain,
             kSecAttrServer as String: hostname,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
         let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw Self.Error.unhandledError(status: status)
@@ -66,8 +91,14 @@ public struct KeychainQuery {
     }
 
     /// Retrieve a value from the keychain.
-    public func get(securityDomain: String, hostname: String) throws -> KeychainQueryResult? {
-        let query: [String: Any] = [
+    /// - Parameters:
+    ///   - securityDomain: The security domain used to fetch keychain entries.
+    ///   - accessGroup: If present, the access group used to fetch keychain entries.
+    ///   - hostname: The hostname for the authenticating server.
+    /// - Returns: The keychain entry.
+    /// - Throws: An error if the keychain query fails or returns unexpected data.
+    public func get(securityDomain: String, accessGroup: String? = nil, hostname: String) throws -> KeychainQueryResult? {
+        var query: [String: Any] = [
             kSecClass as String: kSecClassInternetPassword,
             kSecAttrSecurityDomain as String: securityDomain,
             kSecAttrServer as String: hostname,
@@ -75,6 +106,9 @@ public struct KeychainQuery {
             kSecMatchLimit as String: kSecMatchLimitOne,
             kSecReturnData as String: true,
         ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         let exists = try isQuerySuccessful(status)
@@ -108,18 +142,23 @@ public struct KeychainQuery {
         )
     }
 
-    /// List all registry entries in the keychain for a domain.
-    /// - Parameter securityDomain: The security domain used to fetch registry entries in the keychain.
-    /// - Returns: An array of registry metadata for each matching entry, or an empty array if none are found.
+    /// List all keychain entries for a domain.
+    /// - Parameters:
+    ///   - securityDomain: The security domain used to fetch keychain entries.
+    ///   - accessGroup: If present, the access group used to fetch keychain entries.
+    /// - Returns: An array of keychain metadata for each matching entry, or an empty array if none are found.
     /// - Throws: An error if the keychain query fails or returns unexpected data.
-    public func list(securityDomain: String) throws -> [RegistryInfo] {
-        let query: [String: Any] = [
+    public func list(securityDomain: String, accessGroup: String? = nil) throws -> [RegistryInfo] {
+        var query: [String: Any] = [
             kSecClass as String: kSecClassInternetPassword,
             kSecAttrSecurityDomain as String: securityDomain,
             kSecReturnAttributes as String: true,
             kSecReturnData as String: false,
             kSecMatchLimit as String: kSecMatchLimitAll,
         ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         let exists = try isQuerySuccessful(status)
@@ -154,6 +193,30 @@ public struct KeychainQuery {
         }
     }
 
+    /// Check if a value exists in the keychain.
+    /// - Parameters:
+    ///   - securityDomain: The security domain used to fetch keychain entries.
+    ///   - accessGroup: If present, the access group used to fetch keychain entries.
+    ///   - hostname: The hostname for the authenticating server.
+    /// - Returns: `true` if the entry exists, `false` otherwise.
+    /// - Throws: An error if the keychain query fails.
+    public func exists(securityDomain: String, accessGroup: String? = nil, hostname: String) throws -> Bool {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassInternetPassword,
+            kSecAttrSecurityDomain as String: securityDomain,
+            kSecAttrServer as String: hostname,
+            kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecReturnData as String: false,
+        ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
+
+        let status = SecItemCopyMatching(query as CFDictionary, nil)
+        return try isQuerySuccessful(status)
+    }
+
     private func isQuerySuccessful(_ status: Int32) throws -> Bool {
         guard status != errSecItemNotFound else {
             return false
@@ -162,21 +225,6 @@ public struct KeychainQuery {
             throw Self.Error.unhandledError(status: status)
         }
         return true
-    }
-
-    /// Check if a value exists in the keychain.
-    public func exists(securityDomain: String, hostname: String) throws -> Bool {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassInternetPassword,
-            kSecAttrSecurityDomain as String: securityDomain,
-            kSecAttrServer as String: hostname,
-            kSecReturnAttributes as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecReturnData as String: false,
-        ]
-
-        let status = SecItemCopyMatching(query as CFDictionary, nil)
-        return try isQuerySuccessful(status)
     }
 }
 

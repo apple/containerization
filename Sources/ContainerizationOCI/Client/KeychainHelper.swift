@@ -21,16 +21,32 @@ import ContainerizationOS
 /// Helper type to lookup registry related values in the macOS keychain.
 public struct KeychainHelper: Sendable {
     private let securityDomain: String
-    public init(securityDomain: String) {
+    private let accessGroup: String?
+
+    /// Create a new keychain helper.
+    /// - Parameters:
+    ///   - securityDomain: The security domain used to fetch registry entries in the keychain.
+    ///   - accessGroup: If present, the access group used to fetch registry entries in the keychain.
+    public init(securityDomain: String, accessGroup: String? = nil) {
         self.securityDomain = securityDomain
+        self.accessGroup = accessGroup
     }
 
-    /// Lookup authorization data for a given registry hostname.
+    /// Lookup authentication data for a given registry hostname.
+    /// - Parameters:
+    ///   - hostname: The hostname for the registry.
+    /// - Returns: The authentication object for the registry.
+    /// - Throws: An error if the keychain query fails.
     public func lookup(hostname: String) throws -> Authentication {
         let kq = KeychainQuery()
 
         do {
-            guard let fetched = try kq.get(securityDomain: self.securityDomain, hostname: hostname) else {
+            guard
+                let fetched = try kq.get(
+                    securityDomain: self.securityDomain,
+                    accessGroup: self.accessGroup,
+                    hostname: hostname)
+            else {
                 throw Self.Error.keyNotFound
             }
             return BasicAuthentication(
@@ -52,19 +68,33 @@ public struct KeychainHelper: Sendable {
     /// - Throws: An error if the keychain query fails.
     public func list() throws -> [RegistryInfo] {
         let kq = KeychainQuery()
-        return try kq.list(securityDomain: self.securityDomain)
+        return try kq.list(securityDomain: self.securityDomain, accessGroup: self.accessGroup)
     }
 
     /// Delete authorization data for a given hostname from the keychain.
+    /// - Parameters:
+    ///   - hostname: The hostname for the registry.
+    /// - Throws: An error if the keychain query fails.
     public func delete(hostname: String) throws {
         let kq = KeychainQuery()
-        try kq.delete(securityDomain: self.securityDomain, hostname: hostname)
+        try kq.delete(securityDomain: self.securityDomain, accessGroup: self.accessGroup, hostname: hostname)
     }
 
     /// Save authorization data for a given hostname to the keychain.
+    /// - Parameters:
+    ///   - hostname: The hostname for the registry.
+    ///   - username: The username to present to the registry.
+    ///   - password: The password to present to the registry.
+    /// - Throws: An error if the keychain query fails or returns unexpected data.
     public func save(hostname: String, username: String, password: String) throws {
         let kq = KeychainQuery()
-        try kq.save(securityDomain: self.securityDomain, hostname: hostname, username: username, password: password)
+        try kq.save(
+            securityDomain: self.securityDomain,
+            accessGroup: self.accessGroup,
+            hostname: hostname,
+            username: username,
+            password: password
+        )
     }
 
     /// Prompt for authorization data for a given hostname to be saved to the keychain.
