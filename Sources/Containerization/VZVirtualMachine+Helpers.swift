@@ -123,7 +123,7 @@ extension VZVirtualMachine {
 
 extension VZVirtualMachine {
     func waitForAgent(queue: DispatchQueue) async throws -> FileHandle {
-        let agentConnectionRetryCount: Int = 150
+        let agentConnectionRetryCount: Int = 200
         let agentConnectionSleepDuration: Duration = .milliseconds(20)
 
         for _ in 0...agentConnectionRetryCount {
@@ -134,7 +134,7 @@ extension VZVirtualMachine {
                 continue
             }
         }
-        throw ContainerizationError(.invalidArgument, message: "no connection to agent socket")
+        throw ContainerizationError(.timeout, message: "failed to get a connection to agent socket")
     }
 }
 
