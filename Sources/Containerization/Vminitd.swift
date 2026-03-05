@@ -653,32 +653,48 @@ extension Vminitd {
     /// Extract a tar archive to a destination directory.
     private static func extractTar(reader: TarReader, to destURL: URL) throws {
         let fm = FileManager.default
+        try fm.createDirectory(atPath: destURL.path, withIntermediateDirectories: true)
+        let fd = try FileDescriptor.open(FilePath(destURL.path), .readOnly)
+        defer { try? fd.close() }
+
         while let header = try reader.nextHeader() {
-            let relativePath = header.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            guard !relativePath.contains("..") else {
+            let memberPath = FilePath(header.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
+            guard let lastComponent = memberPath.lastComponent else {
                 try reader.skipRemainingContent()
                 continue
             }
-            let fullURL = relativePath.isEmpty ? destURL : destURL.appending(path: relativePath)
+            let relativePath = memberPath.removingLastComponent()
 
-            switch header.entryType {
-            case .directory:
-                try fm.createDirectory(at: fullURL, withIntermediateDirectories: true)
-            case .regular, .regularAlt, .contiguous:
-                let parentDir = fullURL.deletingLastPathComponent()
-                try fm.createDirectory(at: parentDir, withIntermediateDirectories: true)
-                let fd = open(fullURL.path, O_WRONLY | O_CREAT | O_TRUNC, mode_t(header.mode > 0 ? header.mode : 0o644))
-                guard fd != -1 else {
+            do {
+                switch header.entryType {
+                case .directory:
+                    try fd.mkdirSecure(memberPath, makeIntermediates: true)
+                case .regular, .regularAlt, .contiguous:
+                    try fd.mkdirSecure(relativePath, makeIntermediates: true) { dirFd in
+                        try? dirFd.unlinkRecursiveSecure(filename: lastComponent)
+
+                        let maskedMode = mode_t(header.mode & 0o777)
+                        let fileMode = maskedMode > 0 ? maskedMode : mode_t(0o644)
+                        let fileFd = openat(dirFd.rawValue, lastComponent.string, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, fileMode)
+                        guard fileFd >= 0 else {
+                            try reader.skipRemainingContent()
+                            return
+                        }
+                        let fileDescriptor = FileDescriptor(rawValue: fileFd)
+                        defer { try? fileDescriptor.close() }
+                        try reader.readFile(to: fileDescriptor)
+                    }
+                case .symbolicLink:
+                    try fd.mkdirSecure(relativePath, makeIntermediates: true) { dirFd in
+                        try? dirFd.unlinkRecursiveSecure(filename: lastComponent)
+                        guard symlinkat(header.linkName, dirFd.rawValue, lastComponent.string) == 0 else {
+                            return
+                        }
+                    }
+                default:
                     try reader.skipRemainingContent()
-                    continue
                 }
-                let fileFD = FileDescriptor(rawValue: fd)
-                defer { try? fileFD.close() }
-                try reader.readFile(to: fileFD)
-            case .symbolicLink:
-                try? fm.removeItem(at: fullURL)
-                try fm.createSymbolicLink(atPath: fullURL.path, withDestinationPath: header.linkName)
-            default:
+            } catch is SecurePathError {
                 try reader.skipRemainingContent()
             }
         }
