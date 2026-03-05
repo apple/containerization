@@ -439,92 +439,52 @@ extension Vminitd {
         return response.result
     }
 
-    /// Copy a file from the host into the guest.
-    public func copyIn(
-        from source: URL,
-        to destination: URL,
-        mode: UInt32,
-        createParents: Bool,
-        chunkSize: Int,
-        progress: ProgressHandler?
-    ) async throws {
-        let fileHandle = try FileHandle(forReadingFrom: source)
-        defer { try? fileHandle.close() }
-
-        let attrs = try FileManager.default.attributesOfItem(atPath: source.path)
-        guard let fileSize = attrs[.size] as? Int64 else {
-            throw ContainerizationError(
-                .invalidArgument,
-                message: "copyIn: failed to get file size for '\(source.path)'"
-            )
-        }
-
-        await progress?([ProgressEvent(event: "add-total-size", value: fileSize)])
-
-        let call = client.makeCopyInCall()
-
-        try await call.requestStream.send(
-            .with {
-                $0.content = .init_p(
-                    .with {
-                        $0.path = destination.path
-                        $0.mode = mode
-                        $0.createParents = createParents
-                    })
-            }
-        )
-
-        var totalSent: Int64 = 0
-        while true {
-            guard let data = try fileHandle.read(upToCount: chunkSize), !data.isEmpty else {
-                break
-            }
-            try await call.requestStream.send(.with { $0.content = .data(data) })
-            totalSent += Int64(data.count)
-            await progress?([ProgressEvent(event: "add-size", value: Int64(data.count))])
-        }
-
-        call.requestStream.finish()
-        _ = try await call.response
+    /// Metadata received from the guest during a copy operation.
+    public struct CopyMetadata: Sendable {
+        /// Whether the data on the vsock channel is a tar+gzip archive.
+        public let isArchive: Bool
+        /// Total size in bytes (0 if unknown, e.g. for archives).
+        public let totalSize: UInt64
     }
 
-    /// Copy a file from the guest to the host.
-    public func copyOut(
-        from source: URL,
-        to destination: URL,
-        createParents: Bool,
-        chunkSize: Int,
-        progress: ProgressHandler?
+    /// Unified copy control plane. Sends a CopyRequest over gRPC and processes
+    /// the response stream. Data transfer happens over a separate vsock connection
+    /// managed by the caller.
+    ///
+    /// For COPY_OUT, the `onMetadata` callback is invoked when the guest sends
+    /// metadata (is_archive, total_size) before data transfer begins.
+    /// For COPY_IN, `onMetadata` is not called.
+    public func copy(
+        direction: Com_Apple_Containerization_Sandbox_V3_CopyRequest.Direction,
+        guestPath: URL,
+        vsockPort: UInt32,
+        mode: UInt32 = 0,
+        createParents: Bool = false,
+        isArchive: Bool = false,
+        onMetadata: @Sendable (CopyMetadata) -> Void = { _ in }
     ) async throws {
-        let request = Com_Apple_Containerization_Sandbox_V3_CopyOutRequest.with {
-            $0.path = source.path
+        let request = Com_Apple_Containerization_Sandbox_V3_CopyRequest.with {
+            $0.direction = direction
+            $0.path = guestPath.path
+            $0.mode = mode
+            $0.createParents = createParents
+            $0.vsockPort = vsockPort
+            $0.isArchive = isArchive
         }
 
-        if createParents {
-            let parentDir = destination.deletingLastPathComponent()
-            try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
-        }
+        let stream = client.copy(request)
 
-        let fd = open(destination.path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
-        guard fd != -1 else {
-            throw ContainerizationError(
-                .internalError,
-                message: "copyOut: failed to open '\(destination.path)': \(String(cString: strerror(errno)))"
-            )
-        }
-        let fileHandle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-        defer { try? fileHandle.close() }
-
-        let stream = client.copyOut(request)
-        for try await chunk in stream {
-            switch chunk.content {
-            case .init_p(let initMsg):
-                await progress?([ProgressEvent(event: "add-total-size", value: Int64(initMsg.totalSize))])
-            case .data(let data):
-                try fileHandle.write(contentsOf: data)
-                await progress?([ProgressEvent(event: "add-size", value: Int64(data.count))])
-            case .none:
+        for try await response in stream {
+            if !response.error.isEmpty {
+                throw ContainerizationError(.internalError, message: "copy: \(response.error)")
+            }
+            switch response.status {
+            case .metadata:
+                onMetadata(CopyMetadata(isArchive: response.isArchive, totalSize: response.totalSize))
+            case .complete:
                 break
+            case .UNRECOGNIZED(let value):
+                throw ContainerizationError(.internalError, message: "copy: unrecognized response status \(value)")
             }
         }
     }

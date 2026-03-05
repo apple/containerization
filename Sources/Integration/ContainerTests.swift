@@ -1812,6 +1812,693 @@ extension IntegrationSuite {
         }
     }
 
+    func testCopyInDirectory() async throws {
+        let id = "test-copy-in-dir"
+
+        let bs = try await bootstrap(id)
+
+        // Create a temp directory with files, a subdirectory, and a symlink.
+        let hostDir = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("test-dir")
+        try FileManager.default.createDirectory(at: hostDir, withIntermediateDirectories: true)
+        try "file1 content".write(to: hostDir.appendingPathComponent("file1.txt"), atomically: true, encoding: .utf8)
+
+        let subDir = hostDir.appendingPathComponent("subdir")
+        try FileManager.default.createDirectory(at: subDir, withIntermediateDirectories: true)
+        try "file2 content".write(to: subDir.appendingPathComponent("file2.txt"), atomically: true, encoding: .utf8)
+
+        try FileManager.default.createSymbolicLink(
+            at: hostDir.appendingPathComponent("link.txt"),
+            withDestinationURL: hostDir.appendingPathComponent("file1.txt")
+        )
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Copy the directory into the container.
+            try await container.copyIn(
+                from: hostDir,
+                to: URL(filePath: "/tmp/copied-dir")
+            )
+
+            // Verify file1.txt exists with correct content.
+            let buffer1 = BufferWriter()
+            let exec1 = try await container.exec("verify-file1") { config in
+                config.arguments = ["cat", "/tmp/copied-dir/file1.txt"]
+                config.stdout = buffer1
+            }
+            try await exec1.start()
+            let status1 = try await exec1.wait()
+            try await exec1.delete()
+
+            guard status1.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "cat file1.txt failed with status \(status1)")
+            }
+            guard String(data: buffer1.data, encoding: .utf8) == "file1 content" else {
+                throw IntegrationError.assert(msg: "file1.txt content mismatch")
+            }
+
+            // Verify subdir/file2.txt exists with correct content.
+            let buffer2 = BufferWriter()
+            let exec2 = try await container.exec("verify-file2") { config in
+                config.arguments = ["cat", "/tmp/copied-dir/subdir/file2.txt"]
+                config.stdout = buffer2
+            }
+            try await exec2.start()
+            let status2 = try await exec2.wait()
+            try await exec2.delete()
+
+            guard status2.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "cat subdir/file2.txt failed with status \(status2)")
+            }
+            guard String(data: buffer2.data, encoding: .utf8) == "file2 content" else {
+                throw IntegrationError.assert(msg: "subdir/file2.txt content mismatch")
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testCopyOutDirectory() async throws {
+        let id = "test-copy-out-dir"
+
+        let bs = try await bootstrap(id)
+
+        let hostDestination = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("copied-out-dir")
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Create a directory structure inside the container.
+            let exec = try await container.exec("create-dir") { config in
+                config.arguments = [
+                    "sh", "-c",
+                    "mkdir -p /tmp/guest-dir/subdir && echo -n 'guest file1' > /tmp/guest-dir/file1.txt && echo -n 'guest file2' > /tmp/guest-dir/subdir/file2.txt",
+                ]
+            }
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "failed to create directory in guest, status \(status)")
+            }
+
+            // Copy the directory out of the container.
+            try await container.copyOut(
+                from: URL(filePath: "/tmp/guest-dir"),
+                to: hostDestination
+            )
+
+            // Verify file1.txt was copied correctly.
+            let file1Content = try String(contentsOf: hostDestination.appendingPathComponent("file1.txt"), encoding: .utf8)
+            guard file1Content == "guest file1" else {
+                throw IntegrationError.assert(
+                    msg: "file1.txt content mismatch: expected 'guest file1', got '\(file1Content)'")
+            }
+
+            // Verify subdir/file2.txt was copied correctly.
+            let file2Content = try String(
+                contentsOf: hostDestination.appendingPathComponent("subdir").appendingPathComponent("file2.txt"),
+                encoding: .utf8
+            )
+            guard file2Content == "guest file2" else {
+                throw IntegrationError.assert(
+                    msg: "subdir/file2.txt content mismatch: expected 'guest file2', got '\(file2Content)'")
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testCopyEmptyFile() async throws {
+        let id = "test-copy-empty-file"
+
+        let bs = try await bootstrap(id)
+
+        let hostFile = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("empty.txt")
+        try Data().write(to: hostFile)
+
+        let hostDestination = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("empty-out.txt")
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Copy empty file in.
+            try await container.copyIn(
+                from: hostFile,
+                to: URL(filePath: "/tmp/empty.txt")
+            )
+
+            // Verify it exists and is empty in the guest.
+            let buffer = BufferWriter()
+            let exec = try await container.exec("verify-empty") { config in
+                config.arguments = ["stat", "-c", "%s", "/tmp/empty.txt"]
+                config.stdout = buffer
+            }
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "stat failed with status \(status)")
+            }
+            let sizeStr = String(data: buffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard sizeStr == "0" else {
+                throw IntegrationError.assert(msg: "empty file should have size 0, got '\(sizeStr ?? "nil")'")
+            }
+
+            // Copy it back out.
+            try await container.copyOut(
+                from: URL(filePath: "/tmp/empty.txt"),
+                to: hostDestination
+            )
+
+            let copiedData = try Data(contentsOf: hostDestination)
+            guard copiedData.isEmpty else {
+                throw IntegrationError.assert(msg: "round-tripped empty file should be empty, got \(copiedData.count) bytes")
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testCopyEmptyDirectory() async throws {
+        let id = "test-copy-empty-dir"
+
+        let bs = try await bootstrap(id)
+
+        let hostDir = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("empty-dir")
+        try FileManager.default.createDirectory(at: hostDir, withIntermediateDirectories: true)
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Copy empty directory in.
+            try await container.copyIn(
+                from: hostDir,
+                to: URL(filePath: "/tmp/empty-dir")
+            )
+
+            // Verify it exists and is a directory.
+            let buffer = BufferWriter()
+            let exec = try await container.exec("verify-empty-dir") { config in
+                config.arguments = ["sh", "-c", "test -d /tmp/empty-dir && ls -a /tmp/empty-dir | wc -l"]
+                config.stdout = buffer
+            }
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "empty dir check failed with status \(status)")
+            }
+
+            // ls -a shows . and .. so count should be 2 for an empty dir.
+            let countStr = String(data: buffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard countStr == "2" else {
+                throw IntegrationError.assert(msg: "empty dir should have 2 entries (. and ..), got '\(countStr ?? "nil")'")
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testCopyBinaryFile() async throws {
+        let id = "test-copy-binary"
+
+        let bs = try await bootstrap(id)
+
+        // Create a file with all 256 byte values to test binary safety.
+        let hostFile = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("binary.bin")
+        var binaryData = Data(count: 256 * 64)
+        for i in 0..<binaryData.count {
+            binaryData[i] = UInt8(i % 256)
+        }
+        try binaryData.write(to: hostFile)
+
+        let hostDestination = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("binary-out.bin")
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            try await container.copyIn(
+                from: hostFile,
+                to: URL(filePath: "/tmp/binary.bin")
+            )
+
+            try await container.copyOut(
+                from: URL(filePath: "/tmp/binary.bin"),
+                to: hostDestination
+            )
+
+            let copiedData = try Data(contentsOf: hostDestination)
+
+            guard copiedData.count == binaryData.count else {
+                throw IntegrationError.assert(
+                    msg: "binary file size mismatch: expected \(binaryData.count), got \(copiedData.count)")
+            }
+            guard copiedData == binaryData else {
+                throw IntegrationError.assert(msg: "binary file content mismatch after round-trip")
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testCopyMultipleFiles() async throws {
+        let id = "test-copy-multiple"
+
+        let bs = try await bootstrap(id)
+
+        let tmpDir = FileManager.default.uniqueTemporaryDirectory(create: true)
+        let files = (0..<5).map { i in
+            (
+                host: tmpDir.appendingPathComponent("file\(i).txt"),
+                guest: URL(filePath: "/tmp/multi/file\(i).txt"),
+                content: "Content of file \(i) with some padding: \(String(repeating: "x", count: i * 1000))"
+            )
+        }
+
+        for file in files {
+            try file.content.write(to: file.host, atomically: true, encoding: .utf8)
+        }
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Copy all files in sequentially.
+            for file in files {
+                try await container.copyIn(
+                    from: file.host,
+                    to: file.guest,
+                    createParents: true
+                )
+            }
+
+            // Verify each file.
+            for (i, file) in files.enumerated() {
+                let buffer = BufferWriter()
+                let exec = try await container.exec("verify-\(i)") { config in
+                    config.arguments = ["cat", file.guest.path]
+                    config.stdout = buffer
+                }
+                try await exec.start()
+                let status = try await exec.wait()
+                try await exec.delete()
+
+                guard status.exitCode == 0 else {
+                    throw IntegrationError.assert(msg: "cat file\(i).txt failed with status \(status)")
+                }
+                let output = String(data: buffer.data, encoding: .utf8)
+                guard output == file.content else {
+                    throw IntegrationError.assert(msg: "file\(i).txt content mismatch")
+                }
+            }
+
+            // Copy all files back out and verify.
+            for (i, file) in files.enumerated() {
+                let outPath = tmpDir.appendingPathComponent("out-file\(i).txt")
+                try await container.copyOut(
+                    from: file.guest,
+                    to: outPath
+                )
+                let copiedContent = try String(contentsOf: outPath, encoding: .utf8)
+                guard copiedContent == file.content else {
+                    throw IntegrationError.assert(msg: "file\(i).txt round-trip content mismatch")
+                }
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testCopyDirectoryRoundTrip() async throws {
+        let id = "test-copy-dir-rt"
+
+        let bs = try await bootstrap(id)
+
+        // Create a directory tree with varied content: nested dirs, different sizes, binary data.
+        let hostDir = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("dir-rt")
+        try FileManager.default.createDirectory(at: hostDir, withIntermediateDirectories: true)
+
+        // Top-level files.
+        try "top level".write(to: hostDir.appendingPathComponent("root.txt"), atomically: true, encoding: .utf8)
+        try Data(repeating: 0xAB, count: 4096).write(to: hostDir.appendingPathComponent("binary.bin"))
+
+        // Nested 3 levels deep.
+        let deep = hostDir.appendingPathComponent("a").appendingPathComponent("b").appendingPathComponent("c")
+        try FileManager.default.createDirectory(at: deep, withIntermediateDirectories: true)
+        try "deep file".write(to: deep.appendingPathComponent("deep.txt"), atomically: true, encoding: .utf8)
+
+        // Empty subdirectory.
+        let emptySubdir = hostDir.appendingPathComponent("empty-sub")
+        try FileManager.default.createDirectory(at: emptySubdir, withIntermediateDirectories: true)
+
+        // File with special characters in content (not name).
+        try "line1\nline2\ttab\r\nwindows\0null".write(
+            to: hostDir.appendingPathComponent("special.txt"), atomically: true, encoding: .utf8)
+
+        let hostDestination = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("dir-rt-out")
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Copy in.
+            try await container.copyIn(
+                from: hostDir,
+                to: URL(filePath: "/tmp/dir-rt")
+            )
+
+            // Copy back out.
+            try await container.copyOut(
+                from: URL(filePath: "/tmp/dir-rt"),
+                to: hostDestination
+            )
+
+            // Verify root.txt.
+            let rootContent = try String(contentsOf: hostDestination.appendingPathComponent("root.txt"), encoding: .utf8)
+            guard rootContent == "top level" else {
+                throw IntegrationError.assert(msg: "root.txt mismatch: '\(rootContent)'")
+            }
+
+            // Verify binary.bin.
+            let binaryContent = try Data(contentsOf: hostDestination.appendingPathComponent("binary.bin"))
+            guard binaryContent == Data(repeating: 0xAB, count: 4096) else {
+                throw IntegrationError.assert(msg: "binary.bin mismatch")
+            }
+
+            // Verify deep nested file.
+            let deepOut =
+                hostDestination
+                .appendingPathComponent("a")
+                .appendingPathComponent("b")
+                .appendingPathComponent("c")
+                .appendingPathComponent("deep.txt")
+            let deepContent = try String(contentsOf: deepOut, encoding: .utf8)
+            guard deepContent == "deep file" else {
+                throw IntegrationError.assert(msg: "deep.txt mismatch: '\(deepContent)'")
+            }
+
+            // Verify empty subdirectory exists.
+            var isDir: ObjCBool = false
+            let emptySubdirExists = FileManager.default.fileExists(
+                atPath: hostDestination.appendingPathComponent("empty-sub").path,
+                isDirectory: &isDir
+            )
+            guard emptySubdirExists && isDir.boolValue else {
+                throw IntegrationError.assert(msg: "empty-sub directory should exist after round trip")
+            }
+
+            // Verify special characters file.
+            let specialContent = try String(
+                contentsOf: hostDestination.appendingPathComponent("special.txt"), encoding: .utf8)
+            guard specialContent == "line1\nline2\ttab\r\nwindows\0null" else {
+                throw IntegrationError.assert(msg: "special.txt mismatch")
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testCopyInCreateParents() async throws {
+        let id = "test-copy-parents"
+
+        let bs = try await bootstrap(id)
+
+        let testContent = "create parents test"
+        let hostFile = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("parents-test.txt")
+        try testContent.write(to: hostFile, atomically: true, encoding: .utf8)
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Copy to a deeply nested path that doesn't exist yet.
+            try await container.copyIn(
+                from: hostFile,
+                to: URL(filePath: "/tmp/a/b/c/d/e/file.txt"),
+                createParents: true
+            )
+
+            // Verify the file got there.
+            let buffer = BufferWriter()
+            let exec = try await container.exec("verify-parents") { config in
+                config.arguments = ["cat", "/tmp/a/b/c/d/e/file.txt"]
+                config.stdout = buffer
+            }
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "cat failed with status \(status)")
+            }
+            guard String(data: buffer.data, encoding: .utf8) == testContent else {
+                throw IntegrationError.assert(msg: "content mismatch after copy with createParents")
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testCopyFilePermissions() async throws {
+        let id = "test-copy-perms"
+
+        let bs = try await bootstrap(id)
+
+        let hostFile = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("perms-test.sh")
+        try "#!/bin/sh\necho hello".write(to: hostFile, atomically: true, encoding: .utf8)
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Copy with executable permissions.
+            try await container.copyIn(
+                from: hostFile,
+                to: URL(filePath: "/tmp/perms-test.sh"),
+                mode: 0o755
+            )
+
+            // Verify the file is executable by running it.
+            let buffer = BufferWriter()
+            let exec = try await container.exec("run-script") { config in
+                config.arguments = ["/tmp/perms-test.sh"]
+                config.stdout = buffer
+            }
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "script execution failed with status \(status)")
+            }
+            let output = String(data: buffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard output == "hello" else {
+                throw IntegrationError.assert(msg: "script output mismatch: '\(output ?? "nil")'")
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testCopyLargeDirectory() async throws {
+        let id = "test-copy-large-dir"
+
+        let bs = try await bootstrap(id)
+
+        // Create a directory with many files to stress the archive path.
+        let hostDir = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("large-dir")
+        try FileManager.default.createDirectory(at: hostDir, withIntermediateDirectories: true)
+
+        let fileCount = 100
+        for i in 0..<fileCount {
+            let content = "File \(i): \(String(repeating: String(i), count: 512))"
+            try content.write(
+                to: hostDir.appendingPathComponent("file-\(String(format: "%03d", i)).txt"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let hostDestination = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("large-dir-out")
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            try await container.copyIn(
+                from: hostDir,
+                to: URL(filePath: "/tmp/large-dir")
+            )
+
+            // Verify file count in the guest.
+            let buffer = BufferWriter()
+            let exec = try await container.exec("count-files") { config in
+                config.arguments = ["sh", "-c", "ls /tmp/large-dir/*.txt | wc -l"]
+                config.stdout = buffer
+            }
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ls | wc -l failed with status \(status)")
+            }
+            let countStr = String(data: buffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard countStr == "\(fileCount)" else {
+                throw IntegrationError.assert(msg: "expected \(fileCount) files in guest, got '\(countStr ?? "nil")'")
+            }
+
+            // Copy back out.
+            try await container.copyOut(
+                from: URL(filePath: "/tmp/large-dir"),
+                to: hostDestination
+            )
+
+            // Spot-check a few files.
+            for i in [0, fileCount / 2, fileCount - 1] {
+                let expectedContent = "File \(i): \(String(repeating: String(i), count: 512))"
+                let actualContent = try String(
+                    contentsOf: hostDestination.appendingPathComponent("file-\(String(format: "%03d", i)).txt"),
+                    encoding: .utf8
+                )
+                guard actualContent == expectedContent else {
+                    throw IntegrationError.assert(msg: "file-\(String(format: "%03d", i)).txt content mismatch after round trip")
+                }
+            }
+
+            // Verify total file count on host.
+            let outFiles = try FileManager.default.contentsOfDirectory(atPath: hostDestination.path)
+            guard outFiles.count == fileCount else {
+                throw IntegrationError.assert(
+                    msg: "expected \(fileCount) files on host after copyOut, got \(outFiles.count)")
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
     func testReadOnlyRootfs() async throws {
         let id = "test-readonly-rootfs"
 

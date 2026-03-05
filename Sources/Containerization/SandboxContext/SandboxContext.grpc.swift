@@ -79,15 +79,11 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtoc
     callOptions: CallOptions?
   ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_WriteFileRequest, Com_Apple_Containerization_Sandbox_V3_WriteFileResponse>
 
-  func copyIn(
-    callOptions: CallOptions?
-  ) -> ClientStreamingCall<Com_Apple_Containerization_Sandbox_V3_CopyInChunk, Com_Apple_Containerization_Sandbox_V3_CopyInResponse>
-
-  func copyOut(
-    _ request: Com_Apple_Containerization_Sandbox_V3_CopyOutRequest,
+  func copy(
+    _ request: Com_Apple_Containerization_Sandbox_V3_CopyRequest,
     callOptions: CallOptions?,
-    handler: @escaping (Com_Apple_Containerization_Sandbox_V3_CopyOutChunk) -> Void
-  ) -> ServerStreamingCall<Com_Apple_Containerization_Sandbox_V3_CopyOutRequest, Com_Apple_Containerization_Sandbox_V3_CopyOutChunk>
+    handler: @escaping (Com_Apple_Containerization_Sandbox_V3_CopyResponse) -> Void
+  ) -> ServerStreamingCall<Com_Apple_Containerization_Sandbox_V3_CopyRequest, Com_Apple_Containerization_Sandbox_V3_CopyResponse>
 
   func createProcess(
     _ request: Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest,
@@ -347,41 +343,25 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtocol {
     )
   }
 
-  /// Copy a file from the host into the guest.
-  ///
-  /// Callers should use the `send` method on the returned object to send messages
-  /// to the server. The caller should send an `.end` after the final message has been sent.
-  ///
-  /// - Parameters:
-  ///   - callOptions: Call options.
-  /// - Returns: A `ClientStreamingCall` with futures for the metadata, status and response.
-  public func copyIn(
-    callOptions: CallOptions? = nil
-  ) -> ClientStreamingCall<Com_Apple_Containerization_Sandbox_V3_CopyInChunk, Com_Apple_Containerization_Sandbox_V3_CopyInResponse> {
-    return self.makeClientStreamingCall(
-      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.copyIn.path,
-      callOptions: callOptions ?? self.defaultCallOptions,
-      interceptors: self.interceptors?.makeCopyInInterceptors() ?? []
-    )
-  }
-
-  /// Copy a file from the guest to the host.
+  /// Copy a file or directory between the host and guest.
+  /// Data transfer happens over a dedicated vsock connection;
+  /// the gRPC stream is used only for control/metadata.
   ///
   /// - Parameters:
-  ///   - request: Request to send to CopyOut.
+  ///   - request: Request to send to Copy.
   ///   - callOptions: Call options.
   ///   - handler: A closure called when each response is received from the server.
   /// - Returns: A `ServerStreamingCall` with futures for the metadata and status.
-  public func copyOut(
-    _ request: Com_Apple_Containerization_Sandbox_V3_CopyOutRequest,
+  public func copy(
+    _ request: Com_Apple_Containerization_Sandbox_V3_CopyRequest,
     callOptions: CallOptions? = nil,
-    handler: @escaping (Com_Apple_Containerization_Sandbox_V3_CopyOutChunk) -> Void
-  ) -> ServerStreamingCall<Com_Apple_Containerization_Sandbox_V3_CopyOutRequest, Com_Apple_Containerization_Sandbox_V3_CopyOutChunk> {
+    handler: @escaping (Com_Apple_Containerization_Sandbox_V3_CopyResponse) -> Void
+  ) -> ServerStreamingCall<Com_Apple_Containerization_Sandbox_V3_CopyRequest, Com_Apple_Containerization_Sandbox_V3_CopyResponse> {
     return self.makeServerStreamingCall(
-      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.copyOut.path,
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.copy.path,
       request: request,
       callOptions: callOptions ?? self.defaultCallOptions,
-      interceptors: self.interceptors?.makeCopyOutInterceptors() ?? [],
+      interceptors: self.interceptors?.makeCopyInterceptors() ?? [],
       handler: handler
     )
   }
@@ -820,14 +800,10 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientP
     callOptions: CallOptions?
   ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_WriteFileRequest, Com_Apple_Containerization_Sandbox_V3_WriteFileResponse>
 
-  func makeCopyInCall(
+  func makeCopyCall(
+    _ request: Com_Apple_Containerization_Sandbox_V3_CopyRequest,
     callOptions: CallOptions?
-  ) -> GRPCAsyncClientStreamingCall<Com_Apple_Containerization_Sandbox_V3_CopyInChunk, Com_Apple_Containerization_Sandbox_V3_CopyInResponse>
-
-  func makeCopyOutCall(
-    _ request: Com_Apple_Containerization_Sandbox_V3_CopyOutRequest,
-    callOptions: CallOptions?
-  ) -> GRPCAsyncServerStreamingCall<Com_Apple_Containerization_Sandbox_V3_CopyOutRequest, Com_Apple_Containerization_Sandbox_V3_CopyOutChunk>
+  ) -> GRPCAsyncServerStreamingCall<Com_Apple_Containerization_Sandbox_V3_CopyRequest, Com_Apple_Containerization_Sandbox_V3_CopyResponse>
 
   func makeCreateProcessCall(
     _ request: Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest,
@@ -1038,25 +1014,15 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientProtoco
     )
   }
 
-  public func makeCopyInCall(
+  public func makeCopyCall(
+    _ request: Com_Apple_Containerization_Sandbox_V3_CopyRequest,
     callOptions: CallOptions? = nil
-  ) -> GRPCAsyncClientStreamingCall<Com_Apple_Containerization_Sandbox_V3_CopyInChunk, Com_Apple_Containerization_Sandbox_V3_CopyInResponse> {
-    return self.makeAsyncClientStreamingCall(
-      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.copyIn.path,
-      callOptions: callOptions ?? self.defaultCallOptions,
-      interceptors: self.interceptors?.makeCopyInInterceptors() ?? []
-    )
-  }
-
-  public func makeCopyOutCall(
-    _ request: Com_Apple_Containerization_Sandbox_V3_CopyOutRequest,
-    callOptions: CallOptions? = nil
-  ) -> GRPCAsyncServerStreamingCall<Com_Apple_Containerization_Sandbox_V3_CopyOutRequest, Com_Apple_Containerization_Sandbox_V3_CopyOutChunk> {
+  ) -> GRPCAsyncServerStreamingCall<Com_Apple_Containerization_Sandbox_V3_CopyRequest, Com_Apple_Containerization_Sandbox_V3_CopyResponse> {
     return self.makeAsyncServerStreamingCall(
-      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.copyOut.path,
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.copy.path,
       request: request,
       callOptions: callOptions ?? self.defaultCallOptions,
-      interceptors: self.interceptors?.makeCopyOutInterceptors() ?? []
+      interceptors: self.interceptors?.makeCopyInterceptors() ?? []
     )
   }
 
@@ -1387,39 +1353,15 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientProtoco
     )
   }
 
-  public func copyIn<RequestStream>(
-    _ requests: RequestStream,
+  public func copy(
+    _ request: Com_Apple_Containerization_Sandbox_V3_CopyRequest,
     callOptions: CallOptions? = nil
-  ) async throws -> Com_Apple_Containerization_Sandbox_V3_CopyInResponse where RequestStream: Sequence, RequestStream.Element == Com_Apple_Containerization_Sandbox_V3_CopyInChunk {
-    return try await self.performAsyncClientStreamingCall(
-      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.copyIn.path,
-      requests: requests,
-      callOptions: callOptions ?? self.defaultCallOptions,
-      interceptors: self.interceptors?.makeCopyInInterceptors() ?? []
-    )
-  }
-
-  public func copyIn<RequestStream>(
-    _ requests: RequestStream,
-    callOptions: CallOptions? = nil
-  ) async throws -> Com_Apple_Containerization_Sandbox_V3_CopyInResponse where RequestStream: AsyncSequence & Sendable, RequestStream.Element == Com_Apple_Containerization_Sandbox_V3_CopyInChunk {
-    return try await self.performAsyncClientStreamingCall(
-      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.copyIn.path,
-      requests: requests,
-      callOptions: callOptions ?? self.defaultCallOptions,
-      interceptors: self.interceptors?.makeCopyInInterceptors() ?? []
-    )
-  }
-
-  public func copyOut(
-    _ request: Com_Apple_Containerization_Sandbox_V3_CopyOutRequest,
-    callOptions: CallOptions? = nil
-  ) -> GRPCAsyncResponseStream<Com_Apple_Containerization_Sandbox_V3_CopyOutChunk> {
+  ) -> GRPCAsyncResponseStream<Com_Apple_Containerization_Sandbox_V3_CopyResponse> {
     return self.performAsyncServerStreamingCall(
-      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.copyOut.path,
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.copy.path,
       request: request,
       callOptions: callOptions ?? self.defaultCallOptions,
-      interceptors: self.interceptors?.makeCopyOutInterceptors() ?? []
+      interceptors: self.interceptors?.makeCopyInterceptors() ?? []
     )
   }
 
@@ -1686,11 +1628,8 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextClientInterc
   /// - Returns: Interceptors to use when invoking 'writeFile'.
   func makeWriteFileInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_WriteFileRequest, Com_Apple_Containerization_Sandbox_V3_WriteFileResponse>]
 
-  /// - Returns: Interceptors to use when invoking 'copyIn'.
-  func makeCopyInInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_CopyInChunk, Com_Apple_Containerization_Sandbox_V3_CopyInResponse>]
-
-  /// - Returns: Interceptors to use when invoking 'copyOut'.
-  func makeCopyOutInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_CopyOutRequest, Com_Apple_Containerization_Sandbox_V3_CopyOutChunk>]
+  /// - Returns: Interceptors to use when invoking 'copy'.
+  func makeCopyInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_CopyRequest, Com_Apple_Containerization_Sandbox_V3_CopyResponse>]
 
   /// - Returns: Interceptors to use when invoking 'createProcess'.
   func makeCreateProcessInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest, Com_Apple_Containerization_Sandbox_V3_CreateProcessResponse>]
@@ -1761,8 +1700,7 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.setTime,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.setupEmulator,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.writeFile,
-      Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.copyIn,
-      Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.copyOut,
+      Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.copy,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.createProcess,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.deleteProcess,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.startProcess,
@@ -1839,15 +1777,9 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
       type: GRPCCallType.unary
     )
 
-    public static let copyIn = GRPCMethodDescriptor(
-      name: "CopyIn",
-      path: "/com.apple.containerization.sandbox.v3.SandboxContext/CopyIn",
-      type: GRPCCallType.clientStreaming
-    )
-
-    public static let copyOut = GRPCMethodDescriptor(
-      name: "CopyOut",
-      path: "/com.apple.containerization.sandbox.v3.SandboxContext/CopyOut",
+    public static let copy = GRPCMethodDescriptor(
+      name: "Copy",
+      path: "/com.apple.containerization.sandbox.v3.SandboxContext/Copy",
       type: GRPCCallType.serverStreaming
     )
 
@@ -1994,11 +1926,10 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider: Ca
   /// Write data to an existing or new file.
   func writeFile(request: Com_Apple_Containerization_Sandbox_V3_WriteFileRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_WriteFileResponse>
 
-  /// Copy a file from the host into the guest.
-  func copyIn(context: UnaryResponseCallContext<Com_Apple_Containerization_Sandbox_V3_CopyInResponse>) -> EventLoopFuture<(StreamEvent<Com_Apple_Containerization_Sandbox_V3_CopyInChunk>) -> Void>
-
-  /// Copy a file from the guest to the host.
-  func copyOut(request: Com_Apple_Containerization_Sandbox_V3_CopyOutRequest, context: StreamingResponseCallContext<Com_Apple_Containerization_Sandbox_V3_CopyOutChunk>) -> EventLoopFuture<GRPCStatus>
+  /// Copy a file or directory between the host and guest.
+  /// Data transfer happens over a dedicated vsock connection;
+  /// the gRPC stream is used only for control/metadata.
+  func copy(request: Com_Apple_Containerization_Sandbox_V3_CopyRequest, context: StreamingResponseCallContext<Com_Apple_Containerization_Sandbox_V3_CopyResponse>) -> EventLoopFuture<GRPCStatus>
 
   /// Create a new process inside the container.
   func createProcess(request: Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_CreateProcessResponse>
@@ -2149,22 +2080,13 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider {
         userFunction: self.writeFile(request:context:)
       )
 
-    case "CopyIn":
-      return ClientStreamingServerHandler(
-        context: context,
-        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_CopyInChunk>(),
-        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_CopyInResponse>(),
-        interceptors: self.interceptors?.makeCopyInInterceptors() ?? [],
-        observerFactory: self.copyIn(context:)
-      )
-
-    case "CopyOut":
+    case "Copy":
       return ServerStreamingServerHandler(
         context: context,
-        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_CopyOutRequest>(),
-        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_CopyOutChunk>(),
-        interceptors: self.interceptors?.makeCopyOutInterceptors() ?? [],
-        userFunction: self.copyOut(request:context:)
+        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_CopyRequest>(),
+        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_CopyResponse>(),
+        interceptors: self.interceptors?.makeCopyInterceptors() ?? [],
+        userFunction: self.copy(request:context:)
       )
 
     case "CreateProcess":
@@ -2397,16 +2319,12 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvide
     context: GRPCAsyncServerCallContext
   ) async throws -> Com_Apple_Containerization_Sandbox_V3_WriteFileResponse
 
-  /// Copy a file from the host into the guest.
-  func copyIn(
-    requestStream: GRPCAsyncRequestStream<Com_Apple_Containerization_Sandbox_V3_CopyInChunk>,
-    context: GRPCAsyncServerCallContext
-  ) async throws -> Com_Apple_Containerization_Sandbox_V3_CopyInResponse
-
-  /// Copy a file from the guest to the host.
-  func copyOut(
-    request: Com_Apple_Containerization_Sandbox_V3_CopyOutRequest,
-    responseStream: GRPCAsyncResponseStreamWriter<Com_Apple_Containerization_Sandbox_V3_CopyOutChunk>,
+  /// Copy a file or directory between the host and guest.
+  /// Data transfer happens over a dedicated vsock connection;
+  /// the gRPC stream is used only for control/metadata.
+  func copy(
+    request: Com_Apple_Containerization_Sandbox_V3_CopyRequest,
+    responseStream: GRPCAsyncResponseStreamWriter<Com_Apple_Containerization_Sandbox_V3_CopyResponse>,
     context: GRPCAsyncServerCallContext
   ) async throws
 
@@ -2620,22 +2538,13 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvider {
         wrapping: { try await self.writeFile(request: $0, context: $1) }
       )
 
-    case "CopyIn":
+    case "Copy":
       return GRPCAsyncServerHandler(
         context: context,
-        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_CopyInChunk>(),
-        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_CopyInResponse>(),
-        interceptors: self.interceptors?.makeCopyInInterceptors() ?? [],
-        wrapping: { try await self.copyIn(requestStream: $0, context: $1) }
-      )
-
-    case "CopyOut":
-      return GRPCAsyncServerHandler(
-        context: context,
-        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_CopyOutRequest>(),
-        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_CopyOutChunk>(),
-        interceptors: self.interceptors?.makeCopyOutInterceptors() ?? [],
-        wrapping: { try await self.copyOut(request: $0, responseStream: $1, context: $2) }
+        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_CopyRequest>(),
+        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_CopyResponse>(),
+        interceptors: self.interceptors?.makeCopyInterceptors() ?? [],
+        wrapping: { try await self.copy(request: $0, responseStream: $1, context: $2) }
       )
 
     case "CreateProcess":
@@ -2844,13 +2753,9 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextServerInterc
   ///   Defaults to calling `self.makeInterceptors()`.
   func makeWriteFileInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_WriteFileRequest, Com_Apple_Containerization_Sandbox_V3_WriteFileResponse>]
 
-  /// - Returns: Interceptors to use when handling 'copyIn'.
+  /// - Returns: Interceptors to use when handling 'copy'.
   ///   Defaults to calling `self.makeInterceptors()`.
-  func makeCopyInInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_CopyInChunk, Com_Apple_Containerization_Sandbox_V3_CopyInResponse>]
-
-  /// - Returns: Interceptors to use when handling 'copyOut'.
-  ///   Defaults to calling `self.makeInterceptors()`.
-  func makeCopyOutInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_CopyOutRequest, Com_Apple_Containerization_Sandbox_V3_CopyOutChunk>]
+  func makeCopyInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_CopyRequest, Com_Apple_Containerization_Sandbox_V3_CopyResponse>]
 
   /// - Returns: Interceptors to use when handling 'createProcess'.
   ///   Defaults to calling `self.makeInterceptors()`.
@@ -2939,8 +2844,7 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.setTime,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.setupEmulator,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.writeFile,
-      Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.copyIn,
-      Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.copyOut,
+      Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.copy,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.createProcess,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.deleteProcess,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.startProcess,
@@ -3017,15 +2921,9 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
       type: GRPCCallType.unary
     )
 
-    public static let copyIn = GRPCMethodDescriptor(
-      name: "CopyIn",
-      path: "/com.apple.containerization.sandbox.v3.SandboxContext/CopyIn",
-      type: GRPCCallType.clientStreaming
-    )
-
-    public static let copyOut = GRPCMethodDescriptor(
-      name: "CopyOut",
-      path: "/com.apple.containerization.sandbox.v3.SandboxContext/CopyOut",
+    public static let copy = GRPCMethodDescriptor(
+      name: "Copy",
+      path: "/com.apple.containerization.sandbox.v3.SandboxContext/Copy",
       type: GRPCCallType.serverStreaming
     )
 
