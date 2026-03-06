@@ -60,6 +60,7 @@ let package = Package(
                 .product(name: "GRPC", package: "grpc-swift"),
                 .product(name: "SystemPackage", package: "swift-system"),
                 .product(name: "_NIOFileSystem", package: "swift-nio"),
+                "ContainerizationArchive",
                 "ContainerizationOCI",
                 "ContainerizationOS",
                 "ContainerizationIO",

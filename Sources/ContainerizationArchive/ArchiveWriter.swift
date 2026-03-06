@@ -16,6 +16,7 @@
 
 import CArchive
 import Foundation
+import SystemPackage
 
 /// A class responsible for writing archives in various formats.
 public final class ArchiveWriter {
@@ -271,76 +272,86 @@ extension ArchiveWriter {
     /// Note: Symlinks are added to the archive if both the source and target for the symlink are both contained in the top level directory.
     public func archiveDirectory(_ dir: URL) throws {
         let fm = FileManager.default
-        var resourceKeys = Set<URLResourceKey>([
-            .fileSizeKey, .fileResourceTypeKey,
-            .creationDateKey, .contentAccessDateKey, .contentModificationDateKey,
-        ])
-        #if os(macOS)
-        resourceKeys.insert(.fileSecurityKey)
-        #endif
+        let dirPath = FilePath(dir.path)
 
-        guard let directoryEnumerator = fm.enumerator(at: dir, includingPropertiesForKeys: Array(resourceKeys), options: .producesRelativePathURLs) else {
+        guard let enumerator = fm.enumerator(atPath: dirPath.string) else {
             throw POSIXError(.ENOTDIR)
         }
-        for case let fileURL as URL in directoryEnumerator {
-            var mode = mode_t()
-            var uid = uid_t()
-            var gid = gid_t()
-            let resourceValues = try fileURL.resourceValues(forKeys: resourceKeys)
-            guard let type = resourceValues.fileResourceType else {
-                throw ArchiveError.failedToGetProperty(fileURL.path(), .fileResourceTypeKey)
-            }
-            let allowedTypes: [URLFileResourceType] = [.directory, .regular, .symbolicLink]
-            guard allowedTypes.contains(type) else {
-                continue
-            }
-            var size: Int64 = 0
-            let entry = WriteEntry()
-            if type == .regular {
-                guard let _size = resourceValues.fileSize else {
-                    throw ArchiveError.failedToGetProperty(fileURL.path(), .fileSizeKey)
-                }
-                size = Int64(_size)
-            } else if type == .symbolicLink {
-                let target = fileURL.resolvingSymlinksInPath().absoluteString
-                let root = dir.absoluteString
-                guard target.hasPrefix(root) else {
-                    continue
-                }
-                let linkTarget = target.dropFirst(root.count + 1)
-                entry.symlinkTarget = String(linkTarget)
+
+        // Emit a leading "./" entry for the root directory, matching GNU/BSD tar behavior.
+        var rootStat = stat()
+        guard lstat(dirPath.string, &rootStat) == 0 else {
+            let err = POSIXErrorCode(rawValue: errno) ?? .EINVAL
+            throw ArchiveError.failedToExtractArchive("lstat failed for '\(dirPath)': \(POSIXError(err))")
+        }
+        let rootEntry = WriteEntry()
+        rootEntry.path = "./"
+        rootEntry.size = 0
+        rootEntry.fileType = .directory
+        rootEntry.owner = rootStat.st_uid
+        rootEntry.group = rootStat.st_gid
+        rootEntry.permissions = rootStat.st_mode
+        #if os(macOS)
+        rootEntry.creationDate = Date(timeIntervalSince1970: Double(rootStat.st_ctimespec.tv_sec))
+        rootEntry.contentAccessDate = Date(timeIntervalSince1970: Double(rootStat.st_atimespec.tv_sec))
+        rootEntry.modificationDate = Date(timeIntervalSince1970: Double(rootStat.st_mtimespec.tv_sec))
+        #else
+        rootEntry.creationDate = Date(timeIntervalSince1970: Double(rootStat.st_ctim.tv_sec))
+        rootEntry.contentAccessDate = Date(timeIntervalSince1970: Double(rootStat.st_atim.tv_sec))
+        rootEntry.modificationDate = Date(timeIntervalSince1970: Double(rootStat.st_mtim.tv_sec))
+        #endif
+        try self.writeHeader(entry: rootEntry)
+
+        for case let relativePath as String in enumerator {
+            let fullPath = dirPath.appending(relativePath)
+
+            var statInfo = stat()
+            guard lstat(fullPath.string, &statInfo) == 0 else {
+                let errNo = errno
+                let err = POSIXErrorCode(rawValue: errNo) ?? .EINVAL
+                throw ArchiveError.failedToExtractArchive("lstat failed for '\(fullPath)': \(POSIXError(err))")
             }
 
-            guard let created = resourceValues.creationDate else {
-                throw ArchiveError.failedToGetProperty(fileURL.path(), .creationDateKey)
-            }
-            guard let access = resourceValues.contentAccessDate else {
-                throw ArchiveError.failedToGetProperty(fileURL.path(), .contentAccessDateKey)
-            }
-            guard let modified = resourceValues.contentModificationDate else {
-                throw ArchiveError.failedToGetProperty(fileURL.path(), .contentModificationDateKey)
+            let mode = statInfo.st_mode
+            let uid = statInfo.st_uid
+            let gid = statInfo.st_gid
+            var size: Int64 = 0
+            let type: URLFileResourceType
+
+            if (mode & S_IFMT) == S_IFREG {
+                type = .regular
+                size = Int64(statInfo.st_size)
+            } else if (mode & S_IFMT) == S_IFDIR {
+                type = .directory
+            } else if (mode & S_IFMT) == S_IFLNK {
+                type = .symbolicLink
+            } else {
+                continue
             }
 
             #if os(macOS)
-            guard let perms = resourceValues.fileSecurity else {
-                throw ArchiveError.failedToGetProperty(fileURL.path(), .fileSecurityKey)
-            }
-            CFFileSecurityGetMode(perms, &mode)
-            CFFileSecurityGetOwner(perms, &uid)
-            CFFileSecurityGetGroup(perms, &gid)
+            let created = Date(timeIntervalSince1970: Double(statInfo.st_ctimespec.tv_sec))
+            let access = Date(timeIntervalSince1970: Double(statInfo.st_atimespec.tv_sec))
+            let modified = Date(timeIntervalSince1970: Double(statInfo.st_mtimespec.tv_sec))
             #else
-            let path = fileURL.path()
-            var statInfo = stat()
-            guard lstat(path, &statInfo) == 0 else {
-                let err = POSIXErrorCode(rawValue: errno)!
-                throw POSIXError(err)
-            }
-            mode = statInfo.st_mode
-            uid = statInfo.st_uid
-            gid = statInfo.st_gid
+            let created = Date(timeIntervalSince1970: Double(statInfo.st_ctim.tv_sec))
+            let access = Date(timeIntervalSince1970: Double(statInfo.st_atim.tv_sec))
+            let modified = Date(timeIntervalSince1970: Double(statInfo.st_mtim.tv_sec))
             #endif
 
-            entry.path = fileURL.relativePath
+            let entry = WriteEntry()
+            if type == .symbolicLink {
+                let targetPath = try fm.destinationOfSymbolicLink(atPath: fullPath.string)
+                // Resolve the target relative to the symlink's parent, not the archive root.
+                let symlinkParent = fullPath.removingLastComponent()
+                let resolvedFull = symlinkParent.appending(targetPath).lexicallyNormalized()
+                guard resolvedFull.starts(with: dirPath) else {
+                    continue
+                }
+                entry.symlinkTarget = targetPath
+            }
+
+            entry.path = relativePath
             entry.size = size
             entry.creationDate = created
             entry.modificationDate = modified
@@ -350,8 +361,7 @@ extension ArchiveWriter {
             entry.owner = uid
             entry.permissions = mode
             if type == .regular {
-                let p = dir.appending(path: fileURL.relativePath)
-                let data = try Data(contentsOf: p, options: .uncached)
+                let data = try Data(contentsOf: URL(fileURLWithPath: fullPath.string), options: .uncached)
                 try self.writeEntry(entry: entry, data: data)
             } else {
                 try self.writeHeader(entry: entry)

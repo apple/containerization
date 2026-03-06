@@ -16,6 +16,7 @@
 
 import Cgroup
 import Containerization
+import ContainerizationArchive
 import ContainerizationError
 import ContainerizationExtras
 import ContainerizationNetlink
@@ -357,149 +358,219 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
     // Chunk size for streaming file transfers (1MB).
     private static let copyChunkSize = 1024 * 1024
 
-    func copyIn(
-        requestStream: GRPCAsyncRequestStream<Com_Apple_Containerization_Sandbox_V3_CopyInChunk>,
-        context: GRPC.GRPCAsyncServerCallContext
-    ) async throws -> Com_Apple_Containerization_Sandbox_V3_CopyInResponse {
-        var fileHandle: FileHandle?
-        var path: String = ""
-        var totalBytes: Int = 0
-
-        do {
-            for try await chunk in requestStream {
-                switch chunk.content {
-                case .init_p(let initMsg):
-                    path = initMsg.path
-                    log.debug(
-                        "copyIn",
-                        metadata: [
-                            "path": "\(path)",
-                            "mode": "\(initMsg.mode)",
-                            "createParents": "\(initMsg.createParents)",
-                        ])
-
-                    if initMsg.createParents {
-                        let fileURL = URL(fileURLWithPath: path)
-                        let parentDir = fileURL.deletingLastPathComponent()
-                        try FileManager.default.createDirectory(
-                            at: parentDir,
-                            withIntermediateDirectories: true
-                        )
-                    }
-
-                    let mode = initMsg.mode > 0 ? mode_t(initMsg.mode) : mode_t(0o644)
-                    let fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, mode)
-                    guard fd != -1 else {
-                        throw GRPCStatus(
-                            code: .internalError,
-                            message: "copyIn: failed to open file '\(path)': \(swiftErrno("open"))"
-                        )
-                    }
-                    fileHandle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-                case .data(let bytes):
-                    guard let fh = fileHandle else {
-                        throw GRPCStatus(
-                            code: .failedPrecondition,
-                            message: "copyIn: received data before init message"
-                        )
-                    }
-                    if !bytes.isEmpty {
-                        try fh.write(contentsOf: bytes)
-                        totalBytes += bytes.count
-                    }
-                case .none:
-                    break
-                }
-            }
-
-            log.debug(
-                "copyIn complete",
-                metadata: [
-                    "path": "\(path)",
-                    "totalBytes": "\(totalBytes)",
-                ])
-
-            return .init()
-        } catch {
-            log.error(
-                "copyIn",
-                metadata: [
-                    "path": "\(path)",
-                    "error": "\(error)",
-                ])
-            if error is GRPCStatus {
-                throw error
-            }
-            throw GRPCStatus(
-                code: .internalError,
-                message: "copyIn: \(error)"
-            )
-        }
-    }
-
-    func copyOut(
-        request: Com_Apple_Containerization_Sandbox_V3_CopyOutRequest,
-        responseStream: GRPCAsyncResponseStreamWriter<Com_Apple_Containerization_Sandbox_V3_CopyOutChunk>,
+    func copy(
+        request: Com_Apple_Containerization_Sandbox_V3_CopyRequest,
+        responseStream: GRPCAsyncResponseStreamWriter<Com_Apple_Containerization_Sandbox_V3_CopyResponse>,
         context: GRPC.GRPCAsyncServerCallContext
     ) async throws {
         let path = request.path
+        let vsockPort = request.vsockPort
+
         log.debug(
-            "copyOut",
+            "copy",
             metadata: [
-                "path": "\(path)"
+                "direction": "\(request.direction)",
+                "path": "\(path)",
+                "vsockPort": "\(vsockPort)",
+                "isArchive": "\(request.isArchive)",
+                "mode": "\(request.mode)",
+                "createParents": "\(request.createParents)",
             ])
 
         do {
-            let fileURL = URL(fileURLWithPath: path)
-            let attrs = try FileManager.default.attributesOfItem(atPath: path)
-            guard let fileSize = attrs[.size] as? UInt64 else {
-                throw GRPCStatus(
-                    code: .internalError,
-                    message: "copyOut: failed to get file size for '\(path)'"
-                )
+            switch request.direction {
+            case .copyIn:
+                try await handleCopyIn(request: request, responseStream: responseStream)
+            case .copyOut:
+                try await handleCopyOut(request: request, responseStream: responseStream)
+            case .UNRECOGNIZED(let value):
+                throw GRPCStatus(code: .invalidArgument, message: "copy: unrecognized direction \(value)")
             }
-
-            let fileHandle = try FileHandle(forReadingFrom: fileURL)
-            defer { try? fileHandle.close() }
-
-            // Send init message with total size.
-            try await responseStream.send(
-                .with {
-                    $0.content = .init_p(.with { $0.totalSize = fileSize })
-                }
-            )
-
-            var totalSent: UInt64 = 0
-            while true {
-                guard let data = try fileHandle.read(upToCount: Self.copyChunkSize), !data.isEmpty else {
-                    break
-                }
-
-                try await responseStream.send(.with { $0.content = .data(data) })
-                totalSent += UInt64(data.count)
-            }
-
-            log.debug(
-                "copyOut complete",
-                metadata: [
-                    "path": "\(path)",
-                    "totalBytes": "\(totalSent)",
-                ])
         } catch {
             log.error(
-                "copyOut",
+                "copy",
                 metadata: [
+                    "direction": "\(request.direction)",
                     "path": "\(path)",
                     "error": "\(error)",
                 ])
             if error is GRPCStatus {
                 throw error
             }
-            throw GRPCStatus(
-                code: .internalError,
-                message: "copyOut: \(error)"
-            )
+            throw GRPCStatus(code: .internalError, message: "copy: \(error)")
         }
+    }
+
+    /// Handle a COPY_IN request: connect to host vsock port, read data, write to guest filesystem.
+    private func handleCopyIn(
+        request: Com_Apple_Containerization_Sandbox_V3_CopyRequest,
+        responseStream: GRPCAsyncResponseStreamWriter<Com_Apple_Containerization_Sandbox_V3_CopyResponse>
+    ) async throws {
+        let path = request.path
+        let isArchive = request.isArchive
+
+        if request.createParents {
+            let parentDir = URL(fileURLWithPath: path).deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
+        }
+
+        // Connect to the host's vsock port for data transfer.
+        let vsockType = VsockType(port: request.vsockPort, cid: VsockType.hostCID)
+        let sock = try Socket(type: vsockType, closeOnDeinit: false)
+        try sock.connect()
+        let sockFd = sock.fileDescriptor
+
+        // Dispatch blocking I/O onto the thread pool.
+        let rejected: [String] = try await blockingPool.runIfActive { [self] in
+            defer { try? sock.close() }
+
+            guard isArchive else {
+                let mode = request.mode > 0 ? mode_t(request.mode) : mode_t(0o644)
+                let fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, mode)
+                guard fd != -1 else {
+                    throw GRPCStatus(
+                        code: .internalError,
+                        message: "copy: failed to open file '\(path)': \(swiftErrno("open"))"
+                    )
+                }
+                defer { close(fd) }
+
+                var buf = [UInt8](repeating: 0, count: Self.copyChunkSize)
+                while true {
+                    let n = read(sockFd, &buf, buf.count)
+                    if n == 0 { break }
+                    guard n > 0 else {
+                        throw GRPCStatus(
+                            code: .internalError,
+                            message: "copy: vsock read error: \(swiftErrno("read"))"
+                        )
+                    }
+                    var written = 0
+                    while written < n {
+                        let w = buf.withUnsafeBytes { ptr in
+                            write(fd, ptr.baseAddress! + written, n - written)
+                        }
+                        guard w > 0 else {
+                            throw GRPCStatus(
+                                code: .internalError,
+                                message: "copy: write error: \(swiftErrno("write"))"
+                            )
+                        }
+                        written += w
+                    }
+                }
+                return []
+            }
+            let destURL = URL(fileURLWithPath: path)
+            try FileManager.default.createDirectory(at: destURL, withIntermediateDirectories: true)
+
+            let fileHandle = FileHandle(fileDescriptor: sockFd, closeOnDealloc: false)
+            let reader = try ArchiveReader(format: .pax, filter: .gzip, fileHandle: fileHandle)
+            return try reader.extractContents(to: destURL)
+        }
+
+        if !rejected.isEmpty {
+            log.info("copy: archive extracted", metadata: ["path": "\(path)", "rejectedCount": "\(rejected.count)"])
+            for rejectedPath in rejected {
+                log.error("copy: rejected archive path", metadata: ["path": "\(rejectedPath)"])
+            }
+        }
+
+        log.debug("copy: copyIn complete", metadata: ["path": "\(path)", "isArchive": "\(isArchive)"])
+
+        // Send completion response.
+        try await responseStream.send(.with { $0.status = .complete })
+    }
+
+    /// Handle a COPY_OUT request: stat path, send metadata, connect to host vsock port, write data.
+    private func handleCopyOut(
+        request: Com_Apple_Containerization_Sandbox_V3_CopyRequest,
+        responseStream: GRPCAsyncResponseStreamWriter<Com_Apple_Containerization_Sandbox_V3_CopyResponse>
+    ) async throws {
+        let path = request.path
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else {
+            throw GRPCStatus(code: .notFound, message: "copy: path not found '\(path)'")
+        }
+        let isArchive = isDirectory.boolValue
+
+        // Determine total size for single files.
+        var totalSize: UInt64 = 0
+        if !isArchive {
+            let attrs = try FileManager.default.attributesOfItem(atPath: path)
+            if let size = attrs[.size] as? UInt64 {
+                totalSize = size
+            }
+        }
+
+        // Send metadata response BEFORE connecting to vsock, so host knows what to expect.
+        try await responseStream.send(
+            .with {
+                $0.status = .metadata
+                $0.isArchive = isArchive
+                $0.totalSize = totalSize
+            })
+
+        // Connect to the host's vsock port and dispatch blocking I/O onto the thread pool.
+        let vsockType = VsockType(port: request.vsockPort, cid: VsockType.hostCID)
+        let sock = try Socket(type: vsockType, closeOnDeinit: false)
+        try sock.connect()
+
+        try await blockingPool.runIfActive { [self] in
+            defer { try? sock.close() }
+
+            if isArchive {
+                let fileURL = URL(fileURLWithPath: path)
+                let writer = try ArchiveWriter(configuration: .init(format: .pax, filter: .gzip))
+                try writer.open(fileDescriptor: sock.fileDescriptor)
+                try writer.archiveDirectory(fileURL)
+                try writer.finishEncoding()
+            } else {
+                let srcFd = open(path, O_RDONLY)
+                guard srcFd != -1 else {
+                    throw GRPCStatus(
+                        code: .internalError,
+                        message: "copy: failed to open '\(path)': \(swiftErrno("open"))"
+                    )
+                }
+                defer { close(srcFd) }
+
+                var buf = [UInt8](repeating: 0, count: Self.copyChunkSize)
+                while true {
+                    let n = read(srcFd, &buf, buf.count)
+                    if n == 0 { break }
+                    guard n > 0 else {
+                        throw GRPCStatus(
+                            code: .internalError,
+                            message: "copy: read error: \(swiftErrno("read"))"
+                        )
+                    }
+                    var written = 0
+                    while written < n {
+                        let w = buf.withUnsafeBytes { ptr in
+                            write(sock.fileDescriptor, ptr.baseAddress! + written, n - written)
+                        }
+                        guard w > 0 else {
+                            throw GRPCStatus(
+                                code: .internalError,
+                                message: "copy: vsock write error: \(swiftErrno("write"))"
+                            )
+                        }
+                        written += w
+                    }
+                }
+            }
+        }
+
+        log.debug(
+            "copy: copyOut complete",
+            metadata: [
+                "path": "\(path)",
+                "isArchive": "\(isArchive)",
+            ])
+
+        // Send completion response after vsock data transfer is done.
+        try await responseStream.send(.with { $0.status = .complete })
     }
 
     func mount(request: Com_Apple_Containerization_Sandbox_V3_MountRequest, context: GRPC.GRPCAsyncServerCallContext)
