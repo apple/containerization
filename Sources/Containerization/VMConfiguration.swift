@@ -80,6 +80,10 @@ public struct VMConfiguration: Sendable {
     /// Enable nested virtualization support. If the VirtualMachineManager
     /// does not support this feature, it MUST return an .unsupported ContainerizationError.
     public var nestedVirtualization: Bool
+    /// Enable virtio-gpu device.
+    public var graphicsDevice: Bool
+    /// Enable graphical output (scanout) for the virtio-gpu device.
+    public var graphicsDisplay: Bool
 
     public init(
         cpus: Int = 4,
@@ -87,7 +91,9 @@ public struct VMConfiguration: Sendable {
         interfaces: [any Interface] = [],
         mountsByID: [String: [Mount]] = [:],
         bootLog: BootLog? = nil,
-        nestedVirtualization: Bool = false
+        nestedVirtualization: Bool = false,
+        graphicsDevice: Bool = false,
+        graphicsDisplay: Bool = false
     ) {
         self.cpus = cpus
         self.memoryInBytes = memoryInBytes
@@ -95,5 +101,7 @@ public struct VMConfiguration: Sendable {
         self.mountsByID = mountsByID
         self.bootLog = bootLog
         self.nestedVirtualization = nestedVirtualization
+        self.graphicsDevice = graphicsDevice
+        self.graphicsDisplay = graphicsDisplay
     }
 }

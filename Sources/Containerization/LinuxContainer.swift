@@ -77,6 +77,10 @@ public final class LinuxContainer: Container, Sendable {
         /// Run the container with a minimal init process that handles signal
         /// forwarding and zombie reaping.
         public var useInit: Bool = false
+        /// Enable virtio-gpu device.
+        public var graphicsDevice: Bool = false
+        /// Enable graphical output (scanout) for the virtio-gpu device.
+        public var graphicsDisplay: Bool = false
 
         public init() {}
 
@@ -94,7 +98,9 @@ public final class LinuxContainer: Container, Sendable {
             virtualization: Bool = false,
             bootLog: BootLog? = nil,
             ociRuntimePath: String? = nil,
-            useInit: Bool = false
+            useInit: Bool = false,
+            graphicsDevice: Bool = false,
+            graphicsDisplay: Bool = false
         ) {
             self.process = process
             self.cpus = cpus
@@ -110,6 +116,8 @@ public final class LinuxContainer: Container, Sendable {
             self.bootLog = bootLog
             self.ociRuntimePath = ociRuntimePath
             self.useInit = useInit
+            self.graphicsDevice = graphicsDevice
+            self.graphicsDisplay = graphicsDisplay
         }
     }
 
@@ -548,7 +556,9 @@ extension LinuxContainer {
                 interfaces: self.interfaces,
                 mountsByID: [self.id: containerMounts],
                 bootLog: self.config.bootLog,
-                nestedVirtualization: self.config.virtualization
+                nestedVirtualization: self.config.virtualization,
+                graphicsDevice: self.config.graphicsDevice,
+                graphicsDisplay: self.config.graphicsDisplay
             )
             let creationConfig = StandardVMConfig(configuration: vmConfig)
             let vm = try await self.vmm.create(config: creationConfig)
