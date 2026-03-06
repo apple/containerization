@@ -14,6 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import ContainerizationError
 import ContainerizationExtras
 
 /// DNS configuration for a container. The values will be used to
