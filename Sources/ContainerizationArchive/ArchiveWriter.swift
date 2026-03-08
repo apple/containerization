@@ -21,7 +21,6 @@ import SystemPackage
 /// A class responsible for writing archives in various formats.
 public final class ArchiveWriter {
     var underlying: OpaquePointer!
-    var delegate: FileArchiveWriterDelegate?
 
     /// Initialize a new `ArchiveWriter` with the given configuration.
     /// This method attempts to initialize an empty archive in memory, failing which it throws a `unableToCreateArchive` error.
@@ -37,21 +36,16 @@ public final class ArchiveWriter {
         try setOptions(configuration.options)
     }
 
-    /// Initialize a new `ArchiveWriter` with the given configuration and specified delegate.
-    private convenience init(configuration: ArchiveWriterConfiguration, delegate: FileArchiveWriterDelegate) throws {
-        try self.init(configuration: configuration)
-        self.delegate = delegate
-        try self.open()
-    }
-
-    private convenience init(configuration: ArchiveWriterConfiguration, file: URL) throws {
-        try self.init(configuration: configuration, delegate: FileArchiveWriterDelegate(url: file))
-    }
-
     /// Initialize a new `ArchiveWriter` for writing into the specified file with the given configuration options.
-    public convenience init(format: Format, filter: Filter, options: [Options] = [], file: URL) throws {
-        try self.init(
-            configuration: .init(format: format, filter: filter), delegate: FileArchiveWriterDelegate(url: file))
+    public convenience init(format: Format, filter: Filter, options: [Options] = [], locales: [String] = ArchiveWriterConfiguration.defaultLocales, file: URL) throws {
+        let config = ArchiveWriterConfiguration(
+            format: format,
+            filter: filter,
+            options: options,
+            locales: locales
+        )
+        try self.init(configuration: config)
+        try self.open(file: file)
     }
 
     /// Opens the given file for writing data into
@@ -96,94 +90,6 @@ public final class ArchiveWriter {
             }
         }
         throw ArchiveError.failedToSetLocale(locales: locales)
-    }
-}
-
-extension ArchiveWriter {
-    fileprivate func open() throws {
-        guard let underlying = underlying else { throw ArchiveError.noUnderlyingArchive }
-        // TODO: to be or not to be retained, that is the question
-        let pointerToSelf = Unmanaged.passUnretained(self).toOpaque()
-
-        let res = archive_write_open2(
-            underlying,
-            pointerToSelf,
-            /// The open callback is invoked by archive_write_open().  It should return ARCHIVE_OK if the underlying file or data source is successfully opened.  If the open fails, it should call archive_set_error() to register an error code and message and return ARCHIVE_FATAL.  Please note that
-            /// if open fails, close is not called and resources must be freed inside the open callback or with the free callback.
-            { underlying, pointerToSelf in
-                do {
-                    guard let pointerToSelf = pointerToSelf else {
-                        throw ArchiveError.noArchiveInCallback
-                    }
-                    let archive: ArchiveWriter = Unmanaged.fromOpaque(pointerToSelf).takeUnretainedValue()
-                    guard let delegate = archive.delegate else {
-                        throw ArchiveError.noDelegateConfigured
-                    }
-                    try delegate.open(archive: archive)
-                    return ARCHIVE_OK
-                } catch {
-                    archive_set_error_wrapper(underlying, ARCHIVE_FATAL, "\(error)")
-                    return ARCHIVE_FATAL
-                }
-            },
-            /// The write callback is invoked whenever the library needs to write raw bytes to the archive.  For correct blocking, each call to the write callback function should translate into a single write(2) system call.  This is especially critical when writing archives to tape drives.  On
-            /// success, the write callback should return the number of bytes actually written.  On error, the callback should invoke archive_set_error() to register an error code and message and return -1.
-            { underlying, pointerToSelf, dataPointer, count in
-                do {
-                    guard let pointerToSelf = pointerToSelf else {
-                        throw ArchiveError.noArchiveInCallback
-                    }
-                    let archive: ArchiveWriter = Unmanaged.fromOpaque(pointerToSelf).takeUnretainedValue()
-                    guard let delegate = archive.delegate else {
-                        throw ArchiveError.noDelegateConfigured
-                    }
-                    return try delegate.write(
-                        archive: archive, buffer: UnsafeRawBufferPointer(start: dataPointer, count: count))
-                } catch {
-                    archive_set_error_wrapper(underlying, ARCHIVE_FATAL, "\(error)")
-                    return -1
-                }
-            },
-            /// The close callback is invoked by archive_close when the archive processing is complete. If the open callback fails, the close callback is not invoked.  The callback should return ARCHIVE_OK on success.  On failure, the callback should invoke archive_set_error() to register an
-            /// error code and message and return
-            { underlying, pointerToSelf in
-                do {
-                    guard let pointerToSelf = pointerToSelf else {
-                        throw ArchiveError.noArchiveInCallback
-                    }
-                    let archive: ArchiveWriter = Unmanaged.fromOpaque(pointerToSelf).takeUnretainedValue()
-                    guard let delegate = archive.delegate else {
-                        throw ArchiveError.noDelegateConfigured
-                    }
-                    try delegate.close(archive: archive)
-                    return ARCHIVE_OK
-                } catch {
-                    archive_set_error_wrapper(underlying, ARCHIVE_FATAL, "\(error)")
-                    return ARCHIVE_FATAL
-                }
-            },
-            /// The free callback is always invoked on archive_free.  The return code of this callback is not processed.
-            { underlying, pointerToSelf in
-                do {
-                    guard let pointerToSelf = pointerToSelf else {
-                        throw ArchiveError.noArchiveInCallback
-                    }
-                    let archive: ArchiveWriter = Unmanaged.fromOpaque(pointerToSelf).takeUnretainedValue()
-                    guard let delegate = archive.delegate else {
-                        throw ArchiveError.noDelegateConfigured
-                    }
-                    delegate.free(archive: archive)
-
-                    // TODO: should we balance the Unmanaged refcount here? Need to test for leaks.
-                    return ARCHIVE_OK
-                } catch {
-                    archive_set_error_wrapper(underlying, ARCHIVE_FATAL, "\(error)")
-                    return ARCHIVE_FATAL
-                }
-            }
-        )
-
-        try wrap(res, ArchiveError.unableToOpenArchive, underlying: underlying)
     }
 }
 
@@ -364,7 +270,7 @@ extension ArchiveWriter {
                 let data = try Data(contentsOf: URL(fileURLWithPath: fullPath.string), options: .uncached)
                 try self.writeEntry(entry: entry, data: data)
             } else {
-                try self.writeHeader(entry: entry)
+                try self.writeEntry(entry: entry, data: nil)
             }
         }
     }

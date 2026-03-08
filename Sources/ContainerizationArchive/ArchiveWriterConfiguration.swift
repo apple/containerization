@@ -21,6 +21,8 @@ import CArchive
 /// This struct allows specifying the archive format, compression filter,
 /// various format-specific options, and preferred locales for string encoding.
 public struct ArchiveWriterConfiguration {
+    public static let defaultLocales = ["en_US.UTF-8", "C.UTF-8"]
+
     /// The desired archive format
     public var format: Format
     /// The compression filter to apply to the archive
@@ -35,7 +37,7 @@ public struct ArchiveWriterConfiguration {
     ///
     /// Sets up the configuration with the specified format, filter, options, and locales.
     public init(
-        format: Format, filter: Filter, options: [Options] = [], locales: [String] = ["en_US.UTF-8", "C.UTF-8"]
+        format: Format, filter: Filter, options: [Options] = [], locales: [String] = Self.defaultLocales
     ) {
         self.format = format
         self.filter = filter
