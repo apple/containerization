@@ -122,12 +122,31 @@ extension EXT4.Formatter {
         compression: ContainerizationArchive.Filter = .gzip,
         progress: ProgressHandler? = nil
     ) throws {
+        // For zstd, decompress once and reuse for both passes to avoid double decompression.
+        let fileToRead: URL
+        let readerFilter: ContainerizationArchive.Filter
+        var decompressedFile: URL?
+        if compression == .zstd {
+            let decompressed = try ArchiveReader.decompressZstd(source)
+            fileToRead = decompressed
+            readerFilter = .none
+            decompressedFile = decompressed
+        } else {
+            fileToRead = source
+            readerFilter = compression
+        }
+        defer {
+            if let decompressedFile {
+                ArchiveReader.cleanUpDecompressedZstd(decompressedFile)
+            }
+        }
+
         // Optional first pass: scan headers to get total size (fast, metadata only)
         if let progress {
             let sizeReader = try ArchiveReader(
                 format: format,
-                filter: compression,
-                file: source
+                filter: readerFilter,
+                file: fileToRead
             )
             var totalSize: Int64 = 0
             for (entry, _) in sizeReader.makeStreamingIterator() {
@@ -146,8 +165,8 @@ extension EXT4.Formatter {
         // Second pass: unpack
         let reader = try ArchiveReader(
             format: format,
-            filter: compression,
-            file: source
+            filter: readerFilter,
+            file: fileToRead
         )
         try self.unpack(reader: reader, progress: progress)
     }

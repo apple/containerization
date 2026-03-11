@@ -84,22 +84,41 @@ public struct EXT4Unpacker: Unpacker {
         )
         defer { try? filesystem.close() }
 
+        // Resolve layer paths upfront. When progress reporting is enabled and a layer
+        // uses zstd, decompress once so both the size-scanning pass and the unpack
+        // pass share the same decompressed file.
+        var resolvedLayers: [(file: URL, filter: ContainerizationArchive.Filter)] = []
+        var decompressedFiles: [URL] = []
+        for layer in manifest.layers {
+            let content = try await image.getContent(digest: layer.digest)
+            let compression = try compressionFilter(for: layer.mediaType)
+            if progress != nil && compression == .zstd {
+                let decompressed = try ArchiveReader.decompressZstd(content.path)
+                decompressedFiles.append(decompressed)
+                resolvedLayers.append((file: decompressed, filter: .none))
+            } else {
+                resolvedLayers.append((file: content.path, filter: compression))
+            }
+        }
+        defer {
+            for file in decompressedFiles {
+                ArchiveReader.cleanUpDecompressedZstd(file)
+            }
+        }
+
         if let progress {
-            let totalSize = try await totalRegularFileBytes(in: manifest.layers, image: image)
+            let totalSize = try totalRegularFileBytes(in: resolvedLayers)
             if totalSize > 0 {
                 await progress([ProgressEvent(event: "add-total-size", value: totalSize)])
             }
         }
 
-        for layer in manifest.layers {
+        for resolved in resolvedLayers {
             try Task.checkCancellation()
-            let content = try await image.getContent(digest: layer.digest)
-
-            let compression = try compressionFilter(for: layer.mediaType)
             let reader = try ArchiveReader(
                 format: .paxRestricted,
-                filter: compression,
-                file: content.path
+                filter: resolved.filter,
+                file: resolved.file
             )
             try filesystem.unpack(reader: reader, progress: progress)
         }
@@ -135,18 +154,18 @@ public struct EXT4Unpacker: Unpacker {
         }
     }
 
-    private func totalRegularFileBytes(in layers: [Descriptor], image: Image) async throws -> Int64 {
+    private func totalRegularFileBytes(
+        in layers: [(file: URL, filter: ContainerizationArchive.Filter)]
+    ) throws -> Int64 {
         var totalSize: Int64 = 0
 
         for layer in layers {
             try Task.checkCancellation()
 
-            let compression = try compressionFilter(for: layer.mediaType)
-            let content = try await image.getContent(digest: layer.digest)
             let reader = try ArchiveReader(
                 format: .paxRestricted,
-                filter: compression,
-                file: content.path
+                filter: layer.filter,
+                file: layer.file
             )
 
             for (entry, _) in reader.makeStreamingIterator() {
