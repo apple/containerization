@@ -65,7 +65,7 @@ extension EXT4.Formatter {
                 if path.base == ".wh..wh..opq" {  // whiteout directory
                     try self.unlink(path: path.dir, directoryWhiteout: true)
                     if let progress {
-                        await progress([ProgressEvent(event: "add-items", value: 1)])
+                        await progress([ProgressEvent(event: "add-items", value: Int64(1))])
                     }
                     continue
                 }
@@ -74,7 +74,7 @@ extension EXT4.Formatter {
                 let dir: FilePath = path.dir
                 try self.unlink(path: dir.join(filePath))
                 if let progress {
-                    await progress([ProgressEvent(event: "add-items", value: 1)])
+                    await progress([ProgressEvent(event: "add-items", value: Int64(1))])
                 }
                 continue
             }
@@ -83,7 +83,7 @@ extension EXT4.Formatter {
                 let hl = preProcessPath(s: hardlink)
                 hardlinks[path] = FilePath(hl)
                 if let progress {
-                    await progress([ProgressEvent(event: "add-items", value: 1)])
+                    await progress([ProgressEvent(event: "add-items", value: Int64(1))])
                 }
                 continue
             }
@@ -118,7 +118,7 @@ extension EXT4.Formatter {
             }
 
             if let progress {
-                await progress([ProgressEvent(event: "add-items", value: 1)])
+                await progress([ProgressEvent(event: "add-items", value: Int64(1))])
             }
         }
         guard hardlinks.acyclic else {

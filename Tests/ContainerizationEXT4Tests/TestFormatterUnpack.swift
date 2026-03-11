@@ -227,8 +227,8 @@ struct UnpackProgressTest {
                 let value = try #require(event.value as? Int64, "add-size value should be Int64")
                 cumulativeSize += value
             case "add-items":
-                let value = try #require(event.value as? Int, "add-items value should be Int")
-                itemCount += Int64(value)
+                let value = try #require(event.value as? Int64, "add-items value should be Int64")
+                itemCount += value
             default:
                 break
             }
