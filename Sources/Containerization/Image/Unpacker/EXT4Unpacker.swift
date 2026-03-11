@@ -42,7 +42,7 @@ public struct EXT4Unpacker: Unpacker {
         archive: URL,
         compression: ContainerizationArchive.Filter,
         at path: URL
-    ) throws {
+    ) async throws {
         let cleanedPath = try prepareUnpackPath(path: path)
         let filesystem = try EXT4.Formatter(
             FilePath(cleanedPath),
@@ -50,11 +50,10 @@ public struct EXT4Unpacker: Unpacker {
         )
         defer { try? filesystem.close() }
 
-        try filesystem.unpack(
+        try await filesystem.unpack(
             source: archive,
             format: .paxRestricted,
-            compression: compression,
-            progress: nil
+            compression: compression
         )
     }
     #endif
@@ -120,7 +119,7 @@ public struct EXT4Unpacker: Unpacker {
                 filter: resolved.filter,
                 file: resolved.file
             )
-            try filesystem.unpack(reader: reader, progress: progress)
+            try await filesystem.unpack(reader: reader, progress: progress)
         }
 
         return .block(

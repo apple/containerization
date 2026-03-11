@@ -69,7 +69,7 @@ struct ImageHeaderScanTimingTest {
                 let compression = compressionFilter(for: layer.mediaType)
                 let compressedSize = try FileManager.default.attributesOfItem(atPath: content.path.path)[.size] as? Int64 ?? 0
                 let label = "\(image.label) layer \(i + 1)/\(manifest.layers.count) (\(layer.mediaType), \(formatBytes(compressedSize)) compressed)"
-                try measureOverhead(url: content.path, compression: compression, label: label)
+                try await measureOverhead(url: content.path, compression: compression, label: label)
             }
         }
     }
@@ -87,7 +87,7 @@ struct ImageHeaderScanTimingTest {
         }
     }
 
-    private func measureOverhead(url: URL, compression: ContainerizationArchive.Filter, label: String) throws {
+    private func measureOverhead(url: URL, compression: ContainerizationArchive.Filter, label: String) async throws {
         let clock = ContinuousClock()
 
         print("\n--- \(label) ---\n")
@@ -133,9 +133,9 @@ struct ImageHeaderScanTimingTest {
         let fsPath1 = FilePath(tempDir1.appendingPathComponent("no-progress.ext4.img", isDirectory: false))
         defer { try? FileManager.default.removeItem(at: tempDir1) }
 
-        let unpackOnlyDuration = try clock.measure {
+        let unpackOnlyDuration = try await clock.measure {
             let formatter = try EXT4.Formatter(fsPath1)
-            try formatter.unpack(source: url, compression: compression)
+            try await formatter.unpack(source: url, compression: compression)
             try formatter.close()
         }
         print("  Unpack (no progress): \(unpackOnlyDuration)")
@@ -146,9 +146,9 @@ struct ImageHeaderScanTimingTest {
         defer { try? FileManager.default.removeItem(at: tempDir2) }
 
         let noopProgress: ProgressHandler = { _ in }
-        let withProgressDuration = try clock.measure {
+        let withProgressDuration = try await clock.measure {
             let formatter = try EXT4.Formatter(fsPath2)
-            try formatter.unpack(source: url, compression: compression, progress: noopProgress)
+            try await formatter.unpack(source: url, compression: compression, progress: noopProgress)
             try formatter.close()
         }
         print("  Unpack (w/ progress): \(withProgressDuration)")

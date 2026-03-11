@@ -42,10 +42,19 @@ struct Tar2EXT4Test: ~Copyable {
         "extendedattribute.test": Data([15, 26, 54, 1, 2, 4, 6, 7, 7]),
     ]
 
+    let layer1Path: URL
+    let layer2Path: URL
+
     init() throws {
-        // create layer1
+        // Compute paths before any throwing code to satisfy ~Copyable initialization rules.
         let layer1Path = FileManager.default.uniqueTemporaryDirectory()
             .appendingPathComponent("layer1.tar.gz", isDirectory: false)
+        let layer2Path = FileManager.default.uniqueTemporaryDirectory()
+            .appendingPathComponent("layer2.tar.gz", isDirectory: false)
+        self.layer1Path = layer1Path
+        self.layer2Path = layer2Path
+
+        // create layer1
         let layer1Archiver = try ArchiveWriter(
             configuration: ArchiveWriterConfiguration(format: .paxRestricted, filter: .gzip))
         try layer1Archiver.open(file: layer1Path)
@@ -57,8 +66,6 @@ struct Tar2EXT4Test: ~Copyable {
         try layer1Archiver.finishEncoding()
 
         // create layer2
-        let layer2Path = FileManager.default.uniqueTemporaryDirectory()
-            .appendingPathComponent("layer2.tar.gz", isDirectory: false)
         let layer2Archiver = try ArchiveWriter(
             configuration: ArchiveWriterConfiguration(format: .paxRestricted, filter: .gzip))
         try layer2Archiver.open(file: layer2Path)
@@ -82,18 +89,23 @@ struct Tar2EXT4Test: ~Copyable {
         // a new layer overwriting over an existing layer
         try layer2Archiver.writeEntry(entry: WriteEntry.file(path: "/dir2/file1", permissions: 0o644), data: nil)
         try layer2Archiver.finishEncoding()
+    }
 
-        let unpacker = try EXT4.Formatter(fsPath)
-        try unpacker.unpack(source: layer1Path)
-        try unpacker.unpack(source: layer2Path)
-        try unpacker.close()
+    private func unpackLayers() async throws {
+        let formatter = try EXT4.Formatter(fsPath)
+        try await formatter.unpack(source: layer1Path)
+        try await formatter.unpack(source: layer2Path)
+        try formatter.close()
     }
 
     deinit {
         try? FileManager.default.removeItem(at: fsPath.url)
+        try? FileManager.default.removeItem(at: layer1Path.deletingLastPathComponent())
+        try? FileManager.default.removeItem(at: layer2Path.deletingLastPathComponent())
     }
 
-    @Test func testUnpackBasic() throws {
+    @Test func testUnpackBasic() async throws {
+        try await unpackLayers()
         let ext4 = try EXT4.EXT4Reader(blockDevice: fsPath)
         // just a directory
         let dir1Inode = try ext4.getInode(number: 12)
@@ -196,11 +208,8 @@ struct UnpackProgressTest {
 
         // Unpack with progress tracking
         let formatter = try EXT4.Formatter(fsPath)
-        try formatter.unpack(source: archivePath, progress: progressHandler)
+        try await formatter.unpack(source: archivePath, progress: progressHandler)
         try formatter.close()
-
-        // Allow async progress tasks to complete
-        try await Task.sleep(for: .milliseconds(100))
 
         // Analyze collected events
         let allEvents = await collector.allEvents()
@@ -292,7 +301,7 @@ struct UnpackProgressTest {
         }
     }
 
-    @Test func progressHandlerIsOptional() throws {
+    @Test func progressHandlerIsOptional() async throws {
         // Verify that unpacking works without a progress handler (existing behavior)
         let tempDir = FileManager.default.uniqueTemporaryDirectory()
         let archivePath = tempDir.appendingPathComponent("test.tar.gz", isDirectory: false)
@@ -314,7 +323,7 @@ struct UnpackProgressTest {
 
         // Unpack without progress handler - should not throw
         let formatter = try EXT4.Formatter(fsPath)
-        try formatter.unpack(source: archivePath)
+        try await formatter.unpack(source: archivePath)
         try formatter.close()
 
         // Verify the file was unpacked correctly
