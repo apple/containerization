@@ -174,11 +174,7 @@ public struct EXT4Unpacker: Unpacker {
                     continue
                 }
 
-                let fileSize = Int64(clamping: size)
-                if totalSize > Int64.max - fileSize {
-                    return Int64.max
-                }
-                totalSize += fileSize
+                totalSize += Int64(size)
             }
         }
 
