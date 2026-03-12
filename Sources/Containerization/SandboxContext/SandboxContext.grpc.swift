@@ -45,7 +45,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             /// Descriptor for "Mount".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
-                method: "Mount"
+                method: "Mount",
+                type: .unary
             )
         }
         /// Namespace for "Umount" metadata.
@@ -57,7 +58,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             /// Descriptor for "Umount".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
-                method: "Umount"
+                method: "Umount",
+                type: .unary
             )
         }
         /// Namespace for "Setenv" metadata.
@@ -69,7 +71,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             /// Descriptor for "Setenv".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
-                method: "Setenv"
+                method: "Setenv",
+                type: .unary
             )
         }
         /// Namespace for "Getenv" metadata.
@@ -81,7 +84,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             /// Descriptor for "Getenv".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
-                method: "Getenv"
+                method: "Getenv",
+                type: .unary
             )
         }
         /// Namespace for "Mkdir" metadata.
@@ -93,7 +97,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             /// Descriptor for "Mkdir".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
-                method: "Mkdir"
+                method: "Mkdir",
+                type: .unary
             )
         }
         /// Namespace for "Sysctl" metadata.
@@ -105,7 +110,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             /// Descriptor for "Sysctl".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
-                method: "Sysctl"
+                method: "Sysctl",
+                type: .unary
             )
         }
         /// Namespace for "SetTime" metadata.
@@ -117,7 +123,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             /// Descriptor for "SetTime".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
-                method: "SetTime"
+                method: "SetTime",
+                type: .unary
             )
         }
         /// Namespace for "SetupEmulator" metadata.
@@ -129,7 +136,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             /// Descriptor for "SetupEmulator".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
-                method: "SetupEmulator"
+                method: "SetupEmulator",
+                type: .unary
             )
         }
         /// Namespace for "WriteFile" metadata.
@@ -141,7 +149,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             /// Descriptor for "WriteFile".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
-                method: "WriteFile"
+                method: "WriteFile",
+                type: .unary
             )
         }
         /// Namespace for "Copy" metadata.
@@ -153,7 +162,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             /// Descriptor for "Copy".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
-                method: "Copy"
+                method: "Copy",
+                type: .serverStreaming
             )
         }
         /// Namespace for "CreateProcess" metadata.
@@ -165,7 +175,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             /// Descriptor for "CreateProcess".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
-                method: "CreateProcess"
+                method: "CreateProcess",
+                type: .unary
             )
         }
         /// Namespace for "DeleteProcess" metadata.
@@ -177,7 +188,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             /// Descriptor for "DeleteProcess".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
-                method: "DeleteProcess"
+                method: "DeleteProcess",
+                type: .unary
             )
         }
         /// Namespace for "StartProcess" metadata.
@@ -189,7 +201,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             /// Descriptor for "StartProcess".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
-                method: "StartProcess"
+                method: "StartProcess",
+                type: .unary
             )
         }
         /// Namespace for "KillProcess" metadata.
@@ -201,7 +214,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             /// Descriptor for "KillProcess".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
-                method: "KillProcess"
+                method: "KillProcess",
+                type: .unary
             )
         }
         /// Namespace for "WaitProcess" metadata.
@@ -213,7 +227,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             /// Descriptor for "WaitProcess".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
-                method: "WaitProcess"
+                method: "WaitProcess",
+                type: .unary
             )
         }
         /// Namespace for "ResizeProcess" metadata.
@@ -225,7 +240,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             /// Descriptor for "ResizeProcess".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
-                method: "ResizeProcess"
+                method: "ResizeProcess",
+                type: .unary
             )
         }
         /// Namespace for "CloseProcessStdin" metadata.
@@ -237,7 +253,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             /// Descriptor for "CloseProcessStdin".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
-                method: "CloseProcessStdin"
+                method: "CloseProcessStdin",
+                type: .unary
             )
         }
         /// Namespace for "ContainerStatistics" metadata.
@@ -249,7 +266,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             /// Descriptor for "ContainerStatistics".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
-                method: "ContainerStatistics"
+                method: "ContainerStatistics",
+                type: .unary
             )
         }
         /// Namespace for "ProxyVsock" metadata.
@@ -261,7 +279,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             /// Descriptor for "ProxyVsock".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
-                method: "ProxyVsock"
+                method: "ProxyVsock",
+                type: .unary
             )
         }
         /// Namespace for "StopVsockProxy" metadata.
@@ -273,7 +292,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             /// Descriptor for "StopVsockProxy".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
-                method: "StopVsockProxy"
+                method: "StopVsockProxy",
+                type: .unary
             )
         }
         /// Namespace for "IpLinkSet" metadata.
@@ -285,7 +305,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             /// Descriptor for "IpLinkSet".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
-                method: "IpLinkSet"
+                method: "IpLinkSet",
+                type: .unary
             )
         }
         /// Namespace for "IpAddrAdd" metadata.
@@ -297,7 +318,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             /// Descriptor for "IpAddrAdd".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
-                method: "IpAddrAdd"
+                method: "IpAddrAdd",
+                type: .unary
             )
         }
         /// Namespace for "IpRouteAddLink" metadata.
@@ -309,7 +331,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             /// Descriptor for "IpRouteAddLink".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
-                method: "IpRouteAddLink"
+                method: "IpRouteAddLink",
+                type: .unary
             )
         }
         /// Namespace for "IpRouteAddDefault" metadata.
@@ -321,7 +344,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             /// Descriptor for "IpRouteAddDefault".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
-                method: "IpRouteAddDefault"
+                method: "IpRouteAddDefault",
+                type: .unary
             )
         }
         /// Namespace for "ConfigureDns" metadata.
@@ -333,7 +357,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             /// Descriptor for "ConfigureDns".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
-                method: "ConfigureDns"
+                method: "ConfigureDns",
+                type: .unary
             )
         }
         /// Namespace for "ConfigureHosts" metadata.
@@ -345,7 +370,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             /// Descriptor for "ConfigureHosts".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
-                method: "ConfigureHosts"
+                method: "ConfigureHosts",
+                type: .unary
             )
         }
         /// Namespace for "Sync" metadata.
@@ -357,7 +383,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             /// Descriptor for "Sync".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
-                method: "Sync"
+                method: "Sync",
+                type: .unary
             )
         }
         /// Namespace for "Kill" metadata.
@@ -369,7 +396,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             /// Descriptor for "Kill".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
-                method: "Kill"
+                method: "Kill",
+                type: .unary
             )
         }
         /// Descriptors for all methods in the "com.apple.containerization.sandbox.v3.SandboxContext" service.
