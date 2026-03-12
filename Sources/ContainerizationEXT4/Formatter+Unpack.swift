@@ -33,14 +33,71 @@ extension EXT4.Formatter {
     public func unpack(
         source: URL,
         format: ContainerizationArchive.Format = .paxRestricted,
-        compression: ContainerizationArchive.Filter = .gzip
+        compression: ContainerizationArchive.Filter = .gzip,
+        progress: ProgressHandler? = nil
     ) async throws {
+        // For zstd, decompress once and reuse for both passes to avoid double decompression.
+        let fileToRead: URL
+        let readerFilter: ContainerizationArchive.Filter
+        var decompressedFile: URL?
+        if progress != nil && compression == .zstd {
+            let decompressed = try ArchiveReader.decompressZstd(source)
+            fileToRead = decompressed
+            readerFilter = .none
+            decompressedFile = decompressed
+        } else {
+            fileToRead = source
+            readerFilter = compression
+        }
+        defer {
+            if let decompressedFile {
+                ArchiveReader.cleanUpDecompressedZstd(decompressedFile)
+            }
+        }
+
+        if let progress {
+            // First pass: scan headers to get totals (fast, metadata only)
+            let totals = try Self.scanArchiveHeaders(format: format, filter: readerFilter, file: fileToRead)
+            var totalEvents: [ProgressEvent] = []
+            if totals.size > 0 {
+                totalEvents.append(ProgressEvent(event: "add-total-size", value: totals.size))
+            }
+            if totals.items > 0 {
+                totalEvents.append(ProgressEvent(event: "add-total-items", value: totals.items))
+            }
+            if !totalEvents.isEmpty {
+                await progress(totalEvents)
+            }
+        }
+
+        // Unpack pass
         let reader = try ArchiveReader(
             format: format,
-            filter: compression,
-            file: source
+            filter: readerFilter,
+            file: fileToRead
         )
-        try await self.unpack(reader: reader)
+        try await self.unpackEntries(reader: reader, progress: progress)
+    }
+
+    /// Scan archive headers to count the total number of bytes in regular files
+    /// and the total number of entries.
+    public static func scanArchiveHeaders(
+        format: ContainerizationArchive.Format,
+        filter: ContainerizationArchive.Filter,
+        file: URL
+    ) throws -> (size: Int64, items: Int64) {
+        let reader = try ArchiveReader(format: format, filter: filter, file: file)
+        var totalSize: Int64 = 0
+        var totalItems: Int64 = 0
+        for (entry, _) in reader.makeStreamingIterator() {
+            try Task.checkCancellation()
+            guard entry.path != nil else { continue }
+            totalItems += 1
+            if entry.fileType == .regular, let size = entry.size {
+                totalSize += Int64(size)
+            }
+        }
+        return (size: totalSize, items: totalItems)
     }
 
     /// Core unpack logic. When `progress` is nil the handler calls are skipped.
@@ -114,6 +171,9 @@ extension EXT4.Formatter {
                     uid: entry.owner,
                     gid: entry.group, xattrs: entry.xattrs)
             default:
+                if let progress {
+                    await progress([ProgressEvent(event: "add-items", value: Int64(1))])
+                }
                 continue
             }
 
@@ -129,58 +189,6 @@ extension EXT4.Formatter {
                 try self.link(link: path, target: resolvedTarget)
             }
         }
-    }
-
-    /// Unpack an archive at the source URL on to the ext4 filesystem with progress reporting.
-    public func unpack(
-        source: URL,
-        format: ContainerizationArchive.Format = .paxRestricted,
-        compression: ContainerizationArchive.Filter = .gzip,
-        progress: @escaping ProgressHandler
-    ) async throws {
-        // For zstd, decompress once and reuse for both passes to avoid double decompression.
-        let fileToRead: URL
-        let readerFilter: ContainerizationArchive.Filter
-        var decompressedFile: URL?
-        if compression == .zstd {
-            let decompressed = try ArchiveReader.decompressZstd(source)
-            fileToRead = decompressed
-            readerFilter = .none
-            decompressedFile = decompressed
-        } else {
-            fileToRead = source
-            readerFilter = compression
-        }
-        defer {
-            if let decompressedFile {
-                ArchiveReader.cleanUpDecompressedZstd(decompressedFile)
-            }
-        }
-
-        // First pass: scan headers to get total size (fast, metadata only)
-        let sizeReader = try ArchiveReader(
-            format: format,
-            filter: readerFilter,
-            file: fileToRead
-        )
-        var totalSize: Int64 = 0
-        for (entry, _) in sizeReader.makeStreamingIterator() {
-            try Task.checkCancellation()
-            if entry.fileType == .regular, let size = entry.size {
-                totalSize += Int64(size)
-            }
-        }
-        if totalSize > 0 {
-            await progress([ProgressEvent(event: "add-total-size", value: totalSize)])
-        }
-
-        // Second pass: unpack
-        let reader = try ArchiveReader(
-            format: format,
-            filter: readerFilter,
-            file: fileToRead
-        )
-        try await self.unpack(reader: reader, progress: progress)
     }
 
     private func preProcessPath(s: String) -> String {

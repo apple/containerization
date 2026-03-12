@@ -106,9 +106,24 @@ public struct EXT4Unpacker: Unpacker {
         }
 
         if let progress {
-            let totalSize = try totalRegularFileBytes(in: resolvedLayers)
+            var totalSize: Int64 = 0
+            var totalItems: Int64 = 0
+            for layer in resolvedLayers {
+                try Task.checkCancellation()
+                let totals = try EXT4.Formatter.scanArchiveHeaders(
+                    format: .paxRestricted, filter: layer.filter, file: layer.file)
+                totalSize += totals.size
+                totalItems += totals.items
+            }
+            var totalEvents: [ProgressEvent] = []
             if totalSize > 0 {
-                await progress([ProgressEvent(event: "add-total-size", value: totalSize)])
+                totalEvents.append(ProgressEvent(event: "add-total-size", value: totalSize))
+            }
+            if totalItems > 0 {
+                totalEvents.append(ProgressEvent(event: "add-total-items", value: totalItems))
+            }
+            if !totalEvents.isEmpty {
+                await progress(totalEvents)
             }
         }
 
@@ -151,33 +166,6 @@ public struct EXT4Unpacker: Unpacker {
         default:
             throw ContainerizationError(.unsupported, message: "media type \(mediaType) not supported.")
         }
-    }
-
-    private func totalRegularFileBytes(
-        in layers: [(file: URL, filter: ContainerizationArchive.Filter)]
-    ) throws -> Int64 {
-        var totalSize: Int64 = 0
-
-        for layer in layers {
-            try Task.checkCancellation()
-
-            let reader = try ArchiveReader(
-                format: .paxRestricted,
-                filter: layer.filter,
-                file: layer.file
-            )
-
-            for (entry, _) in reader.makeStreamingIterator() {
-                try Task.checkCancellation()
-                guard entry.fileType == .regular, let size = entry.size else {
-                    continue
-                }
-
-                totalSize += Int64(size)
-            }
-        }
-
-        return totalSize
     }
     #endif
 }

@@ -116,16 +116,12 @@ struct ImageHeaderScanTimingTest {
         }
 
         // 1. Header scan only
+        var scannedTotals: (size: Int64, items: Int64) = (0, 0)
         let scanDuration = try clock.measure {
-            let reader = try ArchiveReader(format: .paxRestricted, filter: scanFilter, file: scanFile)
-            var totalSize: Int64 = 0
-            for (entry, _) in reader.makeStreamingIterator() {
-                if entry.fileType == .regular, let size = entry.size {
-                    totalSize += Int64(size)
-                }
-            }
-            print("  Scanned total size:   \(formatBytes(totalSize))")
+            scannedTotals = try EXT4.Formatter.scanArchiveHeaders(
+                format: .paxRestricted, filter: scanFilter, file: scanFile)
         }
+        print("  Scanned total size:   \(formatBytes(scannedTotals.size)) (\(scannedTotals.items) items)")
         print("  Header scan:          \(scanDuration)")
 
         // 2. Full unpack without progress

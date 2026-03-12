@@ -215,6 +215,7 @@ struct UnpackProgressTest {
         let allEvents = await collector.allEvents()
 
         var reportedTotalSize: Int64 = 0
+        var reportedTotalItems: Int64 = 0
         var cumulativeSize: Int64 = 0
         var itemCount: Int64 = 0
 
@@ -223,6 +224,9 @@ struct UnpackProgressTest {
             case "add-total-size":
                 let value = try #require(event.value as? Int64, "add-total-size value should be Int64")
                 reportedTotalSize += value
+            case "add-total-items":
+                let value = try #require(event.value as? Int64, "add-total-items value should be Int64")
+                reportedTotalItems += value
             case "add-size":
                 let value = try #require(event.value as? Int64, "add-size value should be Int64")
                 cumulativeSize += value
@@ -235,15 +239,19 @@ struct UnpackProgressTest {
         }
 
         // Verify the progress contract
+        let expectedTotalItems: Int64 = 5  // 1 dir + 4 files
         #expect(
             reportedTotalSize == expectedTotalSize,
             "Total size should be \(expectedTotalSize) bytes, got \(reportedTotalSize)")
         #expect(
+            reportedTotalItems == expectedTotalItems,
+            "Total items should be \(expectedTotalItems), got \(reportedTotalItems)")
+        #expect(
             cumulativeSize == expectedTotalSize,
             "Cumulative size should equal total size (\(expectedTotalSize)), got \(cumulativeSize)")
         #expect(
-            itemCount == 5,
-            "Should have processed 5 entries (1 dir + 4 files), got \(itemCount)")
+            itemCount == expectedTotalItems,
+            "Should have processed \(expectedTotalItems) entries (1 dir + 4 files), got \(itemCount)")
 
         // Verify incremental progress: we should get separate add-size events for each file
         let addSizeEvents = allEvents.filter { $0.event == "add-size" }
@@ -292,13 +300,26 @@ struct UnpackProgressTest {
             progressSnapshotCount == addSizeEvents.count,
             "Should produce one monotonic snapshot per add-size update")
 
-        // Verify add-total-size comes before add-size events (first pass before second pass)
-        if let totalSizeIndex = allEvents.firstIndex(where: { $0.event == "add-total-size" }),
-           let firstAddSizeIndex = allEvents.firstIndex(where: { $0.event == "add-size" }) {
-            #expect(
-                totalSizeIndex < firstAddSizeIndex,
-                "add-total-size should be reported before add-size events")
-        }
+        // Verify totals come before incremental events (first pass before second pass)
+        let totalSizeIndex = try #require(
+            allEvents.firstIndex(where: { $0.event == "add-total-size" }),
+            "add-total-size event should be present")
+        let firstAddSizeIndex = try #require(
+            allEvents.firstIndex(where: { $0.event == "add-size" }),
+            "add-size event should be present")
+        #expect(
+            totalSizeIndex < firstAddSizeIndex,
+            "add-total-size should be reported before add-size events")
+
+        let totalItemsIndex = try #require(
+            allEvents.firstIndex(where: { $0.event == "add-total-items" }),
+            "add-total-items event should be present")
+        let firstAddItemsIndex = try #require(
+            allEvents.firstIndex(where: { $0.event == "add-items" }),
+            "add-items event should be present")
+        #expect(
+            totalItemsIndex < firstAddItemsIndex,
+            "add-total-items should be reported before add-items events")
     }
 
     @Test func progressHandlerIsOptional() async throws {
