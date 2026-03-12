@@ -168,10 +168,10 @@ struct UnpackProgressTest {
         }
 
         // Create test data with specific sizes
-        let file1Data = Data(repeating: 0xAA, count: 1024)       // 1 KiB
-        let file2Data = Data(repeating: 0xBB, count: 4096)       // 4 KiB
-        let file3Data = Data(repeating: 0xCC, count: 512)        // 512 bytes
-        let expectedTotalSize: Int64 = 1024 + 4096 + 512         // 5632 bytes
+        let file1Data = Data(repeating: 0xAA, count: 1024)  // 1 KiB
+        let file2Data = Data(repeating: 0xBB, count: 4096)  // 4 KiB
+        let file3Data = Data(repeating: 0xCC, count: 512)  // 512 bytes
+        let expectedTotalSize: Int64 = 1024 + 4096 + 512  // 5632 bytes
 
         // Build the archive
         let archiver = try ArchiveWriter(
