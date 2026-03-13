@@ -33,16 +33,33 @@ public struct Vminitd: Sendable {
 
     let client: Client
 
+    /// Retains the underlying vsock connection to keep the file descriptor
+    /// valid for the gRPC client's lifetime. The Virtualization framework
+    /// tears down the vsock endpoint when the connection is closed, which
+    /// invalidates dup'd descriptors. Must remain open until the gRPC
+    /// channel is shut down.
+    private let transport: VsockTransport?
+
     public init(client: Client) {
         self.client = client
+        self.transport = nil
     }
 
     public init(connection: FileHandle, group: EventLoopGroup) {
         self.client = .init(connection: connection, group: group)
+        self.transport = nil
+    }
+
+    init(connection: FileHandle, transport: VsockTransport, group: EventLoopGroup) {
+        self.client = .init(connection: connection, group: group)
+        self.transport = transport
     }
 
     /// Close the connection to the guest agent.
     public func close() async throws {
+        // Shut down the gRPC channel first (NIO closes the dup'd fd),
+        // then close the vsock endpoint so the guest sees EOF immediately.
+        defer { transport?.close() }
         try await client.close()
     }
 }
