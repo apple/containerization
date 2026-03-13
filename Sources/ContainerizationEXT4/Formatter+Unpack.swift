@@ -85,10 +85,10 @@ extension EXT4.Formatter {
         format: ContainerizationArchive.Format,
         filter: ContainerizationArchive.Filter,
         file: URL
-    ) throws -> (size: Int64, items: Int64) {
+    ) throws -> (size: Int64, items: Int) {
         let reader = try ArchiveReader(format: format, filter: filter, file: file)
         var totalSize: Int64 = 0
-        var totalItems: Int64 = 0
+        var totalItems: Int = 0
         for (entry, _) in reader.makeStreamingIterator() {
             try Task.checkCancellation()
             guard entry.path != nil else { continue }
@@ -122,7 +122,7 @@ extension EXT4.Formatter {
                 if path.base == ".wh..wh..opq" {  // whiteout directory
                     try self.unlink(path: path.dir, directoryWhiteout: true)
                     if let progress {
-                        await progress([ProgressEvent(event: "add-items", value: Int64(1))])
+                        await progress([ProgressEvent(event: "add-items", value: 1)])
                     }
                     continue
                 }
@@ -131,7 +131,7 @@ extension EXT4.Formatter {
                 let dir: FilePath = path.dir
                 try self.unlink(path: dir.join(filePath))
                 if let progress {
-                    await progress([ProgressEvent(event: "add-items", value: Int64(1))])
+                    await progress([ProgressEvent(event: "add-items", value: 1)])
                 }
                 continue
             }
@@ -140,7 +140,7 @@ extension EXT4.Formatter {
                 let hl = preProcessPath(s: hardlink)
                 hardlinks[path] = FilePath(hl)
                 if let progress {
-                    await progress([ProgressEvent(event: "add-items", value: Int64(1))])
+                    await progress([ProgressEvent(event: "add-items", value: 1)])
                 }
                 continue
             }
@@ -172,13 +172,13 @@ extension EXT4.Formatter {
                     gid: entry.group, xattrs: entry.xattrs)
             default:
                 if let progress {
-                    await progress([ProgressEvent(event: "add-items", value: Int64(1))])
+                    await progress([ProgressEvent(event: "add-items", value: 1)])
                 }
                 continue
             }
 
             if let progress {
-                await progress([ProgressEvent(event: "add-items", value: Int64(1))])
+                await progress([ProgressEvent(event: "add-items", value: 1)])
             }
         }
         guard hardlinks.acyclic else {

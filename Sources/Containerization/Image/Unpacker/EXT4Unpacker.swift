@@ -89,6 +89,7 @@ public struct EXT4Unpacker: Unpacker {
         var resolvedLayers: [(file: URL, filter: ContainerizationArchive.Filter)] = []
         var decompressedFiles: [URL] = []
         for layer in manifest.layers {
+            try Task.checkCancellation()
             let content = try await image.getContent(digest: layer.digest)
             let compression = try compressionFilter(for: layer.mediaType)
             if progress != nil && compression == .zstd {
@@ -107,7 +108,7 @@ public struct EXT4Unpacker: Unpacker {
 
         if let progress {
             var totalSize: Int64 = 0
-            var totalItems: Int64 = 0
+            var totalItems: Int = 0
             for layer in resolvedLayers {
                 try Task.checkCancellation()
                 let totals = try EXT4.Formatter.scanArchiveHeaders(

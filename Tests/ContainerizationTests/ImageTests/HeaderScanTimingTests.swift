@@ -97,7 +97,7 @@ struct ImageHeaderScanTimingTest {
         let scanFilter: ContainerizationArchive.Filter
         var decompressedFile: URL?
         if compression == .zstd {
-            var decompressed: URL!
+            var decompressed: URL = url
             let decompressDuration = try clock.measure {
                 decompressed = try ArchiveReader.decompressZstd(url)
             }
@@ -116,7 +116,7 @@ struct ImageHeaderScanTimingTest {
         }
 
         // 1. Header scan only
-        var scannedTotals: (size: Int64, items: Int64) = (0, 0)
+        var scannedTotals: (size: Int64, items: Int) = (0, 0)
         let scanDuration = try clock.measure {
             scannedTotals = try EXT4.Formatter.scanArchiveHeaders(
                 format: .paxRestricted, filter: scanFilter, file: scanFile)

@@ -42,15 +42,16 @@ struct Tar2EXT4Test: ~Copyable {
         "extendedattribute.test": Data([15, 26, 54, 1, 2, 4, 6, 7, 7]),
     ]
 
+    let layerDir: URL
     let layer1Path: URL
     let layer2Path: URL
 
     init() throws {
         // Compute paths before any throwing code to satisfy ~Copyable initialization rules.
-        let layer1Path = FileManager.default.uniqueTemporaryDirectory()
-            .appendingPathComponent("layer1.tar.gz", isDirectory: false)
-        let layer2Path = FileManager.default.uniqueTemporaryDirectory()
-            .appendingPathComponent("layer2.tar.gz", isDirectory: false)
+        let layerDir = FileManager.default.uniqueTemporaryDirectory()
+        let layer1Path = layerDir.appendingPathComponent("layer1.tar.gz", isDirectory: false)
+        let layer2Path = layerDir.appendingPathComponent("layer2.tar.gz", isDirectory: false)
+        self.layerDir = layerDir
         self.layer1Path = layer1Path
         self.layer2Path = layer2Path
 
@@ -100,8 +101,7 @@ struct Tar2EXT4Test: ~Copyable {
 
     deinit {
         try? FileManager.default.removeItem(at: fsPath.url)
-        try? FileManager.default.removeItem(at: layer1Path.deletingLastPathComponent())
-        try? FileManager.default.removeItem(at: layer2Path.deletingLastPathComponent())
+        try? FileManager.default.removeItem(at: layerDir)
     }
 
     @Test func testUnpackBasic() async throws {
@@ -215,9 +215,9 @@ struct UnpackProgressTest {
         let allEvents = await collector.allEvents()
 
         var reportedTotalSize: Int64 = 0
-        var reportedTotalItems: Int64 = 0
+        var reportedTotalItems: Int = 0
         var cumulativeSize: Int64 = 0
-        var itemCount: Int64 = 0
+        var itemCount: Int = 0
 
         for event in allEvents {
             switch event.event {
@@ -225,13 +225,13 @@ struct UnpackProgressTest {
                 let value = try #require(event.value as? Int64, "add-total-size value should be Int64")
                 reportedTotalSize += value
             case "add-total-items":
-                let value = try #require(event.value as? Int64, "add-total-items value should be Int64")
+                let value = try #require(event.value as? Int, "add-total-items value should be Int")
                 reportedTotalItems += value
             case "add-size":
                 let value = try #require(event.value as? Int64, "add-size value should be Int64")
                 cumulativeSize += value
             case "add-items":
-                let value = try #require(event.value as? Int64, "add-items value should be Int64")
+                let value = try #require(event.value as? Int, "add-items value should be Int")
                 itemCount += value
             default:
                 break
@@ -239,7 +239,7 @@ struct UnpackProgressTest {
         }
 
         // Verify the progress contract
-        let expectedTotalItems: Int64 = 5  // 1 dir + 4 files
+        let expectedTotalItems: Int = 5  // 1 dir + 4 files
         #expect(
             reportedTotalSize == expectedTotalSize,
             "Total size should be \(expectedTotalSize) bytes, got \(reportedTotalSize)")
