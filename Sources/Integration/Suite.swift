@@ -371,6 +371,9 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container useInit with stdin", testUseInitWithStdin),
                 Test("container sysctl", testSysctl),
                 Test("container sysctl multiple", testSysctlMultiple),
+                Test("container noNewPrivileges", testNoNewPrivileges),
+                Test("container noNewPrivileges disabled", testNoNewPrivilegesDisabled),
+                Test("container noNewPrivileges exec", testNoNewPrivilegesExec),
 
                 // Pods
                 Test("pod single container", testPodSingleContainer),

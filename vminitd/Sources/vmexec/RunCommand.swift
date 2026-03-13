@@ -196,6 +196,9 @@ struct RunCommand: ParsableCommand {
         // Finish capabilities (after user change)
         try App.finishCapabilities(preparedCaps)
 
+        // Set no_new_privs if requested by the OCI spec.
+        try App.setNoNewPrivileges(process: process)
+
         // Finally execve the container process.
         try App.exec(process: process, currentEnv: process.env)
     }
