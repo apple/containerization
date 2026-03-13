@@ -375,12 +375,21 @@ extension Vminitd {
         _ = try await client.sysctl(request)
     }
 
-    /// Add an IP address to the sandbox's network interfaces.
+    /// Add an IPv4 address to the sandbox's network interfaces.
     public func addressAdd(name: String, ipv4Address: CIDRv4) async throws {
         _ = try await client.ipAddrAdd(
             .with {
                 $0.interface = name
                 $0.ipv4Address = ipv4Address.description
+            })
+    }
+
+    /// Add an IPv6 address to the sandbox's network interfaces.
+    public func addressAdd(name: String, ipv6Address: CIDRv6) async throws {
+        _ = try await client.ipAddrAdd6(
+            .with {
+                $0.interface = name
+                $0.ipv6Address = ipv6Address.description
             })
     }
 
@@ -397,12 +406,21 @@ extension Vminitd {
             })
     }
 
-    /// Set the default route in the sandbox's environment.
+    /// Set the IPv4 default route in the sandbox's environment.
     public func routeAddDefault(name: String, ipv4Gateway: IPv4Address) async throws {
         _ = try await client.ipRouteAddDefault(
             .with {
                 $0.interface = name
                 $0.ipv4Gateway = ipv4Gateway.description
+            })
+    }
+
+    /// Set the IPv6 default route in the sandbox's environment.
+    public func routeAddDefault(name: String, ipv6Gateway: IPv6Address) async throws {
+        _ = try await client.ipRouteAddDefault6(
+            .with {
+                $0.interface = name
+                $0.ipv6Gateway = ipv6Gateway.description
             })
     }
 
