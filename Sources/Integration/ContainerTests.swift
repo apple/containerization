@@ -4076,4 +4076,81 @@ extension IntegrationSuite {
             throw error
         }
     }
+
+    func testSysctl() async throws {
+        let id = "test-container-sysctl"
+
+        let bs = try await bootstrap(id)
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.sysctl = [
+                "net.core.somaxconn": "4096"
+            ]
+            config.process.arguments = ["cat", "/proc/sys/net/core/somaxconn"]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let status = try await container.wait()
+            try await container.stop()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "process status \(status) != 0")
+            }
+
+            let output = String(data: buffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard output == "4096" else {
+                throw IntegrationError.assert(
+                    msg: "sysctl net.core.somaxconn should be '4096', got '\(output ?? "nil")'")
+            }
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testSysctlMultiple() async throws {
+        let id = "test-container-sysctl-multiple"
+
+        let bs = try await bootstrap(id)
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.sysctl = [
+                "net.core.somaxconn": "2048",
+                "net.ipv4.ip_forward": "1",
+            ]
+            config.process.arguments = [
+                "/bin/sh", "-c",
+                "cat /proc/sys/net/core/somaxconn && cat /proc/sys/net/ipv4/ip_forward",
+            ]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let status = try await container.wait()
+            try await container.stop()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "process status \(status) != 0")
+            }
+
+            let output = String(data: buffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let lines = output?.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+            guard lines == ["2048", "1"] else {
+                throw IntegrationError.assert(
+                    msg: "expected sysctls ['2048', '1'], got '\(output ?? "nil")'")
+            }
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
 }
