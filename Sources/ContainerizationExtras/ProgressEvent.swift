@@ -17,10 +17,10 @@
 /// A progress update event.
 public struct ProgressEvent: Sendable {
     /// The event name. The possible values:
-    ///  - `add-items`: Increment the number of processed items by `value`.
-    ///  - `add-total-items`: Increment the total number of items to process by `value`.
-    ///  - `add-size`: Increment the size of processed items by `value`.
-    ///  - `add-total-size`: Increment the total size of items to process by `value`.
+    ///  - `add-items`: Increment the number of processed items by `value` (`Int`).
+    ///  - `add-total-items`: Increment the total number of items to process by `value` (`Int`).
+    ///  - `add-size`: Increment the size of processed items by `value` (`Int64`).
+    ///  - `add-total-size`: Increment the total size of items to process by `value` (`Int64`).
     public let event: String
     /// The event value.
     public let value: any Sendable
