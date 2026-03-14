@@ -52,8 +52,8 @@ extension ImageStore {
                         size += desc.size
                     }
                     await progress([
-                        ProgressEvent(event: "add-total-size", value: size),
-                        ProgressEvent(event: "add-total-items", value: toProcess.count),
+                        .addTotalSize(size),
+                        .addTotalItems(toProcess.count),
                     ])
                 }
 
@@ -146,9 +146,9 @@ extension ImageStore {
                 try FileManager.default.copyItem(at: found.path, to: ingestDir.appendingPathComponent(descriptor.digest.trimmingDigestPrefix))
                 await progress?([
                     // Count the size of the blob
-                    ProgressEvent(event: "add-size", value: descriptor.size),
+                    .addSize(descriptor.size),
                     // Count the number of blobs
-                    ProgressEvent(event: "add-items", value: 1),
+                    .addItems(1),
                 ])
                 return
             }
@@ -160,7 +160,7 @@ extension ImageStore {
             }
             // Count the number of blobs
             await progress?([
-                ProgressEvent(event: "add-items", value: 1)
+                .addItems(1)
             ])
         }
 
@@ -190,7 +190,7 @@ extension ImageStore {
             if let progress {
                 let size = Int64(result.size)
                 await progress([
-                    ProgressEvent(event: "add-size", value: size)
+                    .addSize(size)
                 ])
             }
             guard result.digest.digestString == descriptor.digest else {
