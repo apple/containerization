@@ -82,9 +82,9 @@ extension Application {
             )
 
             // Choose network implementation based on macOS version
-            let network: ContainerManager.Network?
+            let network: Network?
             if #available(macOS 26, *) {
-                network = try ContainerManager.VmnetNetwork()
+                network = try VmnetNetwork()
             } else {
                 network = nil
             }

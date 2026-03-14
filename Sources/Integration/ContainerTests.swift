@@ -2895,7 +2895,7 @@ extension IntegrationSuite {
         let bs = try await bootstrap(id)
 
         let customMTU: UInt32 = 1400
-        var network = try ContainerManager.VmnetNetwork()
+        var network = try VmnetNetwork()
         defer {
             try? network.release(id)
         }
@@ -3974,7 +3974,7 @@ extension IntegrationSuite {
         let id = "test-networking-disabled"
         let bs = try await bootstrap(id)
 
-        let network = try ContainerManager.VmnetNetwork()
+        let network = try VmnetNetwork()
         var manager = try ContainerManager(vmm: bs.vmm, network: network)
         defer {
             try? manager.delete(id)
@@ -4027,7 +4027,7 @@ extension IntegrationSuite {
         let id = "test-networking-enabled"
         let bs = try await bootstrap(id)
 
-        let network = try ContainerManager.VmnetNetwork()
+        let network = try VmnetNetwork()
         var manager = try ContainerManager(vmm: bs.vmm, network: network)
         defer {
             try? manager.delete(id)
