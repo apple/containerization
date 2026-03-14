@@ -91,14 +91,14 @@ extension ImageStore {
             for layerGroup in pushQueue {
                 for desc in layerGroup {
                     await progress?([
-                        ProgressEvent(event: "add-total-size", value: desc.size),
-                        ProgressEvent(event: "add-total-items", value: 1),
+                        ProgressEvent(.addTotalSize(desc.size)),
+                        ProgressEvent(.addTotalItems(1)),
                     ])
                 }
             }
             await progress?([
-                ProgressEvent(event: "add-total-size", value: localIndexData.count),
-                ProgressEvent(event: "add-total-items", value: 1),
+                ProgressEvent(.addTotalSize(Int64(localIndexData.count))),
+                ProgressEvent(.addTotalItems(1)),
             ])
         }
 
@@ -135,15 +135,15 @@ extension ImageStore {
                 }
                 try await client.push(name: name, ref: tag, descriptor: descriptor, streamGenerator: generator, progress: progress)
                 await progress?([
-                    ProgressEvent(event: "add-size", value: descriptor.size),
-                    ProgressEvent(event: "add-items", value: 1),
+                    ProgressEvent(.addSize(descriptor.size)),
+                    ProgressEvent(.addItems(1)),
                 ])
             } catch let err as ContainerizationError {
                 guard err.code != .exists else {
                     // We reported the total items and size and have to account for them in existing content.
                     await progress?([
-                        ProgressEvent(event: "add-size", value: descriptor.size),
-                        ProgressEvent(event: "add-items", value: 1),
+                        ProgressEvent(.addSize(descriptor.size)),
+                        ProgressEvent(.addItems(1)),
                     ])
                     return
                 }

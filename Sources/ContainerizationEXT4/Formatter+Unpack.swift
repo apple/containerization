@@ -44,7 +44,7 @@ extension EXT4.Formatter {
                 if let progress {
                     Task {
                         await progress([
-                            ProgressEvent(event: "add-items", value: 1)
+                            ProgressEvent(.addItems(1))
                         ])
                     }
                 }
@@ -88,7 +88,7 @@ extension EXT4.Formatter {
                 if let progress, let size = entry.size {
                     Task {
                         await progress([
-                            ProgressEvent(event: "add-size", value: Int64(size))
+                            ProgressEvent(.addSize(Int64(size)))
                         ])
                     }
                 }
