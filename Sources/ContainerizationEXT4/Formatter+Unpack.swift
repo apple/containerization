@@ -93,7 +93,7 @@ extension EXT4.Formatter {
             try Task.checkCancellation()
             guard entry.path != nil else { continue }
             totalItems += 1
-            if entry.fileType == .regular, let size = entry.size {
+            if entry.fileType == .regular, entry.hardlink == nil, let size = entry.size {
                 totalSize += Int64(size)
             }
         }
