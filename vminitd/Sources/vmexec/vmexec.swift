@@ -106,6 +106,12 @@ extension App {
         fatalError("execvpe failed")
     }
 
+    static func setNoNewPrivs() throws {
+        guard CZ_set_no_new_privs() == 0 else {
+            throw App.Errno(stage: "prctl(PR_SET_NO_NEW_PRIVS)")
+        }
+    }
+
     static func setPermissions(user: ContainerizationOCI.User) throws {
         if user.additionalGids.count > 0 {
             guard setgroups(user.additionalGids.count, user.additionalGids) == 0 else {

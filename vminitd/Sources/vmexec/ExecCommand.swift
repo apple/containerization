@@ -145,6 +145,11 @@ struct ExecCommand: ParsableCommand {
             // Finish capabilities (after user change)
             try App.finishCapabilities(preparedCaps)
 
+            // Set no_new_privs (after user/capability changes).
+            if process.noNewPrivileges {
+                try App.setNoNewPrivs()
+            }
+
             try App.exec(process: process, currentEnv: process.env)
         } else {  // parent process
             // Send our child's pid to our parent before we exit.

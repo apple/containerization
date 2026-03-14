@@ -26,6 +26,8 @@ int CZ_pivot_root(const char *new_root, const char *put_old) {
 
 int CZ_set_sub_reaper() { return prctl(PR_SET_CHILD_SUBREAPER, 1); }
 
+int CZ_set_no_new_privs() { return prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); }
+
 int CZ_pidfd_open(pid_t pid, unsigned int flags) {
   // Musl doesn't have pidfd_open.
   return syscall(SYS_pidfd_open, pid, flags);

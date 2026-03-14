@@ -23,6 +23,8 @@ int CZ_pivot_root(const char *new_root, const char *put_old);
 
 int CZ_set_sub_reaper();
 
+int CZ_set_no_new_privs();
+
 #ifndef SYS_pidfd_open
 #define SYS_pidfd_open 434
 #endif
