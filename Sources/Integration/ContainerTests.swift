@@ -4153,4 +4153,101 @@ extension IntegrationSuite {
             throw error
         }
     }
+
+    @available(macOS 26.0, *)
+    func testRDNSSUpdatesResolvConf() async throws {
+        let id = "test-rdnss-updates-resolv-conf"
+        let bs = try await bootstrap(id)
+
+        let network = try ContainerManager.VmnetNetwork()
+        var manager = try ContainerManager(vmm: bs.vmm, network: network)
+        defer { try? manager.delete(id) }
+
+        let container = try await manager.create(
+            id,
+            image: bs.image,
+            rootfs: bs.rootfs
+        ) { config in
+            config.process.arguments = ["sleep", "30"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Enable the RDNSS monitor explicitly, then poll resolv.conf until
+            // the DNSMonitor has received an RA and merged an IPv6 nameserver.
+            let staticNameservers = container.config.dns?.nameservers ?? []
+            try await container.updateDNS(DNS(nameservers: staticNameservers, enableRDNSSMonitor: true))
+
+            var found = false
+            let deadline = Date.now.addingTimeInterval(15)
+            while Date.now < deadline {
+                try await Task.sleep(for: .seconds(1))
+
+                let buffer = BufferWriter()
+                let exec = try await container.exec("check-resolv") { config in
+                    config.arguments = ["cat", "/etc/resolv.conf"]
+                    config.stdout = buffer
+                }
+                try await exec.start()
+                let status = try await exec.wait()
+                try await exec.delete()
+
+                if status.exitCode == 0,
+                    let output = String(data: buffer.data, encoding: .utf8),
+                    output.split(separator: "\n")
+                        .contains(where: {
+                            guard $0.hasPrefix("nameserver ") else { return false }
+                            let addr = $0.dropFirst("nameserver ".count).trimmingCharacters(in: .whitespaces)
+                            return (try? IPv6Address(addr)) != nil
+                        })
+                {
+                    found = true
+                    break
+                }
+            }
+
+            guard found else {
+                throw IntegrationError.assert(
+                    msg: "resolv.conf was not updated with an IPv6 nameserver from RDNSS within timeout"
+                )
+            }
+
+            // Disable the RDNSS monitor by updating DNS config with the flag off.
+            // The monitor should stop and purge IPv6 nameservers from resolv.conf.
+            let staticDNS = DNS(nameservers: staticNameservers, enableRDNSSMonitor: false)
+            try await container.updateDNS(staticDNS)
+
+            let cleanBuffer = BufferWriter()
+            let cleanExec = try await container.exec("check-resolv-clean") { config in
+                config.arguments = ["cat", "/etc/resolv.conf"]
+                config.stdout = cleanBuffer
+            }
+            try await cleanExec.start()
+            let cleanStatus = try await cleanExec.wait()
+            try await cleanExec.delete()
+            if cleanStatus.exitCode == 0,
+                let cleanOutput = String(data: cleanBuffer.data, encoding: .utf8),
+                cleanOutput.split(separator: "\n")
+                    .contains(where: {
+                        guard $0.hasPrefix("nameserver ") else { return false }
+                        let addr = $0.dropFirst("nameserver ".count).trimmingCharacters(in: .whitespaces)
+                        return (try? IPv6Address(addr)) != nil
+                    })
+            {
+                throw IntegrationError.assert(
+                    msg: "resolv.conf still contains an IPv6 nameserver after disabling the RDNSS monitor"
+                )
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
 }

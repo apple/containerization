@@ -834,6 +834,18 @@ extension LinuxPod {
         }
     }
 
+    /// Update the DNS configuration for a container in the pod on the running VM.
+    /// Replaces the container's /etc/resolv.conf content and updates the RDNSS
+    /// monitor state to match the new config's `enableRDNSSMonitor` flag.
+    public func updateDNS(_ dns: DNS, containerID: String) async throws {
+        try await self.state.withLock { state in
+            let createdState = try state.phase.createdState("updateDNS")
+            try await createdState.vm.withAgent { agent in
+                try await agent.configureDNS(config: dns, location: Self.guestRootfsPath(containerID))
+            }
+        }
+    }
+
     /// Get statistics for containers in the pod.
     public func statistics(containerIDs: [String]? = nil, categories: StatCategory = .all) async throws -> [ContainerStatistics] {
         let (createdState, ids) = try await self.state.withLock { state in

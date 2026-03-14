@@ -496,6 +496,7 @@ extension Vminitd {
                 }
                 $0.searchDomains = config.searchDomains
                 $0.options = config.options
+                $0.enableRdnssMonitor = config.enableRDNSSMonitor
             })
     }
 

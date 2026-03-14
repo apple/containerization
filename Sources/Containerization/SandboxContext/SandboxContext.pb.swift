@@ -1072,6 +1072,8 @@ public struct Com_Apple_Containerization_Sandbox_V3_ConfigureDnsRequest: Sendabl
 
   public var options: [String] = []
 
+  public var enableRdnssMonitor: Bool = false
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -3046,7 +3048,7 @@ extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultResponse: Swift
 
 extension Com_Apple_Containerization_Sandbox_V3_ConfigureDnsRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ConfigureDnsRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}location\0\u{1}nameservers\0\u{1}domain\0\u{1}searchDomains\0\u{1}options\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}location\0\u{1}nameservers\0\u{1}domain\0\u{1}searchDomains\0\u{1}options\0\u{3}enable_rdnss_monitor\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3059,6 +3061,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ConfigureDnsRequest: SwiftProtob
       case 3: try { try decoder.decodeSingularStringField(value: &self._domain) }()
       case 4: try { try decoder.decodeRepeatedStringField(value: &self.searchDomains) }()
       case 5: try { try decoder.decodeRepeatedStringField(value: &self.options) }()
+      case 6: try { try decoder.decodeSingularBoolField(value: &self.enableRdnssMonitor) }()
       default: break
       }
     }
@@ -3084,6 +3087,9 @@ extension Com_Apple_Containerization_Sandbox_V3_ConfigureDnsRequest: SwiftProtob
     if !self.options.isEmpty {
       try visitor.visitRepeatedStringField(value: self.options, fieldNumber: 5)
     }
+    if self.enableRdnssMonitor != false {
+      try visitor.visitSingularBoolField(value: self.enableRdnssMonitor, fieldNumber: 6)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -3093,6 +3099,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ConfigureDnsRequest: SwiftProtob
     if lhs._domain != rhs._domain {return false}
     if lhs.searchDomains != rhs.searchDomains {return false}
     if lhs.options != rhs.options {return false}
+    if lhs.enableRdnssMonitor != rhs.enableRdnssMonitor {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

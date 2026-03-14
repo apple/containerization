@@ -264,6 +264,8 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container interface custom MTU", testInterfaceMTU),
                 Test("container networking disabled", testNetworkingDisabled),
                 Test("container networking enabled", testNetworkingEnabled),
+                Test("container RDNSS updates resolv.conf", testRDNSSUpdatesResolvConf),
+                Test("pod RDNSS updates resolv.conf", testPodRDNSSUpdatesResolvConf),
             ]
         }
         return []

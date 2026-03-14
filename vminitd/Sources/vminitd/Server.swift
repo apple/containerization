@@ -79,14 +79,16 @@ final class Initd: Sendable {
     }
 
     let log: Logger
-    let state: State
     let group: EventLoopGroup
     let blockingPool: NIOThreadPool
+    let dnsMonitor: DNSMonitor
+    let state: State
 
-    init(log: Logger, group: EventLoopGroup, blockingPool: NIOThreadPool) {
+    init(log: Logger, group: EventLoopGroup, blockingPool: NIOThreadPool, dnsMonitor: DNSMonitor) {
         self.log = log
         self.group = group
         self.blockingPool = blockingPool
+        self.dnsMonitor = dnsMonitor
         self.state = State()
     }
 
