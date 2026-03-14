@@ -139,7 +139,7 @@ swift-fmt:
 	@$(SWIFT) format --recursive --configuration .swift-format -i $(SWIFT_SRC)
 
 swift-fmt-check:
-	   @echo Applying the standard code formatting...
+	   @echo Checking code formatting compliance...
 	   @$(SWIFT) format lint --recursive --strict --configuration .swift-format-nolint $(SWIFT_SRC)
 
 .PHONY: update-licenses
