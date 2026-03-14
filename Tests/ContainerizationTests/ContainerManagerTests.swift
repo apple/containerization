@@ -33,7 +33,7 @@ private struct NilGatewayInterface: Interface {
     }
 }
 
-private struct NilGatewayNetwork: ContainerManager.Network {
+private struct NilGatewayNetwork: Network {
     mutating func create(_ id: String) throws -> Interface? {
         NilGatewayInterface()
     }
