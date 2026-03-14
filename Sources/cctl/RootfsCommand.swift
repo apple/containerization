@@ -172,7 +172,7 @@ extension Application {
                 entry.path = "proc/self/exe"
                 entry.symlinkTarget = "sbin/vminitd"
                 entry.size = nil
-                try writer.writeEntry(entry: entry, data: data)
+                try writer.writeEntry(entry: entry, data: nil)
                 try writer.finishEncoding()
             }
         }

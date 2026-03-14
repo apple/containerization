@@ -369,6 +369,8 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container useInit zombie reaping", testUseInitZombieReaping),
                 Test("container useInit with terminal", testUseInitWithTerminal),
                 Test("container useInit with stdin", testUseInitWithStdin),
+                Test("container sysctl", testSysctl),
+                Test("container sysctl multiple", testSysctlMultiple),
 
                 // Pods
                 Test("pod single container", testPodSingleContainer),
@@ -408,6 +410,8 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("pod useInit multiple containers", testPodUseInitMultipleContainers),
                 Test("pod useInit with shared PID namespace", testPodUseInitWithSharedPIDNamespace),
                 Test("pod unix socket into guest symlink", testPodUnixSocketIntoGuestSymlink),
+                Test("pod sysctl", testPodSysctl),
+                Test("pod sysctl multiple containers", testPodSysctlMultipleContainers),
             ] + macOS26Tests()
 
         let filteredTests: [Test]
