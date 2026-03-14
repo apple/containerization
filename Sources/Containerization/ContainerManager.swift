@@ -376,6 +376,7 @@ public struct ContainerManager: Sendable {
     ///   - readOnly: Whether to mount the root filesystem as read-only.
     ///   - networking: Whether to create a network interface for this container. Defaults to `true`.
     ///     When `false`, no network resources are allocated and `releaseNetwork`/`delete` remain safe to call.
+    ///   - progress: Optional handler for tracking rootfs unpacking progress.
     public mutating func create(
         _ id: String,
         reference: String,
@@ -383,6 +384,7 @@ public struct ContainerManager: Sendable {
         writableLayerSizeInBytes: UInt64? = nil,
         readOnly: Bool = false,
         networking: Bool = true,
+        progress: ProgressHandler? = nil,
         configuration: (inout LinuxContainer.Configuration) throws -> Void
     ) async throws -> LinuxContainer {
         let image = try await imageStore.get(reference: reference, pull: true)
@@ -393,6 +395,7 @@ public struct ContainerManager: Sendable {
             writableLayerSizeInBytes: writableLayerSizeInBytes,
             readOnly: readOnly,
             networking: networking,
+            progress: progress,
             configuration: configuration
         )
     }
@@ -407,6 +410,7 @@ public struct ContainerManager: Sendable {
     ///   - readOnly: Whether to mount the root filesystem as read-only.
     ///   - networking: Whether to create a network interface for this container. Defaults to `true`.
     ///     When `false`, no network resources are allocated and `releaseNetwork`/`delete` remain safe to call.
+    ///   - progress: Optional handler for tracking rootfs unpacking progress.
     public mutating func create(
         _ id: String,
         image: Image,
@@ -414,6 +418,7 @@ public struct ContainerManager: Sendable {
         writableLayerSizeInBytes: UInt64? = nil,
         readOnly: Bool = false,
         networking: Bool = true,
+        progress: ProgressHandler? = nil,
         configuration: (inout LinuxContainer.Configuration) throws -> Void
     ) async throws -> LinuxContainer {
         let path = try createContainerRoot(id)
@@ -421,7 +426,8 @@ public struct ContainerManager: Sendable {
         var rootfs = try await unpack(
             image: image,
             destination: path.appendingPathComponent("rootfs.ext4"),
-            size: rootfsSizeInBytes
+            size: rootfsSizeInBytes,
+            progress: progress
         )
         if readOnly {
             rootfs.options.append("ro")
@@ -511,10 +517,10 @@ public struct ContainerManager: Sendable {
         return path
     }
 
-    private func unpack(image: Image, destination: URL, size: UInt64) async throws -> Mount {
+    private func unpack(image: Image, destination: URL, size: UInt64, progress: ProgressHandler? = nil) async throws -> Mount {
         do {
             let unpacker = EXT4Unpacker(blockSizeInBytes: size)
-            return try await unpacker.unpack(image, for: .current, at: destination)
+            return try await unpacker.unpack(image, for: .current, at: destination, progress: progress)
         } catch let err as ContainerizationError {
             if err.code == .exists {
                 return .block(

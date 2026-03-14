@@ -96,7 +96,7 @@ extension Application {
 
             private func outputExt4(archive: URL, to path: URL) async throws {
                 let unpacker = EXT4Unpacker(blockSizeInBytes: 256.mib())
-                try unpacker.unpack(archive: archive, compression: .gzip, at: path)
+                try await unpacker.unpack(archive: archive, compression: .gzip, at: path)
             }
 
             private func outputImage(path: URL, reference: String) async throws {
