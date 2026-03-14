@@ -119,9 +119,6 @@ final class Initd: Sendable {
                     "port": "\(port)"
                 ])
 
-            group.addTask {
-                try await self.dnsMonitor.run()
-            }
             group.addTask { try await server.serve() }
 
             try await group.next()

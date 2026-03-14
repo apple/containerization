@@ -17,6 +17,7 @@
 import ArgumentParser
 import Containerization
 import ContainerizationError
+import ContainerizationExtras
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
@@ -2024,6 +2025,86 @@ extension IntegrationSuite {
             guard output2 == "5000" else {
                 throw IntegrationError.assert(
                     msg: "container2 sysctl net.core.netdev_max_backlog should be '5000', got '\(output2 ?? "nil")'")
+            }
+
+            try await pod.stop()
+        } catch {
+            try? await pod.stop()
+            throw error
+        }
+    }
+
+    @available(macOS 26.0, *)
+    func testPodRDNSSUpdatesResolvConf() async throws {
+        let id = "test-pod-rdnss-updates-resolv-conf"
+        let bs = try await bootstrap(id)
+
+        var network = try ContainerManager.VmnetNetwork()
+
+        guard let interface = try network.create("\(id)-c1"),
+            let gateway = interface.ipv4Gateway
+        else {
+            throw IntegrationError.assert(msg: "failed to get vmnet interface or gateway")
+        }
+
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+            config.interfaces = [interface]
+            config.dns = DNS(nameservers: [gateway.description], enableRDNSSMonitor: true)
+        }
+
+        try await pod.addContainer("container1", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container1")) { config in
+            config.process.arguments = ["sleep", "30"]
+        }
+
+        try await pod.addContainer("container2", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container2")) { config in
+            config.process.arguments = ["sleep", "30"]
+        }
+
+        do {
+            try await pod.create()
+            try await pod.startContainer("container1")
+            try await pod.startContainer("container2")
+
+            // Both containers share the pod's DNS config with enableRDNSSMonitor = true,
+            // so vminitd starts the RDNSS monitor automatically. Poll each container's
+            // resolv.conf until an IPv6 nameserver appears.
+            for containerID in ["container1", "container2"] {
+                var found = false
+                let deadline = Date.now.addingTimeInterval(15)
+                while Date.now < deadline {
+                    try await Task.sleep(for: .seconds(1))
+
+                    let buffer = BufferWriter()
+                    let exec = try await pod.execInContainer(containerID, processID: "check-resolv-\(containerID)") { config in
+                        config.arguments = ["cat", "/etc/resolv.conf"]
+                        config.stdout = buffer
+                    }
+                    try await exec.start()
+                    let status = try await exec.wait()
+                    try await exec.delete()
+
+                    if status.exitCode == 0,
+                        let output = String(data: buffer.data, encoding: .utf8),
+                        output.split(separator: "\n")
+                            .contains(where: {
+                                guard $0.hasPrefix("nameserver ") else { return false }
+                                let addr = $0.dropFirst("nameserver ".count).trimmingCharacters(in: .whitespaces)
+                                return (try? IPv6Address(addr)) != nil
+                            })
+                    {
+                        found = true
+                        break
+                    }
+                }
+
+                guard found else {
+                    throw IntegrationError.assert(
+                        msg: "\(containerID): resolv.conf was not updated with an IPv6 nameserver from RDNSS within timeout"
+                    )
+                }
             }
 
             try await pod.stop()

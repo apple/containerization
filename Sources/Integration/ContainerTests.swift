@@ -4176,9 +4176,10 @@ extension IntegrationSuite {
             try await container.create()
             try await container.start()
 
-            // The vmnet router sends Router Advertisements with RDNSS options.
+            // ContainerManager sets enableRDNSSMonitor on the DNS config, so vminitd
+            // starts the monitor automatically when configureDNS is called.
             // Poll resolv.conf until the DNSMonitor has received an RA and merged
-            // an IPv6 nameserver into the file (identified by a colon in the address).
+            // an IPv6 nameserver into the file.
             var found = false
             let deadline = Date.now.addingTimeInterval(15)
             while Date.now < deadline {
@@ -4196,22 +4197,53 @@ extension IntegrationSuite {
                 if status.exitCode == 0,
                     let output = String(data: buffer.data, encoding: .utf8),
                     output.split(separator: "\n")
-                        .contains(where: { $0.hasPrefix("nameserver") && $0.contains(":") })
+                        .contains(where: {
+                            guard $0.hasPrefix("nameserver ") else { return false }
+                            let addr = $0.dropFirst("nameserver ".count).trimmingCharacters(in: .whitespaces)
+                            return (try? IPv6Address(addr)) != nil
+                        })
                 {
                     found = true
                     break
                 }
             }
 
-            try await container.kill(SIGKILL)
-            try await container.wait()
-            try await container.stop()
-
             guard found else {
                 throw IntegrationError.assert(
                     msg: "resolv.conf was not updated with an IPv6 nameserver from RDNSS within timeout"
                 )
             }
+
+            // Disable the RDNSS monitor by updating DNS config with the flag off.
+            // The monitor should stop and purge IPv6 nameservers from resolv.conf.
+            let staticDNS = DNS(nameservers: container.config.dns?.nameservers ?? [], enableRDNSSMonitor: false)
+            try await container.updateDNS(staticDNS)
+
+            let cleanBuffer = BufferWriter()
+            let cleanExec = try await container.exec("check-resolv-clean") { config in
+                config.arguments = ["cat", "/etc/resolv.conf"]
+                config.stdout = cleanBuffer
+            }
+            try await cleanExec.start()
+            let cleanStatus = try await cleanExec.wait()
+            try await cleanExec.delete()
+            if cleanStatus.exitCode == 0,
+                let cleanOutput = String(data: cleanBuffer.data, encoding: .utf8),
+                cleanOutput.split(separator: "\n")
+                    .contains(where: {
+                        guard $0.hasPrefix("nameserver ") else { return false }
+                        let addr = $0.dropFirst("nameserver ".count).trimmingCharacters(in: .whitespaces)
+                        return (try? IPv6Address(addr)) != nil
+                    })
+            {
+                throw IntegrationError.assert(
+                    msg: "resolv.conf still contains an IPv6 nameserver after disabling the RDNSS monitor"
+                )
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
         } catch {
             try? await container.stop()
             throw error

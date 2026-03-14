@@ -30,11 +30,10 @@ actor DNSMonitor {
     private static let maxNameservers = 3
 
     private var configs: [FilePath: DNS] = [:]
-
     private var ipv6Nameservers: [IPv6Nameserver] = []
+    private var monitorTask: Task<Void, Error>?
 
     private let log: Logger
-
     private let icmpV6Session: ICMPv6Session
 
     init(log: Logger) throws {
@@ -43,6 +42,28 @@ actor DNSMonitor {
     }
 
     func update(resolvConfPath: FilePath, config: DNS) throws {
+        configs[resolvConfPath] = config
+        try writeResolvConf(resolvConfPath: resolvConfPath, config: config)
+        try updateMonitorState()
+    }
+
+    private func updateMonitorState() throws {
+        let shouldMonitor = configs.values.contains { $0.enableRDNSSMonitor }
+        if shouldMonitor && monitorTask == nil {
+            log.info("starting RDNSS monitor")
+            monitorTask = Task { try await self.runMonitor() }
+        } else if !shouldMonitor, monitorTask != nil {
+            log.info("stopping RDNSS monitor")
+            monitorTask?.cancel()
+            monitorTask = nil
+            ipv6Nameservers = []
+            for (path, dns) in configs {
+                try writeResolvConf(resolvConfPath: path, config: dns)
+            }
+        }
+    }
+
+    private func writeResolvConf(resolvConfPath: FilePath, config: DNS) throws {
         let parentPathname = resolvConfPath.removingLastComponent().string
         try FileManager.default.createDirectory(atPath: parentPathname, withIntermediateDirectories: true)
 
@@ -50,7 +71,7 @@ actor DNSMonitor {
         if config.nameservers.count < Self.maxNameservers {
             mergedNameservers = config.nameservers + ipv6Nameservers.map { $0.address.description }
         } else {
-            mergedNameservers = config.nameservers.prefix(2) + ipv6Nameservers.map { $0.address.description }
+            mergedNameservers = Array(config.nameservers.prefix(2)) + ipv6Nameservers.map { $0.address.description }
         }
 
         let mergedConfig = DNS(
@@ -63,12 +84,19 @@ actor DNSMonitor {
         let text = mergedConfig.resolvConf
         log.debug("updating resolver configuration", metadata: ["path": "\(resolvConfPath)"])
         try text.write(toFile: resolvConfPath.string, atomically: true, encoding: .utf8)
-        configs[resolvConfPath] = config
     }
 
-    func run() async throws {
-        self.log.info("starting DNS monitor")
+    private func refreshResolvConfs() throws {
+        for (path, dns) in configs {
+            try writeResolvConf(resolvConfPath: path, config: dns)
+        }
+    }
+
+    private func runMonitor() async throws {
+        log.info("DNS monitor running")
         while true {
+            try Task.checkCancellation()
+
             let now = Date.now
             let timeInterval =
                 ipv6Nameservers
@@ -77,7 +105,7 @@ actor DNSMonitor {
                 .min()
             do {
                 if timeInterval == nil {
-                    self.log.info("sending router solicitation")
+                    log.info("sending router solicitation")
                     try sendRouterSolicitation()
                 }
             } catch {
@@ -120,14 +148,24 @@ actor DNSMonitor {
                 log.warning("router advertisement receive failed", metadata: ["error": "\(error)"])
             }
 
+            // Remove any entries whose TTL has expired, whether or not we received an RA.
+            purgeExpiredNameservers()
+
             do {
-                for (resolvConfPath, dns) in configs {
-                    log.info("awaiting DNS", metadata: ["path": "\(resolvConfPath)"])
-                    try update(resolvConfPath: resolvConfPath, config: dns)
-                }
+                try refreshResolvConfs()
             } catch {
                 log.warning("DNS update failed", metadata: ["error": "\(error)"])
             }
+        }
+    }
+
+    private func purgeExpiredNameservers() {
+        let now = Date.now
+        let before = ipv6Nameservers.count
+        ipv6Nameservers = ipv6Nameservers.filter { $0.expiry > now }
+        let removed = before - ipv6Nameservers.count
+        if removed > 0 {
+            log.debug("purged expired RDNSS nameserver(s)", metadata: ["count": "\(removed)"])
         }
     }
 

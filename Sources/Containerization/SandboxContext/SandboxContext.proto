@@ -303,6 +303,7 @@ message ConfigureDnsRequest {
   optional string domain = 3;
   repeated string searchDomains = 4;
   repeated string options = 5;
+  bool enable_rdnss_monitor = 6;
 }
 
 message ConfigureDnsResponse {}

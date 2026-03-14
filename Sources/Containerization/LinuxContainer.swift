@@ -996,6 +996,18 @@ extension LinuxContainer {
         }
     }
 
+    /// Update the DNS configuration for this container on the running VM.
+    /// Replaces the current /etc/resolv.conf content and updates the RDNSS
+    /// monitor state to match the new config's `enableRDNSSMonitor` flag.
+    public func updateDNS(_ dns: DNS) async throws {
+        try await self.state.withLock {
+            let state = try $0.startedState("updateDNS")
+            try await state.vm.withAgent { agent in
+                try await agent.configureDNS(config: dns, location: Self.guestRootfsPath(self.id))
+            }
+        }
+    }
+
     /// Get statistics for the container.
     public func statistics(categories: StatCategory = .all) async throws -> ContainerStatistics {
         try await self.state.withLock {

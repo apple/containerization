@@ -29,17 +29,22 @@ public struct DNS: Sendable {
     public var searchDomains: [String]
     /// The DNS options to use.
     public var options: [String]
+    /// When true, vminitd will listen for IPv6 Router Advertisements and
+    /// merge RDNSS nameservers into this resolv.conf entry.
+    public var enableRDNSSMonitor: Bool
 
     public init(
         nameservers: [String] = defaultNameservers,
         domain: String? = nil,
         searchDomains: [String] = [],
-        options: [String] = []
+        options: [String] = [],
+        enableRDNSSMonitor: Bool = false
     ) {
         self.nameservers = nameservers
         self.domain = domain
         self.searchDomains = searchDomains
         self.options = options
+        self.enableRDNSSMonitor = enableRDNSSMonitor
     }
 }
 

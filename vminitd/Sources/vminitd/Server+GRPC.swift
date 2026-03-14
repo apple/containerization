@@ -1232,7 +1232,8 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                 nameservers: request.nameservers,
                 domain: domain,
                 searchDomains: request.searchDomains,
-                options: request.options
+                options: request.options,
+                enableRDNSSMonitor: request.enableRdnssMonitor
             )
             try await dnsMonitor.update(resolvConfPath: resolvConfPath, config: config)
         } catch {
