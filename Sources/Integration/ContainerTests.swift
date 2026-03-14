@@ -4153,4 +4153,114 @@ extension IntegrationSuite {
             throw error
         }
     }
+
+    func testNoNewPrivileges() async throws {
+        let id = "test-no-new-privileges"
+
+        let bs = try await bootstrap(id)
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["cat", "/proc/self/status"]
+            config.process.noNewPrivileges = true
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        guard let output = String(data: buffer.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+        }
+
+        // /proc/self/status contains "NoNewPrivs:\t1" when the bit is set
+        guard output.contains("NoNewPrivs:\t1") else {
+            throw IntegrationError.assert(msg: "expected NoNewPrivs to be 1, got: \(output)")
+        }
+    }
+
+    func testNoNewPrivilegesDisabled() async throws {
+        let id = "test-no-new-privileges-disabled"
+
+        let bs = try await bootstrap(id)
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["cat", "/proc/self/status"]
+            // noNewPrivileges defaults to false
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        guard let output = String(data: buffer.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+        }
+
+        // When noNewPrivileges is not set, NoNewPrivs should be 0
+        guard output.contains("NoNewPrivs:\t0") else {
+            throw IntegrationError.assert(msg: "expected NoNewPrivs to be 0, got: \(output)")
+        }
+    }
+
+    func testNoNewPrivilegesExec() async throws {
+        let id = "test-no-new-privileges-exec"
+
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Exec a process with noNewPrivileges set
+            let buffer = BufferWriter()
+            let exec = try await container.exec("nnp-exec") { config in
+                config.arguments = ["cat", "/proc/self/status"]
+                config.noNewPrivileges = true
+                config.stdout = buffer
+            }
+
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "exec status \(status) != 0")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+            }
+
+            guard output.contains("NoNewPrivs:\t1") else {
+                throw IntegrationError.assert(msg: "expected NoNewPrivs to be 1 in exec, got: \(output)")
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
 }

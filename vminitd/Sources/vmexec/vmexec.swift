@@ -233,6 +233,13 @@ extension App {
         try? caps.apply(kind: [.ambs])
     }
 
+    static func setNoNewPrivileges(process: ContainerizationOCI.Process) throws {
+        guard process.noNewPrivileges else { return }
+        guard CZ_prctl_set_no_new_privs() == 0 else {
+            throw App.Errno(stage: "prctl(PR_SET_NO_NEW_PRIVS)")
+        }
+    }
+
     static func Errno(stage: String, info: String = "") -> ContainerizationError {
         let posix = POSIXError(.init(rawValue: errno)!, userInfo: ["stage": stage])
         return ContainerizationError(.internalError, message: "\(info) \(String(describing: posix))")

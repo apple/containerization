@@ -372,6 +372,10 @@ public struct LinuxProcessConfiguration: Sendable {
     public var user: ContainerizationOCI.User = .init()
     /// The rlimits for the container process.
     public var rlimits: [LinuxRLimit] = []
+    /// Whether to set the no_new_privileges bit on the container process. When true, the
+    /// process and its children cannot gain additional privileges via setuid/setgid binaries
+    /// or file capabilities.
+    public var noNewPrivileges: Bool = false
     /// The Linux capabilities for the container process.
     public var capabilities: LinuxCapabilities = .allCapabilities
     /// Whether to allocate a pseudo terminal for the process. If you'd like interactive
@@ -393,6 +397,7 @@ public struct LinuxProcessConfiguration: Sendable {
         workingDirectory: String = "/",
         user: ContainerizationOCI.User = .init(),
         rlimits: [LinuxRLimit] = [],
+        noNewPrivileges: Bool = false,
         capabilities: LinuxCapabilities = .allCapabilities,
         terminal: Bool = false,
         stdin: ReaderStream? = nil,
@@ -404,6 +409,7 @@ public struct LinuxProcessConfiguration: Sendable {
         self.workingDirectory = workingDirectory
         self.user = user
         self.rlimits = rlimits
+        self.noNewPrivileges = noNewPrivileges
         self.capabilities = capabilities
         self.terminal = terminal
         self.stdin = stdin
@@ -437,6 +443,7 @@ public struct LinuxProcessConfiguration: Sendable {
             args: self.arguments,
             cwd: self.workingDirectory,
             env: self.environmentVariables,
+            noNewPrivileges: self.noNewPrivileges,
             capabilities: self.capabilities.toOCI(),
             user: self.user,
             rlimits: self.rlimits.map { $0.toOCI() },
