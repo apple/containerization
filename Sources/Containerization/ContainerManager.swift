@@ -483,7 +483,7 @@ public struct ContainerManager: Sendable {
                         message: "missing ipv4 gateway for container \(id)"
                     )
                 }
-                config.dns = .init(nameservers: [gateway.description], enableRDNSSMonitor: true)
+                config.dns = .init(nameservers: [gateway.description])
             }
             config.bootLog = BootLog.file(path: self.containerRoot.appendingPathComponent(id).appendingPathComponent("bootlog.log"))
             try configuration(&config)

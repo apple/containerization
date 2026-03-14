@@ -2047,12 +2047,13 @@ extension IntegrationSuite {
             throw IntegrationError.assert(msg: "failed to get vmnet interface or gateway")
         }
 
+        let staticNameservers = [gateway.description]
         let pod = try LinuxPod(id, vmm: bs.vmm) { config in
             config.cpus = 4
             config.memoryInBytes = 1024.mib()
             config.bootLog = bs.bootLog
             config.interfaces = [interface]
-            config.dns = DNS(nameservers: [gateway.description], enableRDNSSMonitor: true)
+            config.dns = DNS(nameservers: staticNameservers)
         }
 
         try await pod.addContainer("container1", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container1")) { config in
@@ -2068,9 +2069,12 @@ extension IntegrationSuite {
             try await pod.startContainer("container1")
             try await pod.startContainer("container2")
 
-            // Both containers share the pod's DNS config with enableRDNSSMonitor = true,
-            // so vminitd starts the RDNSS monitor automatically. Poll each container's
-            // resolv.conf until an IPv6 nameserver appears.
+            // Enable the RDNSS monitor on each container, then poll resolv.conf
+            // until the DNSMonitor has received an RA and merged an IPv6 nameserver.
+            for containerID in ["container1", "container2"] {
+                try await pod.updateDNS(DNS(nameservers: staticNameservers, enableRDNSSMonitor: true), containerID: containerID)
+            }
+
             for containerID in ["container1", "container2"] {
                 var found = false
                 let deadline = Date.now.addingTimeInterval(15)

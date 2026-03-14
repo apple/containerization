@@ -4176,10 +4176,11 @@ extension IntegrationSuite {
             try await container.create()
             try await container.start()
 
-            // ContainerManager sets enableRDNSSMonitor on the DNS config, so vminitd
-            // starts the monitor automatically when configureDNS is called.
-            // Poll resolv.conf until the DNSMonitor has received an RA and merged
-            // an IPv6 nameserver into the file.
+            // Enable the RDNSS monitor explicitly, then poll resolv.conf until
+            // the DNSMonitor has received an RA and merged an IPv6 nameserver.
+            let staticNameservers = container.config.dns?.nameservers ?? []
+            try await container.updateDNS(DNS(nameservers: staticNameservers, enableRDNSSMonitor: true))
+
             var found = false
             let deadline = Date.now.addingTimeInterval(15)
             while Date.now < deadline {
@@ -4216,7 +4217,7 @@ extension IntegrationSuite {
 
             // Disable the RDNSS monitor by updating DNS config with the flag off.
             // The monitor should stop and purge IPv6 nameservers from resolv.conf.
-            let staticDNS = DNS(nameservers: container.config.dns?.nameservers ?? [], enableRDNSSMonitor: false)
+            let staticDNS = DNS(nameservers: staticNameservers, enableRDNSSMonitor: false)
             try await container.updateDNS(staticDNS)
 
             let cleanBuffer = BufferWriter()
