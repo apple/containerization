@@ -57,6 +57,10 @@ struct VZVirtualMachineInstance: Sendable {
         public var initialFilesystem: Mount?
         /// Destination for the virtual machine's boot logs.
         public var bootLog: BootLog?
+        /// Enable virtio-gpu device.
+        public var graphicsDevice: Bool
+        /// Enable graphical output (scanout) for the virtio-gpu device.
+        public var graphicsDisplay: Bool
 
         init() {
             self.cpus = 4
@@ -65,6 +69,8 @@ struct VZVirtualMachineInstance: Sendable {
             self.nestedVirtualization = false
             self.mountsByID = [:]
             self.interfaces = []
+            self.graphicsDevice = false
+            self.graphicsDisplay = false
         }
     }
 
@@ -389,6 +395,16 @@ extension VZVirtualMachineInstance.Configuration {
                 }
                 try mount.configure(config: &config)
             }
+        }
+
+        if self.graphicsDevice || self.graphicsDisplay {
+            let device = VZVirtioGraphicsDeviceConfiguration()
+            if self.graphicsDisplay {
+                device.scanouts = [
+                    VZVirtioGraphicsScanoutConfiguration(widthInPixels: 1920, heightInPixels: 1080)
+                ]
+            }
+            config.graphicsDevices = [device]
         }
 
         let platform = VZGenericPlatformConfiguration()
