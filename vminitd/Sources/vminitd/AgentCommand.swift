@@ -141,7 +141,8 @@ struct AgentCommand: AsyncParsableCommand {
         let eg = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
         let blockingPool = NIOThreadPool(numberOfThreads: System.coreCount)
         blockingPool.start()
-        let server = Initd(log: log, group: eg, blockingPool: blockingPool)
+        let dnsMonitor = try DNSMonitor(log: log)
+        let server = Initd(log: log, group: eg, blockingPool: blockingPool, dnsMonitor: dnsMonitor)
 
         do {
             log.info("serving vminitd API")

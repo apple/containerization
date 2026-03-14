@@ -4153,4 +4153,68 @@ extension IntegrationSuite {
             throw error
         }
     }
+
+    @available(macOS 26.0, *)
+    func testRDNSSUpdatesResolvConf() async throws {
+        let id = "test-rdnss-updates-resolv-conf"
+        let bs = try await bootstrap(id)
+
+        let network = try ContainerManager.VmnetNetwork()
+        var manager = try ContainerManager(vmm: bs.vmm, network: network)
+        defer { try? manager.delete(id) }
+
+        let container = try await manager.create(
+            id,
+            image: bs.image,
+            rootfs: bs.rootfs
+        ) { config in
+            config.process.arguments = ["sleep", "30"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // The vmnet router sends Router Advertisements with RDNSS options.
+            // Poll resolv.conf until the DNSMonitor has received an RA and merged
+            // an IPv6 nameserver into the file (identified by a colon in the address).
+            var found = false
+            let deadline = Date.now.addingTimeInterval(15)
+            while Date.now < deadline {
+                try await Task.sleep(for: .seconds(1))
+
+                let buffer = BufferWriter()
+                let exec = try await container.exec("check-resolv") { config in
+                    config.arguments = ["cat", "/etc/resolv.conf"]
+                    config.stdout = buffer
+                }
+                try await exec.start()
+                let status = try await exec.wait()
+                try await exec.delete()
+
+                if status.exitCode == 0,
+                    let output = String(data: buffer.data, encoding: .utf8),
+                    output.split(separator: "\n")
+                        .contains(where: { $0.hasPrefix("nameserver") && $0.contains(":") })
+                {
+                    found = true
+                    break
+                }
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+
+            guard found else {
+                throw IntegrationError.assert(
+                    msg: "resolv.conf was not updated with an IPv6 nameserver from RDNSS within timeout"
+                )
+            }
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
 }
