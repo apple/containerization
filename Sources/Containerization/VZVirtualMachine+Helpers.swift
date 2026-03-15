@@ -141,19 +141,13 @@ extension VZVirtualMachine {
 }
 
 extension VZVirtioSocketConnection {
-    /// Duplicates the file descriptor and immediately closes the connection.
+    /// Duplicates the file descriptor and retains the originating vsock connection
+    /// until the returned connection is closed or deallocated.
     ///
-    /// Only safe when the returned fd is used synchronously before any
-    /// suspension point. For deferred use (e.g., gRPC/NIO), use
-    /// ``dupFileDescriptor()`` and keep the connection alive via
-    /// ``VsockTransport``.
-    func dupHandle() throws -> FileHandle {
-        let fd = dup(self.fileDescriptor)
-        if fd == -1 {
-            throw POSIXError.fromErrno()
-        }
-        self.close()
-        return FileHandle(fileDescriptor: fd, closeOnDealloc: false)
+    /// Use this for file descriptors which cross an async boundary or may not be
+    /// consumed immediately by the caller.
+    func retainedConnection() throws -> VsockConnection {
+        try VsockConnection(connection: self)
     }
 
     /// Duplicates the connection's file descriptor without closing the connection.
@@ -161,7 +155,8 @@ extension VZVirtioSocketConnection {
     /// The caller must keep the `VZVirtioSocketConnection` alive until the dup'd
     /// descriptor is no longer needed. The Virtualization framework tears down the
     /// vsock endpoint when the connection is closed, which invalidates dup'd
-    /// descriptors.
+    /// descriptors. This is intended for callers which manage lifetime separately,
+    /// such as gRPC transports stored on `Vminitd`.
     func dupFileDescriptor() throws -> FileHandle {
         let fd = dup(self.fileDescriptor)
         if fd == -1 {

@@ -202,14 +202,14 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
         }
     }
 
-    func dial(_ port: UInt32) async throws -> FileHandle {
+    func dial(_ port: UInt32) async throws -> VsockConnection {
         try await lock.withLock { _ in
             do {
                 let conn = try await vm.connect(
                     queue: queue,
                     port: port
                 )
-                return try conn.dupHandle()
+                return try conn.retainedConnection()
             } catch {
                 if let err = error as? ContainerizationError {
                     throw err
