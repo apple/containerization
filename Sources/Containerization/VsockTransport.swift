@@ -23,32 +23,39 @@ import Virtualization
 /// When a vsock connection's file descriptor is dup'd and handed to gRPC/NIO,
 /// the original VZVirtioSocketConnection must remain open. The Virtualization
 /// framework tears down the host-to-guest vsock mapping when the connection is
-/// closed, which invalidates dup'd descriptors. This wrapper keeps the
-/// connection alive and provides explicit close semantics.
+/// closed, which invalidates dup'd descriptors. This wrapper captures the
+/// connection's close operation and provides explicit, idempotent close semantics.
 ///
-/// Uses `@unchecked Sendable` because VZVirtioSocketConnection is not Sendable,
-/// which also prevents using Mutex (its init requires a `sending` parameter that
-/// conflicts with the non-Sendable connection at async call sites).
+/// Uses `@unchecked Sendable` because the close state is protected by `NSLock`,
+/// but the stored close closure may capture a non-Sendable
+/// `VZVirtioSocketConnection`.
 final class VsockTransport: @unchecked Sendable {
-    private var connection: VZVirtioSocketConnection?
+    private let onClose: () -> Void
     private let lock = NSLock()
+    private var isClosed = false
 
     init(_ connection: VZVirtioSocketConnection) {
-        self.connection = connection
+        self.onClose = { connection.close() }
+    }
+
+    init(onClose: @escaping () -> Void) {
+        self.onClose = onClose
     }
 
     /// Closes the underlying vsock connection, tearing down the host-side endpoint.
     func close() {
         lock.lock()
-        defer { lock.unlock() }
-        connection?.close()
-        connection = nil
+        guard !isClosed else {
+            lock.unlock()
+            return
+        }
+        isClosed = true
+        lock.unlock()
+        onClose()
     }
 
     deinit {
-        // No lock needed: deinit runs only after all strong references are
-        // released, so no concurrent close() call is possible.
-        connection?.close()
+        close()
     }
 }
 

@@ -48,25 +48,43 @@ public final class LinuxProcess: Sendable {
     }
 
     private struct StdioHandles: Sendable {
-        var stdin: FileHandle?
-        var stdout: FileHandle?
-        var stderr: FileHandle?
+        var stdin: VsockConnection?
+        var stdout: VsockConnection?
+        var stderr: VsockConnection?
 
         mutating func close() throws {
+            var firstError: Error?
+
             if let stdin {
-                try stdin.close()
                 stdin.readabilityHandler = nil
+                do {
+                    try stdin.close()
+                } catch {
+                    firstError = firstError ?? error
+                }
                 self.stdin = nil
             }
             if let stdout {
-                try stdout.close()
                 stdout.readabilityHandler = nil
+                do {
+                    try stdout.close()
+                } catch {
+                    firstError = firstError ?? error
+                }
                 self.stdout = nil
             }
             if let stderr {
-                try stderr.close()
                 stderr.readabilityHandler = nil
+                do {
+                    try stderr.close()
+                } catch {
+                    firstError = firstError ?? error
+                }
                 self.stderr = nil
+            }
+
+            if let firstError {
+                throw firstError
             }
         }
     }
@@ -124,10 +142,10 @@ public final class LinuxProcess: Sendable {
 }
 
 extension LinuxProcess {
-    func setupIO(listeners: [VsockListener?]) async throws -> [FileHandle?] {
+    func setupIO(listeners: [VsockListener?]) async throws -> [VsockConnection?] {
         let handles = try await Timeout.run(seconds: 3) {
-            try await withThrowingTaskGroup(of: (Int, FileHandle?).self) { group in
-                var results = [FileHandle?](repeating: nil, count: 3)
+            try await withThrowingTaskGroup(of: (Int, VsockConnection?).self) { group in
+                var results = [VsockConnection?](repeating: nil, count: 3)
 
                 for (index, listener) in listeners.enumerated() {
                     guard let listener else { continue }
@@ -196,7 +214,7 @@ extension LinuxProcess {
         return handles
     }
 
-    func startStdinRelay(handle: FileHandle) {
+    func startStdinRelay(handle: VsockConnection) {
         guard let stdin = self.ioSetup.stdin else { return }
 
         self.state.withLock {

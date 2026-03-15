@@ -850,7 +850,7 @@ extension LinuxPod {
     }
 
     /// Dial a vsock port in the pod's VM.
-    public func dialVsock(port: UInt32) async throws -> FileHandle {
+    public func dialVsock(port: UInt32) async throws -> VsockConnection {
         try await self.state.withLock { state in
             let createdState = try state.phase.createdState("dialVsock")
             return try await createdState.vm.dial(port)

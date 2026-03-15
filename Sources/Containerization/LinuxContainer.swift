@@ -969,7 +969,7 @@ extension LinuxContainer {
     }
 
     /// Dial a vsock port in the container.
-    public func dialVsock(port: UInt32) async throws -> FileHandle {
+    public func dialVsock(port: UInt32) async throws -> VsockConnection {
         try await self.state.withLock {
             let state = try $0.startedState("dialVsock")
             return try await state.vm.dial(port)
@@ -1098,7 +1098,7 @@ extension LinuxContainer {
                     try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
                         self.copyQueue.async {
                             do {
-                                defer { conn.closeFile() }
+                                defer { try? conn.close() }
 
                                 if isArchive {
                                     let writer = try ArchiveWriter(configuration: .init(format: .pax, filter: .gzip))
@@ -1209,7 +1209,7 @@ extension LinuxContainer {
                     try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
                         self.copyQueue.async {
                             do {
-                                defer { conn.closeFile() }
+                                defer { try? conn.close() }
 
                                 if metadata.isArchive {
                                     try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)

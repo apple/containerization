@@ -38,7 +38,7 @@ public protocol VirtualMachineInstance: Sendable {
     /// what port the agent is listening on.
     func dialAgent() async throws -> Agent
     /// Dial a vsock port in the guest.
-    func dial(_ port: UInt32) async throws -> FileHandle
+    func dial(_ port: UInt32) async throws -> VsockConnection
     /// Listen on a host vsock port.
     func listen(_ port: UInt32) throws -> VsockListener
     /// Start the virtual machine.
