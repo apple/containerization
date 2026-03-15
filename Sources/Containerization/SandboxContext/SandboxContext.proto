@@ -248,6 +248,8 @@ message CopyRequest {
   uint32 vsock_port = 5;
   // For COPY_IN: indicates the data arriving on vsock is a tar+gzip archive.
   bool is_archive = 6;
+  // Source filename
+  string source_name = 7;
 }
 
 message CopyResponse {

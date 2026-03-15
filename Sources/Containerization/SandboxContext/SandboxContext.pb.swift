@@ -834,6 +834,9 @@ public struct Com_Apple_Containerization_Sandbox_V3_CopyRequest: Sendable {
   /// For COPY_IN: indicates the data arriving on vsock is a tar+gzip archive.
   public var isArchive: Bool = false
 
+  /// Source filename
+  public var sourceName: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public enum Direction: SwiftProtobuf.Enum, Swift.CaseIterable {
@@ -2812,6 +2815,7 @@ extension Com_Apple_Containerization_Sandbox_V3_CopyRequest: SwiftProtobuf.Messa
     4: .standard(proto: "create_parents"),
     5: .standard(proto: "vsock_port"),
     6: .standard(proto: "is_archive"),
+    7: .standard(proto: "source_name"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -2826,6 +2830,7 @@ extension Com_Apple_Containerization_Sandbox_V3_CopyRequest: SwiftProtobuf.Messa
       case 4: try { try decoder.decodeSingularBoolField(value: &self.createParents) }()
       case 5: try { try decoder.decodeSingularUInt32Field(value: &self.vsockPort) }()
       case 6: try { try decoder.decodeSingularBoolField(value: &self.isArchive) }()
+      case 7: try { try decoder.decodeSingularStringField(value: &self.sourceName) }()
       default: break
       }
     }
@@ -2850,6 +2855,9 @@ extension Com_Apple_Containerization_Sandbox_V3_CopyRequest: SwiftProtobuf.Messa
     if self.isArchive != false {
       try visitor.visitSingularBoolField(value: self.isArchive, fieldNumber: 6)
     }
+    if !self.sourceName.isEmpty {
+      try visitor.visitSingularStringField(value: self.sourceName, fieldNumber: 7)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -2860,6 +2868,7 @@ extension Com_Apple_Containerization_Sandbox_V3_CopyRequest: SwiftProtobuf.Messa
     if lhs.createParents != rhs.createParents {return false}
     if lhs.vsockPort != rhs.vsockPort {return false}
     if lhs.isArchive != rhs.isArchive {return false}
+    if lhs.sourceName != rhs.sourceName {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

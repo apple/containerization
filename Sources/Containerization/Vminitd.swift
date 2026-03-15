@@ -461,7 +461,8 @@ extension Vminitd {
         mode: UInt32 = 0,
         createParents: Bool = false,
         isArchive: Bool = false,
-        onMetadata: @Sendable (CopyMetadata) -> Void = { _ in }
+        onMetadata: @Sendable (CopyMetadata) -> Void = { _ in },
+        sourceName: String = "",
     ) async throws {
         let request = Com_Apple_Containerization_Sandbox_V3_CopyRequest.with {
             $0.direction = direction
@@ -470,6 +471,7 @@ extension Vminitd {
             $0.createParents = createParents
             $0.vsockPort = vsockPort
             $0.isArchive = isArchive
+            $0.sourceName = sourceName
         }
 
         let stream = client.copy(request)

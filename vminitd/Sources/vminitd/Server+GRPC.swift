@@ -406,13 +406,22 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         request: Com_Apple_Containerization_Sandbox_V3_CopyRequest,
         responseStream: GRPCAsyncResponseStreamWriter<Com_Apple_Containerization_Sandbox_V3_CopyResponse>
     ) async throws {
-        let path = request.path
+        var path = request.path
         let isArchive = request.isArchive
+
+        if !request.sourceName.isEmpty {
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue {
+                path = URL(fileURLWithPath: path).appendingPathComponent(request.sourceName).path
+            }
+        }
 
         if request.createParents {
             let parentDir = URL(fileURLWithPath: path).deletingLastPathComponent()
             try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
         }
+
+        let resolvedPath = path
 
         // Connect to the host's vsock port for data transfer.
         let vsockType = VsockType(port: request.vsockPort, cid: VsockType.hostCID)
@@ -426,11 +435,11 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
 
             guard isArchive else {
                 let mode = request.mode > 0 ? mode_t(request.mode) : mode_t(0o644)
-                let fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, mode)
+                let fd = open(resolvedPath, O_WRONLY | O_CREAT | O_TRUNC, mode)
                 guard fd != -1 else {
                     throw GRPCStatus(
                         code: .internalError,
-                        message: "copy: failed to open file '\(path)': \(swiftErrno("open"))"
+                        message: "copy: failed to open file '\(resolvedPath)': \(swiftErrno("open"))"
                     )
                 }
                 defer { close(fd) }
@@ -461,7 +470,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 }
                 return []
             }
-            let destURL = URL(fileURLWithPath: path)
+            let destURL = URL(fileURLWithPath: resolvedPath)
             try FileManager.default.createDirectory(at: destURL, withIntermediateDirectories: true)
 
             let fileHandle = FileHandle(fileDescriptor: sockFd, closeOnDealloc: false)

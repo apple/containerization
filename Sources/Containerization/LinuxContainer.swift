@@ -1084,7 +1084,8 @@ extension LinuxContainer {
                             vsockPort: port,
                             mode: mode,
                             createParents: createParents,
-                            isArchive: isArchive
+                            isArchive: isArchive,
+                            sourceName: source.lastPathComponent
                         )
                     }
                 }
