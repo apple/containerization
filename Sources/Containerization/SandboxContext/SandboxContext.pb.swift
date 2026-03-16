@@ -837,6 +837,9 @@ public struct Com_Apple_Containerization_Sandbox_V3_CopyRequest: Sendable {
   /// Source filename
   public var sourceName: String = String()
 
+  /// When true, the caller expects the destination to be a directory.
+  public var destinationIsDirectory: Bool = false
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public enum Direction: SwiftProtobuf.Enum, Swift.CaseIterable {
@@ -2816,6 +2819,7 @@ extension Com_Apple_Containerization_Sandbox_V3_CopyRequest: SwiftProtobuf.Messa
     5: .standard(proto: "vsock_port"),
     6: .standard(proto: "is_archive"),
     7: .standard(proto: "source_name"),
+    8: .standard(proto: "destination_is_directory"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -2831,6 +2835,7 @@ extension Com_Apple_Containerization_Sandbox_V3_CopyRequest: SwiftProtobuf.Messa
       case 5: try { try decoder.decodeSingularUInt32Field(value: &self.vsockPort) }()
       case 6: try { try decoder.decodeSingularBoolField(value: &self.isArchive) }()
       case 7: try { try decoder.decodeSingularStringField(value: &self.sourceName) }()
+      case 8: try { try decoder.decodeSingularBoolField(value: &self.destinationIsDirectory) }()
       default: break
       }
     }
@@ -2858,6 +2863,9 @@ extension Com_Apple_Containerization_Sandbox_V3_CopyRequest: SwiftProtobuf.Messa
     if !self.sourceName.isEmpty {
       try visitor.visitSingularStringField(value: self.sourceName, fieldNumber: 7)
     }
+    if self.destinationIsDirectory != false {
+      try visitor.visitSingularBoolField(value: self.destinationIsDirectory, fieldNumber: 8)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -2869,6 +2877,7 @@ extension Com_Apple_Containerization_Sandbox_V3_CopyRequest: SwiftProtobuf.Messa
     if lhs.vsockPort != rhs.vsockPort {return false}
     if lhs.isArchive != rhs.isArchive {return false}
     if lhs.sourceName != rhs.sourceName {return false}
+    if lhs.destinationIsDirectory != rhs.destinationIsDirectory {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

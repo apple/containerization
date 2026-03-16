@@ -250,6 +250,8 @@ message CopyRequest {
   bool is_archive = 6;
   // Source filename
   string source_name = 7;
+  // When true, the caller expects the destination to be a directory.
+  bool destination_is_directory = 8;
 }
 
 message CopyResponse {

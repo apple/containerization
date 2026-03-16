@@ -413,6 +413,14 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
             var isDir: ObjCBool = false
             if FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue {
                 path = URL(fileURLWithPath: path).appendingPathComponent(request.sourceName).path
+            } else if request.destinationIsDirectory && !isArchive {
+                let errSock = try Socket(type: VsockType(port: request.vsockPort, cid: VsockType.hostCID), closeOnDeinit: true)
+                try errSock.connect()
+                try errSock.close()
+                throw GRPCStatus(
+                    code: .failedPrecondition,
+                    message: "copy: destination is not a directory: '\(path)'"
+                )
             }
         }
 

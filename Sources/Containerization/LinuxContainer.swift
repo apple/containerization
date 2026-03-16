@@ -1057,7 +1057,8 @@ extension LinuxContainer {
         to destination: URL,
         mode: UInt32 = 0o644,
         createParents: Bool = true,
-        chunkSize: Int = defaultCopyChunkSize
+        chunkSize: Int = defaultCopyChunkSize,
+        destinationIsDirectory: Bool = false
     ) async throws {
         try await self.state.withLock {
             let state = try $0.startedState("copyIn")
@@ -1085,7 +1086,8 @@ extension LinuxContainer {
                             mode: mode,
                             createParents: createParents,
                             isArchive: isArchive,
-                            sourceName: source.lastPathComponent
+                            sourceName: source.lastPathComponent,
+                            destinationIsDirectory: destinationIsDirectory
                         )
                     }
                 }
@@ -1163,7 +1165,8 @@ extension LinuxContainer {
         from source: URL,
         to destination: URL,
         createParents: Bool = true,
-        chunkSize: Int = defaultCopyChunkSize
+        chunkSize: Int = defaultCopyChunkSize,
+        destinationIsDirectory: Bool = false
     ) async throws {
         try await self.state.withLock {
             let state = try $0.startedState("copyOut")
@@ -1200,6 +1203,17 @@ extension LinuxContainer {
                 group.addTask {
                     guard let metadata = await metadataStream.first(where: { _ in true }) else {
                         throw ContainerizationError(.internalError, message: "copyOut: no metadata received")
+                    }
+
+                    if destinationIsDirectory && !metadata.isArchive {
+                        var isDir: ObjCBool = false
+                        let exists = FileManager.default.fileExists(atPath: destination.path, isDirectory: &isDir)
+                        if !exists || !isDir.boolValue {
+                            throw ContainerizationError(
+                                .invalidArgument,
+                                message: "copyOut: destination is not a directory: '\(destination.path)'"
+                            )
+                        }
                     }
 
                     guard let conn = await listener.first(where: { _ in true }) else {
