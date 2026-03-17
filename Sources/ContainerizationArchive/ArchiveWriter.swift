@@ -274,8 +274,20 @@ extension ArchiveWriter {
             entry.owner = uid
             entry.permissions = mode
             if type == .regular {
-                let data = try Data(contentsOf: URL(fileURLWithPath: fullPath.string), options: .uncached)
-                try self.writeEntry(entry: entry, data: data)
+                guard let fileHandle = FileHandle(forReadingAtPath: fullPath.string) else {
+                    throw POSIXError(.ENOENT)
+                }
+                defer { fileHandle.closeFile() }
+                try self.writeHeader(entry: entry)
+                let chunkSize = 4 * 1024 * 1024
+                while true {
+                    let chunk = fileHandle.readData(ofLength: chunkSize)
+                    if chunk.isEmpty { break }
+                    try chunk.withUnsafeBytes { bytes in
+                        try self.writeData(data: bytes)
+                    }
+                }
+                try self.finishEntry()
             } else {
                 try self.writeEntry(entry: entry, data: nil)
             }

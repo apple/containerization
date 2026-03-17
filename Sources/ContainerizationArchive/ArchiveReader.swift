@@ -48,7 +48,7 @@ public struct ArchiveEntryReader: ReadableStream {
 
 /// A class responsible for reading entries from an archive file.
 public final class ArchiveReader {
-    private static let blockSize = 65536
+    private static let chunkSize = 4 * 1024 * 1024
 
     /// A pointer to the underlying `archive` C structure.
     var underlying: OpaquePointer?
@@ -375,7 +375,7 @@ extension ArchiveReader {
     }
 
     private static func copyDataReaderToFd(dataReader: ArchiveEntryReader, fileFd: Int32, memberPath: FilePath) throws {
-        var buffer = [UInt8](repeating: 0, count: ArchiveReader.blockSize)
+        var buffer = [UInt8](repeating: 0, count: ArchiveReader.chunkSize)
         while true {
             let bytesRead = buffer.withUnsafeMutableBufferPointer { bufferPtr in
                 guard let baseAddress = bufferPtr.baseAddress else { return 0 }
