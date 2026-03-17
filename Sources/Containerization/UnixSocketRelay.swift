@@ -29,8 +29,13 @@ package final class UnixSocketRelay: Sendable {
     private let log: Logger?
     private let state: Mutex<State>
 
+    private struct ActiveRelay: Sendable {
+        let relay: BidirectionalRelay
+        let guestConnection: VsockConnection
+    }
+
     private struct State {
-        var activeRelays: [String: BidirectionalRelay] = [:]
+        var activeRelays: [String: ActiveRelay] = [:]
         var t: Task<(), Never>? = nil
         var listener: VsockListener? = nil
     }
@@ -75,10 +80,9 @@ extension UnixSocketRelay {
             }
             t.cancel()
             $0.t = nil
-            for (_, relay) in $0.activeRelays {
-                relay.stop()
+            for (_, activeRelay) in $0.activeRelays {
+                activeRelay.relay.stop()
             }
-            $0.activeRelays.removeAll()
 
             switch configuration.direction {
             case .outOf:
@@ -170,12 +174,12 @@ extension UnixSocketRelay {
                 "initiating connection from host to guest",
                 metadata: [
                     "vport": "\(port)",
-                    "hostFd": "\(guestConn.fileDescriptor)",
-                    "guestFd": "\(hostConn.fileDescriptor)",
+                    "hostFd": "\(hostConn.fileDescriptor)",
+                    "guestFd": "\(guestConn.fileDescriptor)",
                 ])
             try await self.relay(
                 hostConn: hostConn,
-                guestFd: guestConn.fileDescriptor
+                guestConn: guestConn
             )
         } catch {
             log?.error("failed to relay between vsock \(port) and \(hostConn)")
@@ -184,7 +188,7 @@ extension UnixSocketRelay {
     }
 
     private func handleGuestVsockConn(
-        vsockConn: FileHandle,
+        vsockConn: VsockConnection,
         hostConnectionPath: URL,
         port: UInt32,
         log: Logger?
@@ -207,7 +211,7 @@ extension UnixSocketRelay {
         do {
             try await self.relay(
                 hostConn: hostSocket,
-                guestFd: vsockConn.fileDescriptor
+                guestConn: vsockConn
             )
         } catch {
             log?.error("failed to relay between vsock \(port) and \(hostPath)")
@@ -216,9 +220,13 @@ extension UnixSocketRelay {
 
     private func relay(
         hostConn: Socket,
-        guestFd: Int32
+        guestConn: VsockConnection
     ) async throws {
         let hostFd = hostConn.fileDescriptor
+        let guestFd = dup(guestConn.fileDescriptor)
+        if guestFd == -1 {
+            throw POSIXError.fromErrno()
+        }
 
         let relayID = UUID().uuidString
         let relay = BidirectionalRelay(
@@ -229,9 +237,21 @@ extension UnixSocketRelay {
         )
 
         state.withLock {
-            $0.activeRelays[relayID] = relay
+            // Retain the original connection until the relay has fully completed.
+            // The relay owns its duplicated fd and will close it itself.
+            $0.activeRelays[relayID] = ActiveRelay(
+                relay: relay,
+                guestConnection: guestConn
+            )
         }
 
         relay.start()
+
+        Task {
+            await relay.waitForCompletion()
+            let _ = self.state.withLock {
+                $0.activeRelays.removeValue(forKey: relayID)
+            }
+        }
     }
 }

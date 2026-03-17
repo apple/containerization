@@ -122,13 +122,15 @@ extension VZVirtualMachine {
 }
 
 extension VZVirtualMachine {
-    func waitForAgent(queue: DispatchQueue) async throws -> FileHandle {
+    func waitForAgent(queue: DispatchQueue) async throws -> (FileHandle, VsockTransport) {
         let agentConnectionRetryCount: Int = 200
         let agentConnectionSleepDuration: Duration = .milliseconds(20)
 
         for _ in 0...agentConnectionRetryCount {
             do {
-                return try await self.connect(queue: queue, port: Vminitd.port).dupHandle()
+                let conn = try await self.connect(queue: queue, port: Vminitd.port)
+                let handle = try conn.dupFileDescriptor()
+                return (handle, VsockTransport(conn))
             } catch {
                 try await Task.sleep(for: agentConnectionSleepDuration)
                 continue
@@ -139,12 +141,27 @@ extension VZVirtualMachine {
 }
 
 extension VZVirtioSocketConnection {
-    func dupHandle() throws -> FileHandle {
+    /// Duplicates the file descriptor and retains the originating vsock connection
+    /// until the returned connection is closed or deallocated.
+    ///
+    /// Use this for file descriptors which cross an async boundary or may not be
+    /// consumed immediately by the caller.
+    func retainedConnection() throws -> VsockConnection {
+        try VsockConnection(connection: self)
+    }
+
+    /// Duplicates the connection's file descriptor without closing the connection.
+    ///
+    /// The caller must keep the `VZVirtioSocketConnection` alive until the dup'd
+    /// descriptor is no longer needed. The Virtualization framework tears down the
+    /// vsock endpoint when the connection is closed, which invalidates dup'd
+    /// descriptors. This is intended for callers which manage lifetime separately,
+    /// such as gRPC transports stored on `Vminitd`.
+    func dupFileDescriptor() throws -> FileHandle {
         let fd = dup(self.fileDescriptor)
         if fd == -1 {
             throw POSIXError.fromErrno()
         }
-        self.close()
         return FileHandle(fileDescriptor: fd, closeOnDealloc: false)
     }
 }

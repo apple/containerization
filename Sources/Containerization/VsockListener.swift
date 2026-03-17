@@ -22,18 +22,18 @@ import Virtualization
 
 /// A stream of vsock connections.
 public final class VsockListener: NSObject, Sendable, AsyncSequence {
-    public typealias Element = FileHandle
+    public typealias Element = VsockConnection
 
     /// The port the connections are for.
     public let port: UInt32
 
-    private let connections: AsyncStream<FileHandle>
-    private let cont: AsyncStream<FileHandle>.Continuation
+    private let connections: AsyncStream<VsockConnection>
+    private let cont: AsyncStream<VsockConnection>.Continuation
     private let stopListening: @Sendable (_ port: UInt32) throws -> Void
 
     package init(port: UInt32, stopListen: @Sendable @escaping (_ port: UInt32) throws -> Void) {
         self.port = port
-        let (stream, continuation) = AsyncStream.makeStream(of: FileHandle.self)
+        let (stream, continuation) = AsyncStream.makeStream(of: VsockConnection.self)
         self.connections = stream
         self.cont = continuation
         self.stopListening = stopListen
@@ -44,7 +44,7 @@ public final class VsockListener: NSObject, Sendable, AsyncSequence {
         try self.stopListening(self.port)
     }
 
-    public func makeAsyncIterator() -> AsyncStream<FileHandle>.AsyncIterator {
+    public func makeAsyncIterator() -> AsyncStream<VsockConnection>.AsyncIterator {
         connections.makeAsyncIterator()
     }
 }
@@ -52,20 +52,20 @@ public final class VsockListener: NSObject, Sendable, AsyncSequence {
 #if os(macOS)
 
 extension VsockListener: VZVirtioSocketListenerDelegate {
+    /// Accepts a new vsock connection and yields a retained `VsockConnection`.
     public func listener(
         _: VZVirtioSocketListener, shouldAcceptNewConnection conn: VZVirtioSocketConnection,
         from _: VZVirtioSocketDevice
     ) -> Bool {
-        let fd = dup(conn.fileDescriptor)
-        guard fd != -1 else {
+        let connection: VsockConnection
+        do {
+            connection = try conn.retainedConnection()
+        } catch {
             return false
         }
-        conn.close()
-
-        let fh = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
-        let result = cont.yield(fh)
+        let result = cont.yield(connection)
         if case .terminated = result {
-            try? fh.close()
+            try? connection.close()
             return false
         }
 
