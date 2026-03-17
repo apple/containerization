@@ -16,7 +16,8 @@
 
 import ContainerizationExtras
 
-public let InterfaceDefaultMTU: UInt32 = 1280
+public let InterfaceDefaultMTU: UInt32 = 1500
+
 /// A network interface.
 public protocol Interface: Sendable {
     /// The interface IPv4 address and subnet prefix length, as a CIDR address.

@@ -29,6 +29,7 @@ private struct NilGatewayInterface: Interface {
     let ipv4Address: CIDRv4
     let ipv4Gateway: IPv4Address? = nil
     let macAddress: MACAddress? = nil
+    let mtu: UInt32 = 1480
 
     init() {
         self.ipv4Address = try! CIDRv4("192.168.64.2/24")
