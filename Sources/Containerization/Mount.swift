@@ -163,8 +163,8 @@ extension Mount {
 
 extension VZDiskImageStorageDeviceAttachment {
     static func mountToVZAttachment(mount: Mount, options: [String]) throws -> VZDiskImageStorageDeviceAttachment {
-        var cachingMode: VZDiskImageCachingMode = .automatic
         var synchronizationMode: VZDiskImageSynchronizationMode = .fsync
+        var cachingMode: VZDiskImageCachingMode = .cached
 
         for option in options {
             let split = option.split(separator: "=")

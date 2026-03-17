@@ -46,27 +46,6 @@ public protocol VirtualMachineAgent: Sendable {
     func sync() async throws
     func writeFile(path: String, data: Data, flags: WriteFileFlags, mode: UInt32) async throws
 
-    // File transfer
-
-    /// Copy a file from the host into the guest.
-    func copyIn(
-        from source: URL,
-        to destination: URL,
-        mode: UInt32,
-        createParents: Bool,
-        chunkSize: Int,
-        progress: ProgressHandler?
-    ) async throws
-
-    /// Copy a file from the guest to the host.
-    func copyOut(
-        from source: URL,
-        to destination: URL,
-        createParents: Bool,
-        chunkSize: Int,
-        progress: ProgressHandler?
-    ) async throws
-
     // Process lifecycle
     func createProcess(
         id: String,
@@ -117,26 +96,5 @@ extension VirtualMachineAgent {
 
     public func sync() async throws {
         throw ContainerizationError(.unsupported, message: "sync")
-    }
-
-    public func copyIn(
-        from source: URL,
-        to destination: URL,
-        mode: UInt32,
-        createParents: Bool,
-        chunkSize: Int,
-        progress: ProgressHandler?
-    ) async throws {
-        throw ContainerizationError(.unsupported, message: "copyIn")
-    }
-
-    public func copyOut(
-        from source: URL,
-        to destination: URL,
-        createParents: Bool,
-        chunkSize: Int,
-        progress: ProgressHandler?
-    ) async throws {
-        throw ContainerizationError(.unsupported, message: "copyOut")
     }
 }

@@ -19,31 +19,110 @@ import ContainerizationExtras
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
-import GRPC
+import GRPCCore
+import GRPCNIOTransportCore
 import NIOCore
 import NIOPosix
+
+/// Buffers incoming bytes until the full gRPC HTTP/2 pipeline is configured, then replays them.
+///
+/// This prevents the race condition where the vminitd server's initial HTTP/2 SETTINGS frame
+/// arrives and is discarded before `configureGRPCClientPipeline` has finished installing
+/// `ClientConnectionHandler`.
+///
+/// The handler is added via `ClientBootstrap.channelInitializer`, which runs before
+/// `registerAlreadyConfigured0` adds the fd to epoll/kqueue — guaranteeing it is in place
+/// before any bytes can arrive on the socket.
+///
+/// When `NIOHTTP2Handler` is added to the pipeline (inside `configureGRPCClientPipeline`), its
+/// `handlerAdded` fires an outbound flush (the HTTP/2 client preface). We intercept that flush
+/// and schedule a deferred removal via the event loop. Because `configureGRPCClientPipeline` runs
+/// as a single synchronous event loop task, the deferred removal is guaranteed to run after that
+/// entire task completes — i.e., after `ClientConnectionHandler` is also in the pipeline.
+/// Buffered bytes are replayed atomically as part of the pipeline removal.
+private final class HTTP2ConnectBufferingHandler: ChannelDuplexHandler, RemovableChannelHandler {
+    typealias InboundIn = ByteBuffer
+    typealias InboundOut = ByteBuffer
+    typealias OutboundIn = ByteBuffer
+    typealias OutboundOut = ByteBuffer
+
+    private var removalScheduled = false
+    private var bufferedReads: [NIOAny] = []
+
+    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        bufferedReads.append(data)
+    }
+
+    func channelReadComplete(context: ChannelHandlerContext) {
+        // Suppress while buffering; a single readComplete is emitted after replay.
+    }
+
+    func flush(context: ChannelHandlerContext) {
+        if !removalScheduled {
+            removalScheduled = true
+            // Defer removal to the next event loop task. configureGRPCClientPipeline runs as a
+            // single synchronous event loop task, so this deferred task is guaranteed to run
+            // after that whole task completes (including ClientConnectionHandler being added).
+            context.eventLoop.assumeIsolatedUnsafeUnchecked().execute {
+                context.pipeline.syncOperations.removeHandler(self, promise: nil)
+            }
+        }
+        context.flush()
+    }
+
+    func removeHandler(context: ChannelHandlerContext, removalToken: ChannelHandlerContext.RemovalToken) {
+        var didRead = false
+        while !bufferedReads.isEmpty {
+            context.fireChannelRead(bufferedReads.removeFirst())
+            didRead = true
+        }
+        if didRead {
+            context.fireChannelReadComplete()
+        }
+        context.leavePipeline(removalToken: removalToken)
+    }
+
+    func channelInactive(context: ChannelHandlerContext) {
+        bufferedReads.removeAll()
+        context.fireChannelInactive()
+    }
+}
 
 /// A remote connection into the vminitd Linux guest agent via a port (vsock).
 /// Used to modify the runtime environment of the Linux sandbox.
 public struct Vminitd: Sendable {
-    public typealias Client = Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClient
-
     // Default vsock port that the agent and client use.
     public static let port: UInt32 = 1024
 
-    let client: Client
+    let client: Com_Apple_Containerization_Sandbox_V3_SandboxContext.Client<HTTP2ClientTransport.WrappedChannel>
+    private let grpcClient: GRPCClient<HTTP2ClientTransport.WrappedChannel>
+    private let connectionTask: Task<Void, Error>
 
-    public init(client: Client) {
-        self.client = client
-    }
-
-    public init(connection: FileHandle, group: EventLoopGroup) {
-        self.client = .init(connection: connection, group: group)
+    public init(connection: FileHandle, group: any EventLoopGroup) throws {
+        let channel = try ClientBootstrap(group: group)
+            .channelInitializer { channel in
+                channel.eventLoop.makeCompletedFuture(withResultOf: {
+                    try channel.pipeline.syncOperations.addHandler(HTTP2ConnectBufferingHandler())
+                })
+            }
+            .withConnectedSocket(connection.fileDescriptor).wait()
+        let transport = HTTP2ClientTransport.WrappedChannel.wrapping(
+            channel: channel,
+        )
+        let grpcClient = GRPCClient(transport: transport)
+        self.grpcClient = grpcClient
+        self.client = Com_Apple_Containerization_Sandbox_V3_SandboxContext.Client(wrapping: self.grpcClient)
+        // Not very structured concurrency friendly, but we'd need to expose a way on the protocol to "run" the
+        // agent otherwise, which some agents might not even need.
+        self.connectionTask = Task {
+            try await grpcClient.runConnections()
+        }
     }
 
     /// Close the connection to the guest agent.
     public func close() async throws {
-        try await client.close()
+        self.grpcClient.beginGracefulShutdown()
+        try await self.connectionTask.value
     }
 }
 
@@ -265,17 +344,17 @@ extension Vminitd: VirtualMachineAgent {
                 $0.containerID = containerID
             }
         }
-        var callOpts: CallOptions?
+
+        var callOpts = GRPCCore.CallOptions.defaults
         if let timeoutInSeconds {
-            var copts = CallOptions()
-            copts.timeLimit = .timeout(.seconds(timeoutInSeconds))
-            callOpts = copts
+            callOpts.timeout = .seconds(timeoutInSeconds)
         }
+
         do {
-            let resp = try await client.waitProcess(request, callOptions: callOpts)
+            let resp = try await client.waitProcess(request, options: callOpts)
             return ExitStatus(exitCode: resp.exitCode, exitedAt: resp.exitedAt.date)
         } catch {
-            if let err = error as? GRPCError.RPCTimedOut {
+            if let err = error as? RPCError, err.code == .deadlineExceeded {
                 throw ContainerizationError(
                     .timeout,
                     message: "failed to wait for process exit within timeout of \(timeoutInSeconds!) seconds",
@@ -440,94 +519,56 @@ extension Vminitd {
         return response.result
     }
 
-    /// Copy a file from the host into the guest.
-    public func copyIn(
-        from source: URL,
-        to destination: URL,
-        mode: UInt32,
-        createParents: Bool,
-        chunkSize: Int,
-        progress: ProgressHandler?
-    ) async throws {
-        let fileHandle = try FileHandle(forReadingFrom: source)
-        defer { try? fileHandle.close() }
-
-        let attrs = try FileManager.default.attributesOfItem(atPath: source.path)
-        guard let fileSize = attrs[.size] as? Int64 else {
-            throw ContainerizationError(
-                .invalidArgument,
-                message: "copyIn: failed to get file size for '\(source.path)'"
-            )
-        }
-
-        await progress?([ProgressEvent(event: "add-total-size", value: fileSize)])
-
-        let call = client.makeCopyInCall()
-
-        try await call.requestStream.send(
-            .with {
-                $0.content = .init_p(
-                    .with {
-                        $0.path = destination.path
-                        $0.mode = mode
-                        $0.createParents = createParents
-                    })
-            }
-        )
-
-        var totalSent: Int64 = 0
-        while true {
-            guard let data = try fileHandle.read(upToCount: chunkSize), !data.isEmpty else {
-                break
-            }
-            try await call.requestStream.send(.with { $0.content = .data(data) })
-            totalSent += Int64(data.count)
-            await progress?([ProgressEvent(event: "add-size", value: Int64(data.count))])
-        }
-
-        call.requestStream.finish()
-        _ = try await call.response
+    /// Metadata received from the guest during a copy operation.
+    public struct CopyMetadata: Sendable {
+        /// Whether the data on the vsock channel is a tar+gzip archive.
+        public let isArchive: Bool
+        /// Total size in bytes (0 if unknown, e.g. for archives).
+        public let totalSize: UInt64
     }
 
-    /// Copy a file from the guest to the host.
-    public func copyOut(
-        from source: URL,
-        to destination: URL,
-        createParents: Bool,
-        chunkSize: Int,
-        progress: ProgressHandler?
+    /// Unified copy control plane. Sends a CopyRequest over gRPC and processes
+    /// the response stream. Data transfer happens over a separate vsock connection
+    /// managed by the caller.
+    ///
+    /// For COPY_OUT, the `onMetadata` callback is invoked when the guest sends
+    /// metadata (is_archive, total_size) before data transfer begins.
+    /// For COPY_IN, `onMetadata` is not called.
+    public func copy(
+        direction: Com_Apple_Containerization_Sandbox_V3_CopyRequest.Direction,
+        guestPath: URL,
+        vsockPort: UInt32,
+        mode: UInt32 = 0,
+        createParents: Bool = false,
+        isArchive: Bool = false,
+        onMetadata: @Sendable @escaping (CopyMetadata) -> Void = { _ in }
     ) async throws {
-        let request = Com_Apple_Containerization_Sandbox_V3_CopyOutRequest.with {
-            $0.path = source.path
+        let request = Com_Apple_Containerization_Sandbox_V3_CopyRequest.with {
+            $0.direction = direction
+            $0.path = guestPath.path
+            $0.mode = mode
+            $0.createParents = createParents
+            $0.vsockPort = vsockPort
+            $0.isArchive = isArchive
         }
 
-        if createParents {
-            let parentDir = destination.deletingLastPathComponent()
-            try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
-        }
-
-        let fd = open(destination.path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
-        guard fd != -1 else {
-            throw ContainerizationError(
-                .internalError,
-                message: "copyOut: failed to open '\(destination.path)': \(String(cString: strerror(errno)))"
-            )
-        }
-        let fileHandle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-        defer { try? fileHandle.close() }
-
-        let stream = client.copyOut(request)
-        for try await chunk in stream {
-            switch chunk.content {
-            case .init_p(let initMsg):
-                await progress?([ProgressEvent(event: "add-total-size", value: Int64(initMsg.totalSize))])
-            case .data(let data):
-                try fileHandle.write(contentsOf: data)
-                await progress?([ProgressEvent(event: "add-size", value: Int64(data.count))])
-            case .none:
-                break
-            }
-        }
+        try await client.copy(
+            request,
+            onResponse: { stream in
+                for try await response in stream.messages {
+                    if !response.error.isEmpty {
+                        throw ContainerizationError(.internalError, message: "copy: \(response.error)")
+                    }
+                    switch response.status {
+                    case .metadata:
+                        onMetadata(CopyMetadata(isArchive: response.isArchive, totalSize: response.totalSize))
+                    case .complete:
+                        break
+                    case .UNRECOGNIZED(let value):
+                        throw ContainerizationError(.internalError, message: "copy: unrecognized response status \(value)")
+                    }
+                }
+            })
     }
 }
 
@@ -549,22 +590,6 @@ extension Hosts {
                 }
             }
         }
-    }
-}
-
-extension Vminitd.Client {
-    public init(connection: FileHandle, group: EventLoopGroup) {
-        var config = ClientConnection.Configuration.default(
-            target: .connectedSocket(connection.fileDescriptor),
-            eventLoopGroup: group
-        )
-        config.connectionBackoff = nil
-        config.maximumReceiveMessageLength = Int(64.mib())
-        self = .init(channel: ClientConnection(configuration: config))
-    }
-
-    public func close() async throws {
-        try await self.channel.close().get()
     }
 }
 

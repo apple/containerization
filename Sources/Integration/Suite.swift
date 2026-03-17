@@ -327,6 +327,16 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container copy in", testCopyIn),
                 Test("container copy out", testCopyOut),
                 Test("container copy large file", testCopyLargeFile),
+                Test("container copy in directory", testCopyInDirectory),
+                Test("container copy out directory", testCopyOutDirectory),
+                Test("container copy empty file", testCopyEmptyFile),
+                Test("container copy empty directory", testCopyEmptyDirectory),
+                Test("container copy binary file", testCopyBinaryFile),
+                Test("container copy multiple files", testCopyMultipleFiles),
+                Test("container copy directory round trip", testCopyDirectoryRoundTrip),
+                Test("container copy in create parents", testCopyInCreateParents),
+                Test("container copy file permissions", testCopyFilePermissions),
+                Test("container copy large directory", testCopyLargeDirectory),
                 Test("container read-only rootfs", testReadOnlyRootfs),
                 Test("container read-only rootfs hosts file", testReadOnlyRootfsHostsFileWritten),
                 Test("container read-only rootfs DNS", testReadOnlyRootfsDNSConfigured),
@@ -359,6 +369,11 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container useInit zombie reaping", testUseInitZombieReaping),
                 Test("container useInit with terminal", testUseInitWithTerminal),
                 Test("container useInit with stdin", testUseInitWithStdin),
+                Test("container sysctl", testSysctl),
+                Test("container sysctl multiple", testSysctlMultiple),
+                Test("container noNewPrivileges", testNoNewPrivileges),
+                Test("container noNewPrivileges disabled", testNoNewPrivilegesDisabled),
+                Test("container noNewPrivileges exec", testNoNewPrivilegesExec),
 
                 // Pods
                 Test("pod single container", testPodSingleContainer),
@@ -398,6 +413,8 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("pod useInit multiple containers", testPodUseInitMultipleContainers),
                 Test("pod useInit with shared PID namespace", testPodUseInitWithSharedPIDNamespace),
                 Test("pod unix socket into guest symlink", testPodUnixSocketIntoGuestSymlink),
+                Test("pod sysctl", testPodSysctl),
+                Test("pod sysctl multiple containers", testPodSysctlMultipleContainers),
             ] + macOS26Tests()
 
         let filteredTests: [Test]

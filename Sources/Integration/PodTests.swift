@@ -1929,4 +1929,107 @@ extension IntegrationSuite {
 
         return socketPath
     }
+
+    func testPodSysctl() async throws {
+        let id = "test-pod-sysctl"
+
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        let buffer = BufferWriter()
+        try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
+            config.sysctl = [
+                "net.core.somaxconn": "4096"
+            ]
+            config.process.arguments = ["cat", "/proc/sys/net/core/somaxconn"]
+            config.process.stdout = buffer
+        }
+
+        do {
+            try await pod.create()
+            try await pod.startContainer("container1")
+
+            let status = try await pod.waitContainer("container1")
+            try await pod.stop()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "process status \(status) != 0")
+            }
+
+            let output = String(data: buffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard output == "4096" else {
+                throw IntegrationError.assert(
+                    msg: "sysctl net.core.somaxconn should be '4096', got '\(output ?? "nil")'")
+            }
+        } catch {
+            try? await pod.stop()
+            throw error
+        }
+    }
+
+    func testPodSysctlMultipleContainers() async throws {
+        let id = "test-pod-sysctl-multi"
+
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        // Containers in a pod share a network namespace, so use different
+        // sysctls per container to avoid clobbering.
+        let buffer1 = BufferWriter()
+        try await pod.addContainer("container1", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container1")) { config in
+            config.sysctl = [
+                "net.core.somaxconn": "2048"
+            ]
+            config.process.arguments = ["cat", "/proc/sys/net/core/somaxconn"]
+            config.process.stdout = buffer1
+        }
+
+        let buffer2 = BufferWriter()
+        try await pod.addContainer("container2", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container2")) { config in
+            config.sysctl = [
+                "net.core.netdev_max_backlog": "5000"
+            ]
+            config.process.arguments = ["cat", "/proc/sys/net/core/netdev_max_backlog"]
+            config.process.stdout = buffer2
+        }
+
+        do {
+            try await pod.create()
+
+            try await pod.startContainer("container1")
+            let status1 = try await pod.waitContainer("container1")
+            guard status1.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "container1 status \(status1) != 0")
+            }
+            let output1 = String(data: buffer1.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard output1 == "2048" else {
+                throw IntegrationError.assert(
+                    msg: "container1 sysctl net.core.somaxconn should be '2048', got '\(output1 ?? "nil")'")
+            }
+
+            try await pod.startContainer("container2")
+            let status2 = try await pod.waitContainer("container2")
+            guard status2.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "container2 status \(status2) != 0")
+            }
+            let output2 = String(data: buffer2.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard output2 == "5000" else {
+                throw IntegrationError.assert(
+                    msg: "container2 sysctl net.core.netdev_max_backlog should be '5000', got '\(output2 ?? "nil")'")
+            }
+
+            try await pod.stop()
+        } catch {
+            try? await pod.stop()
+            throw error
+        }
+    }
 }

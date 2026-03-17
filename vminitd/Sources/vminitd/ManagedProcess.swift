@@ -20,7 +20,6 @@ import ContainerizationError
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
-import GRPC
 import Logging
 import Synchronization
 

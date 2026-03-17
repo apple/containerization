@@ -24,10 +24,10 @@ service SandboxContext {
   rpc SetupEmulator(SetupEmulatorRequest) returns (SetupEmulatorResponse);
   // Write data to an existing or new file.
   rpc WriteFile(WriteFileRequest) returns (WriteFileResponse);
-  // Copy a file from the host into the guest.
-  rpc CopyIn(stream CopyInChunk) returns (CopyInResponse);
-  // Copy a file from the guest to the host.
-  rpc CopyOut(CopyOutRequest) returns (stream CopyOutChunk);
+  // Copy a file or directory between the host and guest.
+  // Data transfer happens over a dedicated vsock connection;
+  // the gRPC stream is used only for control/metadata.
+  rpc Copy(CopyRequest) returns (stream CopyResponse);
 
   // Create a new process inside the container.
   rpc CreateProcess(CreateProcessRequest) returns (CreateProcessResponse);
@@ -229,43 +229,42 @@ message WriteFileRequest {
 
 message WriteFileResponse {}
 
-message CopyInChunk {
-  oneof content {
-    // Initialization message (must be first).
-    CopyInInit init = 1;
-    // File data chunk.
-    bytes data = 2;
+message CopyRequest {
+  enum Direction {
+    // Copy from host into guest.
+    COPY_IN = 0;
+    // Copy from guest to host.
+    COPY_OUT = 1;
   }
-}
-
-message CopyInInit {
-  // Destination path in the guest.
-  string path = 1;
-  // File mode (defaults to 0644 if not set).
-  uint32 mode = 2;
+  // Direction of the copy operation.
+  Direction direction = 1;
+  // Path in the guest (destination for COPY_IN, source for COPY_OUT).
+  string path = 2;
+  // File mode for single-file COPY_IN (defaults to 0644 if not set).
+  uint32 mode = 3;
   // Create parent directories if they don't exist.
-  bool create_parents = 3;
+  bool create_parents = 4;
+  // Vsock port the host is listening on for data transfer.
+  uint32 vsock_port = 5;
+  // For COPY_IN: indicates the data arriving on vsock is a tar+gzip archive.
+  bool is_archive = 6;
 }
 
-message CopyInResponse {}
-
-message CopyOutRequest {
-  // Source path in the guest.
-  string path = 1;
-}
-
-message CopyOutChunk {
-  oneof content {
-    // Initialization message with metadata (first chunk).
-    CopyOutInit init = 1;
-    // File data chunk.
-    bytes data = 2;
+message CopyResponse {
+  enum Status {
+    // Transfer metadata (first message for COPY_OUT: is_archive, total_size).
+    METADATA = 0;
+    // Data transfer completed successfully.
+    COMPLETE = 1;
   }
-}
-
-message CopyOutInit {
-  // Total file size in bytes.
-  uint64 total_size = 1;
+  // What this response represents.
+  Status status = 1;
+  // For COPY_OUT METADATA: indicates the data on vsock will be a tar+gzip archive.
+  bool is_archive = 2;
+  // For COPY_OUT METADATA: total size in bytes (0 if unknown, e.g. for archives).
+  uint64 total_size = 3;
+  // Non-empty if an error occurred.
+  string error = 4;
 }
 
 message IpLinkSetRequest {

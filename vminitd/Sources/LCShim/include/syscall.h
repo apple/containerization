@@ -35,4 +35,6 @@ int CZ_pidfd_open(pid_t pid, unsigned int flags);
 
 int CZ_pidfd_getfd(int pidfd, int targetfd, unsigned int flags);
 
+int CZ_prctl_set_no_new_privs();
+
 #endif

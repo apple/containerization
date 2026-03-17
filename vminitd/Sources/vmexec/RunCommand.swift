@@ -159,6 +159,23 @@ struct RunCommand: ParsableCommand {
             }
         }
 
+        // Apply sysctls from the OCI spec.
+        if let sysctls = spec.linux?.sysctl {
+            for (key, value) in sysctls {
+                let path = "/proc/sys/" + key.replacingOccurrences(of: ".", with: "/")
+                let fd = open(path, O_WRONLY)
+                guard fd >= 0 else {
+                    throw App.Errno(stage: "sysctl open(\(path))")
+                }
+                defer { close(fd) }
+                let bytes = Array(value.utf8)
+                let written = write(fd, bytes, bytes.count)
+                guard written == bytes.count else {
+                    throw App.Errno(stage: "sysctl write(\(key)=\(value))")
+                }
+            }
+        }
+
         // Apply O_CLOEXEC to all file descriptors except stdio.
         // This ensures that all unwanted fds we may have accidentally
         // inherited are marked close-on-exec so they stay out of the
@@ -178,6 +195,9 @@ struct RunCommand: ParsableCommand {
 
         // Finish capabilities (after user change)
         try App.finishCapabilities(preparedCaps)
+
+        // Set no_new_privs if requested by the OCI spec.
+        try App.setNoNewPrivileges(process: process)
 
         // Finally execve the container process.
         try App.exec(process: process, currentEnv: process.env)
