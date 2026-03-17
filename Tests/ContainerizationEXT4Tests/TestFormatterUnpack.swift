@@ -220,21 +220,15 @@ struct UnpackProgressTest {
         var itemCount: Int = 0
 
         for event in allEvents {
-            switch event.event {
-            case "add-total-size":
-                let value = try #require(event.value as? Int64, "add-total-size value should be Int64")
+            switch event {
+            case .addTotalSize(let value):
                 reportedTotalSize += value
-            case "add-total-items":
-                let value = try #require(event.value as? Int, "add-total-items value should be Int")
+            case .addTotalItems(let value):
                 reportedTotalItems += value
-            case "add-size":
-                let value = try #require(event.value as? Int64, "add-size value should be Int64")
+            case .addSize(let value):
                 cumulativeSize += value
-            case "add-items":
-                let value = try #require(event.value as? Int, "add-items value should be Int")
+            case .addItems(let value):
                 itemCount += value
-            default:
-                break
             }
         }
 
@@ -254,13 +248,15 @@ struct UnpackProgressTest {
             "Should have processed \(expectedTotalItems) entries (1 dir + 4 files), got \(itemCount)")
 
         // Verify incremental progress: we should get separate add-size events for each file
-        let addSizeEvents = allEvents.filter { $0.event == "add-size" }
+        let addSizeEvents = allEvents.compactMap { event -> Int64? in
+            if case .addSize(let value) = event { return value } else { return nil }
+        }
         #expect(
             addSizeEvents.count == 4,
             "Should have 4 add-size events (one per file, including empty), got \(addSizeEvents.count)")
 
         // Verify individual file sizes were reported correctly
-        let reportedSizes = addSizeEvents.compactMap { $0.value as? Int64 }.sorted()
+        let reportedSizes = addSizeEvents.sorted()
         #expect(
             reportedSizes == [0, 512, 1024, 4096],
             "Individual file sizes should be [0, 512, 1024, 4096], got \(reportedSizes)")
@@ -273,12 +269,10 @@ struct UnpackProgressTest {
         var progressSnapshotCount = 0
 
         for event in allEvents {
-            switch event.event {
-            case "add-total-size":
-                let value = try #require(event.value as? Int64, "add-total-size value should be Int64")
+            switch event {
+            case .addTotalSize(let value):
                 runningTotal = (runningTotal ?? 0) + value
-            case "add-size":
-                let value = try #require(event.value as? Int64, "add-size value should be Int64")
+            case .addSize(let value):
                 runningWritten += value
                 let currentSnapshot = (written: runningWritten, total: runningTotal)
                 if let previousSnapshot {
@@ -302,20 +296,20 @@ struct UnpackProgressTest {
 
         // Verify totals come before incremental events (first pass before second pass)
         let totalSizeIndex = try #require(
-            allEvents.firstIndex(where: { $0.event == "add-total-size" }),
+            allEvents.firstIndex(where: { if case .addTotalSize = $0 { return true } else { return false } }),
             "add-total-size event should be present")
         let firstAddSizeIndex = try #require(
-            allEvents.firstIndex(where: { $0.event == "add-size" }),
+            allEvents.firstIndex(where: { if case .addSize = $0 { return true } else { return false } }),
             "add-size event should be present")
         #expect(
             totalSizeIndex < firstAddSizeIndex,
             "add-total-size should be reported before add-size events")
 
         let totalItemsIndex = try #require(
-            allEvents.firstIndex(where: { $0.event == "add-total-items" }),
+            allEvents.firstIndex(where: { if case .addTotalItems = $0 { return true } else { return false } }),
             "add-total-items event should be present")
         let firstAddItemsIndex = try #require(
-            allEvents.firstIndex(where: { $0.event == "add-items" }),
+            allEvents.firstIndex(where: { if case .addItems = $0 { return true } else { return false } }),
             "add-items event should be present")
         #expect(
             totalItemsIndex < firstAddItemsIndex,

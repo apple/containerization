@@ -118,10 +118,10 @@ public struct EXT4Unpacker: Unpacker {
             }
             var totalEvents: [ProgressEvent] = []
             if totalSize > 0 {
-                totalEvents.append(ProgressEvent(event: "add-total-size", value: totalSize))
+                totalEvents.append(.addTotalSize(totalSize))
             }
             if totalItems > 0 {
-                totalEvents.append(ProgressEvent(event: "add-total-items", value: totalItems))
+                totalEvents.append(.addTotalItems(totalItems))
             }
             if !totalEvents.isEmpty {
                 await progress(totalEvents)

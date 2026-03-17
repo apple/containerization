@@ -60,10 +60,10 @@ extension EXT4.Formatter {
             let totals = try Self.scanArchiveHeaders(format: format, filter: readerFilter, file: fileToRead)
             var totalEvents: [ProgressEvent] = []
             if totals.size > 0 {
-                totalEvents.append(ProgressEvent(event: "add-total-size", value: totals.size))
+                totalEvents.append(.addTotalSize(totals.size))
             }
             if totals.items > 0 {
-                totalEvents.append(ProgressEvent(event: "add-total-items", value: totals.items))
+                totalEvents.append(.addTotalItems(totals.items))
             }
             if !totalEvents.isEmpty {
                 await progress(totalEvents)
@@ -122,7 +122,7 @@ extension EXT4.Formatter {
                 if path.base == ".wh..wh..opq" {  // whiteout directory
                     try self.unlink(path: path.dir, directoryWhiteout: true)
                     if let progress {
-                        await progress([ProgressEvent(event: "add-items", value: 1)])
+                        await progress([.addItems(1)])
                     }
                     continue
                 }
@@ -131,7 +131,7 @@ extension EXT4.Formatter {
                 let dir: FilePath = path.dir
                 try self.unlink(path: dir.join(filePath))
                 if let progress {
-                    await progress([ProgressEvent(event: "add-items", value: 1)])
+                    await progress([.addItems(1)])
                 }
                 continue
             }
@@ -140,7 +140,7 @@ extension EXT4.Formatter {
                 let hl = preProcessPath(s: hardlink)
                 hardlinks[path] = FilePath(hl)
                 if let progress {
-                    await progress([ProgressEvent(event: "add-items", value: 1)])
+                    await progress([.addItems(1)])
                 }
                 continue
             }
@@ -159,7 +159,7 @@ extension EXT4.Formatter {
                     gid: entry.group, xattrs: entry.xattrs, fileBuffer: reusableBuffer)
 
                 if let progress, let size = entry.size {
-                    await progress([ProgressEvent(event: "add-size", value: Int64(size))])
+                    await progress([.addSize(Int64(size))])
                 }
             case .symbolicLink:
                 var symlinkTarget: FilePath?
@@ -172,13 +172,13 @@ extension EXT4.Formatter {
                     gid: entry.group, xattrs: entry.xattrs)
             default:
                 if let progress {
-                    await progress([ProgressEvent(event: "add-items", value: 1)])
+                    await progress([.addItems(1)])
                 }
                 continue
             }
 
             if let progress {
-                await progress([ProgressEvent(event: "add-items", value: 1)])
+                await progress([.addItems(1)])
             }
         }
         guard hardlinks.acyclic else {
