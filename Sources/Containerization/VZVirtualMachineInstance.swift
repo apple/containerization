@@ -125,7 +125,7 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
 
             try await self.vm.start(queue: self.queue)
 
-            let agent = try Vminitd(
+            let agent = Vminitd(
                 connection: try await self.vm.waitForAgent(queue: self.queue),
                 group: self.group
             )
@@ -190,7 +190,8 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
                     port: Vminitd.port
                 )
                 let handle = try conn.dupHandle()
-                return try Vminitd(connection: handle, group: self.group)
+                let agent = Vminitd(connection: handle, group: self.group)
+                return agent
             } catch {
                 if let err = error as? ContainerizationError {
                     throw err
