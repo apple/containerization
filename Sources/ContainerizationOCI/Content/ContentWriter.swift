@@ -14,6 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import Compression
 import ContainerizationError
 import Crypto
 import Foundation
@@ -60,6 +61,110 @@ public class ContentWriter {
         return try self.write(data)
     }
 
+    /// Computes the SHA256 digest of the uncompressed content of a gzip file.
+    ///
+    /// Per the OCI Image Specification, a DiffID is the SHA256 digest of the
+    /// uncompressed layer content. This method decompresses the gzip data and
+    /// hashes the result using a streaming approach for memory efficiency.
+    ///
+    /// - Parameter url: The URL of the gzip-compressed file.
+    /// - Returns: The SHA256 digest of the uncompressed content.
+    public static func diffID(of url: URL) throws -> SHA256.Digest {
+        let compressedData = try Data(contentsOf: url)
+        let decompressed = try Self.decompressGzip(compressedData)
+        return SHA256.hash(data: decompressed)
+    }
+
+    /// Decompresses gzip data by stripping the gzip header and feeding the raw
+    /// deflate stream to Apple's Compression framework.
+    private static func decompressGzip(_ data: Data) throws -> Data {
+        let headerSize = try Self.gzipHeaderSize(data)
+
+        var output = Data()
+        let bufferSize = 65_536
+        let destinationBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+        defer { destinationBuffer.deallocate() }
+
+        try data.withUnsafeBytes { rawBuffer in
+            guard let sourcePointer = rawBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                throw ContentWriterError.decompressionFailed
+            }
+
+            let stream = UnsafeMutablePointer<compression_stream>.allocate(capacity: 1)
+            defer { stream.deallocate() }
+
+            var status = compression_stream_init(stream, COMPRESSION_STREAM_DECODE, COMPRESSION_ZLIB)
+            guard status != COMPRESSION_STATUS_ERROR else {
+                throw ContentWriterError.decompressionFailed
+            }
+            defer { compression_stream_destroy(stream) }
+
+            stream.pointee.src_ptr = sourcePointer.advanced(by: headerSize)
+            stream.pointee.src_size = data.count - headerSize
+            stream.pointee.dst_ptr = destinationBuffer
+            stream.pointee.dst_size = bufferSize
+
+            repeat {
+                status = compression_stream_process(stream, 0)
+
+                switch status {
+                case COMPRESSION_STATUS_OK:
+                    let produced = bufferSize - stream.pointee.dst_size
+                    output.append(destinationBuffer, count: produced)
+                    stream.pointee.dst_ptr = destinationBuffer
+                    stream.pointee.dst_size = bufferSize
+
+                case COMPRESSION_STATUS_END:
+                    let produced = bufferSize - stream.pointee.dst_size
+                    if produced > 0 {
+                        output.append(destinationBuffer, count: produced)
+                    }
+
+                default:
+                    throw ContentWriterError.decompressionFailed
+                }
+            } while status == COMPRESSION_STATUS_OK
+        }
+
+        return output
+    }
+
+    /// Parses the gzip header to determine where the raw deflate stream begins.
+    private static func gzipHeaderSize(_ data: Data) throws -> Int {
+        guard data.count >= 10,
+              data[data.startIndex] == 0x1f,
+              data[data.startIndex + 1] == 0x8b
+        else {
+            throw ContentWriterError.invalidGzip
+        }
+
+        let start = data.startIndex
+        let flags = data[start + 3]
+        var offset = 10
+
+        // FEXTRA
+        if flags & 0x04 != 0 {
+            guard data.count >= offset + 2 else { throw ContentWriterError.invalidGzip }
+            let extraLen = Int(data[start + offset]) | (Int(data[start + offset + 1]) << 8)
+            offset += 2 + extraLen
+        }
+        // FNAME
+        if flags & 0x08 != 0 {
+            while offset < data.count && data[start + offset] != 0 { offset += 1 }
+            offset += 1
+        }
+        // FCOMMENT
+        if flags & 0x10 != 0 {
+            while offset < data.count && data[start + offset] != 0 { offset += 1 }
+            offset += 1
+        }
+        // FHCRC
+        if flags & 0x02 != 0 { offset += 2 }
+
+        guard offset < data.count else { throw ContentWriterError.invalidGzip }
+        return offset
+    }
+
     /// Encodes the passed in type as a JSON blob and writes it to the base path.
     /// - Parameters:
     ///   - content: The type to convert to JSON.
@@ -68,4 +173,9 @@ public class ContentWriter {
         let data = try self.encoder.encode(content)
         return try self.write(data)
     }
+}
+
+enum ContentWriterError: Error {
+    case invalidGzip
+    case decompressionFailed
 }
