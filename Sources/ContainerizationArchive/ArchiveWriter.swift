@@ -166,9 +166,16 @@ extension ArchiveWriter {
     fileprivate func writeData(data: UnsafeRawBufferPointer) throws {
         guard let underlying = self.underlying else { throw ArchiveError.noUnderlyingArchive }
 
-        let result = archive_write_data(underlying, data.baseAddress, data.count)
-        guard result >= 0 else {
-            throw ArchiveError.unableToWriteData(result)
+        var offset = 0
+        while offset < data.count {
+            guard let baseAddress = data.baseAddress?.advanced(by: offset) else {
+                throw ArchiveError.invalidBaseAddressArchiveWrite
+            }
+            let result = archive_write_data(underlying, baseAddress, data.count - offset)
+            guard result > 0 else {
+                throw ArchiveError.unableToWriteData(result)
+            }
+            offset += Int(result)
         }
     }
 }
