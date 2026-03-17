@@ -249,7 +249,8 @@ struct UnpackProgressTest {
 
         // Verify incremental progress: we should get separate add-size events for each file
         let addSizeEvents = allEvents.compactMap { event -> Int64? in
-            if case .addSize(let value) = event { return value } else { return nil }
+            guard case .addSize(let value) = event else { return nil }
+            return value
         }
         #expect(
             addSizeEvents.count == 4,
@@ -296,20 +297,32 @@ struct UnpackProgressTest {
 
         // Verify totals come before incremental events (first pass before second pass)
         let totalSizeIndex = try #require(
-            allEvents.firstIndex(where: { if case .addTotalSize = $0 { return true } else { return false } }),
+            allEvents.firstIndex(where: {
+                guard case .addTotalSize = $0 else { return false }
+                return true
+            }),
             "add-total-size event should be present")
         let firstAddSizeIndex = try #require(
-            allEvents.firstIndex(where: { if case .addSize = $0 { return true } else { return false } }),
+            allEvents.firstIndex(where: {
+                guard case .addSize = $0 else { return false }
+                return true
+            }),
             "add-size event should be present")
         #expect(
             totalSizeIndex < firstAddSizeIndex,
             "add-total-size should be reported before add-size events")
 
         let totalItemsIndex = try #require(
-            allEvents.firstIndex(where: { if case .addTotalItems = $0 { return true } else { return false } }),
+            allEvents.firstIndex(where: {
+                guard case .addTotalItems = $0 else { return false }
+                return true
+            }),
             "add-total-items event should be present")
         let firstAddItemsIndex = try #require(
-            allEvents.firstIndex(where: { if case .addItems = $0 { return true } else { return false } }),
+            allEvents.firstIndex(where: {
+                guard case .addItems = $0 else { return false }
+                return true
+            }),
             "add-items event should be present")
         #expect(
             totalItemsIndex < firstAddItemsIndex,
