@@ -21,6 +21,7 @@ import Containerization
 import ContainerizationError
 import ContainerizationOS
 import Foundation
+import GRPCCore
 import Logging
 import NIOCore
 import NIOPosix
@@ -34,38 +35,42 @@ import Glibc
 import LCShim
 #endif
 
-struct AgentCommand: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(
+public struct AgentCommand: AsyncParsableCommand {
+    public static let configuration = CommandConfiguration(
         commandName: "agent",
         abstract: "Run the vminitd agent daemon"
     )
 
     private static let foregroundEnvVar = "FOREGROUND"
-    private static let vsockPort = 1024
+    public static let vsockPort = 1024
 
-    @OptionGroup var options: LogLevelOption
+    @OptionGroup public var options: LogLevelOption
 
-    mutating func run() async throws {
+    public init() {}
+
+    /// Bootstrap the vminitd environment and create an Initd server.
+    /// Handles mounts, cgroups, memory monitoring, and all pre-serve setup.
+    public static func bootstrap(options: LogLevelOption) async throws -> Initd {
         let log = makeLogger(label: "vminitd", level: options.resolvedLogLevel())
-        try Self.adjustLimits(log)
+        try adjustLimits(log)
 
-        // when running under debug mode, launch vminitd as a sub process of pid1
+        // When running under debug mode, launch vminitd as a sub process of pid1
         // so that we get a chance to collect better logs and errors before pid1 exists
         // and the kernel panics.
         #if DEBUG
         log.info("DEBUG mode active, checking FOREGROUND env var")
         let environment = ProcessInfo.processInfo.environment
-        let foreground = environment[Self.foregroundEnvVar]
-        log.info("checking for shim var \(Self.foregroundEnvVar)=\(String(describing: foreground))")
+        let foreground = environment[foregroundEnvVar]
+        log.info("checking for shim var \(foregroundEnvVar)=\(String(describing: foreground))")
 
         if foreground == nil {
-            try Self.runInForeground(log, logLevel: options.logLevel)
+            try runInForeground(log, logLevel: options.logLevel)
             _exit(0)
         }
 
         log.info("FOREGROUND is set, running as subprocess, setting subreaper")
-        // since we are not running as pid1 in this mode we must set ourselves
-        // as a subpreaper so that all child processes are reaped by us and not
+        // Since we are not running as pid1 in this mode we must set ourselves
+        // as a subreaper so that all child processes are reaped by us and not
         // passed onto our parent.
         CZ_set_sub_reaper()
         #endif
@@ -157,18 +162,22 @@ struct AgentCommand: AsyncParsableCommand {
         let eg = MultiThreadedEventLoopGroup(numberOfThreads: 1)
         let blockingPool = NIOThreadPool(numberOfThreads: 2)
         blockingPool.start()
-        let server = Initd(log: log, group: eg, blockingPool: blockingPool)
+        return Initd(log: log, group: eg, blockingPool: blockingPool)
+    }
+
+    public mutating func run() async throws {
+        let server = try await Self.bootstrap(options: options)
 
         do {
-            log.info("serving vminitd API")
+            server.log.info("serving vminitd API")
             try await server.serve(port: Self.vsockPort)
-            log.info("vminitd API returned, syncing filesystems")
+            server.log.info("vminitd API returned, syncing filesystems")
 
             #if os(Linux)
             sync()
             #endif
         } catch {
-            log.error("vminitd boot error \(error)")
+            server.log.error("vminitd boot error \(error)")
 
             #if os(Linux)
             sync()

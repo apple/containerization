@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
+// Copyright © 2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,9 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-struct HostStdio: Sendable {
-    let stdin: UInt32?
-    let stdout: UInt32?
-    let stderr: UInt32?
-    let terminal: Bool
+protocol IOCloser: Sendable {
+    var fileDescriptor: Int32 { get }
+
+    func close() throws
 }
