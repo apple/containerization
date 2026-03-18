@@ -20,6 +20,8 @@ import SystemPackage
 
 /// A class responsible for writing archives in various formats.
 public final class ArchiveWriter {
+    private static let chunkSize = 4 * 1024 * 1024
+
     var underlying: OpaquePointer!
 
     /// Initialize a new `ArchiveWriter` with the given configuration.
@@ -195,7 +197,7 @@ extension ArchiveWriter {
         var rootStat = stat()
         guard lstat(dirPath.string, &rootStat) == 0 else {
             let err = POSIXErrorCode(rawValue: errno) ?? .EINVAL
-            throw ArchiveError.failedToExtractArchive("lstat failed for '\(dirPath)': \(POSIXError(err))")
+            throw ArchiveError.failedToCreateArchive("lstat failed for '\(dirPath)': \(POSIXError(err))")
         }
         let rootEntry = WriteEntry()
         rootEntry.path = "./"
@@ -222,7 +224,7 @@ extension ArchiveWriter {
             guard lstat(fullPath.string, &statInfo) == 0 else {
                 let errNo = errno
                 let err = POSIXErrorCode(rawValue: errNo) ?? .EINVAL
-                throw ArchiveError.failedToExtractArchive("lstat failed for '\(fullPath)': \(POSIXError(err))")
+                throw ArchiveError.failedToCreateArchive("lstat failed for '\(fullPath)': \(POSIXError(err))")
             }
 
             let mode = statInfo.st_mode
@@ -274,18 +276,26 @@ extension ArchiveWriter {
             entry.owner = uid
             entry.permissions = mode
             if type == .regular {
-                guard let fileHandle = FileHandle(forReadingAtPath: fullPath.string) else {
-                    throw POSIXError(.ENOENT)
+                let buf = UnsafeMutableRawBufferPointer.allocate(byteCount: Self.chunkSize, alignment: 1)
+                guard let baseAddress = buf.baseAddress else {
+                    throw ArchiveError.failedToCreateArchive("cannot create temporary buffer of size \(Self.chunkSize)")
                 }
-                defer { fileHandle.closeFile() }
+                defer { buf.deallocate() }
+                let fd = Foundation.open(fullPath.string, O_RDONLY)
+                guard fd > 0 else {
+                    let err = POSIXErrorCode(rawValue: errno) ?? .EINVAL
+                    throw ArchiveError.failedToCreateArchive("cannot open file \(fullPath.string) for reading: \(err)")
+                }
+                defer { close(fd) }
                 try self.writeHeader(entry: entry)
-                let chunkSize = 4 * 1024 * 1024
                 while true {
-                    let chunk = fileHandle.readData(ofLength: chunkSize)
-                    if chunk.isEmpty { break }
-                    try chunk.withUnsafeBytes { bytes in
-                        try self.writeData(data: bytes)
+                    let n = read(fd, baseAddress, Self.chunkSize)
+                    if n == 0 { break }
+                    if n < 0 {
+                        let err = POSIXErrorCode(rawValue: errno) ?? .EIO
+                        throw ArchiveError.failedToCreateArchive("failed to read from file \(fullPath.string): \(err)")
                     }
+                    try self.writeData(data: UnsafeRawBufferPointer(start: baseAddress, count: n))
                 }
                 try self.finishEntry()
             } else {
