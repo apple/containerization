@@ -282,7 +282,7 @@ extension ArchiveWriter {
                 }
                 defer { buf.deallocate() }
                 let fd = Foundation.open(fullPath.string, O_RDONLY)
-                guard fd > 0 else {
+                guard fd >= 0 else {
                     let err = POSIXErrorCode(rawValue: errno) ?? .EINVAL
                     throw ArchiveError.failedToCreateArchive("cannot open file \(fullPath.string) for reading: \(err)")
                 }
