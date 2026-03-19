@@ -33,6 +33,7 @@ let package = Package(
         .library(name: "ContainerizationOS", targets: ["ContainerizationOS"]),
         .library(name: "ContainerizationExtras", targets: ["ContainerizationExtras"]),
         .library(name: "ContainerizationArchive", targets: ["ContainerizationArchive"]),
+        .library(name: "ContainerizationSeccomp", targets: ["ContainerizationSeccomp"]),
         .executable(name: "cctl", targets: ["cctl"]),
     ],
     dependencies: [
@@ -263,6 +264,19 @@ let package = Package(
         ),
         .target(
             name: "CShim"
+        ),
+        .target(
+            name: "ContainerizationSeccomp",
+            dependencies: [
+                "ContainerizationOCI"
+            ]
+        ),
+        .testTarget(
+            name: "ContainerizationSeccompTests",
+            dependencies: [
+                "ContainerizationSeccomp",
+                "ContainerizationOCI",
+            ]
         ),
     ]
 )

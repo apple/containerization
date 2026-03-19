@@ -68,6 +68,7 @@ let package = Package(
                 .product(name: "SystemPackage", package: "swift-system"),
                 .product(name: "Containerization", package: "containerization"),
                 .product(name: "ContainerizationOS", package: "containerization"),
+                .product(name: "ContainerizationSeccomp", package: "containerization"),
                 "LCShim",
                 "Cgroup",
             ]

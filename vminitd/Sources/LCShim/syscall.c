@@ -39,3 +39,15 @@ int CZ_pidfd_getfd(int pidfd, int targetfd, unsigned int flags) {
 int CZ_prctl_set_no_new_privs() {
   return prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
 }
+
+#ifndef SYS_seccomp
+#define SYS_seccomp 277
+#endif
+
+#ifndef SECCOMP_SET_MODE_FILTER
+#define SECCOMP_SET_MODE_FILTER 1
+#endif
+
+int CZ_seccomp_set_mode_filter(unsigned int flags, struct CZ_sock_fprog *prog) {
+  return syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER, flags, prog);
+}

@@ -35,6 +35,9 @@ struct ExecCommand: ParsableCommand {
     @Option(name: .long, help: "pid of the init process for the container")
     var parentPid: Int
 
+    @Option(name: .long, help: "path to the OCI bundle for the container")
+    var bundlePath: String?
+
     func run() throws {
         do {
             let src = URL(fileURLWithPath: processPath)
@@ -43,7 +46,15 @@ struct ExecCommand: ParsableCommand {
                 ContainerizationOCI.Process.self,
                 from: processBytes
             )
-            try execInNamespaces(process: process)
+
+            var seccomp: ContainerizationOCI.LinuxSeccomp?
+            if let bundlePath {
+                let bundle = try ContainerizationOCI.Bundle.load(path: URL(filePath: bundlePath))
+                let spec = try bundle.loadConfig()
+                seccomp = spec.linux?.seccomp
+            }
+
+            try execInNamespaces(process: process, seccomp: seccomp)
         } catch {
             App.writeError(error)
             throw error
@@ -56,7 +67,7 @@ struct ExecCommand: ParsableCommand {
         }
     }
 
-    private func execInNamespaces(process: ContainerizationOCI.Process) throws {
+    private func execInNamespaces(process: ContainerizationOCI.Process, seccomp: ContainerizationOCI.LinuxSeccomp?) throws {
         let syncPipe = FileDescriptor(rawValue: 3)
         let ackPipe = FileDescriptor(rawValue: 4)
 
@@ -142,13 +153,28 @@ struct ExecCommand: ParsableCommand {
             // Set uid, gid, and supplementary groups
             try App.setPermissions(user: process.user)
 
+            // Resolve the executable path before seccomp is applied.
+            let resolvedExecutable = try App.resolveExecutable(process: process, currentEnv: process.env)
+
+            // Without noNewPrivileges, seccomp is a privileged operation that
+            // requires CAP_SYS_ADMIN. Install it before dropping capabilities.
+            // With noNewPrivileges, install it as late as possible (right before
+            // exec) to minimize the syscalls that need to be in the profile.
+            if let seccomp, !process.noNewPrivileges {
+                try App.setSeccomp(seccomp: seccomp)
+            }
+
             // Finish capabilities (after user change)
             try App.finishCapabilities(preparedCaps)
 
             // Set no_new_privs if requested by the OCI spec.
             try App.setNoNewPrivileges(process: process)
 
-            try App.exec(process: process, currentEnv: process.env)
+            if let seccomp, process.noNewPrivileges {
+                try App.setSeccomp(seccomp: seccomp)
+            }
+
+            try App.exec(process: process, resolvedExecutable: resolvedExecutable)
         } else {  // parent process
             // Send our child's pid to our parent before we exit.
             var childPid = processID
