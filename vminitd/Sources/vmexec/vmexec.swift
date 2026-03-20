@@ -96,6 +96,16 @@ extension App {
         let env = process.env.map { strdup($0) } + [nil]
         let cwd = process.cwd
 
+        // Create the working directory if it doesn't exist, this seems like the expected
+        // OCI runtime spec behavior.
+        if !FileManager.default.fileExists(atPath: cwd) {
+            try FileManager.default.createDirectory(
+                atPath: cwd,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o755]
+            )
+        }
+
         guard chdir(cwd) == 0 else {
             throw App.Errno(stage: "chdir(cwd)", info: "failed to change directory to '\(cwd)'")
         }
