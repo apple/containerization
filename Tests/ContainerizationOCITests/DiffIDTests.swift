@@ -100,6 +100,50 @@ struct DiffIDTests {
         #expect(diffID.digestString == expected.digestString)
     }
 
+    @Test func diffIDRejectsTruncatedGzip() throws {
+        // Build a valid gzip file, then chop off the 8-byte trailer (CRC32 + ISIZE)
+        // to produce a structurally malformed archive.
+        let content = Data("truncated gzip trailer test".utf8)
+        let gzFile = try createGzipFile(content: content)
+        defer { try? FileManager.default.removeItem(at: gzFile) }
+
+        var gzData = try Data(contentsOf: gzFile)
+        guard gzData.count > 8 else {
+            Issue.record("Compressed file too small to truncate")
+            return
+        }
+        gzData.removeLast(8)
+
+        let truncatedFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + ".gz")
+        try gzData.write(to: truncatedFile)
+        defer { try? FileManager.default.removeItem(at: truncatedFile) }
+
+        #expect(throws: ContentWriterError.self) {
+            try ContentWriter.diffID(of: truncatedFile)
+        }
+    }
+
+    @Test func diffIDRejectsCorruptedCRC() throws {
+        // Flip a byte in the CRC32 field of an otherwise valid gzip file.
+        let content = Data("corrupted crc test".utf8)
+        let gzFile = try createGzipFile(content: content)
+        defer { try? FileManager.default.removeItem(at: gzFile) }
+
+        var gzData = try Data(contentsOf: gzFile)
+        let crcOffset = gzData.count - 8
+        gzData[crcOffset] ^= 0xFF
+
+        let corruptedFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + ".gz")
+        try gzData.write(to: corruptedFile)
+        defer { try? FileManager.default.removeItem(at: corruptedFile) }
+
+        #expect(throws: ContentWriterError.self) {
+            try ContentWriter.diffID(of: corruptedFile)
+        }
+    }
+
     @Test func diffIDDigestStringFormat() throws {
         let content = Data("format test".utf8)
         let gzFile = try createGzipFile(content: content)

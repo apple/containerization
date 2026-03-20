@@ -19,6 +19,7 @@ import ContainerizationError
 import Crypto
 import Foundation
 import NIOCore
+import zlib
 
 /// Provides a context to write data into a directory.
 public class ContentWriter {
@@ -126,6 +127,30 @@ public class ContentWriter {
             } while status == COMPRESSION_STATUS_OK
         }
 
+        // Validate the gzip trailer: last 8 bytes are CRC32 + ISIZE (both little-endian).
+        guard data.count >= 8 else {
+            throw ContentWriterError.gzipTrailerMismatch
+        }
+        let trailerStart = data.startIndex + data.count - 8
+        let expectedCRC = UInt32(data[trailerStart])
+            | (UInt32(data[trailerStart + 1]) << 8)
+            | (UInt32(data[trailerStart + 2]) << 16)
+            | (UInt32(data[trailerStart + 3]) << 24)
+        let expectedSize = UInt32(data[trailerStart + 4])
+            | (UInt32(data[trailerStart + 5]) << 8)
+            | (UInt32(data[trailerStart + 6]) << 16)
+            | (UInt32(data[trailerStart + 7]) << 24)
+
+        let actualCRC = output.withUnsafeBytes { buffer -> UInt32 in
+            let ptr = buffer.baseAddress!.assumingMemoryBound(to: Bytef.self)
+            return UInt32(crc32(0, ptr, uInt(buffer.count)))
+        }
+        let actualSize = UInt32(truncatingIfNeeded: output.count)
+
+        guard expectedCRC == actualCRC, expectedSize == actualSize else {
+            throw ContentWriterError.gzipTrailerMismatch
+        }
+
         return output
     }
 
@@ -178,4 +203,5 @@ public class ContentWriter {
 enum ContentWriterError: Error {
     case invalidGzip
     case decompressionFailed
+    case gzipTrailerMismatch
 }
