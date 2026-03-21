@@ -1326,9 +1326,13 @@ extension Date {
             return 0x3_7fff_ffff
         }
 
-        let seconds = UInt64(s)
-        let nanoseconds = UInt64(self.timeIntervalSince1970.truncatingRemainder(dividingBy: 1) * 1_000_000_000)
-
-        return seconds | (nanoseconds << 34)
+        // 32 bits - base: seconds since January 1, 1970, signed (negative for pre-1970 dates)
+        // 2 bits - epoch: overflow counter (0-3), how many times the 32-bit seconds field has wrapped
+        // 30 bits - nanoseconds (0-999,999,999)
+        let sInt64 = Int64(floor(s))
+        let base = Int32(truncatingIfNeeded: sInt64)
+        let epoch = UInt64(sInt64 - Int64(base))
+        let nanoseconds = min(UInt32((s - floor(s)) * 1_000_000_000), 999_999_999)
+        return UInt64(UInt32(bitPattern: base)) | epoch | (UInt64(nanoseconds) << 34)
     }
 }
