@@ -203,7 +203,12 @@ extension Date {
             return
         }
 
-        let seconds = Int64(fsTimestamp & 0x3_ffff_ffff)
+        // 32 bits - base: seconds since January 1, 1970, signed (negative for pre-1970 dates)
+        // 2 bits - epoch: overflow counter (0-3), how many times the 32-bit seconds field has wrapped
+        // 30 bits - nanoseconds (0-999,999,999)
+        let base = Int32(truncatingIfNeeded: fsTimestamp)
+        let epoch = Int64(fsTimestamp & 0x3_0000_0000)
+        let seconds = Int64(base) + epoch
         let nanoseconds = Double(fsTimestamp >> 34) / 1_000_000_000
 
         self = Date(timeIntervalSince1970: Double(seconds) + nanoseconds)
