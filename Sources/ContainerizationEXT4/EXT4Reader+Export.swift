@@ -73,7 +73,7 @@ extension EXT4.EXT4Reader {
             entry.size = Int64(size)
             entry.group = gid_t(inode.gid)
             entry.owner = uid_t(inode.uid)
-            entry.creationDate = Date(fsTimestamp: UInt64((inode.ctimeExtra << 32) | inode.ctime))
+            entry.creationDate = Date(fsTimestamp: UInt64((inode.crtimeExtra << 32) | inode.crtime))
             entry.modificationDate = Date(fsTimestamp: UInt64((inode.mtimeExtra << 32) | inode.mtime))
             entry.contentAccessDate = Date(fsTimestamp: UInt64((inode.atimeExtra << 32) | inode.atime))
             entry.xattrs = xattrs
@@ -156,7 +156,7 @@ extension EXT4.EXT4Reader {
             entry.permissions = inode.mode
             entry.group = gid_t(inode.gid)
             entry.owner = uid_t(inode.uid)
-            entry.creationDate = Date(fsTimestamp: UInt64((inode.ctimeExtra << 32) | inode.ctime))
+            entry.creationDate = Date(fsTimestamp: UInt64((inode.crtimeExtra << 32) | inode.crtime))
             entry.modificationDate = Date(fsTimestamp: UInt64((inode.mtimeExtra << 32) | inode.mtime))
             entry.contentAccessDate = Date(fsTimestamp: UInt64((inode.atimeExtra << 32) | inode.atime))
             try writer.writeEntry(entry: entry, data: nil)
