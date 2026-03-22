@@ -65,8 +65,8 @@ public class ContentWriter {
     /// Computes the SHA256 digest of the uncompressed content of a gzip file.
     ///
     /// Per the OCI Image Specification, a DiffID is the SHA256 digest of the
-    /// uncompressed layer content. This method decompresses the gzip data and
-    /// hashes the result using a streaming approach for memory efficiency.
+    /// uncompressed layer content. This method loads the compressed file,
+    /// decompresses it, validates the gzip trailer, and hashes the result.
     ///
     /// - Parameter url: The URL of the gzip-compressed file.
     /// - Returns: The SHA256 digest of the uncompressed content.
@@ -158,7 +158,8 @@ public class ContentWriter {
     private static func gzipHeaderSize(_ data: Data) throws -> Int {
         guard data.count >= 10,
               data[data.startIndex] == 0x1f,
-              data[data.startIndex + 1] == 0x8b
+              data[data.startIndex + 1] == 0x8b,
+              data[data.startIndex + 2] == 0x08  // CM must be 8 (deflate) per RFC 1952
         else {
             throw ContentWriterError.invalidGzip
         }
