@@ -15,23 +15,35 @@
 //===----------------------------------------------------------------------===//
 
 /// A progress update event.
-public struct ProgressEvent: Sendable {
-    /// The event name. The possible values:
+public enum ProgressEvent: Sendable {
+    /// The possible values:
     ///  - `add-items`: Increment the number of processed items by `value`.
     ///  - `add-total-items`: Increment the total number of items to process by `value`.
     ///  - `add-size`: Increment the size of processed items by `value`.
     ///  - `add-total-size`: Increment the total size of items to process by `value`.
-    public let event: String
-    /// The event value.
-    public let value: any Sendable
+    case addItems(Int)
+    case addTotalItems(Int)
+    case addSize(Int64)
+    case addTotalSize(Int64)
 
-    /// Creates an instance.
-    /// - Parameters:
-    ///   - event: The event name.
-    ///   - value: The event value.
-    public init(event: String, value: any Sendable) {
-        self.event = event
-        self.value = value
+    /// The event name.
+    public var event: String {
+        switch self {
+        case .addItems: "add-items"
+        case .addTotalItems: "add-total-items"
+        case .addSize: "add-size"
+        case .addTotalSize: "add-total-size"
+        }
+    }
+
+    /// The event value.
+    public var value: any Sendable {
+        switch self {
+        case .addItems(let value): value
+        case .addTotalItems(let value): value
+        case .addSize(let value): value
+        case .addTotalSize(let value): value
+        }
     }
 }
 

@@ -36,6 +36,8 @@ public enum ArchiveError: Error, CustomStringConvertible {
     case failedToDetectFilter
     case failedToDetectFormat
     case failedToExtractArchive(String)
+    case failedToCreateArchive(String)
+    case invalidBaseAddressArchiveWrite
 
     /// Description of the error
     public var description: String {
@@ -74,6 +76,10 @@ public enum ArchiveError: Error, CustomStringConvertible {
             return "failed to detect format from archive."
         case .failedToExtractArchive(let reason):
             return "failed to extract archive: \(reason)"
+        case .failedToCreateArchive(let reason):
+            return "failed to create archive: \(reason)"
+        case .invalidBaseAddressArchiveWrite:
+            return "got an invalid base address for pointer when writing data to archive"
         }
     }
 }

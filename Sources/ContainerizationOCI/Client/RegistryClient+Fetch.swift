@@ -181,7 +181,7 @@ extension RegistryClient {
                     received += readBytes
                     let written = try await writer.write(contentsOf: buf)
                     await progress?([
-                        ProgressEvent(event: "add-size", value: written)
+                        .addSize(written)
                     ])
                     guard written == readBytes else {
                         throw ContainerizationError(
@@ -224,7 +224,7 @@ extension RegistryClient {
                 let readBytes = Int64(buf.readableBytes)
                 received += readBytes
                 await progress?([
-                    ProgressEvent(event: "add-size", value: readBytes)
+                    .addSize(readBytes)
                 ])
                 try fd.write(contentsOf: buf.readableBytesView)
                 hasher.update(data: buf.readableBytesView)

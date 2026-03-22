@@ -19,110 +19,31 @@ import ContainerizationExtras
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
-import GRPCCore
-import GRPCNIOTransportCore
+import GRPC
 import NIOCore
 import NIOPosix
-
-/// Buffers incoming bytes until the full gRPC HTTP/2 pipeline is configured, then replays them.
-///
-/// This prevents the race condition where the vminitd server's initial HTTP/2 SETTINGS frame
-/// arrives and is discarded before `configureGRPCClientPipeline` has finished installing
-/// `ClientConnectionHandler`.
-///
-/// The handler is added via `ClientBootstrap.channelInitializer`, which runs before
-/// `registerAlreadyConfigured0` adds the fd to epoll/kqueue — guaranteeing it is in place
-/// before any bytes can arrive on the socket.
-///
-/// When `NIOHTTP2Handler` is added to the pipeline (inside `configureGRPCClientPipeline`), its
-/// `handlerAdded` fires an outbound flush (the HTTP/2 client preface). We intercept that flush
-/// and schedule a deferred removal via the event loop. Because `configureGRPCClientPipeline` runs
-/// as a single synchronous event loop task, the deferred removal is guaranteed to run after that
-/// entire task completes — i.e., after `ClientConnectionHandler` is also in the pipeline.
-/// Buffered bytes are replayed atomically as part of the pipeline removal.
-private final class HTTP2ConnectBufferingHandler: ChannelDuplexHandler, RemovableChannelHandler {
-    typealias InboundIn = ByteBuffer
-    typealias InboundOut = ByteBuffer
-    typealias OutboundIn = ByteBuffer
-    typealias OutboundOut = ByteBuffer
-
-    private var removalScheduled = false
-    private var bufferedReads: [NIOAny] = []
-
-    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-        bufferedReads.append(data)
-    }
-
-    func channelReadComplete(context: ChannelHandlerContext) {
-        // Suppress while buffering; a single readComplete is emitted after replay.
-    }
-
-    func flush(context: ChannelHandlerContext) {
-        if !removalScheduled {
-            removalScheduled = true
-            // Defer removal to the next event loop task. configureGRPCClientPipeline runs as a
-            // single synchronous event loop task, so this deferred task is guaranteed to run
-            // after that whole task completes (including ClientConnectionHandler being added).
-            context.eventLoop.assumeIsolatedUnsafeUnchecked().execute {
-                context.pipeline.syncOperations.removeHandler(self, promise: nil)
-            }
-        }
-        context.flush()
-    }
-
-    func removeHandler(context: ChannelHandlerContext, removalToken: ChannelHandlerContext.RemovalToken) {
-        var didRead = false
-        while !bufferedReads.isEmpty {
-            context.fireChannelRead(bufferedReads.removeFirst())
-            didRead = true
-        }
-        if didRead {
-            context.fireChannelReadComplete()
-        }
-        context.leavePipeline(removalToken: removalToken)
-    }
-
-    func channelInactive(context: ChannelHandlerContext) {
-        bufferedReads.removeAll()
-        context.fireChannelInactive()
-    }
-}
 
 /// A remote connection into the vminitd Linux guest agent via a port (vsock).
 /// Used to modify the runtime environment of the Linux sandbox.
 public struct Vminitd: Sendable {
+    public typealias Client = Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClient
+
     // Default vsock port that the agent and client use.
     public static let port: UInt32 = 1024
 
-    let client: Com_Apple_Containerization_Sandbox_V3_SandboxContext.Client<HTTP2ClientTransport.WrappedChannel>
-    private let grpcClient: GRPCClient<HTTP2ClientTransport.WrappedChannel>
-    private let connectionTask: Task<Void, Error>
+    let client: Client
 
-    public init(connection: FileHandle, group: any EventLoopGroup) throws {
-        let channel = try ClientBootstrap(group: group)
-            .channelInitializer { channel in
-                channel.eventLoop.makeCompletedFuture(withResultOf: {
-                    try channel.pipeline.syncOperations.addHandler(HTTP2ConnectBufferingHandler())
-                })
-            }
-            .withConnectedSocket(connection.fileDescriptor).wait()
-        let transport = HTTP2ClientTransport.WrappedChannel.wrapping(
-            channel: channel,
-        )
-        let grpcClient = GRPCClient(transport: transport)
-        self.grpcClient = grpcClient
-        self.client = Com_Apple_Containerization_Sandbox_V3_SandboxContext.Client(wrapping: self.grpcClient)
-        // Not very structured concurrency friendly, but we'd need to expose a way on the protocol to "run" the
-        // agent otherwise, which some agents might not even need.
-        self.connectionTask = Task {
-            try await grpcClient.runConnections()
-        }
+    public init(client: Client) {
+        self.client = client
+    }
+
+    public init(connection: FileHandle, group: EventLoopGroup) {
+        self.client = .init(connection: connection, group: group)
     }
 
     /// Close the connection to the guest agent.
     public func close() async throws {
-        self.grpcClient.beginGracefulShutdown()
-        try await self.connectionTask.value
+        try await client.close()
     }
 }
 
@@ -344,17 +265,17 @@ extension Vminitd: VirtualMachineAgent {
                 $0.containerID = containerID
             }
         }
-
-        var callOpts = GRPCCore.CallOptions.defaults
+        var callOpts: CallOptions?
         if let timeoutInSeconds {
-            callOpts.timeout = .seconds(timeoutInSeconds)
+            var copts = CallOptions()
+            copts.timeLimit = .timeout(.seconds(timeoutInSeconds))
+            callOpts = copts
         }
-
         do {
-            let resp = try await client.waitProcess(request, options: callOpts)
+            let resp = try await client.waitProcess(request, callOptions: callOpts)
             return ExitStatus(exitCode: resp.exitCode, exitedAt: resp.exitedAt.date)
         } catch {
-            if let err = error as? RPCError, err.code == .deadlineExceeded {
+            if let err = error as? GRPCError.RPCTimedOut {
                 throw ContainerizationError(
                     .timeout,
                     message: "failed to wait for process exit within timeout of \(timeoutInSeconds!) seconds",
@@ -541,7 +462,7 @@ extension Vminitd {
         mode: UInt32 = 0,
         createParents: Bool = false,
         isArchive: Bool = false,
-        onMetadata: @Sendable @escaping (CopyMetadata) -> Void = { _ in }
+        onMetadata: @Sendable (CopyMetadata) -> Void = { _ in }
     ) async throws {
         let request = Com_Apple_Containerization_Sandbox_V3_CopyRequest.with {
             $0.direction = direction
@@ -552,23 +473,21 @@ extension Vminitd {
             $0.isArchive = isArchive
         }
 
-        try await client.copy(
-            request,
-            onResponse: { stream in
-                for try await response in stream.messages {
-                    if !response.error.isEmpty {
-                        throw ContainerizationError(.internalError, message: "copy: \(response.error)")
-                    }
-                    switch response.status {
-                    case .metadata:
-                        onMetadata(CopyMetadata(isArchive: response.isArchive, totalSize: response.totalSize))
-                    case .complete:
-                        break
-                    case .UNRECOGNIZED(let value):
-                        throw ContainerizationError(.internalError, message: "copy: unrecognized response status \(value)")
-                    }
-                }
-            })
+        let stream = client.copy(request)
+
+        for try await response in stream {
+            if !response.error.isEmpty {
+                throw ContainerizationError(.internalError, message: "copy: \(response.error)")
+            }
+            switch response.status {
+            case .metadata:
+                onMetadata(CopyMetadata(isArchive: response.isArchive, totalSize: response.totalSize))
+            case .complete:
+                break
+            case .UNRECOGNIZED(let value):
+                throw ContainerizationError(.internalError, message: "copy: unrecognized response status \(value)")
+            }
+        }
     }
 }
 
@@ -590,6 +509,22 @@ extension Hosts {
                 }
             }
         }
+    }
+}
+
+extension Vminitd.Client {
+    public init(connection: FileHandle, group: EventLoopGroup) {
+        var config = ClientConnection.Configuration.default(
+            target: .connectedSocket(connection.fileDescriptor),
+            eventLoopGroup: group
+        )
+        config.connectionBackoff = nil
+        config.maximumReceiveMessageLength = Int(64.mib())
+        self = .init(channel: ClientConnection(configuration: config))
+    }
+
+    public func close() async throws {
+        try await self.channel.close().get()
     }
 }
 

@@ -71,7 +71,7 @@ package final class LocalOCILayoutClient: ContentClient {
 
             if let progress, let fileSize = fileManager.fileSize(atPath: filePath) {
                 await progress([
-                    ProgressEvent(event: "add-size", value: fileSize)
+                    .addSize(fileSize)
                 ])
             }
         } catch let error as NSError {
@@ -93,7 +93,7 @@ package final class LocalOCILayoutClient: ContentClient {
 
                 if let progress, let fileSize = fileManager.fileSize(atPath: filePath) {
                     await progress([
-                        ProgressEvent(event: "add-size", value: fileSize)
+                        .addSize(fileSize)
                     ])
                 }
             } catch {

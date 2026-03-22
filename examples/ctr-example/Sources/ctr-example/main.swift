@@ -35,7 +35,7 @@ struct CtrExample {
         var manager = try await ContainerManager(
             kernel: Kernel(path: URL(fileURLWithPath: kernelPath), platform: .linuxArm),
             initfsReference: initfsReference,
-            network: try ContainerManager.VmnetNetwork()
+            network: try VmnetNetwork()
         )
 
         let containerId = "ctr-example"

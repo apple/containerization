@@ -2895,12 +2895,12 @@ extension IntegrationSuite {
         let bs = try await bootstrap(id)
 
         let customMTU: UInt32 = 1400
-        var network = try ContainerManager.VmnetNetwork()
+        var network = try VmnetNetwork()
         defer {
-            try? network.release(id)
+            try? network.releaseInterface(id)
         }
 
-        guard let interface = try network.create(id, mtu: customMTU) else {
+        guard let interface = try network.createInterface(id, mtu: customMTU) else {
             throw IntegrationError.assert(msg: "failed to create network interface")
         }
 
@@ -3974,7 +3974,7 @@ extension IntegrationSuite {
         let id = "test-networking-disabled"
         let bs = try await bootstrap(id)
 
-        let network = try ContainerManager.VmnetNetwork()
+        let network = try VmnetNetwork()
         var manager = try ContainerManager(vmm: bs.vmm, network: network)
         defer {
             try? manager.delete(id)
@@ -4027,7 +4027,7 @@ extension IntegrationSuite {
         let id = "test-networking-enabled"
         let bs = try await bootstrap(id)
 
-        let network = try ContainerManager.VmnetNetwork()
+        let network = try VmnetNetwork()
         var manager = try ContainerManager(vmm: bs.vmm, network: network)
         defer {
             try? manager.delete(id)
@@ -4215,6 +4215,87 @@ extension IntegrationSuite {
         // When noNewPrivileges is not set, NoNewPrivs should be 0
         guard output.contains("NoNewPrivs:\t0") else {
             throw IntegrationError.assert(msg: "expected NoNewPrivs to be 0, got: \(output)")
+        }
+    }
+
+    func testWorkingDirCreated() async throws {
+        let id = "test-working-dir-created"
+        let bs = try await bootstrap(id)
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/pwd"]
+            config.process.workingDirectory = "/does/not/exist"
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let status = try await container.wait()
+            try await container.stop()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "process with non-existent workingDir failed: \(status)")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                throw IntegrationError.assert(msg: "failed to read stdout")
+            }
+
+            guard output == "/does/not/exist" else {
+                throw IntegrationError.assert(msg: "expected cwd '/does/not/exist', got '\(output)'")
+            }
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testWorkingDirExecCreated() async throws {
+        let id = "test-working-dir-exec-created"
+        let bs = try await bootstrap(id)
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/sleep", "1000"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let buffer = BufferWriter()
+            let exec = try await container.exec("cwd-exec") { config in
+                config.arguments = ["/bin/pwd"]
+                config.workingDirectory = "/a/b/c/d"
+                config.stdout = buffer
+            }
+
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "exec with non-existent workingDir failed: \(status)")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                throw IntegrationError.assert(msg: "failed to read stdout")
+            }
+
+            guard output == "/a/b/c/d" else {
+                throw IntegrationError.assert(msg: "expected cwd '/a/b/c/d', got '\(output)'")
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
         }
     }
 

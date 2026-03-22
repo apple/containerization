@@ -33,12 +33,12 @@ private struct NilGatewayInterface: Interface {
     }
 }
 
-private struct NilGatewayNetwork: ContainerManager.Network {
-    mutating func create(_ id: String) throws -> Interface? {
+private struct NilGatewayNetwork: Network {
+    mutating func createInterface(_ id: String) throws -> Interface? {
         NilGatewayInterface()
     }
 
-    mutating func release(_ id: String) throws {}
+    mutating func releaseInterface(_ id: String) throws {}
 }
 
 @Suite
@@ -103,7 +103,7 @@ struct ContainerManagerTests {
         let initfs = Mount.block(format: "ext4", source: initfsPath.path, destination: "/")
 
         // Use NilGatewayNetwork — with networking: true this would throw invalidState,
-        // but with networking: false the network's create() is never called.
+        // but with networking: false the network's createInterface() is never called.
         var manager = try ContainerManager(
             kernel: kernel,
             initfs: initfs,
@@ -126,7 +126,7 @@ struct ContainerManagerTests {
         fm.createFile(atPath: rootfsPath.path, contents: Data(), attributes: nil)
         let rootfs = Mount.block(format: "ext4", source: rootfsPath.path, destination: "/")
 
-        // With networking: false, NilGatewayNetwork.create() is never called,
+        // With networking: false, NilGatewayNetwork.createInterface() is never called,
         // so we should not get the "missing ipv4 gateway" error.
         // The container creation will fail for other reasons (dummy VMM), but the
         // configuration closure should see empty interfaces.
