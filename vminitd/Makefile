@@ -74,10 +74,7 @@ linux-sdk: swift
 	@rm $(SWIFT_SDK_PATH)
 
 .PHONY: macos-sdk
-macos-sdk: xcode
-
-.PHONY: xcode
-xcode:
+macos-sdk:
 	@echo "Please install the latest version of Xcode 26 and set the path for the active developer directory using \`sudo xcode-select -s <PATH_TO_XCODE>\`".
 
 .PHONY: clean
