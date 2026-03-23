@@ -97,4 +97,4 @@ clean:
 	@echo Cleaning the vminitd build files...
 	@rm -f ./bin/vminitd
 	@rm -f ./bin/vmexec
-	@$(SWIFT) package clean $(SWIFT_CONFIGURATION)
+	@rm -rf .build
