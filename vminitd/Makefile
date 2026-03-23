@@ -24,7 +24,8 @@ SWIFT_SDK_PATH := /tmp/$(notdir $(SWIFT_SDK_URL))
 SWIFTLY_URL := https://download.swift.org/swiftly/darwin/swiftly.pkg
 SWIFTLY_FILENAME := $(notdir $(SWIFTLY_URL))
 SWIFTLY_BIN_DIR ?= ~/.swiftly/bin
-BUILD_BIN_DIR := $(shell swift build -c $(BUILD_CONFIGURATION) $(SWIFT_CONFIGURATION) --show-bin-path)
+SWIFT := $(SWIFTLY_BIN_DIR)/swift
+BUILD_BIN_DIR := $(shell $(SWIFT) build -c $(BUILD_CONFIGURATION) $(SWIFT_CONFIGURATION) --show-bin-path)
 
 SYSTEM_TYPE := $(shell uname -s)
 ifeq ($(SYSTEM_TYPE),Darwin)
@@ -41,8 +42,8 @@ all:
 	@mkdir -p ./bin/
 	@rm -f ./bin/vminitd
 	@rm -f ./bin/vmexec
-	@swift --version
-	@swift build -c $(BUILD_CONFIGURATION) $(SWIFT_CONFIGURATION)
+	@$(SWIFT) --version
+	@$(SWIFT) build -c $(BUILD_CONFIGURATION) $(SWIFT_CONFIGURATION)
 	@install "$(BUILD_BIN_DIR)/vminitd" ./bin/
 	@install "$(BUILD_BIN_DIR)/vmexec" ./bin/
 
@@ -70,7 +71,7 @@ swift: swiftly
 linux-sdk: swift
 	@echo Installing Static Linux SDK...
 	@curl -L -o $(SWIFT_SDK_PATH) $(SWIFT_SDK_URL)
-	-@swift sdk install $(SWIFT_SDK_PATH)
+	-@$(SWIFT) sdk install $(SWIFT_SDK_PATH)
 	@rm $(SWIFT_SDK_PATH)
 
 .PHONY: macos-sdk
@@ -96,4 +97,4 @@ clean:
 	@echo Cleaning the vminitd build files...
 	@rm -f ./bin/vminitd
 	@rm -f ./bin/vmexec
-	@swift package clean $(SWIFT_CONFIGURATION)
+	@$(SWIFT) package clean $(SWIFT_CONFIGURATION)
