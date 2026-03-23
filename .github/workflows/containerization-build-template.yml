@@ -35,8 +35,8 @@ jobs:
 
       - name: Activate Swiftly
         run: |
-          source /opt/swiftly/env.sh
-          cat /opt/swiftly/env.sh
+          source ~/.swiftly/env.sh
+          cat ~/.swiftly/env.sh
 
       - name: Check formatting
         run: | 
@@ -59,7 +59,7 @@ jobs:
 
       - name: Make vminitd image
         run: |
-          source /opt/swiftly/env.sh
+          source ~/.swiftly/env.sh
           make -C vminitd swift linux-sdk
           make init
         env:
