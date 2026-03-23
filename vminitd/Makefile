@@ -74,12 +74,7 @@ linux-sdk: swift
 	@rm $(SWIFT_SDK_PATH)
 
 .PHONY: macos-sdk
-macos-sdk:
-	@if [ $(MACOS_MAJOR) -gt 15 ] && [ "$(MACOS_RELEASE_TYPE)" = "" ]; then \
-	  "$(MAKE)" xcode; \
-	else \
-	  "$(MAKE)" xcode; \
-	fi
+macos-sdk: xcode
 
 .PHONY: xcode
 xcode:
