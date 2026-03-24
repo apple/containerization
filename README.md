@@ -1,4 +1,7 @@
-# Containerization
+<h1>
+  <img alt="Containerization logo" src="./assets/Containerization-Logo.png" width="70" valign="middle">
+  &nbsp;Containerization
+</h1>
 
 The Containerization package allows applications to use Linux containers.
 Containerization is written in [Swift](https://www.swift.org) and uses [Virtualization.framework](https://developer.apple.com/documentation/virtualization) on Apple silicon.
