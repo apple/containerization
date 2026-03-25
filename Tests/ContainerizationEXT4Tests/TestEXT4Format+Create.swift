@@ -78,3 +78,33 @@ struct Ext4FormatCreateTests {
         }  // should create /parent automatically
     }
 }
+
+@Suite(.serialized)
+struct NegativeTimestampRoundtripTests {
+    private let fsPath = FilePath(
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("ext4-pre1970-roundtrip.img", isDirectory: false))
+    private let apollo11MoonLanding: Date = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f.date(from: "1969-07-20T20:17:39.9Z")!
+    }()
+
+    @Test func encodeNegativeTimestamp() throws {
+        let formatter = try EXT4.Formatter(fsPath, minDiskSize: 32.kib())
+        defer { try? formatter.close() }
+        let ts = FileTimestamps(access: apollo11MoonLanding, modification: apollo11MoonLanding, creation: apollo11MoonLanding)
+        try formatter.create(path: FilePath("/file"), mode: EXT4.Inode.Mode(.S_IFREG, 0o755), ts: ts, buf: nil)
+    }
+
+    @Test func decodeNegativeTimestamp() throws {
+        let reader = try EXT4.EXT4Reader(blockDevice: fsPath)
+        let (_, inode) = try reader.stat(FilePath("/file"))
+        let mtime = Date(fsTimestamp: UInt64(inode.mtime) | (UInt64(inode.mtimeExtra) << 32))
+        let atime = Date(fsTimestamp: UInt64(inode.atime) | (UInt64(inode.atimeExtra) << 32))
+        let crtime = Date(fsTimestamp: UInt64(inode.crtime) | (UInt64(inode.crtimeExtra) << 32))
+        #expect(mtime == apollo11MoonLanding)
+        #expect(atime == apollo11MoonLanding)
+        #expect(crtime == apollo11MoonLanding)
+    }
+}
