@@ -48,7 +48,7 @@ all:
 	@install "$(BUILD_BIN_DIR)/vmexec" ./bin/
 
 .PHONY: cross-prep
-cross-prep: linux-sdk macos-sdk
+cross-prep: linux-sdk
 
 .PHONY: swiftly
 swiftly:
@@ -73,24 +73,6 @@ linux-sdk: swift
 	@curl -L -o $(SWIFT_SDK_PATH) $(SWIFT_SDK_URL)
 	-@$(SWIFT) sdk install $(SWIFT_SDK_PATH)
 	@rm $(SWIFT_SDK_PATH)
-
-.PHONY: macos-sdk
-macos-sdk:
-	# Consider switching back to `xcode-cltools`, when possible.
-	@if [ $(MACOS_MAJOR) -gt 15 ] && [ "$(MACOS_RELEASE_TYPE)" = "" ]; then \
-	  "$(MAKE)" xcode; \
-	else \
-	  "$(MAKE)" xcode; \
-	fi
-
-.PHONY: xcode-cltools
-xcode-cltools:
-	@echo Activating Xcode Command Line Tools...
-	@sudo xcode-select --switch /Library/Developer/CommandLineTools
-
-.PHONY: xcode
-xcode:
-	@echo "Please install the latest version of Xcode 26 and set the path for the active developer directory using \`sudo xcode-select -s <PATH_TO_XCODE>\`".
 
 .PHONY: clean
 clean:
