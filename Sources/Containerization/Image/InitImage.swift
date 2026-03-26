@@ -53,10 +53,8 @@ extension InitImage {
             var result = try writer.create(from: rootfs)
             let layerDescriptor = Descriptor(mediaType: ContainerizationOCI.MediaTypes.imageLayerGzip, digest: result.digest.digestString, size: result.size)
 
-            // TODO: compute and fill in the correct diffID for the above layer
-            // We currently put in the sha of the fully compressed layer, this needs to be replaced with
-            // the sha of the uncompressed layer.
-            let rootfsConfig = ContainerizationOCI.Rootfs(type: "layers", diffIDs: [result.digest.digestString])
+            let diffID = try ContentWriter.diffID(of: rootfs)
+            let rootfsConfig = ContainerizationOCI.Rootfs(type: "layers", diffIDs: [diffID.digestString])
             let runtimeConfig = ContainerizationOCI.ImageConfig(labels: labels)
             let imageConfig = ContainerizationOCI.Image(architecture: platform.architecture, os: platform.os, config: runtimeConfig, rootfs: rootfsConfig)
             result = try writer.create(from: imageConfig)
