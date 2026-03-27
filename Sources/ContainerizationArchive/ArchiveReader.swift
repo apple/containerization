@@ -125,7 +125,7 @@ public final class ArchiveReader {
     }
 
     /// Decompress a zstd file to a temporary location
-    private static func decompressZstd(_ source: URL) throws -> URL {
+    public static func decompressZstd(_ source: URL) throws -> URL {
         guard let tempDir = createTemporaryDirectory(baseName: "zstd-decompress") else {
             throw ArchiveError.failedToDetectFormat
         }
@@ -148,13 +148,19 @@ public final class ArchiveReader {
         return tempFile
     }
 
+    /// Clean up the temporary directory created by `decompressZstd`.
+    /// The decompressed file is placed inside a unique temporary directory,
+    /// so removing that directory cleans up everything.
+    public static func cleanUpDecompressedZstd(_ file: URL) {
+        try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
+    }
+
     deinit {
         archive_read_free(underlying)
         try? fileHandle?.close()
 
-        // Clean up temp decompressed file
         if let tempFile = tempDecompressedFile {
-            try? FileManager.default.removeItem(at: tempFile.deletingLastPathComponent())
+            Self.cleanUpDecompressedZstd(tempFile)
         }
     }
 }

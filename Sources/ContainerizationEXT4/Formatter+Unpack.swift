@@ -25,7 +25,83 @@ private typealias Hardlinks = [FilePath: FilePath]
 
 extension EXT4.Formatter {
     /// Unpack the provided archive on to the ext4 filesystem.
-    public func unpack(reader: ArchiveReader, progress: ProgressHandler? = nil) throws {
+    public func unpack(reader: ArchiveReader, progress: ProgressHandler? = nil) async throws {
+        try await self.unpackEntries(reader: reader, progress: progress)
+    }
+
+    /// Unpack an archive at the source URL on to the ext4 filesystem.
+    public func unpack(
+        source: URL,
+        format: ContainerizationArchive.Format = .paxRestricted,
+        compression: ContainerizationArchive.Filter = .gzip,
+        progress: ProgressHandler? = nil
+    ) async throws {
+        // For zstd, decompress once and reuse for both passes to avoid double decompression.
+        let fileToRead: URL
+        let readerFilter: ContainerizationArchive.Filter
+        var decompressedFile: URL?
+        if progress != nil && compression == .zstd {
+            let decompressed = try ArchiveReader.decompressZstd(source)
+            fileToRead = decompressed
+            readerFilter = .none
+            decompressedFile = decompressed
+        } else {
+            fileToRead = source
+            readerFilter = compression
+        }
+        defer {
+            if let decompressedFile {
+                ArchiveReader.cleanUpDecompressedZstd(decompressedFile)
+            }
+        }
+
+        if let progress {
+            // First pass: scan headers to get totals (fast, metadata only)
+            let totals = try Self.scanArchiveHeaders(format: format, filter: readerFilter, file: fileToRead)
+            var totalEvents: [ProgressEvent] = []
+            if totals.size > 0 {
+                totalEvents.append(.addTotalSize(totals.size))
+            }
+            if totals.items > 0 {
+                totalEvents.append(.addTotalItems(totals.items))
+            }
+            if !totalEvents.isEmpty {
+                await progress(totalEvents)
+            }
+        }
+
+        // Unpack pass
+        let reader = try ArchiveReader(
+            format: format,
+            filter: readerFilter,
+            file: fileToRead
+        )
+        try await self.unpackEntries(reader: reader, progress: progress)
+    }
+
+    /// Scan archive headers to count the total number of bytes in regular files
+    /// and the total number of entries.
+    public static func scanArchiveHeaders(
+        format: ContainerizationArchive.Format,
+        filter: ContainerizationArchive.Filter,
+        file: URL
+    ) throws -> (size: Int64, items: Int) {
+        let reader = try ArchiveReader(format: format, filter: filter, file: file)
+        var totalSize: Int64 = 0
+        var totalItems: Int = 0
+        for (entry, _) in reader.makeStreamingIterator() {
+            try Task.checkCancellation()
+            guard entry.path != nil else { continue }
+            totalItems += 1
+            if entry.fileType == .regular, entry.hardlink == nil, let size = entry.size {
+                totalSize += Int64(size)
+            }
+        }
+        return (size: totalSize, items: totalItems)
+    }
+
+    /// Core unpack logic. When `progress` is nil the handler calls are skipped.
+    private func unpackEntries(reader: ArchiveReader, progress: ProgressHandler?) async throws {
         var hardlinks: Hardlinks = [:]
         // Allocate a single 128KiB reusable buffer for all files to minimize allocations
         // and reduce the number of read calls to libarchive.
@@ -39,35 +115,33 @@ extension EXT4.Formatter {
                 continue
             }
 
-            defer {
-                // Count the number of entries
-                if let progress {
-                    Task {
-                        await progress([
-                            .addItems(1)
-                        ])
-                    }
-                }
-            }
-
             pathEntry = preProcessPath(s: pathEntry)
             let path = FilePath(pathEntry)
 
             if path.base.hasPrefix(".wh.") {
                 if path.base == ".wh..wh..opq" {  // whiteout directory
                     try self.unlink(path: path.dir, directoryWhiteout: true)
+                    if let progress {
+                        await progress([.addItems(1)])
+                    }
                     continue
                 }
                 let startIndex = path.base.index(path.base.startIndex, offsetBy: ".wh.".count)
                 let filePath = String(path.base[startIndex...])
                 let dir: FilePath = path.dir
                 try self.unlink(path: dir.join(filePath))
+                if let progress {
+                    await progress([.addItems(1)])
+                }
                 continue
             }
 
             if let hardlink = entry.hardlink {
                 let hl = preProcessPath(s: hardlink)
                 hardlinks[path] = FilePath(hl)
+                if let progress {
+                    await progress([.addItems(1)])
+                }
                 continue
             }
             let ts = FileTimestamps(
@@ -84,13 +158,8 @@ extension EXT4.Formatter {
                     uid: entry.owner,
                     gid: entry.group, xattrs: entry.xattrs, fileBuffer: reusableBuffer)
 
-                // Count the size of files
                 if let progress, let size = entry.size {
-                    Task {
-                        await progress([
-                            .addSize(Int64(size))
-                        ])
-                    }
+                    await progress([.addSize(Int64(size))])
                 }
             case .symbolicLink:
                 var symlinkTarget: FilePath?
@@ -102,7 +171,14 @@ extension EXT4.Formatter {
                     uid: entry.owner,
                     gid: entry.group, xattrs: entry.xattrs)
             default:
+                if let progress {
+                    await progress([.addItems(1)])
+                }
                 continue
+            }
+
+            if let progress {
+                await progress([.addItems(1)])
             }
         }
         guard hardlinks.acyclic else {
@@ -113,21 +189,6 @@ extension EXT4.Formatter {
                 try self.link(link: path, target: resolvedTarget)
             }
         }
-    }
-
-    /// Unpack an archive at the source URL on to the ext4 filesystem.
-    public func unpack(
-        source: URL,
-        format: ContainerizationArchive.Format = .paxRestricted,
-        compression: ContainerizationArchive.Filter = .gzip,
-        progress: ProgressHandler? = nil
-    ) throws {
-        let reader = try ArchiveReader(
-            format: format,
-            filter: compression,
-            file: source
-        )
-        try self.unpack(reader: reader, progress: progress)
     }
 
     private func preProcessPath(s: String) -> String {
