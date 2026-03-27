@@ -671,7 +671,7 @@ extension LinuxContainer {
                         ))
                 }
 
-                spec.mounts = mounts
+                spec.mounts = sortMountsByDestinationDepth(mounts)
 
                 let stdio = IOUtil.setup(
                     portAllocator: self.hostVsockPorts,
@@ -1289,6 +1289,16 @@ extension AttachedFilesystem {
             destination: self.destination,
             options: self.options
         )
+    }
+}
+
+/// Sort mounts by the depth of their destination path. This ensures that
+/// higher level mounts don't shadow other mounts. For example, if a user
+/// specifies mounts for `/tmp/foo/bar` and `/tmp`, sorting by depth ensures
+/// `/tmp` is mounted first without shadowing `/tmp/foo/bar`.
+func sortMountsByDestinationDepth(_ mounts: [ContainerizationOCI.Mount]) -> [ContainerizationOCI.Mount] {
+    mounts.sorted { a, b in
+        a.destination.split(separator: "/").count < b.destination.split(separator: "/").count
     }
 }
 
