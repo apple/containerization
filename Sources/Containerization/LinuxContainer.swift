@@ -22,6 +22,7 @@ import ContainerizationOCI
 import Foundation
 import Logging
 import Synchronization
+import SystemPackage
 
 import struct ContainerizationOS.Terminal
 
@@ -671,7 +672,7 @@ extension LinuxContainer {
                         ))
                 }
 
-                spec.mounts = mounts
+                spec.mounts = cleanAndSortMounts(mounts)
 
                 let stdio = IOUtil.setup(
                     portAllocator: self.hostVsockPorts,
@@ -1289,6 +1290,26 @@ extension AttachedFilesystem {
             destination: self.destination,
             options: self.options
         )
+    }
+}
+
+/// Normalize mount destinations via ``FilePath/lexicallyNormalized()`` and
+/// sort mounts by the depth of their destination path. This ensures that
+/// higher level mounts don't shadow other mounts. For example, if a user
+/// specifies mounts for `/tmp/foo/bar` and `/tmp`, sorting by depth ensures
+/// `/tmp` is mounted first without shadowing `/tmp/foo/bar`.
+func cleanAndSortMounts(_ mounts: [ContainerizationOCI.Mount]) -> [ContainerizationOCI.Mount] {
+    var mounts = mounts
+    for i in mounts.indices {
+        mounts[i].destination = FilePath(mounts[i].destination).lexicallyNormalized().string
+    }
+    return sortMountsByDestinationDepth(mounts)
+}
+
+/// Sort mounts by the depth of their destination path.
+func sortMountsByDestinationDepth(_ mounts: [ContainerizationOCI.Mount]) -> [ContainerizationOCI.Mount] {
+    mounts.sorted { a, b in
+        a.destination.split(separator: "/").count < b.destination.split(separator: "/").count
     }
 }
 
