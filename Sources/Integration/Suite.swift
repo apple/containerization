@@ -376,6 +376,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container noNewPrivileges exec", testNoNewPrivilegesExec),
                 Test("container workingDir created", testWorkingDirCreated),
                 Test("container workingDir exec created", testWorkingDirExecCreated),
+                Test("container mount sort by depth", testMountsSortedByDepth),
 
                 // Pods
                 Test("pod single container", testPodSingleContainer),
