@@ -37,4 +37,18 @@ int CZ_pidfd_getfd(int pidfd, int targetfd, unsigned int flags);
 
 int CZ_prctl_set_no_new_privs();
 
+struct CZ_sock_filter {
+  unsigned short code;
+  unsigned char jt;
+  unsigned char jf;
+  unsigned int k;
+};
+
+struct CZ_sock_fprog {
+  unsigned short len;
+  struct CZ_sock_filter *filter;
+};
+
+int CZ_seccomp_set_mode_filter(unsigned int flags, struct CZ_sock_fprog *prog);
+
 #endif

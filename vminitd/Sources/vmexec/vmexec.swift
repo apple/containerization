@@ -23,6 +23,7 @@ import ArgumentParser
 import ContainerizationError
 import ContainerizationOCI
 import ContainerizationOS
+import ContainerizationSeccomp
 import FoundationEssentials
 import LCShim
 import Logging
@@ -64,32 +65,34 @@ extension App {
         }
     }
 
-    static func exec(process: ContainerizationOCI.Process, currentEnv: [String]? = nil) throws {
+    static func resolveExecutable(process: ContainerizationOCI.Process, currentEnv: [String]? = nil) throws -> URL {
         guard !process.args.isEmpty else {
             throw App.Errno(stage: "exec", info: "process args cannot be empty")
         }
 
         let executableArg = process.args[0]
-        let resolvedExecutable: URL
 
-        if executableArg.contains("/") {
-            if executableArg.hasPrefix("/") {
-                resolvedExecutable = URL(fileURLWithPath: executableArg)
-            } else {
-                resolvedExecutable = URL(fileURLWithPath: process.cwd).appendingPathComponent(executableArg).standardized
-            }
-
-            guard FileManager.default.fileExists(atPath: resolvedExecutable.path) else {
-                throw App.Failure(message: "failed to find target executable \(executableArg)")
-            }
-        } else {
+        guard executableArg.contains("/") else {
             let path = Path.findPath(currentEnv) ?? Path.getCurrentPath()
             guard let found = Path.lookPath(executableArg, path: path) else {
                 throw App.Failure(message: "failed to find target executable \(executableArg)")
             }
-            resolvedExecutable = found
+            return found
+        }
+        let resolved: URL
+        if executableArg.hasPrefix("/") {
+            resolved = URL(fileURLWithPath: executableArg)
+        } else {
+            resolved = URL(fileURLWithPath: process.cwd).appendingPathComponent(executableArg).standardized
         }
 
+        guard FileManager.default.fileExists(atPath: resolved.path) else {
+            throw App.Failure(message: "failed to find target executable \(executableArg)")
+        }
+        return resolved
+    }
+
+    static func exec(process: ContainerizationOCI.Process, resolvedExecutable: URL) throws {
         let executable = strdup(resolvedExecutable.path)
         var argv = process.args.map { strdup($0) }
         argv += [nil]
@@ -247,6 +250,28 @@ extension App {
         guard process.noNewPrivileges else { return }
         guard CZ_prctl_set_no_new_privs() == 0 else {
             throw App.Errno(stage: "prctl(PR_SET_NO_NEW_PRIVS)")
+        }
+    }
+
+    static func setSeccomp(seccomp: ContainerizationOCI.LinuxSeccomp) throws {
+
+        let bpfInstructions = try SeccompCompiler.compileFromOCI(config: seccomp)
+        guard !bpfInstructions.isEmpty else { return }
+
+        let flags = SeccompCompiler.mapFlags(seccomp.flags)
+
+        let filters = bpfInstructions.map { inst in
+            CZ_sock_filter(code: inst.code, jt: inst.jt, jf: inst.jf, k: inst.k)
+        }
+
+        try filters.withUnsafeBufferPointer { buffer in
+            var prog = CZ_sock_fprog(
+                len: UInt16(buffer.count),
+                filter: UnsafeMutablePointer(mutating: buffer.baseAddress!)
+            )
+            guard CZ_seccomp_set_mode_filter(flags, &prog) == 0 else {
+                throw App.Errno(stage: "seccomp(SET_MODE_FILTER)", info: "failed to apply seccomp filter")
+            }
         }
     }
 

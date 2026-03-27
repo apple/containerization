@@ -4344,4 +4344,310 @@ extension IntegrationSuite {
             throw error
         }
     }
+
+    func testSeccompBlockSyscall() async throws {
+        let id = "test-seccomp-block-syscall"
+
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            // Block mkdirat with EPERM.
+            config.process.arguments = ["mkdir", "/tmp/seccomp-test"]
+            config.bootLog = bs.bootLog
+            var seccomp = SeccompProfile(defaultAction: .allow)
+            seccomp.syscalls = [SeccompProfile.Rule(syscalls: ["mkdirat"], action: .errno(1))]
+            config.seccomp = seccomp
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode != 0 else {
+            throw IntegrationError.assert(msg: "expected non-zero exit code when mkdirat is blocked by seccomp")
+        }
+    }
+
+    func testSeccompBlockSyscallExplicitErrno() async throws {
+        let id = "test-seccomp-block-explicit-errno"
+
+        let bs = try await bootstrap(id)
+        let errBuffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            // Block mkdirat with errnoRet=100 (ENETDOWN). Verify the specific
+            // errno value passes through by checking for "Network is down".
+            config.process.arguments = ["sh", "-c", "mkdir /tmp/seccomp-test"]
+            config.process.noNewPrivileges = true
+            config.process.stderr = errBuffer
+            config.bootLog = bs.bootLog
+            var seccomp = SeccompProfile(defaultAction: .allow)
+            seccomp.syscalls = [SeccompProfile.Rule(syscalls: ["mkdirat"], action: .errno(100))]
+            config.seccomp = seccomp
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode != 0 else {
+            throw IntegrationError.assert(msg: "expected non-zero exit code when mkdirat is blocked by seccomp")
+        }
+
+        let stderr = String(data: errBuffer.data, encoding: .utf8) ?? ""
+        guard stderr.contains("Network is down") else {
+            throw IntegrationError.assert(msg: "expected 'Network is down' (ENETDOWN) in stderr, got: \(stderr)")
+        }
+    }
+
+    func testSeccompAllowList() async throws {
+        let id = "test-seccomp-allow-list"
+
+        let bs = try await bootstrap(id)
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["echo", "seccomp-ok"]
+            config.process.noNewPrivileges = true
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+            config.seccomp = SeccompProfile(defaultAction: .allow)
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        guard let output = String(data: buffer.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+        }
+
+        guard output.contains("seccomp-ok") else {
+            throw IntegrationError.assert(msg: "expected 'seccomp-ok' in output, got: \(output)")
+        }
+    }
+
+    func testSeccompKillProcess() async throws {
+        let id = "test-seccomp-kill-process"
+
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            // Block mkdirat with KILL_PROCESS. The kernel sends SIGSYS (31),
+            // which the runtime reports as exit code 128 + 31 = 159.
+            config.process.arguments = ["mkdir", "/tmp/seccomp-test"]
+            config.process.noNewPrivileges = true
+            config.bootLog = bs.bootLog
+            var seccomp = SeccompProfile(defaultAction: .allow)
+            seccomp.syscalls = [SeccompProfile.Rule(syscalls: ["mkdirat"], action: .killProcess)]
+            config.seccomp = seccomp
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        // SECCOMP_RET_KILL_PROCESS sends SIGSYS (31). Exit code = 128 + 31 = 159.
+        let expectedExitCode: Int32 = 128 + 31
+        guard status.exitCode == expectedExitCode else {
+            throw IntegrationError.assert(msg: "expected exit code \(expectedExitCode) (SIGSYS), got \(status.exitCode)")
+        }
+    }
+
+    func testSeccompExec() async throws {
+        let id = "test-seccomp-exec"
+
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "30"]
+            config.process.noNewPrivileges = true
+            config.bootLog = bs.bootLog
+            var seccomp = SeccompProfile(defaultAction: .allow)
+            seccomp.syscalls = [SeccompProfile.Rule(syscalls: ["mkdirat"], action: .errno(1))]
+            config.seccomp = seccomp
+        }
+
+        try await container.create()
+        try await container.start()
+
+        do {
+            let exec = try await container.exec("exec-seccomp") { process in
+                process.arguments = ["mkdir", "/tmp/seccomp-test"]
+            }
+            try await exec.start()
+            let execStatus = try await exec.wait()
+            try await exec.delete()
+
+            guard execStatus.exitCode != 0 else {
+                throw IntegrationError.assert(msg: "expected non-zero exit code for exec when mkdirat is blocked")
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testSeccompOCIDefaultCapabilityGatedRules() async throws {
+        let id = "test-seccomp-ocidefault-caps"
+
+        let bs = try await bootstrap(id)
+
+        // Without CAP_SYS_ADMIN: mount is not in the seccomp allowlist.
+        // Run mount directly — seccomp returns EPERM, mount exits non-zero.
+        let denied = try LinuxContainer("\(id)-denied", rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["mount", "-t", "tmpfs", "tmpfs", "/tmp"]
+            config.process.noNewPrivileges = true
+            config.process.capabilities = .defaultOCICapabilities
+            config.bootLog = bs.bootLog
+            config.seccomp = .defaultProfile
+        }
+
+        try await denied.create()
+        try await denied.start()
+        var status = try await denied.wait()
+        try await denied.stop()
+
+        guard status.exitCode != 0 else {
+            throw IntegrationError.assert(msg: "expected mount to fail without CAP_SYS_ADMIN")
+        }
+
+        // With CAP_SYS_ADMIN: mount is added to the seccomp allowlist
+        // and the process has the kernel capability to perform it.
+        let allowed = try LinuxContainer("\(id)-allowed", rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["mount", "-t", "tmpfs", "tmpfs", "/tmp"]
+            config.process.noNewPrivileges = true
+            config.process.capabilities = LinuxCapabilities(capabilities: [.sysAdmin])
+            config.bootLog = bs.bootLog
+            config.seccomp = .defaultProfile
+        }
+
+        try await allowed.create()
+        try await allowed.start()
+        status = try await allowed.wait()
+        try await allowed.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "expected mount to succeed with CAP_SYS_ADMIN, got exit code \(status.exitCode)")
+        }
+    }
+
+    func testSeccompLogAction() async throws {
+        let id = "test-seccomp-log"
+
+        let bs = try await bootstrap(id)
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            // Log mkdirat via SECCOMP_RET_LOG — the syscall succeeds but
+            // the kernel writes an audit entry to the ring buffer.
+            // Run mkdir to trigger it, then dmesg to read the log.
+            config.process.arguments = ["sleep", "30"]
+            config.bootLog = bs.bootLog
+            var seccomp = SeccompProfile(defaultAction: .allow)
+            seccomp.syscalls = [SeccompProfile.Rule(syscalls: ["mkdirat"], action: .log)]
+            config.seccomp = seccomp
+        }
+
+        try await container.create()
+        try await container.start()
+
+        do {
+            // Trigger the logged syscall.
+            let mkdirExec = try await container.exec("exec-mkdir") { process in
+                process.arguments = ["mkdir", "/tmp/seccomp-log-test"]
+            }
+            try await mkdirExec.start()
+            let mkdirStatus = try await mkdirExec.wait()
+            try await mkdirExec.delete()
+
+            // mkdir should succeed. SECCOMP_RET_LOG allows the syscall.
+            guard mkdirStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "expected mkdir to succeed with log action, got exit code \(mkdirStatus.exitCode)")
+            }
+
+            let dmesgExec = try await container.exec("exec-dmesg") { process in
+                process.arguments = ["dmesg"]
+                process.capabilities = LinuxCapabilities(capabilities: [.syslog])
+                process.stdout = buffer
+            }
+            try await dmesgExec.start()
+            let dmesgStatus = try await dmesgExec.wait()
+            try await dmesgExec.delete()
+
+            guard dmesgStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "dmesg failed with exit code \(dmesgStatus.exitCode)")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert dmesg output to UTF8")
+            }
+
+            // type=1326 is AUDIT_SECCOMP, syscall=34 is mkdirat (specifically on aarch64).
+            guard output.contains("type=1326") && output.contains("syscall=34") else {
+                throw IntegrationError.assert(msg: "expected seccomp audit log for mkdirat (type=1326 syscall=34), got: \(output.suffix(500))")
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testSeccompSyscallByNumber() async throws {
+        let id = "test-seccomp-syscall-number"
+
+        let bs = try await bootstrap(id)
+
+        // Block mkdirat by name.
+        let byName = try LinuxContainer("\(id)-name", rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["mkdir", "/tmp/seccomp-test"]
+            config.process.noNewPrivileges = true
+            config.bootLog = bs.bootLog
+            var seccomp = SeccompProfile(defaultAction: .allow)
+            seccomp.syscalls = [SeccompProfile.Rule(syscalls: [.name("mkdirat")], action: .errno(1))]
+            config.seccomp = seccomp
+        }
+
+        try await byName.create()
+        try await byName.start()
+        var status = try await byName.wait()
+        try await byName.stop()
+
+        guard status.exitCode != 0 else {
+            throw IntegrationError.assert(msg: "expected mkdir to fail when blocked by name")
+        }
+
+        // Block mkdirat by raw number (34).
+        let byNumber = try LinuxContainer("\(id)-number", rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["mkdir", "/tmp/seccomp-test"]
+            config.process.noNewPrivileges = true
+            config.bootLog = bs.bootLog
+            var seccomp = SeccompProfile(defaultAction: .allow)
+            seccomp.syscalls = [SeccompProfile.Rule(syscalls: [.number(34)], action: .errno(1))]
+            config.seccomp = seccomp
+        }
+
+        try await byNumber.create()
+        try await byNumber.start()
+        status = try await byNumber.wait()
+        try await byNumber.stop()
+
+        guard status.exitCode != 0 else {
+            throw IntegrationError.assert(msg: "expected mkdir to fail when blocked by number (34)")
+        }
+    }
 }
