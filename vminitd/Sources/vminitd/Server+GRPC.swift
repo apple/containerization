@@ -462,7 +462,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
                 return []
             }
             let destURL = URL(fileURLWithPath: path)
-            try FileManager.default.createDirectory(at: destURL, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: destURL, withIntermediateDirectories: request.createParents)
 
             let fileHandle = FileHandle(fileDescriptor: sockFd, closeOnDealloc: false)
             let reader = try ArchiveReader(format: .pax, filter: .gzip, fileHandle: fileHandle)
