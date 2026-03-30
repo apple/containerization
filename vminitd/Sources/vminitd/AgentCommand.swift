@@ -67,7 +67,7 @@ struct AgentCommand: AsyncParsableCommand {
 
         signal(SIGPIPE, SIG_IGN)
 
-        log.info("vminitd booting")
+        log.info("vminitd booting", metadata: ["version": "\(Application.configuration.version)"])
 
         // Set of mounts necessary to be mounted prior to taking any RPCs.
         // 1. /proc as the sysctl rpc wouldn't make sense if it wasn't there (NOTE: This is done before this method
