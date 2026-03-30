@@ -177,10 +177,13 @@ extension EXT4 {
             }
             var attributes = self.blockAttributes
             attributes.sort(by: {
-                if ($0.index < $1.index) || ($0.name.count < $1.name.count) || ($0.name < $1.name) {
-                    return true
+                if $0.index != $1.index {
+                    return $0.index < $1.index
                 }
-                return false
+                if $0.name.count != $1.name.count {
+                    return $0.name.count < $1.name.count
+                }
+                return $0.name < $1.name
             })
             try Self.write(buffer: &buffer, attrs: attributes, start: UInt16(idx), delta: UInt16(idx), inline: false)
         }
