@@ -15,7 +15,6 @@
 //===----------------------------------------------------------------------===//
 
 import ContainerizationExtras
-import Foundation
 
 struct SocketType {
     static let SOCK_RAW: Int32 = 3
