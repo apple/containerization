@@ -14,8 +14,6 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-import Foundation
-
 /// `Timeout` contains helpers to run an operation and error out if
 /// the operation does not finish within a provided time.
 public struct Timeout {

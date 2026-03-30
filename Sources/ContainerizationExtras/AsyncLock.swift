@@ -14,7 +14,6 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-import Foundation
 import Logging
 
 /// `AsyncLock` provides a familiar locking API, with the main benefit being that it

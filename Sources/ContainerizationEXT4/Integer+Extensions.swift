@@ -14,8 +14,6 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-import Foundation
-
 extension UInt64 {
     public var lo: UInt32 {
         UInt32(self & 0xffff_ffff)

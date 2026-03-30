@@ -14,7 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-import Foundation
+import CoreFoundation
 
 // takes a pointer and converts its contents to native endian bytes
 public func withUnsafeLittleEndianBytes<T, Result>(of value: T, body: (UnsafeRawBufferPointer) throws -> Result)

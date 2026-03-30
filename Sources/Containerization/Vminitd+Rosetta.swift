@@ -15,7 +15,6 @@
 //===----------------------------------------------------------------------===//
 
 import ContainerizationOS
-import Foundation
 
 extension Vminitd {
     /// Enable Rosetta's x86_64 emulation.
