@@ -241,7 +241,7 @@ extension EXT4 {
                 }
             }
 
-            guard inodeNumber > FirstInode else {
+            guard inodeNumber >= FirstInode else {
                 // Free the inodes and the blocks related to the inode only if its valid
                 return
             }
