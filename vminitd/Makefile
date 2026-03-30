@@ -14,6 +14,9 @@
 
 BUILD_CONFIGURATION ?= debug
 WARNINGS_AS_ERRORS ?= true
+export GIT_COMMIT := $(shell git rev-parse HEAD)
+export GIT_TAG := $(shell git describe --tags --exact-match 2>/dev/null || echo "")
+export BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 SWIFT_WARNING_CONFIG := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors)
 SWIFT_CONFIGURATION := --swift-sdk aarch64-swift-linux-musl $(SWIFT_WARNING_CONFIG) -Xlinker -s --disable-automatic-resolution
 

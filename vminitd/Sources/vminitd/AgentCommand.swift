@@ -15,6 +15,7 @@
 //===----------------------------------------------------------------------===//
 
 import ArgumentParser
+import CVersion
 import Cgroup
 import Containerization
 import ContainerizationError
@@ -67,7 +68,14 @@ struct AgentCommand: AsyncParsableCommand {
 
         signal(SIGPIPE, SIG_IGN)
 
-        log.info("vminitd booting", metadata: ["version": "\(Application.configuration.version)"])
+        let gitCommit = String(cString: CZ_get_git_commit())
+        let gitTag = String(cString: CZ_get_git_tag())
+        let buildTime = String(cString: CZ_get_build_time())
+        var metadata: Logger.Metadata = ["commit": "\(gitCommit)", "built": "\(buildTime)"]
+        if !gitTag.isEmpty {
+            metadata["tag"] = "\(gitTag)"
+        }
+        log.info("vminitd booting", metadata: metadata)
 
         // Set of mounts necessary to be mounted prior to taking any RPCs.
         // 1. /proc as the sysctl rpc wouldn't make sense if it wasn't there (NOTE: This is done before this method
