@@ -235,7 +235,7 @@ extension EXT4 {
                 // the file we are deleting is a hardlink, decrement the link count
                 let linkedInodePtr = self.inodes[Int(hardlink - 1)]
                 var linkedInode = linkedInodePtr.pointee
-                if linkedInode.linksCount > 2 {
+                if linkedInode.linksCount > 1 {
                     linkedInode.linksCount -= 1
                     linkedInodePtr.initialize(to: linkedInode)
                 }
