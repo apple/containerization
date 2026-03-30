@@ -67,7 +67,8 @@ struct AgentCommand: AsyncParsableCommand {
 
         signal(SIGPIPE, SIG_IGN)
 
-        log.info("vminitd booting", metadata: ["version": "\(Application.configuration.version)"])
+        let builtAt = (try? FileManager.default.attributesOfItem(atPath: "/proc/self/exe"))?[.modificationDate] as? Date
+        log.info("vminitd booting", metadata: ["builtAt": "\(builtAt?.description ?? "unknown")"])
 
         // Set of mounts necessary to be mounted prior to taking any RPCs.
         // 1. /proc as the sysctl rpc wouldn't make sense if it wasn't there (NOTE: This is done before this method
