@@ -42,4 +42,19 @@ struct Ext4FormatLinkTests {
         let afterUnlink = try makeFile(unlink: true)
         #expect(try EXT4.EXT4Reader(blockDevice: afterUnlink).stat("/original").inode.linksCount == 1)
     }
+
+    @Test func unlinkFirstInodeFreesInode() throws {
+        let emptyPath = FilePath(FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: false))
+        defer { try? FileManager.default.removeItem(at: emptyPath.url) }
+        try EXT4.Formatter(emptyPath, minDiskSize: 32.kib()).close()
+
+        let path = FilePath(FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: false))
+        defer { try? FileManager.default.removeItem(at: path.url) }
+        let fmt = try EXT4.Formatter(path, minDiskSize: 32.kib())
+        try fmt.create(path: FilePath("/file"), mode: EXT4.Inode.Mode(.S_IFREG, 0o755), buf: nil)
+        try fmt.unlink(path: FilePath("/file"))
+        try fmt.close()
+
+        #expect(try EXT4.EXT4Reader(blockDevice: path).superBlock.freeInodesCount == EXT4.EXT4Reader(blockDevice: emptyPath).superBlock.freeInodesCount)
+    }
 }
