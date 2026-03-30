@@ -97,7 +97,7 @@ Don't be afraid to ask for help! When asking for help, provide as much informati
 
 It's possible that you ask someone a question in an issue/pull request and you don't get a response as quickly as you'd like. If you don't get a response within a week, it's okay to politely ping them using an `@` mention. If you don't get a response for 2-3 weeks in a row, please ping someone else.
 
-### I can't finish the contribution I started. 
+### I can't finish the contribution I started 
 
 Sometimes an issue ends up bigger, harder, or more time-consuming than expected — **and that’s completely fine.** Be sure to comment on the issue saying you’re stepping away, so that someone else is able to pick it up.
 
