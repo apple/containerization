@@ -60,6 +60,7 @@ extension ArchiveWriter {
     }
 
     internal func setOptions(_ options: [Options]) throws {
+        guard let underlying = self.underlying else { throw ArchiveError.noUnderlyingArchive }
         try options.forEach {
             switch $0 {
             case .compressionLevel(let level):
