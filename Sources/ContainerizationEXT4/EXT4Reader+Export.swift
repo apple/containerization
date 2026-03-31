@@ -130,7 +130,7 @@ extension EXT4.EXT4Reader {
                 entry.fileType = .symbolicLink
                 if size < 60 {
                     let linkBytes = EXT4.tupleToArray(inode.block)
-                    entry.symlinkTarget = String(bytes: linkBytes, encoding: .utf8) ?? ""
+                    entry.symlinkTarget = String(bytes: linkBytes.prefix(Int(size)), encoding: .utf8) ?? ""
                 } else {
                     if let block = item.blocks {
                         try self.seek(block: block.start)
