@@ -182,12 +182,13 @@ extension Hardlinks {
             return nil
         }
         var next = target
-        let visited: Set<FilePath> = [next]
+        var visited: Set<FilePath> = [next]
         while let item = self[next] {
             if visited.contains(item) {
                 throw UnpackError.circularLinks
             }
             next = item
+            visited.insert(next)
         }
         return next
     }
