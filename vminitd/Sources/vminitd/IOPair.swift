@@ -118,7 +118,7 @@ final class IOPair: Sendable {
         let readFrom = OSFile(fd: readFromFd)
         let writeTo = OSFile(fd: writeToFd)
 
-        try ProcessSupervisor.default.poller.add(readFromFd, mask: EPOLLIN) { mask in
+        try ProcessSupervisor.default.poller.add(readFromFd, mask: .input) { mask in
             self.io.withLock { io in
                 if io.closed {
                     return

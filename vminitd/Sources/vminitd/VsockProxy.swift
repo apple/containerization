@@ -243,7 +243,7 @@ extension VsockProxy {
                     c.resume()
                 }
 
-                try! ProcessSupervisor.default.poller.add(clientFile.fileDescriptor, mask: EPOLLIN | EPOLLOUT) { mask in
+                try! ProcessSupervisor.default.poller.add(clientFile.fileDescriptor, mask: [.input, .output]) { mask in
                     if mask.readyToRead && !eofFromClient {
                         let (fromEof, toEof) = Self.transferData(
                             fromFile: &clientFile,
@@ -269,7 +269,7 @@ extension VsockProxy {
                     if mask.isHangup {
                         eofFromClient = true
                         eofFromServer = true
-                    } else if mask.isRhangup && !eofFromClient {
+                    } else if mask.isRemoteHangup && !eofFromClient {
                         // half close, shut down client to server transfer
                         // we should see no more EPOLLIN events on the client fd
                         // and no more EPOLLOUT events on the server fd
@@ -295,7 +295,7 @@ extension VsockProxy {
                     }
                 }
 
-                try! ProcessSupervisor.default.poller.add(serverFile.fileDescriptor, mask: EPOLLIN | EPOLLOUT) { mask in
+                try! ProcessSupervisor.default.poller.add(serverFile.fileDescriptor, mask: [.input, .output]) { mask in
                     if mask.readyToRead && !eofFromServer {
                         let (fromEof, toEof) = Self.transferData(
                             fromFile: &serverFile,
@@ -321,7 +321,7 @@ extension VsockProxy {
                     if mask.isHangup {
                         eofFromClient = true
                         eofFromServer = true
-                    } else if mask.isRhangup && !eofFromServer {
+                    } else if mask.isRemoteHangup && !eofFromServer {
                         // half close, shut down server to client transfer
                         // we should see no more EPOLLIN events on the server fd
                         // and no more EPOLLOUT events on the client fd

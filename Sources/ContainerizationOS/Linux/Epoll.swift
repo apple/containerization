@@ -23,7 +23,30 @@ import Synchronization
 /// Register file descriptors to receive events via Linux's
 /// epoll syscall surface.
 public final class Epoll: Sendable {
-    public typealias Mask = Int32
+    public struct Mask: OptionSet, Sendable {
+        public let rawValue: UInt32
+        public init(rawValue: UInt32) { self.rawValue = rawValue }
+
+        public static let input = Mask(rawValue: UInt32(bitPattern: EPOLLIN))
+        public static let output = Mask(rawValue: UInt32(bitPattern: EPOLLOUT))
+
+        public var isHangup: Bool {
+            !isDisjoint(with: Mask(rawValue: UInt32(bitPattern: EPOLLHUP) | UInt32(bitPattern: EPOLLERR)))
+        }
+
+        public var isRemoteHangup: Bool {
+            !isDisjoint(with: Mask(rawValue: UInt32(bitPattern: EPOLLRDHUP)))
+        }
+
+        public var readyToRead: Bool {
+            contains(.input)
+        }
+
+        public var readyToWrite: Bool {
+            contains(.output)
+        }
+    }
+
     public typealias Handler = (@Sendable (Mask) -> Void)
 
     private let epollFD: Int32
@@ -41,14 +64,14 @@ public final class Epoll: Sendable {
 
     public func add(
         _ fd: Int32,
-        mask: Int32 = EPOLLIN | EPOLLOUT,  // HUP is always added
+        mask: Mask = [.input, .output],  // HUP is always added
         handler: @escaping Handler
     ) throws {
         guard fcntl(fd, F_SETFL, O_NONBLOCK) == 0 else {
             throw POSIXError.fromErrno()
         }
 
-        let events = EPOLLET | UInt32(bitPattern: mask)
+        let events = EPOLLET | mask.rawValue
 
         var event = epoll_event()
         event.events = events
@@ -106,7 +129,7 @@ public final class Epoll: Sendable {
                 guard let handler = handlers.get(fd) else {
                     continue
                 }
-                handler(Int32(bitPattern: mask))
+                handler(Mask(rawValue: mask))
             }
         }
     }
@@ -157,24 +180,6 @@ public final class Epoll: Sendable {
                 _ = $0.removeValue(forKey: key)
             }
         }
-    }
-}
-
-extension Epoll.Mask {
-    public var isHangup: Bool {
-        (self & (EPOLLHUP | EPOLLERR)) != 0
-    }
-
-    public var isRhangup: Bool {
-        (self & EPOLLRDHUP) != 0
-    }
-
-    public var readyToRead: Bool {
-        (self & EPOLLIN) != 0
-    }
-
-    public var readyToWrite: Bool {
-        (self & EPOLLOUT) != 0
     }
 }
 
