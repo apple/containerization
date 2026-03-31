@@ -234,8 +234,8 @@ extension VsockProxy {
                     )
 
                     do {
-                        try ProcessSupervisor.default.poller.delete(clientFile.fileDescriptor)
-                        try ProcessSupervisor.default.poller.delete(serverFile.fileDescriptor)
+                        try ProcessSupervisor.default.unregisterFd(clientFile.fileDescriptor)
+                        try ProcessSupervisor.default.unregisterFd(serverFile.fileDescriptor)
                         try conn.close()
                         try relayTo.close()
                     } catch {
@@ -244,7 +244,7 @@ extension VsockProxy {
                     c.resume()
                 }
 
-                try! ProcessSupervisor.default.poller.add(clientFile.fileDescriptor) { mask in
+                try! ProcessSupervisor.default.registerFd(clientFile.fileDescriptor, mask: [.input, .output]) { mask in
                     if mask.readyToRead && !eofFromClient {
                         let (fromEof, toEof) = Self.transferData(
                             fromFile: &clientFile,
@@ -270,7 +270,7 @@ extension VsockProxy {
                     if mask.isHangup {
                         eofFromClient = true
                         eofFromServer = true
-                    } else if mask.isRhangup && !eofFromClient {
+                    } else if mask.isRemoteHangup && !eofFromClient {
                         // half close, shut down client to server transfer
                         // we should see no more EPOLLIN events on the client fd
                         // and no more EPOLLOUT events on the server fd
@@ -296,7 +296,7 @@ extension VsockProxy {
                     }
                 }
 
-                try! ProcessSupervisor.default.poller.add(serverFile.fileDescriptor) { mask in
+                try! ProcessSupervisor.default.registerFd(serverFile.fileDescriptor, mask: [.input, .output]) { mask in
                     if mask.readyToRead && !eofFromServer {
                         let (fromEof, toEof) = Self.transferData(
                             fromFile: &serverFile,
@@ -322,7 +322,7 @@ extension VsockProxy {
                     if mask.isHangup {
                         eofFromClient = true
                         eofFromServer = true
-                    } else if mask.isRhangup && !eofFromServer {
+                    } else if mask.isRemoteHangup && !eofFromServer {
                         // half close, shut down server to client transfer
                         // we should see no more EPOLLIN events on the server fd
                         // and no more EPOLLOUT events on the client fd

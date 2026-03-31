@@ -20,7 +20,8 @@ import Logging
 import Synchronization
 
 final class ProcessSupervisor: Sendable {
-    let poller: Epoll
+    private let poller: Epoll
+    private let handlers = Mutex<[Int32: @Sendable (Epoll.Mask) -> Void]>([:])
 
     private let queue: DispatchQueue
     // `DispatchSourceSignal` is thread-safe.
@@ -47,9 +48,44 @@ final class ProcessSupervisor: Sendable {
         self.poller = try! Epoll()
         self.state = Mutex(State())
         let t = Thread {
-            try! self.poller.run()
+            while true {
+                guard let events = self.poller.wait() else {
+                    return
+                }
+                if events.isEmpty {
+                    return
+                }
+                for event in events {
+                    let handler = self.handlers.withLock { $0[event.fd] }
+                    handler?(event.mask)
+                }
+            }
         }
         t.start()
+    }
+
+    /// Register a file descriptor for epoll monitoring with a handler.
+    ///
+    /// The handler is stored before the fd is added to epoll, ensuring no
+    /// events are missed.
+    func registerFd(
+        _ fd: Int32,
+        mask: Epoll.Mask = [.input, .output],
+        handler: @escaping @Sendable (Epoll.Mask) -> Void
+    ) throws {
+        self.handlers.withLock { $0[fd] = handler }
+        do {
+            try self.poller.add(fd, mask: mask)
+        } catch {
+            self.handlers.withLock { _ = $0.removeValue(forKey: fd) }
+            throw error
+        }
+    }
+
+    /// Remove a file descriptor from epoll monitoring and discard its handler.
+    func unregisterFd(_ fd: Int32) throws {
+        self.handlers.withLock { _ = $0.removeValue(forKey: fd) }
+        try self.poller.delete(fd)
     }
 
     func ready() {
@@ -123,6 +159,6 @@ final class ProcessSupervisor: Sendable {
 
     deinit {
         source.cancel()
-        try? poller.shutdown()
+        poller.shutdown()
     }
 }
