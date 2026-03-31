@@ -77,8 +77,15 @@ public final class ArchiveReader {
             actualFilter = filter
         }
 
-        let fileHandle = try FileHandle(forReadingFrom: fileToRead)
-        try self.init(format: format, filter: actualFilter, fileHandle: fileHandle)
+        do {
+            let fileHandle = try FileHandle(forReadingFrom: fileToRead)
+            try self.init(format: format, filter: actualFilter, fileHandle: fileHandle)
+        } catch {
+            if let tempFile {
+                try? FileManager.default.removeItem(at: tempFile.deletingLastPathComponent())
+            }
+            throw error
+        }
         self.tempDecompressedFile = tempFile
     }
 
@@ -133,17 +140,22 @@ public final class ArchiveReader {
             source.deletingPathExtension().lastPathComponent
         )
 
-        let srcPath = source.scheme == nil || source.scheme == "" ? source.path : source.path
-        let srcFd = open(srcPath, O_RDONLY)
-        guard srcFd >= 0 else { throw ArchiveError.failedToDetectFormat }
-        defer { close(srcFd) }
+        do {
+            let srcPath = source.path
+            let srcFd = open(srcPath, O_RDONLY)
+            guard srcFd >= 0 else { throw ArchiveError.failedToDetectFormat }
+            defer { close(srcFd) }
 
-        let dstFd = open(tempFile.path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
-        guard dstFd >= 0 else { throw ArchiveError.failedToDetectFormat }
-        defer { close(dstFd) }
+            let dstFd = open(tempFile.path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
+            guard dstFd >= 0 else { throw ArchiveError.failedToDetectFormat }
+            defer { close(dstFd) }
 
-        guard zstd_decompress_fd(srcFd, dstFd) == 0 else {
-            throw ArchiveError.failedToDetectFormat
+            guard zstd_decompress_fd(srcFd, dstFd) == 0 else {
+                throw ArchiveError.failedToDetectFormat
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: tempDir)
+            throw error
         }
         return tempFile
     }
@@ -233,9 +245,21 @@ extension ArchiveReader: Sequence {
 extension ArchiveReader {
     public convenience init(name: String, bundle: Data, tempDirectoryBaseName: String? = nil) throws {
         let baseName = tempDirectoryBaseName ?? "Unarchiver"
-        let url = createTemporaryDirectory(baseName: baseName)!.appendingPathComponent(name)
-        try bundle.write(to: url, options: .atomic)
-        try self.init(format: .zip, filter: .none, file: url)
+        guard let tempDir = createTemporaryDirectory(baseName: baseName) else {
+            throw ArchiveError.failedToExtractArchive("failed to create temporary directory")
+        }
+        let url = tempDir.appendingPathComponent(name)
+        do {
+            try bundle.write(to: url, options: .atomic)
+            try self.init(format: .zip, filter: .none, file: url)
+        } catch {
+            try? FileManager.default.removeItem(at: tempDir)
+            throw error
+        }
+        // Register for cleanup in deinit (only needed when the zstd path didn't already set it)
+        if self.tempDecompressedFile == nil {
+            self.tempDecompressedFile = url
+        }
     }
 
     /// Extracts the contents of an archive to the provided directory.
