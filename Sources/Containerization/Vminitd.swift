@@ -448,6 +448,21 @@ extension Vminitd {
         public let totalSize: UInt64
     }
 
+    public func stat(
+        path: URL
+    ) async throws -> Com_Apple_Containerization_Sandbox_V3_Stat {
+        let request = Com_Apple_Containerization_Sandbox_V3_StatRequest.with {
+            $0.path = path.path
+        }
+
+        let response = try await client.stat(request)
+        guard response.error.isEmpty else {
+            throw ContainerizationError(.internalError, message: "stat: \(response.error)")
+        }
+
+        return response.stat
+    }
+
     /// Unified copy control plane. Sends a CopyRequest over gRPC and processes
     /// the response stream. Data transfer happens over a separate vsock connection
     /// managed by the caller.
