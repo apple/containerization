@@ -36,7 +36,12 @@ public final class Epoll: Sendable {
             throw POSIXError.fromErrno()
         }
         self.epollFD = efd
-        try self.add(pipe.fileHandleForReading.fileDescriptor) { _ in }
+        do {
+            try self.add(pipe.fileHandleForReading.fileDescriptor) { _ in }
+        } catch {
+            close(efd)
+            throw error
+        }
     }
 
     public func add(
