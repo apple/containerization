@@ -55,14 +55,8 @@ public final class Epoll: Sendable {
         event.data.fd = fd
 
         try withUnsafeMutablePointer(to: &event) { ptr in
-            while true {
-                if epoll_ctl(self.epollFD, EPOLL_CTL_ADD, fd, ptr) == -1 {
-                    if errno == EAGAIN || errno == EINTR {
-                        continue
-                    }
-                    throw POSIXError.fromErrno()
-                }
-                break
+            guard epoll_ctl(self.epollFD, EPOLL_CTL_ADD, fd, ptr) == 0 else {
+                throw POSIXError.fromErrno()
             }
         }
 
