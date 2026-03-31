@@ -14,8 +14,6 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-import Foundation
-
 extension EXT4.InodeFlag {
     public static func | (lhs: Self, rhs: Self) -> Self {
         Self(rawValue: lhs.rawValue | rhs.rawValue)

@@ -14,7 +14,15 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#else
+#error("Signals not supported on this platform.")
+#endif
 
 /// Helper type with utilities to parse and manipulate unix signals.
 public struct Signals {

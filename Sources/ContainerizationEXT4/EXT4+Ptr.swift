@@ -14,8 +14,6 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-import Foundation
-
 extension EXT4 {
     class Ptr<T> {
         let underlying: UnsafeMutablePointer<T>
