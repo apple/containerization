@@ -272,16 +272,19 @@ message CopyResponse {
 message StatRequest { string path = 1; }
 
 message Stat {
-  uint64 dev = 1;   // st_dev:   ID of device containing file
-  uint32 mode = 2;  // st_mode:  file type and mode (permissions)
-  uint64 nlink = 3; // st_nlink: number of hard links
-  uint32 uid = 4;   // st_uid:   user ID of owner
-  uint32 gid = 5;   // st_gid:   group ID of owner
-  uint64 rdev = 6;  // st_rdev:  device ID (if special file)
-  int64 size = 7;   // st_size:  total size in bytes
-  google.protobuf.Timestamp atime = 8;  // st_atim: time of last access
-  google.protobuf.Timestamp mtime = 9;  // st_mtim: time of last modification
-  google.protobuf.Timestamp ctime = 10; // st_ctim: time of last status change
+  uint64 dev = 1;   // st_dev:     ID of device containing file
+  uint64 ino = 2;   // st_ino:     inode number
+  uint32 mode = 3;  // st_mode:    file type and mode (permissions)
+  uint64 nlink = 4; // st_nlink:   number of hard links
+  uint32 uid = 5;   // st_uid:     user ID of owner
+  uint32 gid = 6;   // st_gid:     group ID of owner
+  uint64 rdev = 7;  // st_rdev:    device ID (if special file)
+  int64 size = 8;   // st_size:    total size in bytes
+  int64 blksize = 9;  // st_blksize: preferred block size for filesystem I/O
+  int64 blocks = 10;  // st_blocks:  number of 512-byte blocks allocated
+  google.protobuf.Timestamp atime = 11; // st_atim: time of last access
+  google.protobuf.Timestamp mtime = 12; // st_mtim: time of last modification
+  google.protobuf.Timestamp ctime = 13; // st_ctim: time of last status change
 }
 
 message StatResponse {

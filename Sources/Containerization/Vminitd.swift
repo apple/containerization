@@ -450,7 +450,7 @@ extension Vminitd {
 
     public func stat(
         path: URL
-    ) async throws -> Com_Apple_Containerization_Sandbox_V3_Stat {
+    ) async throws -> Foundation.stat {
         let request = Com_Apple_Containerization_Sandbox_V3_StatRequest.with {
             $0.path = path.path
         }
@@ -460,7 +460,22 @@ extension Vminitd {
             throw ContainerizationError(.internalError, message: "stat: \(response.error)")
         }
 
-        return response.stat
+        let s = response.stat
+        var result = Foundation.stat()
+        result.st_dev = dev_t(s.dev)
+        result.st_mode = mode_t(s.mode)
+        result.st_nlink = nlink_t(s.nlink)
+        result.st_ino = ino_t(s.ino)
+        result.st_uid = s.uid
+        result.st_gid = s.gid
+        result.st_rdev = dev_t(s.rdev)
+        // result.st_atimespec = timespec(tv_sec: Int(s.atime.seconds), tv_nsec: Int(s.atime.nanos))
+        // result.st_mtimespec = timespec(tv_sec: Int(s.mtime.seconds), tv_nsec: Int(s.mtime.nanos))
+        // result.st_ctimespec = timespec(tv_sec: Int(s.ctime.seconds), tv_nsec: Int(s.ctime.nanos))
+        result.st_size = off_t(s.size)
+        result.st_blocks = blkcnt_t(s.blocks)
+        result.st_blksize = Int32(s.blksize)
+        return result
     }
 
     /// Unified copy control plane. Sends a CopyRequest over gRPC and processes

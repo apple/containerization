@@ -382,12 +382,15 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         return .with {
             $0.stat = .with {
                 $0.dev = UInt64(s.st_dev)
+                $0.ino = UInt64(s.st_ino)
                 $0.mode = s.st_mode
                 $0.nlink = UInt64(s.st_nlink)
                 $0.uid = s.st_uid
                 $0.gid = s.st_gid
                 $0.rdev = UInt64(s.st_rdev)
                 $0.size = Int64(s.st_size)
+                $0.blksize = Int64(s.st_blksize)
+                $0.blocks = Int64(s.st_blocks)
                 $0.atime = .with {
                     $0.seconds = Int64(s.st_atim.tv_sec)
                     $0.nanos = Int32(s.st_atim.tv_nsec)
