@@ -348,14 +348,20 @@ public struct NetlinkSession {
     /// Adds a default IPv4 route to an interface.
     /// - Parameters:
     ///   - interface: The name of the interface.
-    ///   - ipv4Gateway: The gateway address.
+    ///   - ipv4Gateway: The gateway address, or nil.
     public func routeAddDefault(
         interface: String,
-        ipv4Gateway: IPv4Address
+        ipv4Gateway: IPv4Address?
     ) throws {
-        // ip route add default via [dst-address] src [src-address]
-        let dstAddrBytes = ipv4Gateway.bytes
-        let dstAddrAttrSize = RTAttribute.size + dstAddrBytes.count
+        // ip route add default via [gateway] dev [interface] or
+        // ip route add default dev [interface]
+        let dstAddrBytes = ipv4Gateway?.bytes
+        let dstAddrAttrSize: Int
+        if let dstAddrBytes {
+            dstAddrAttrSize = RTAttribute.size + dstAddrBytes.count
+        } else {
+            dstAddrAttrSize = 0
+        }
 
         let interfaceAttrSize = RTAttribute.size + MemoryLayout<UInt32>.size
         let interfaceIndex = try getInterfaceIndex(interface)
@@ -379,16 +385,20 @@ public struct NetlinkSession {
             tos: 0,
             table: RouteTable.MAIN,
             proto: RouteProtocol.BOOT,
-            scope: RouteScope.UNIVERSE,
+            scope: ipv4Gateway != nil ? RouteScope.UNIVERSE : RouteScope.LINK,
             type: RouteType.UNICAST,
             flags: 0)
         requestOffset = try requestInfo.appendBuffer(&requestBuffer, offset: requestOffset)
 
-        let dstAddrAttr = RTAttribute(len: UInt16(dstAddrAttrSize), type: RouteAttributeType.GATEWAY)
-        requestOffset = try dstAddrAttr.appendBuffer(&requestBuffer, offset: requestOffset)
-        guard var requestOffset = requestBuffer.copyIn(buffer: dstAddrBytes, offset: requestOffset) else {
-            throw BindError.sendMarshalFailure(type: "RTAttribute", field: "RTA_GATEWAY")
+        if let dstAddrBytes {
+            let dstAddrAttr = RTAttribute(len: UInt16(dstAddrAttrSize), type: RouteAttributeType.GATEWAY)
+            requestOffset = try dstAddrAttr.appendBuffer(&requestBuffer, offset: requestOffset)
+            guard let newOffset = requestBuffer.copyIn(buffer: dstAddrBytes, offset: requestOffset) else {
+                throw BindError.sendMarshalFailure(type: "RTAttribute", field: "RTA_GATEWAY")
+            }
+            requestOffset = newOffset
         }
+
         let interfaceAttr = RTAttribute(len: UInt16(interfaceAttrSize), type: RouteAttributeType.OIF)
         requestOffset = try interfaceAttr.appendBuffer(&requestBuffer, offset: requestOffset)
         guard
