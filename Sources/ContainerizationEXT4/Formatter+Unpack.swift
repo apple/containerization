@@ -14,12 +14,11 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-#if os(macOS)
 import ContainerizationArchive
-import Foundation
-import ContainerizationOS
-import SystemPackage
 import ContainerizationExtras
+import ContainerizationOS
+import Foundation
+import SystemPackage
 
 private typealias Hardlinks = [FilePath: FilePath]
 
@@ -75,12 +74,12 @@ extension EXT4.Formatter {
             switch entry.fileType {
             case .directory:
                 try self.create(
-                    path: path, mode: EXT4.Inode.Mode(.S_IFDIR, entry.permissions), ts: ts, uid: entry.owner,
+                    path: path, mode: EXT4.Inode.Mode(.S_IFDIR, UInt16(entry.permissions)), ts: ts, uid: entry.owner,
                     gid: entry.group,
                     xattrs: entry.xattrs)
             case .regular:
                 try self.create(
-                    path: path, mode: EXT4.Inode.Mode(.S_IFREG, entry.permissions), ts: ts, buf: streamReader,
+                    path: path, mode: EXT4.Inode.Mode(.S_IFREG, UInt16(entry.permissions)), ts: ts, buf: streamReader,
                     uid: entry.owner,
                     gid: entry.group, xattrs: entry.xattrs, fileBuffer: reusableBuffer)
 
@@ -98,7 +97,7 @@ extension EXT4.Formatter {
                     symlinkTarget = FilePath(target)
                 }
                 try self.create(
-                    path: path, link: symlinkTarget, mode: EXT4.Inode.Mode(.S_IFLNK, entry.permissions), ts: ts,
+                    path: path, link: symlinkTarget, mode: EXT4.Inode.Mode(.S_IFLNK, UInt16(entry.permissions)), ts: ts,
                     uid: entry.owner,
                     gid: entry.group, xattrs: entry.xattrs)
             default:
@@ -193,4 +192,3 @@ extension Hardlinks {
         return next
     }
 }
-#endif

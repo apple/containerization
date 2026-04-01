@@ -90,7 +90,7 @@ extension EXT4 {
             ///    checker).
 
             if !FileManager.default.fileExists(atPath: devicePath.description) {
-                FileManager.default.createFile(atPath: devicePath.description, contents: nil)
+                _ = FileManager.default.createFile(atPath: devicePath.description, contents: nil)
             }
             guard let fileHandle = FileHandle(forWritingTo: devicePath) else {
                 throw Error.notFound(devicePath)
@@ -952,7 +952,7 @@ extension EXT4 {
                     contentsOf: Array<UInt8>.init(repeating: 0, count: Int(EXT4.InodeSize) - inodeSize))
             }
             let tableSize: UInt64 = UInt64(EXT4.InodeSize) * blockGroups * inodesPerGroup
-            let rest = tableSize - uint32(self.inodes.count) * EXT4.InodeSize
+            let rest = tableSize - UInt64(self.inodes.count) * EXT4.InodeSize
             let zeroBlock = Array<UInt8>.init(repeating: 0, count: Int(self.blockSize))
             for _ in 0..<(rest / self.blockSize) {
                 try self.handle.write(contentsOf: zeroBlock)
