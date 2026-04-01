@@ -702,46 +702,6 @@ extension LinuxContainer {
         }
     }
 
-    private static func setupIO(
-        portAllocator: borrowing Atomic<UInt32>,
-        stdin: ReaderStream?,
-        stdout: Writer?,
-        stderr: Writer?
-    ) -> LinuxProcess.Stdio {
-        var stdinSetup: LinuxProcess.StdioReaderSetup? = nil
-        if let reader = stdin {
-            let ret = portAllocator.wrappingAdd(1, ordering: .relaxed)
-            stdinSetup = .init(
-                port: ret.oldValue,
-                reader: reader
-            )
-        }
-
-        var stdoutSetup: LinuxProcess.StdioSetup? = nil
-        if let writer = stdout {
-            let ret = portAllocator.wrappingAdd(1, ordering: .relaxed)
-            stdoutSetup = LinuxProcess.StdioSetup(
-                port: ret.oldValue,
-                writer: writer
-            )
-        }
-
-        var stderrSetup: LinuxProcess.StdioSetup? = nil
-        if let writer = stderr {
-            let ret = portAllocator.wrappingAdd(1, ordering: .relaxed)
-            stderrSetup = LinuxProcess.StdioSetup(
-                port: ret.oldValue,
-                writer: writer
-            )
-        }
-
-        return LinuxProcess.Stdio(
-            stdin: stdinSetup,
-            stdout: stdoutSetup,
-            stderr: stderrSetup
-        )
-    }
-
     /// Stop the container from executing. This MUST be called even if wait() has returned
     /// as their are additional resources to free.
     public func stop() async throws {
