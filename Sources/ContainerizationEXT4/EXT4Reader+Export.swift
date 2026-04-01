@@ -170,7 +170,7 @@ extension EXT4.EXT4Reader {
     }
 
     public static func readInlineExtendedAttributes(from buffer: [UInt8]) throws -> [EXT4.ExtendedAttribute] {
-        let header = UInt32(littleEndian: buffer[0...4].withUnsafeBytes { $0.load(as: UInt32.self) })
+        let header = UInt32(littleEndian: buffer[0..<4].withUnsafeBytes { $0.load(as: UInt32.self) })
         if header != EXT4.XAttrHeaderMagic {
             throw EXT4.FileXattrsState.Error.missingXAttrHeader
         }
@@ -183,7 +183,7 @@ extension EXT4.EXT4Reader {
     }
 
     public static func readBlockExtendedAttributes(from buffer: [UInt8]) throws -> [EXT4.ExtendedAttribute] {
-        let header = UInt32(littleEndian: buffer[0...4].withUnsafeBytes { $0.load(as: UInt32.self) })
+        let header = UInt32(littleEndian: buffer[0..<4].withUnsafeBytes { $0.load(as: UInt32.self) })
         if header != EXT4.XAttrHeaderMagic {
             throw EXT4.FileXattrsState.Error.missingXAttrHeader
         }
