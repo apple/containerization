@@ -14,7 +14,6 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-#if os(macOS)
 import ContainerizationArchive
 import Foundation
 import SystemPackage
@@ -36,7 +35,7 @@ extension EXT4.EXT4Reader {
             let entry = WriteEntry()
             let mode = inode.mode
             let size: UInt64 = (UInt64(inode.sizeHigh) << 32) | UInt64(inode.sizeLow)
-            entry.permissions = mode
+            entry.permissions = mode_t(mode)
             guard let path = item.path else {
                 continue
             }
@@ -153,7 +152,7 @@ extension EXT4.EXT4Reader {
             let entry = WriteEntry()
             entry.path = path.description
             entry.hardlink = targetPath.description
-            entry.permissions = inode.mode
+            entry.permissions = mode_t(inode.mode)
             entry.group = gid_t(inode.gid)
             entry.owner = uid_t(inode.uid)
             entry.creationDate = Date(fsTimestamp: UInt64(inode.crtimeExtra) << 32 | UInt64(inode.crtime))
@@ -214,4 +213,3 @@ extension Date {
         self = Date(timeIntervalSince1970: Double(seconds) + nanoseconds)
     }
 }
-#endif

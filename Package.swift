@@ -65,7 +65,7 @@ let package = Package(
                 "ContainerizationOS",
                 "ContainerizationIO",
                 "ContainerizationExtras",
-                .target(name: "ContainerizationEXT4", condition: .when(platforms: [.macOS])),
+                "ContainerizationEXT4",
             ],
             exclude: [
                 "../Containerization/SandboxContext/SandboxContext.proto"
@@ -105,7 +105,7 @@ let package = Package(
         .target(
             name: "ContainerizationEXT4",
             dependencies: [
-                .target(name: "ContainerizationArchive", condition: .when(platforms: [.macOS])),
+                "ContainerizationArchive",
                 .product(name: "SystemPackage", package: "swift-system"),
                 "ContainerizationOS",
             ],
