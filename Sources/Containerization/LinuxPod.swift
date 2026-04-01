@@ -457,6 +457,9 @@ extension LinuxPod {
                                 try await agent.routeAddLink(name: name, dstIPv4Addr: ipv4Gateway, srcIPv4Addr: nil)
                             }
                             try await agent.routeAddDefault(name: name, ipv4Gateway: ipv4Gateway)
+                        } else {
+                            self.logger?.debug("no gateway for \(name)")
+                            try await agent.routeAddDefault(name: name, ipv4Gateway: nil)
                         }
                     }
 
