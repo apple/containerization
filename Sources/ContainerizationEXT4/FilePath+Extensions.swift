@@ -53,13 +53,6 @@ extension FilePath {
         self.init(url.path(percentEncoded: false))
     }
 
-    public init?(_ data: Data) {
-        guard let str = String(bytes: data, encoding: .utf8) else {
-            return nil
-        }
-        self.init(str)
-    }
-
     public func join(_ path: FilePath) -> FilePath {
         self.pushing(path)
     }
