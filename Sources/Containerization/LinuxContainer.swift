@@ -526,14 +526,9 @@ extension LinuxContainer {
             // The container cgroup limit stays at the requested memory, but the VM
             // gets an additional 50MB for the guest agent (could be higher, could be lower
             // but this is a decent baseline for now).
-            //
-            // Clamp to system RAM if the total would exceed it as Virtualization.framework
-            // bounds us to this.
             let guestAgentOverhead: UInt64 = 50.mib()
-            let vmMemory = min(
-                self.memoryInBytes + guestAgentOverhead,
-                ProcessInfo.processInfo.physicalMemory
-            )
+            let mib: UInt64 = 1.mib()
+            let vmMemory = (self.memoryInBytes + guestAgentOverhead + mib - 1) & ~(mib - 1)
 
             // Prepare file mounts. This transforms single-file mounts into directory shares.
             let fileMountContext = try FileMountContext.prepare(mounts: self.config.mounts)
