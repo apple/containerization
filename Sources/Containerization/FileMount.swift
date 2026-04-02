@@ -14,8 +14,6 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-#if os(macOS)
-
 import ContainerizationError
 import ContainerizationOCI
 import Foundation
@@ -237,5 +235,3 @@ extension FileMountContext {
         }
     }
 }
-
-#endif

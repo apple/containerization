@@ -14,7 +14,6 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-#if os(macOS)
 import ContainerizationArchive
 import ContainerizationError
 import ContainerizationExtras
@@ -1288,5 +1287,3 @@ struct IOUtil {
         )
     }
 }
-
-#endif
