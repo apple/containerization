@@ -138,7 +138,8 @@ struct Tar2EXT4Test: ~Copyable {
 
         let specialFileInode = try ext4.getInode(number: 20)
         let bytes = Data(Mirror(reflecting: specialFileInode.block).children.compactMap { $0.value as? UInt8 })
-        let specialFileTarget = try #require(FilePath(bytes), "Could not parse special file path")
+        let targetString = try #require(String(data: bytes, encoding: .utf8), "Could not parse special file path")
+        let specialFileTarget = FilePath(targetString)
         #expect(specialFileTarget.description.hasPrefix("special_ÆÂ©"))
     }
 }
