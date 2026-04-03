@@ -56,28 +56,56 @@ public class ContentWriter {
     ///   - url: The URL to read the data from.
     @discardableResult
     public func create(from url: URL) throws -> (size: Int64, digest: SHA256.Digest) {
-        let source = try FileHandle(forReadingFrom: url)
-        defer { try? source.close() }
-        let tempURL = base.appendingPathComponent(UUID().uuidString)
-        guard FileManager.default.createFile(atPath: tempURL.path, contents: nil) else {
-            throw ContainerizationError(.internalError, message: "failed to create temporary file at \(tempURL.absolutePath())")
+        let sourceFD = Foundation.open(url.path, O_RDONLY)
+        guard sourceFD >= 0 else {
+            let err = POSIXErrorCode(rawValue: errno) ?? .EINVAL
+            throw ContainerizationError(.internalError, message: "failed to open \(url.path) for reading: \(err)")
         }
-        let dest = try FileHandle(forWritingTo: tempURL)
+        defer { close(sourceFD) }
+
+        let tempURL = base.appendingPathComponent(UUID().uuidString)
+        let destFD = Foundation.open(tempURL.path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
+        guard destFD >= 0 else {
+            let err = POSIXErrorCode(rawValue: errno) ?? .EINVAL
+            throw ContainerizationError(.internalError, message: "failed to create temporary file at \(tempURL.absolutePath()): \(err)")
+        }
+
+        let chunkSize = 1024 * 1024  // 1 MiB
+        let buf = UnsafeMutableRawBufferPointer.allocate(byteCount: chunkSize, alignment: 1)
+        defer { buf.deallocate() }
+        guard let baseAddress = buf.baseAddress else {
+            close(destFD)
+            try? FileManager.default.removeItem(at: tempURL)
+            throw ContainerizationError(.internalError, message: "failed to allocate read buffer of size \(chunkSize)")
+        }
+
         var hasher = SHA256()
         var totalSize: Int64 = 0
-        let chunkSize = 1024 * 1024  // 1 MiB
-        do {
-            while let chunk = try source.read(upToCount: chunkSize), !chunk.isEmpty {
-                hasher.update(data: chunk)
-                try dest.write(contentsOf: chunk)
-                totalSize += Int64(chunk.count)
+        while true {
+            let n = read(sourceFD, baseAddress, chunkSize)
+            if n == 0 { break }
+            if n < 0 {
+                let err = POSIXErrorCode(rawValue: errno) ?? .EINVAL
+                close(destFD)
+                try? FileManager.default.removeItem(at: tempURL)
+                throw ContainerizationError(.internalError, message: "failed to read from \(url.path): \(err)")
             }
-            try dest.close()
-        } catch {
-            try? dest.close()
-            try? FileManager.default.removeItem(at: tempURL)
-            throw error
+            hasher.update(data: UnsafeRawBufferPointer(start: baseAddress, count: n))
+            var written = 0
+            while written < n {
+                let w = Foundation.write(destFD, baseAddress.advanced(by: written), n - written)
+                if w < 0 {
+                    let err = POSIXErrorCode(rawValue: errno) ?? .EINVAL
+                    close(destFD)
+                    try? FileManager.default.removeItem(at: tempURL)
+                    throw ContainerizationError(.internalError, message: "failed to write to \(tempURL.absolutePath()): \(err)")
+                }
+                written += w
+            }
+            totalSize += Int64(n)
         }
+        close(destFD)
+
         let digest = hasher.finalize()
         let destination = base.appendingPathComponent(digest.encoded)
         do {
