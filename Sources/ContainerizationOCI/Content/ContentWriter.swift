@@ -56,8 +56,42 @@ public class ContentWriter {
     ///   - url: The URL to read the data from.
     @discardableResult
     public func create(from url: URL) throws -> (size: Int64, digest: SHA256.Digest) {
-        let data = try Data(contentsOf: url)
-        return try self.write(data)
+        let source = try FileHandle(forReadingFrom: url)
+        defer { try? source.close() }
+        let tempURL = base.appendingPathComponent(UUID().uuidString)
+        guard FileManager.default.createFile(atPath: tempURL.path, contents: nil) else {
+            throw ContainerizationError(.internalError, message: "failed to create temporary file at \(tempURL.absolutePath())")
+        }
+        let dest = try FileHandle(forWritingTo: tempURL)
+        var hasher = SHA256()
+        var totalSize: Int64 = 0
+        let chunkSize = 1024 * 1024  // 1 MiB
+        do {
+            while let chunk = try source.read(upToCount: chunkSize), !chunk.isEmpty {
+                hasher.update(data: chunk)
+                try dest.write(contentsOf: chunk)
+                totalSize += Int64(chunk.count)
+            }
+            try dest.close()
+        } catch {
+            try? dest.close()
+            try? FileManager.default.removeItem(at: tempURL)
+            throw error
+        }
+        let digest = hasher.finalize()
+        let destination = base.appendingPathComponent(digest.encoded)
+        do {
+            try FileManager.default.moveItem(at: tempURL, to: destination)
+        } catch let error as NSError {
+            guard error.code == NSFileWriteFileExistsError else {
+                throw error
+            }
+            try? FileManager.default.removeItem(at: tempURL)
+        } catch {
+            try? FileManager.default.removeItem(at: tempURL)
+            throw error
+        }
+        return (totalSize, digest)
     }
 
     /// Encodes the passed in type as a JSON blob and writes it to the base path.
