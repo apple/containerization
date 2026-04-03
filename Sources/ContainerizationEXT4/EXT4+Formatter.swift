@@ -804,16 +804,7 @@ extension EXT4 {
                 inodeBitmap[Int(i) / 8] &= ~(1 << (i % 8))
             }
             for group in blockGroupSize.blockGroups..<totalGroups.lo {
-                var blocksInGroup = UInt32(self.blocksPerGroup)
-                if group == totalGroups.lo - 1 {
-                    if UInt64(self.size / UInt64(self.blockSize)) < self.blocksPerGroup {
-                        break
-                    }
-                    let lastGroupBlocks = UInt32((self.size / UInt64(self.blockSize)) % UInt64(self.blocksPerGroup))
-                    if lastGroupBlocks != 0 {
-                        blocksInGroup = lastGroupBlocks
-                    }
-                }
+                let blocksInGroup = UInt32(self.blocksPerGroup)
                 let blockBitmapOffset = UInt64(group * self.blocksPerGroup + inodeTableSizePerGroup)
                 let inodeBitmapOffset = UInt64(group * self.blocksPerGroup + inodeTableSizePerGroup + 1)
                 let inodeTableOffset = UInt64(self.blocksPerGroup) * group
@@ -837,20 +828,6 @@ extension EXT4 {
                     ))
                 totalBlocks += (inodeTableSizePerGroup + 2)
                 try self.seek(block: group * self.blocksPerGroup + inodeTableSizePerGroup)
-
-                if group == totalGroups.lo - 1 && blocksInGroup != self.blocksPerGroup {
-                    var blockBitmapLo: [UInt8] = .init(repeating: 0, count: Int(self.blocksPerGroup) / 8)
-                    for i in blocksInGroup..<UInt32(self.blocksPerGroup) {
-                        blockBitmapLo[Int(i) / 8] |= 1 << (i % 8)
-                    }
-                    for i in 0..<inodeTableSizePerGroup + 2 {
-                        blockBitmapLo[Int(i) / 8] |= 1 << (i % 8)
-                    }
-                    try self.handle.write(contentsOf: blockBitmapLo)
-                    try self.handle.write(contentsOf: inodeBitmap)
-                    continue
-                }
-
                 try self.handle.write(contentsOf: blockBitmap)
                 try self.handle.write(contentsOf: inodeBitmap)
             }
