@@ -192,61 +192,61 @@ extension EXT4 {
         func getExtents(inode: InodeNumber) throws -> [(start: UInt32, end: UInt32)]? {
             let inode = try self.getInode(number: inode)
             let inodeBlock = Data(tupleToArray(inode.block))
-            var offset = 0
-            var extents: [(start: UInt32, end: UInt32)] = []
 
             let extentHeaderSize = MemoryLayout<ExtentHeader>.size
-            let extentIndexSize = MemoryLayout<ExtentIndex>.size
-            let extentLeafSize = MemoryLayout<ExtentLeaf>.size
-            // read extent header
-            let header = inodeBlock.subdata(in: offset..<offset + extentHeaderSize).withUnsafeBytes {
+            let header = inodeBlock.subdata(in: 0..<extentHeaderSize).withUnsafeBytes {
                 $0.loadLittleEndian(as: ExtentHeader.self)
             }
             guard header.magic == EXT4.ExtentHeaderMagic else {
                 return []
             }
-            offset += extentHeaderSize  // Jump to entries
-            switch header.depth {
-            case 0:
-                // When depth is 0 the extent header is followed by extent leaves
+            var extents: [(start: UInt32, end: UInt32)] = []
+            try readExtentNode(data: inodeBlock, header: header, into: &extents)
+            return extents
+        }
+
+        /// Recursively reads extent tree nodes. For leaf nodes (depth 0), appends
+        /// extent mappings directly. For index nodes (depth > 0), follows each
+        /// index entry to a child block and recurses.
+        private func readExtentNode(
+            data: Data,
+            header: ExtentHeader,
+            into extents: inout [(start: UInt32, end: UInt32)]
+        ) throws {
+            let extentHeaderSize = MemoryLayout<ExtentHeader>.size
+            let extentIndexSize = MemoryLayout<ExtentIndex>.size
+            let extentLeafSize = MemoryLayout<ExtentLeaf>.size
+            var offset = extentHeaderSize
+
+            if header.depth == 0 {
+                // Leaf node: entries are ExtentLeaf mappings
                 for _ in 0..<header.entries {
-                    let leaf = inodeBlock.subdata(in: offset..<offset + extentLeafSize).withUnsafeBytes {
-                        $0.load(as: ExtentLeaf.self)
+                    let leaf = data.subdata(in: offset..<offset + extentLeafSize).withUnsafeBytes {
+                        $0.loadLittleEndian(as: ExtentLeaf.self)
                     }
                     extents.append((leaf.startLow, leaf.startLow + UInt32(leaf.length)))
                     offset += extentLeafSize
                 }
-            case 1:
-                // When depth is 1 the extent header is followed by extent indices which point to leaves
+            } else {
+                // Index node: entries are ExtentIndex pointers to child blocks
                 for _ in 0..<header.entries {
-                    let indexNode = inodeBlock.subdata(in: offset..<offset + extentIndexSize).withUnsafeBytes {
-                        $0.load(as: ExtentIndex.self)
+                    let indexNode = data.subdata(in: offset..<offset + extentIndexSize).withUnsafeBytes {
+                        $0.loadLittleEndian(as: ExtentIndex.self)
                     }
                     try self.seek(block: indexNode.leafLow)
                     guard let block = try self.handle.read(upToCount: Int(self.blockSize)) else {
                         throw EXT4.Error.couldNotReadBlock(indexNode.leafLow)
                     }
-                    var blockOffset = 0
-                    let leafHeader = block.subdata(in: blockOffset..<extentHeaderSize).withUnsafeBytes {
+                    let childHeader = block.subdata(in: 0..<extentHeaderSize).withUnsafeBytes {
                         $0.loadLittleEndian(as: ExtentHeader.self)
                     }
-                    guard leafHeader.magic == EXT4.ExtentHeaderMagic else {
+                    guard childHeader.magic == EXT4.ExtentHeaderMagic else {
                         throw Error.invalidExtents
                     }
-                    blockOffset += extentHeaderSize
-                    for _ in 0..<leafHeader.entries {
-                        let leaf = block.subdata(in: blockOffset..<blockOffset + extentLeafSize).withUnsafeBytes {
-                            $0.loadLittleEndian(as: ExtentLeaf.self)
-                        }
-                        extents.append((leaf.startLow, leaf.startLow + UInt32(leaf.length)))
-                        blockOffset += extentLeafSize
-                    }
+                    try readExtentNode(data: block, header: childHeader, into: &extents)
                     offset += extentIndexSize
                 }
-            default:
-                throw Error.deepExtentsUnimplemented
             }
-            return extents
         }
 
         // MARK: Internal functions
