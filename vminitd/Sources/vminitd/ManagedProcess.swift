@@ -101,6 +101,8 @@ final class ManagedProcess: ContainerProcess, Sendable {
                 "\(owningPid)",
                 "--process-path",
                 bundle.getExecSpecPath(id: id).path,
+                "--bundle-path",
+                bundle.path.path,
             ]
         } else {
             args = ["run", "--bundle-path", bundle.path.path]

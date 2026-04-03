@@ -78,6 +78,8 @@ public final class LinuxPod: Sendable {
         public var sysctl: [String: String] = [:]
         /// The mounts for the container.
         public var mounts: [Mount] = LinuxContainer.defaultMounts()
+        /// Seccomp profile for system call filtering.
+        public var seccomp: SeccompProfile?
         /// The Unix domain socket relays to setup for the container.
         public var sockets: [UnixSocketConfiguration] = []
         /// The DNS configuration for the container.
@@ -230,6 +232,7 @@ public final class LinuxPod: Sendable {
 
         // Linux toggles
         spec.linux?.sysctl = config.sysctl
+        spec.linux?.seccomp = config.seccomp?.toOCI(effectiveCapabilities: config.process.capabilities.effective)
 
         // If the rootfs was requested as read-only, set it in the OCI spec.
         // We let the OCI runtime remount as ro, instead of doing it originally.

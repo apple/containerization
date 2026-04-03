@@ -63,6 +63,8 @@ public final class LinuxContainer: Container, Sendable {
         public var sockets: [UnixSocketConfiguration] = []
         /// The mounts for the container.
         public var mounts: [Mount] = LinuxContainer.defaultMounts()
+        /// Seccomp profile for system call filtering.
+        public var seccomp: SeccompProfile?
         /// The DNS configuration for the container.
         public var dns: DNS?
         /// The hosts to add to /etc/hosts for the container.
@@ -89,6 +91,7 @@ public final class LinuxContainer: Container, Sendable {
             interfaces: [any Interface] = [],
             sockets: [UnixSocketConfiguration] = [],
             mounts: [Mount] = LinuxContainer.defaultMounts(),
+            seccomp: SeccompProfile? = nil,
             dns: DNS? = nil,
             hosts: Hosts? = nil,
             virtualization: Bool = false,
@@ -104,6 +107,7 @@ public final class LinuxContainer: Container, Sendable {
             self.interfaces = interfaces
             self.sockets = sockets
             self.mounts = mounts
+            self.seccomp = seccomp
             self.dns = dns
             self.hosts = hosts
             self.virtualization = virtualization
@@ -355,6 +359,7 @@ public final class LinuxContainer: Container, Sendable {
 
         // Linux toggles.
         spec.linux?.sysctl = config.sysctl
+        spec.linux?.seccomp = config.seccomp?.toOCI(effectiveCapabilities: config.process.capabilities.effective)
 
         // If the rootfs was requested as read-only, set it in the OCI spec.
         // We let the OCI runtime remount as ro, instead of doing it originally.

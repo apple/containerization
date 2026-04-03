@@ -193,14 +193,29 @@ struct RunCommand: ParsableCommand {
         // Set uid, gid, and supplementary groups.
         try App.setPermissions(user: process.user)
 
+        // Resolve the executable path before seccomp is applied.
+        let resolvedExecutable = try App.resolveExecutable(process: process, currentEnv: process.env)
+
+        // Without noNewPrivileges, seccomp is a privileged operation that
+        // requires CAP_SYS_ADMIN. Install it before dropping capabilities.
+        // With noNewPrivileges, install it as late as possible (right before
+        // exec) to minimize the syscalls that need to be in the profile.
+        if let seccomp = spec.linux?.seccomp, !process.noNewPrivileges {
+            try App.setSeccomp(seccomp: seccomp)
+        }
+
         // Finish capabilities (after user change)
         try App.finishCapabilities(preparedCaps)
 
         // Set no_new_privs if requested by the OCI spec.
         try App.setNoNewPrivileges(process: process)
 
+        if let seccomp = spec.linux?.seccomp, process.noNewPrivileges {
+            try App.setSeccomp(seccomp: seccomp)
+        }
+
         // Finally execve the container process.
-        try App.exec(process: process, currentEnv: process.env)
+        try App.exec(process: process, resolvedExecutable: resolvedExecutable)
     }
 
     private func setupNamespaces(namespaces: [ContainerizationOCI.LinuxNamespace]?) throws -> Int32 {
