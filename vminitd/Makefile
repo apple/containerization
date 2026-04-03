@@ -20,8 +20,8 @@ export BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 SWIFT_WARNING_CONFIG := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors)
 SWIFT_CONFIGURATION := --swift-sdk aarch64-swift-linux-musl $(SWIFT_WARNING_CONFIG) -Xlinker -s --disable-automatic-resolution
 
-SWIFT_VERSION := 6.3-snapshot-2026-02-27
-SWIFT_SDK_URL := https://download.swift.org/swift-6.3-branch/static-sdk/swift-6.3-DEVELOPMENT-SNAPSHOT-2026-02-27-a/swift-6.3-DEVELOPMENT-SNAPSHOT-2026-02-27-a_static-linux-0.1.0.artifactbundle.tar.gz
+SWIFT_VERSION := 6.3
+SWIFT_SDK_URL := https://download.swift.org/swift-6.3-release/static-sdk/swift-6.3-RELEASE/swift-6.3-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz
 SWIFT_SDK_PATH := /tmp/$(notdir $(SWIFT_SDK_URL))
 
 SWIFTLY_URL := https://download.swift.org/swiftly/darwin/swiftly.pkg
