@@ -50,6 +50,7 @@ public final class BidirectionalRelay: Sendable {
         var writeSource: DispatchSourceWrite?
         var pendingData: [UInt8] = []
         var pendingOffset: Int = 0
+        var readSourceSuspended: Bool = false
     }
 
     // `DispatchSourceRead` is thread-safe.
@@ -189,6 +190,16 @@ public final class BidirectionalRelay: Sendable {
     /// Stops the relay and closes both file descriptors.
     public func stop() {
         state.withLock { sources in
+            // Resume any suspended read sources before cancelling.
+            // GCD will not deliver cancel handlers on suspended sources.
+            if directionState1.readSourceSuspended {
+                sources?.source1.resume()
+                directionState1.readSourceSuspended = false
+            }
+            if directionState2.readSourceSuspended {
+                sources?.source2.resume()
+                directionState2.readSourceSuspended = false
+            }
             sources?.source1.cancel()
             sources?.source2.cancel()
             sources = nil
@@ -276,6 +287,7 @@ public final class BidirectionalRelay: Sendable {
                     ]
                 )
                 readSource.suspend()
+                directionState.readSourceSuspended = true
                 self.installWriteSource(
                     directionState: directionState,
                     readSource: readSource,
@@ -348,7 +360,10 @@ public final class BidirectionalRelay: Sendable {
         }
 
         let result = directionState.pendingData.withUnsafeBufferPointer { buf in
-            write(destinationFd, buf.baseAddress!.advanced(by: directionState.pendingOffset), remaining)
+            guard let baseAddress = buf.baseAddress else {
+                return -1
+            }
+            return write(destinationFd, baseAddress.advanced(by: directionState.pendingOffset), remaining)
         }
 
         if result > 0 {
@@ -368,6 +383,7 @@ public final class BidirectionalRelay: Sendable {
                     ]
                 )
                 if !readSource.isCancelled {
+                    directionState.readSourceSuspended = false
                     readSource.resume()
                 }
             }

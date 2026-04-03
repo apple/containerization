@@ -284,4 +284,56 @@ final class BidirectionalRelayTests {
 
         #expect(completed, "Relay should complete after both sides reach EOF")
     }
+
+    // MARK: - Test 5: Stop while under backpressure
+
+    @Test
+    func testStopWhileBackpressured() async throws {
+        // Verify that stop() works correctly when a read source is suspended
+        // due to backpressure. Previously, cancelling a suspended dispatch source
+        // would never deliver the cancel handler, leaking file descriptors.
+        let (a0, a1) = try makeSocketPair()
+        let (b0, b1) = try makeSocketPair()
+
+        // Shrink b0's send buffer so backpressure kicks in quickly.
+        setSendBufferSize(fd: b0, size: 4096)
+
+        let relay = BidirectionalRelay(fd1: a1, fd2: b0)
+        try relay.start()
+
+        // Write enough to trigger backpressure but don't read from b1.
+        let largeData = [UInt8](repeating: 0x42, count: 65536)
+        let a0flags = fcntl(a0, F_GETFL)
+        _ = fcntl(a0, F_SETFL, a0flags | O_NONBLOCK)
+        _ = largeData.withUnsafeBufferPointer { buf in
+            write(a0, buf.baseAddress!, buf.count)
+        }
+
+        // Give relay time to enter backpressure state (readSource suspended).
+        usleep(100_000) // 100ms
+
+        // Stop the relay while it's backpressured. This should not hang or leak.
+        relay.stop()
+
+        // Close the external ends — the relay's fds should already be closed by stop().
+        close(a0)
+        close(b1)
+
+        // The relay should complete (cancel handlers should have fired).
+        let completed = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                await relay.waitForCompletion()
+                return true
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 3_000_000_000) // 3 seconds
+                return false
+            }
+            let result = await group.next()!
+            group.cancelAll()
+            return result
+        }
+
+        #expect(completed, "Relay should complete after stop() even when backpressured")
+    }
 }
