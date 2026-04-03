@@ -179,6 +179,10 @@ extension EXT4 {
                 guard dirEntry.recordLength >= entrySize else {
                     break
                 }
+                if dirEntry.inode == 0 {
+                    offset += Int(dirEntry.recordLength)
+                    continue
+                }
                 let nameData = dirTree.subdata(in: offset + 8..<offset + 8 + Int(dirEntry.nameLength))
                 let name = String(data: nameData, encoding: .utf8) ?? ""
                 children.append((name, dirEntry.inode))
