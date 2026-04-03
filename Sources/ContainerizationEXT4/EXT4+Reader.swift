@@ -171,12 +171,12 @@ extension EXT4 {
         private func getDirEntries(dirTree: Data) throws -> [(String, InodeNumber)] {
             var children: [(String, InodeNumber)] = []
             var offset = 0
+            let entrySize = MemoryLayout<DirectoryEntry>.size
             while offset < dirTree.count {
-                let length = MemoryLayout<DirectoryEntry>.size
-                let dirEntry = dirTree.subdata(in: offset..<offset + length).withUnsafeBytes {
+                let dirEntry = dirTree.subdata(in: offset..<offset + entrySize).withUnsafeBytes {
                     $0.loadLittleEndian(as: DirectoryEntry.self)
                 }
-                if dirEntry.inode == 0 {
+                guard dirEntry.recordLength >= entrySize else {
                     break
                 }
                 let nameData = dirTree.subdata(in: offset + 8..<offset + 8 + Int(dirEntry.nameLength))
