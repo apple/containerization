@@ -58,16 +58,18 @@ public class ContentWriter {
     public func create(from url: URL) throws -> (size: Int64, digest: SHA256.Digest) {
         let sourceFD = Foundation.open(url.path, O_RDONLY)
         guard sourceFD >= 0 else {
-            let err = POSIXErrorCode(rawValue: errno) ?? .EINVAL
-            throw ContainerizationError(.internalError, message: "failed to open \(url.path) for reading: \(err)")
+            let errCode = POSIXErrorCode(rawValue: errno) ?? .EINVAL
+            let err = POSIXError(errCode)
+            throw ContainerizationError(.internalError, message: "failed to open \(url.path) for reading", cause: err)
         }
         defer { close(sourceFD) }
 
         let tempURL = base.appendingPathComponent(UUID().uuidString)
         let destFD = Foundation.open(tempURL.path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
         guard destFD >= 0 else {
-            let err = POSIXErrorCode(rawValue: errno) ?? .EINVAL
-            throw ContainerizationError(.internalError, message: "failed to create temporary file at \(tempURL.absolutePath()): \(err)")
+            let errCode = POSIXErrorCode(rawValue: errno) ?? .EINVAL
+            let err = POSIXError(errCode)
+            throw ContainerizationError(.internalError, message: "failed to create temporary file at \(tempURL.absolutePath())", cause: err)
         }
 
         let chunkSize = 1024 * 1024  // 1 MiB
@@ -85,20 +87,22 @@ public class ContentWriter {
             let n = read(sourceFD, baseAddress, chunkSize)
             if n == 0 { break }
             if n < 0 {
-                let err = POSIXErrorCode(rawValue: errno) ?? .EINVAL
                 close(destFD)
+                let errCode = POSIXErrorCode(rawValue: errno) ?? .EINVAL
+                let err = POSIXError(errCode)
                 try? FileManager.default.removeItem(at: tempURL)
-                throw ContainerizationError(.internalError, message: "failed to read from \(url.path): \(err)")
+                throw ContainerizationError(.internalError, message: "failed to read from \(url.path)", cause: err)
             }
             hasher.update(data: UnsafeRawBufferPointer(start: baseAddress, count: n))
             var written = 0
             while written < n {
                 let w = Foundation.write(destFD, baseAddress.advanced(by: written), n - written)
                 if w < 0 {
-                    let err = POSIXErrorCode(rawValue: errno) ?? .EINVAL
                     close(destFD)
+                    let errCode = POSIXErrorCode(rawValue: errno) ?? .EINVAL
+                    let err = POSIXError(errCode)
                     try? FileManager.default.removeItem(at: tempURL)
-                    throw ContainerizationError(.internalError, message: "failed to write to \(tempURL.absolutePath()): \(err)")
+                    throw ContainerizationError(.internalError, message: "failed to write to \(tempURL.absolutePath())", cause: err)
                 }
                 written += w
             }
