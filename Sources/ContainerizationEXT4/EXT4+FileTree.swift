@@ -26,7 +26,7 @@ extension EXT4 {
             var blocks: (start: UInt32, end: UInt32)?
             var additionalBlocks: [(start: UInt32, end: UInt32)]?
             var link: InodeNumber?
-            private var parent: Ptr<FileTreeNode>?
+            private weak var parent: Ptr<FileTreeNode>?
 
             init(
                 inode: InodeNumber,
