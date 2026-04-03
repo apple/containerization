@@ -18,7 +18,13 @@ WARNINGS_AS_ERRORS ?= true
 SWIFT_CONFIGURATION := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors) --disable-automatic-resolution
 
 # Commonly used locations
-SWIFT := "/usr/bin/swift"
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
+SWIFT ?= /usr/bin/swift
+else
+SWIFT ?= swift
+endif
+
 ROOT_DIR := $(shell git rev-parse --show-toplevel)
 BUILD_BIN_DIR = $(shell $(SWIFT) build -c $(BUILD_CONFIGURATION) --show-bin-path)
 COV_DATA_DIR = $(shell $(SWIFT) test --show-coverage-path | xargs dirname)
