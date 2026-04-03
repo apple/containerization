@@ -42,7 +42,7 @@ public struct EXT4Unpacker: Unpacker {
         archive: URL,
         compression: ContainerizationArchive.Filter,
         at path: URL
-    ) throws {
+    ) async throws {
         let cleanedPath = try prepareUnpackPath(path: path)
         let filesystem = try EXT4.Formatter(
             FilePath(cleanedPath),
@@ -50,11 +50,10 @@ public struct EXT4Unpacker: Unpacker {
         )
         defer { try? filesystem.close() }
 
-        try filesystem.unpack(
+        try await filesystem.unpack(
             source: archive,
             format: .paxRestricted,
-            compression: compression,
-            progress: nil
+            compression: compression
         )
     }
     #endif
@@ -84,27 +83,59 @@ public struct EXT4Unpacker: Unpacker {
         )
         defer { try? filesystem.close() }
 
+        // Resolve layer paths upfront. When progress reporting is enabled and a layer
+        // uses zstd, decompress once so both the size-scanning pass and the unpack
+        // pass share the same decompressed file.
+        var resolvedLayers: [(file: URL, filter: ContainerizationArchive.Filter)] = []
+        var decompressedFiles: [URL] = []
         for layer in manifest.layers {
             try Task.checkCancellation()
             let content = try await image.getContent(digest: layer.digest)
-
-            let compression: ContainerizationArchive.Filter
-            switch layer.mediaType {
-            case MediaTypes.imageLayer, MediaTypes.dockerImageLayer:
-                compression = .none
-            case MediaTypes.imageLayerGzip, MediaTypes.dockerImageLayerGzip:
-                compression = .gzip
-            case MediaTypes.imageLayerZstd, MediaTypes.dockerImageLayerZstd:
-                compression = .zstd
-            default:
-                throw ContainerizationError(.unsupported, message: "media type \(layer.mediaType) not supported.")
+            let compression = try compressionFilter(for: layer.mediaType)
+            if progress != nil && compression == .zstd {
+                let decompressed = try ArchiveReader.decompressZstd(content.path)
+                decompressedFiles.append(decompressed)
+                resolvedLayers.append((file: decompressed, filter: .none))
+            } else {
+                resolvedLayers.append((file: content.path, filter: compression))
             }
-            try filesystem.unpack(
-                source: content.path,
+        }
+        defer {
+            for file in decompressedFiles {
+                ArchiveReader.cleanUpDecompressedZstd(file)
+            }
+        }
+
+        if let progress {
+            var totalSize: Int64 = 0
+            var totalItems: Int = 0
+            for layer in resolvedLayers {
+                try Task.checkCancellation()
+                let totals = try EXT4.Formatter.scanArchiveHeaders(
+                    format: .paxRestricted, filter: layer.filter, file: layer.file)
+                totalSize += totals.size
+                totalItems += totals.items
+            }
+            var totalEvents: [ProgressEvent] = []
+            if totalSize > 0 {
+                totalEvents.append(.addTotalSize(totalSize))
+            }
+            if totalItems > 0 {
+                totalEvents.append(.addTotalItems(totalItems))
+            }
+            if !totalEvents.isEmpty {
+                await progress(totalEvents)
+            }
+        }
+
+        for resolved in resolvedLayers {
+            try Task.checkCancellation()
+            let reader = try ArchiveReader(
                 format: .paxRestricted,
-                compression: compression,
-                progress: progress
+                filter: resolved.filter,
+                file: resolved.file
             )
+            try await filesystem.unpack(reader: reader, progress: progress)
         }
 
         return .block(
@@ -123,4 +154,19 @@ public struct EXT4Unpacker: Unpacker {
         }
         return blockPath
     }
+
+    #if os(macOS)
+    private func compressionFilter(for mediaType: String) throws -> ContainerizationArchive.Filter {
+        switch mediaType {
+        case MediaTypes.imageLayer, MediaTypes.dockerImageLayer:
+            return .none
+        case MediaTypes.imageLayerGzip, MediaTypes.dockerImageLayerGzip:
+            return .gzip
+        case MediaTypes.imageLayerZstd, MediaTypes.dockerImageLayerZstd:
+            return .zstd
+        default:
+            throw ContainerizationError(.unsupported, message: "media type \(mediaType) not supported.")
+        }
+    }
+    #endif
 }
