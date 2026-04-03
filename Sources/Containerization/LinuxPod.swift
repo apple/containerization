@@ -14,7 +14,6 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-#if os(macOS)
 import ContainerizationError
 import ContainerizationExtras
 import ContainerizationOCI
@@ -927,5 +926,3 @@ extension LinuxPod {
         try await relayAgent.relaySocket(port: port, configuration: socket)
     }
 }
-
-#endif
