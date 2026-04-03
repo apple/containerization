@@ -4344,4 +4344,49 @@ extension IntegrationSuite {
             throw error
         }
     }
+
+    // Verify that mounts are sorted by destination path depth so that a
+    // higher-level mount (e.g. /mnt) doesn't shadow a deeper mount
+    // (e.g. /mnt/deep/nested). Both directories are separate virtiofs
+    // shares; the sort ensures /mnt is mounted first and /mnt/deep/nested
+    // on top of it.
+    func testMountsSortedByDepth() async throws {
+        let id = "test-mount-sort-depth"
+
+        let bs = try await bootstrap(id)
+        let buffer = BufferWriter()
+
+        // Create two separate mount directories with distinct files.
+        let deepDir = FileManager.default.uniqueTemporaryDirectory(create: true)
+        try "deep-content".write(to: deepDir.appendingPathComponent("deep.txt"), atomically: true, encoding: .utf8)
+
+        let shallowDir = FileManager.default.uniqueTemporaryDirectory(create: true)
+        try "shallow-content".write(to: shallowDir.appendingPathComponent("shallow.txt"), atomically: true, encoding: .utf8)
+
+        // Add deeper mount first, then shallower mount. Without sorting the
+        // shallower mount would shadow the deeper one.
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/cat", "/mnt/deep/nested/deep.txt"]
+            config.mounts.append(.share(source: deepDir.path, destination: "/mnt/deep/nested"))
+            config.mounts.append(.share(source: shallowDir.path, destination: "/mnt"))
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process status \(status) != 0")
+        }
+
+        let value = String(data: buffer.data, encoding: .utf8)
+        guard value == "deep-content" else {
+            throw IntegrationError.assert(
+                msg: "expected 'deep-content' but got '\(value ?? "<nil>")'")
+        }
+    }
 }

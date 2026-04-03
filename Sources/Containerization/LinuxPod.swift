@@ -561,7 +561,7 @@ extension LinuxPod {
                         ))
                 }
 
-                spec.mounts = mounts
+                spec.mounts = cleanAndSortMounts(mounts)
 
                 // Configure namespaces for the container
                 var namespaces: [LinuxNamespace] = [
