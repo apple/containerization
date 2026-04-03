@@ -22,6 +22,6 @@ cp /kernel/config-arm64 /kbuild/.config
 (
   cd /kbuild
   make olddefconfig && \
-    make -j$((`nproc`-1)) && \
+    make -j$((`nproc`-1)) LOCALVERSION="${LOCALVERSION}" && \
     cp arch/arm64/boot/Image /kernel/vmlinux
 )
