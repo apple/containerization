@@ -805,13 +805,13 @@ extension EXT4 {
             }
             for group in blockGroupSize.blockGroups..<totalGroups.lo {
                 var blocksInGroup = UInt32(self.blocksPerGroup)
-                if group == totalGroups.lo {
+                if group == totalGroups.lo - 1 {
                     if UInt64(self.size / UInt64(self.blockSize)) < self.blocksPerGroup {
                         break
                     }
-                    blocksInGroup = UInt32((self.size / UInt64(self.blockSize)) % UInt64(self.blocksPerGroup))
-                    if blocksInGroup == 0 {
-                        break
+                    let lastGroupBlocks = UInt32((self.size / UInt64(self.blockSize)) % UInt64(self.blocksPerGroup))
+                    if lastGroupBlocks != 0 {
+                        blocksInGroup = lastGroupBlocks
                     }
                 }
                 let blockBitmapOffset = UInt64(group * self.blocksPerGroup + inodeTableSizePerGroup)
@@ -838,7 +838,7 @@ extension EXT4 {
                 totalBlocks += (inodeTableSizePerGroup + 2)
                 try self.seek(block: group * self.blocksPerGroup + inodeTableSizePerGroup)
 
-                if group == totalGroups.lo {
+                if group == totalGroups.lo - 1 && blocksInGroup != self.blocksPerGroup {
                     var blockBitmapLo: [UInt8] = .init(repeating: 0, count: Int(self.blocksPerGroup) / 8)
                     for i in blocksInGroup..<UInt32(self.blocksPerGroup) {
                         blockBitmapLo[Int(i) / 8] |= 1 << (i % 8)
