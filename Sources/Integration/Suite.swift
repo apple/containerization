@@ -282,7 +282,7 @@ struct IntegrationSuite: AsyncParsableCommand {
     // Hopefully this improves over time.
     func run() async throws {
         try Self.adjustLimits()
-        let suiteStarted = CFAbsoluteTimeGetCurrent()
+        let suiteStarted = Date().timeIntervalSinceReferenceDate
         log.info("starting integration suite\n")
 
         let tests: [Test] =
@@ -439,9 +439,9 @@ struct IntegrationSuite: AsyncParsableCommand {
                         do {
                             log.info("test \(job.name) started...")
 
-                            let started = CFAbsoluteTimeGetCurrent()
+                            let started = Date().timeIntervalSinceReferenceDate
                             try await job.work()
-                            let lasted = CFAbsoluteTimeGetCurrent() - started
+                            let lasted = Date().timeIntervalSinceReferenceDate - started
 
                             log.info("✅ test \(job.name) complete in \(lasted)s.")
                             passed.add(1, ordering: .relaxed)
@@ -460,7 +460,7 @@ struct IntegrationSuite: AsyncParsableCommand {
         let passedCount = passed.load(ordering: .acquiring)
         let skippedCount = skipped.load(ordering: .acquiring)
 
-        let ended = CFAbsoluteTimeGetCurrent() - suiteStarted
+        let ended = Date().timeIntervalSinceReferenceDate - suiteStarted
         var finishingText = "\n\nIntegration suite completed in \(ended)s with \(passedCount)/\(filteredTests.count) passed"
         if skipped.load(ordering: .acquiring) > 0 {
             finishingText += " and \(skippedCount)/\(filteredTests.count) skipped"

@@ -84,15 +84,6 @@ let package = Package(
                 "ContainerizationOS",
             ]
         ),
-        .executableTarget(
-            name: "containerization-integration",
-            dependencies: [
-                .product(name: "Logging", package: "swift-log"),
-                .product(name: "ArgumentParser", package: "swift-argument-parser"),
-                "Containerization",
-            ],
-            path: "Sources/Integration"
-        ),
         .testTarget(
             name: "ContainerizationUnitTests",
             dependencies: ["Containerization"],
@@ -266,3 +257,17 @@ let package = Package(
         ),
     ]
 )
+
+#if os(macOS)
+package.targets.append(
+    .executableTarget(
+        name: "containerization-integration",
+        dependencies: [
+            .product(name: "Logging", package: "swift-log"),
+            .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            "Containerization",
+        ],
+        path: "Sources/Integration"
+    )
+)
+#endif

@@ -22,6 +22,7 @@ import ContainerizationOCI
 import ContainerizationOS
 import Foundation
 
+#if os(macOS)
 extension Application {
     struct Run: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
@@ -192,3 +193,4 @@ extension Application {
         }()
     }
 }
+#endif
