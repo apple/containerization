@@ -219,3 +219,14 @@ struct Ext4FormatTests: ~Copyable {
         #expect(regFile.sizeLow == 4)
     }
 }
+
+struct Ext4FormatEmptyRangeTests {
+    @Test func closeEmptyFilesystem() throws {
+        let fsPath = FilePath(
+            FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: false))
+        defer { try? FileManager.default.removeItem(at: fsPath.url) }
+        let formatter = try EXT4.Formatter(fsPath, minDiskSize: 32.kib())
+        try formatter.close()
+    }
+}

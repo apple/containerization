@@ -699,9 +699,11 @@ extension EXT4 {
                     for i in 0...usedGroupDescriptorBlocks {
                         bitmap[Int(i / 8)] |= 1 << (i % 8)
                     }
-                    for i in usedGroupDescriptorBlocks + 1...self.groupDescriptorBlocks {
-                        bitmap[Int(i / 8)] &= ~(1 << (i % 8))
-                        blocks -= 1
+                    if usedGroupDescriptorBlocks + 1 <= self.groupDescriptorBlocks {
+                        for i in usedGroupDescriptorBlocks + 1...self.groupDescriptorBlocks {
+                            bitmap[Int(i / 8)] &= ~(1 << (i % 8))
+                            blocks -= 1
+                        }
                     }
                 }
 
