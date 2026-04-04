@@ -1103,7 +1103,7 @@ extension EXT4 {
                     }
                 }
             case 5..<4 * UInt32(extentsPerBlock) + 1:
-                let extentBlocks = numExtents / extentsPerBlock + 1
+                let extentBlocks = (numExtents + extentsPerBlock - 1) / extentsPerBlock
                 usedBlocks += extentBlocks
                 let extentHeader = ExtentHeader(
                     magic: EXT4.ExtentHeaderMagic,
