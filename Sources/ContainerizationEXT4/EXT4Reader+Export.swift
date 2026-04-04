@@ -70,8 +70,8 @@ extension EXT4.EXT4Reader {
             let pathStr = path.description
             entry.path = pathStr
             entry.size = Int64(size)
-            entry.group = gid_t(inode.gid)
-            entry.owner = uid_t(inode.uid)
+            entry.group = gid_t(inode.gidHigh) << 16 | gid_t(inode.gid)
+            entry.owner = uid_t(inode.uidHigh) << 16 | uid_t(inode.uid)
             entry.creationDate = Date(fsTimestamp: UInt64(inode.crtimeExtra) << 32 | UInt64(inode.crtime))
             entry.modificationDate = Date(fsTimestamp: UInt64(inode.mtimeExtra) << 32 | UInt64(inode.mtime))
             entry.contentAccessDate = Date(fsTimestamp: UInt64(inode.atimeExtra) << 32 | UInt64(inode.atime))
@@ -153,8 +153,8 @@ extension EXT4.EXT4Reader {
             entry.path = path.description
             entry.hardlink = targetPath.description
             entry.permissions = mode_t(inode.mode)
-            entry.group = gid_t(inode.gid)
-            entry.owner = uid_t(inode.uid)
+            entry.group = gid_t(inode.gidHigh) << 16 | gid_t(inode.gid)
+            entry.owner = uid_t(inode.uidHigh) << 16 | uid_t(inode.uid)
             entry.creationDate = Date(fsTimestamp: UInt64(inode.crtimeExtra) << 32 | UInt64(inode.crtime))
             entry.modificationDate = Date(fsTimestamp: UInt64(inode.mtimeExtra) << 32 | UInt64(inode.mtime))
             entry.contentAccessDate = Date(fsTimestamp: UInt64(inode.atimeExtra) << 32 | UInt64(inode.atime))
