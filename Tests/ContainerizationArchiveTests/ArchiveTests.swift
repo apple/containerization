@@ -34,6 +34,10 @@ struct ArchiveTests {
         return entry
     }
 
+    func archiveSourceEntry(pathOnHost: URL, pathInArchive: String) -> ArchiveSourceEntry {
+        ArchiveSourceEntry(pathOnHost: pathOnHost, pathInArchive: pathInArchive)
+    }
+
     @Test func createTemporaryDirectorySuccess() throws {
         // Test that createTemporaryDirectory creates a directory with randomized suffix
         let baseName = "ArchiveTests.testTempDir"
@@ -350,6 +354,35 @@ struct ArchiveTests {
         #expect(linkDest == "target.txt")
     }
 
+    @Test func archiveDirectoryRewritesInternalAbsoluteSymlink() throws {
+        let testDir = createTemporaryDirectory(baseName: "ArchiveTests.archiveDirAbsoluteSymlink")!
+        defer { try? FileManager.default.removeItem(at: testDir) }
+
+        let sourceDir = testDir.appendingPathComponent("source")
+        try FileManager.default.createDirectory(at: sourceDir, withIntermediateDirectories: true)
+        let targetURL = sourceDir.appendingPathComponent("target.txt")
+        try "target content".write(to: targetURL, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(
+            atPath: sourceDir.appendingPathComponent("link.txt").path,
+            withDestinationPath: targetURL.path
+        )
+
+        let archiveURL = testDir.appendingPathComponent("test.tar.gz")
+        let writer = try ArchiveWriter(format: .pax, filter: .gzip, file: archiveURL)
+        try writer.archiveDirectory(sourceDir)
+        try writer.finishEncoding()
+
+        let extractDir = testDir.appendingPathComponent("extract")
+        let reader = try ArchiveReader(file: archiveURL)
+        let rejected = try reader.extractContents(to: extractDir)
+
+        #expect(rejected.isEmpty)
+        let extractedLink = extractDir.appendingPathComponent("link.txt")
+        let linkDest = try FileManager.default.destinationOfSymbolicLink(atPath: extractedLink.path)
+        #expect(linkDest == "target.txt")
+        #expect(try String(contentsOf: extractedLink, encoding: .utf8) == "target content")
+    }
+
     @Test func archiveDirectorySymlinkOutsideExcluded() throws {
         let testDir = createTemporaryDirectory(baseName: "ArchiveTests.archiveDirSymlinkOutside")!
         defer { try? FileManager.default.removeItem(at: testDir) }
@@ -594,6 +627,105 @@ struct ArchiveTests {
         // Verify the symlink resolves correctly
         let content = try String(contentsOf: extractDir.appendingPathComponent("b/link.txt"), encoding: .utf8)
         #expect(content == "in a")
+    }
+
+    @Test func archiveEntriesRewritesInternalAbsoluteSymlink() throws {
+        let testDir = createTemporaryDirectory(baseName: "ArchiveTests.archiveEntriesInternalAbsolute")!
+        defer { try? FileManager.default.removeItem(at: testDir) }
+
+        let sourceDir = testDir.appendingPathComponent("source")
+        try FileManager.default.createDirectory(at: sourceDir, withIntermediateDirectories: true)
+        let targetURL = sourceDir.appendingPathComponent("target.txt")
+        try "hello".write(to: targetURL, atomically: true, encoding: .utf8)
+        let linkURL = sourceDir.appendingPathComponent("link.txt")
+        try FileManager.default.createSymbolicLink(atPath: linkURL.path, withDestinationPath: targetURL.path)
+
+        let archiveURL = testDir.appendingPathComponent("test.tar.gz")
+        let writer = try ArchiveWriter(format: .pax, filter: .gzip, file: archiveURL)
+        try writer.archiveEntries([
+            archiveSourceEntry(pathOnHost: targetURL, pathInArchive: "target.txt"),
+            archiveSourceEntry(pathOnHost: linkURL, pathInArchive: "link.txt"),
+        ])
+        try writer.finishEncoding()
+
+        let extractDir = testDir.appendingPathComponent("extract")
+        let reader = try ArchiveReader(file: archiveURL)
+        let rejected = try reader.extractContents(to: extractDir)
+
+        #expect(rejected.isEmpty)
+        let extractedLink = extractDir.appendingPathComponent("link.txt")
+        let linkDest = try FileManager.default.destinationOfSymbolicLink(atPath: extractedLink.path)
+        #expect(linkDest == "target.txt")
+        #expect(try String(contentsOf: extractedLink, encoding: .utf8) == "hello")
+    }
+
+    @Test func archiveEntriesPreservesExternalAbsoluteSymlink() throws {
+        let testDir = createTemporaryDirectory(baseName: "ArchiveTests.archiveEntriesExternalAbsolute")!
+        defer { try? FileManager.default.removeItem(at: testDir) }
+
+        let sourceDir = testDir.appendingPathComponent("source")
+        try FileManager.default.createDirectory(at: sourceDir, withIntermediateDirectories: true)
+        let externalTargetURL = testDir.appendingPathComponent("external-target.txt")
+        try "external".write(to: externalTargetURL, atomically: true, encoding: .utf8)
+        let linkURL = sourceDir.appendingPathComponent("absolute-link.txt")
+        try FileManager.default.createSymbolicLink(atPath: linkURL.path, withDestinationPath: externalTargetURL.path)
+
+        let archiveURL = testDir.appendingPathComponent("test.tar.gz")
+        let writer = try ArchiveWriter(format: .pax, filter: .gzip, file: archiveURL)
+        try writer.archiveEntries([
+            archiveSourceEntry(pathOnHost: linkURL, pathInArchive: "absolute-link.txt")
+        ])
+        try writer.finishEncoding()
+
+        let extractDir = testDir.appendingPathComponent("extract")
+        let reader = try ArchiveReader(file: archiveURL)
+        let rejected = try reader.extractContents(to: extractDir)
+
+        #expect(rejected.isEmpty)
+        let extractedLink = extractDir.appendingPathComponent("absolute-link.txt")
+        let linkDest = try FileManager.default.destinationOfSymbolicLink(atPath: extractedLink.path)
+        #expect(linkDest == externalTargetURL.path)
+    }
+
+    @Test func archiveEntriesCanonicalizesInternalAbsoluteSymlinkThroughAncestorSymlink() throws {
+        let testDir = createTemporaryDirectory(baseName: "ArchiveTests.archiveEntriesCanonicalAbsolute")!
+        defer { try? FileManager.default.removeItem(at: testDir) }
+
+        let sourceDir = testDir.appendingPathComponent("source")
+        try FileManager.default.createDirectory(at: sourceDir, withIntermediateDirectories: true)
+
+        let realDirURL = sourceDir.appendingPathComponent("real")
+        try FileManager.default.createDirectory(at: realDirURL, withIntermediateDirectories: true)
+        let targetURL = realDirURL.appendingPathComponent("target.txt")
+        try "hello".write(to: targetURL, atomically: true, encoding: .utf8)
+
+        let aliasURL = sourceDir.appendingPathComponent("alias")
+        try FileManager.default.createSymbolicLink(atPath: aliasURL.path, withDestinationPath: "real")
+
+        let linkURL = sourceDir.appendingPathComponent("link.txt")
+        try FileManager.default.createSymbolicLink(
+            atPath: linkURL.path,
+            withDestinationPath: sourceDir.appendingPathComponent("alias/target.txt").path
+        )
+
+        let archiveURL = testDir.appendingPathComponent("test.tar.gz")
+        let writer = try ArchiveWriter(format: .pax, filter: .gzip, file: archiveURL)
+        try writer.archiveEntries([
+            archiveSourceEntry(pathOnHost: realDirURL, pathInArchive: "real"),
+            archiveSourceEntry(pathOnHost: targetURL, pathInArchive: "real/target.txt"),
+            archiveSourceEntry(pathOnHost: linkURL, pathInArchive: "link.txt"),
+        ])
+        try writer.finishEncoding()
+
+        let extractDir = testDir.appendingPathComponent("extract")
+        let reader = try ArchiveReader(file: archiveURL)
+        let rejected = try reader.extractContents(to: extractDir)
+
+        #expect(rejected.isEmpty)
+        let extractedLink = extractDir.appendingPathComponent("link.txt")
+        let linkDest = try FileManager.default.destinationOfSymbolicLink(atPath: extractedLink.path)
+        #expect(linkDest == "real/target.txt")
+        #expect(try String(contentsOf: extractedLink, encoding: .utf8) == "hello")
     }
 }
 
