@@ -355,7 +355,7 @@ struct ArchiveTests {
         #expect(linkDest == "target.txt")
     }
 
-    @Test func archiveDirectoryRewritesInternalAbsoluteSymlink() throws {
+    @Test func archiveDirectoryPreservesInternalAbsoluteSymlink() throws {
         let testDir = createTemporaryDirectory(baseName: "ArchiveTests.archiveDirAbsoluteSymlink")!
         defer { try? FileManager.default.removeItem(at: testDir) }
 
@@ -380,7 +380,7 @@ struct ArchiveTests {
         #expect(rejected.isEmpty)
         let extractedLink = extractDir.appendingPathComponent("link.txt")
         let linkDest = try FileManager.default.destinationOfSymbolicLink(atPath: extractedLink.path)
-        #expect(linkDest == "target.txt")
+        #expect(linkDest == targetURL.path)
         #expect(try String(contentsOf: extractedLink, encoding: .utf8) == "target content")
     }
 
@@ -1030,7 +1030,7 @@ struct ArchiveTests {
         #expect(content == "in a")
     }
 
-    @Test func archiveEntriesRewritesInternalAbsoluteSymlink() throws {
+    @Test func archiveEntriesPreservesInternalAbsoluteSymlink() throws {
         let testDir = createTemporaryDirectory(baseName: "ArchiveTests.archiveEntriesInternalAbsolute")!
         defer { try? FileManager.default.removeItem(at: testDir) }
 
@@ -1056,7 +1056,7 @@ struct ArchiveTests {
         #expect(rejected.isEmpty)
         let extractedLink = extractDir.appendingPathComponent("link.txt")
         let linkDest = try FileManager.default.destinationOfSymbolicLink(atPath: extractedLink.path)
-        #expect(linkDest == "target.txt")
+        #expect(linkDest == targetURL.path)
         #expect(try String(contentsOf: extractedLink, encoding: .utf8) == "hello")
     }
 
@@ -1088,7 +1088,7 @@ struct ArchiveTests {
         #expect(linkDest == externalTargetURL.path)
     }
 
-    @Test func archiveEntriesCanonicalizesInternalAbsoluteSymlinkThroughAncestorSymlink() throws {
+    @Test func archiveEntriesPreservesAbsoluteSymlinkThroughAncestorSymlink() throws {
         let testDir = createTemporaryDirectory(baseName: "ArchiveTests.archiveEntriesCanonicalAbsolute")!
         defer { try? FileManager.default.removeItem(at: testDir) }
 
@@ -1125,7 +1125,7 @@ struct ArchiveTests {
         #expect(rejected.isEmpty)
         let extractedLink = extractDir.appendingPathComponent("link.txt")
         let linkDest = try FileManager.default.destinationOfSymbolicLink(atPath: extractedLink.path)
-        #expect(linkDest == "real/target.txt")
+        #expect(linkDest == sourceDir.appendingPathComponent("alias/target.txt").path)
         #expect(try String(contentsOf: extractedLink, encoding: .utf8) == "hello")
     }
 }

@@ -209,12 +209,8 @@ extension ArchiveWriter {
 extension ArchiveWriter {
     /// Archives an explicit, ordered list of host filesystem entries.
     public func archiveEntries(_ entries: [ArchiveSourceEntry]) throws {
-        let archivedPathsByHostPath = entries.reduce(into: [String: [String]]()) { result, entry in
-            result[entry.pathOnHost.path, default: []].append(entry.pathInArchive)
-        }
-
         for source in entries {
-            guard let entry = try Self.makeEntry(from: source, archivedPathsByHostPath: archivedPathsByHostPath) else {
+            guard let entry = try Self.makeEntry(from: source) else {
                 throw ArchiveError.failedToCreateArchive("unsupported file type at '\(source.pathOnHost.path)'")
             }
             try self.writeSourceEntry(entry: entry, sourcePath: source.pathOnHost.path)
@@ -224,8 +220,7 @@ extension ArchiveWriter {
     private func archive(_ relativePath: FilePath, dirPath: FilePath) throws {
         let fullPath = dirPath.appending(relativePath.string)
         guard let entry = try Self.makeEntry(
-            from: ArchiveSourceEntry(pathOnHost: URL(fileURLWithPath: fullPath.string), pathInArchive: relativePath.string),
-            archivedPathsByHostPath: [:]
+            from: ArchiveSourceEntry(pathOnHost: URL(fileURLWithPath: fullPath.string), pathInArchive: relativePath.string)
         ) else {
             return
         }
@@ -246,12 +241,7 @@ extension ArchiveWriter {
             guard Self.relativePath(path: resolvedFull.string, within: resolvedRootPath) != nil else {
                 return
             }
-            entry.symlinkTarget = Self.rewriteArchivedDirectorySymlinkTarget(
-                symlinkTarget,
-                sourceEntryPath: relativePath.string,
-                sourceRoot: dirPath,
-                resolvedTargetPath: resolvedFull
-            )
+            // Match Docker build-context semantics and preserve the original target verbatim.
         }
 
         try self.writeSourceEntry(entry: entry, sourcePath: fullPath.string)
@@ -423,8 +413,7 @@ extension ArchiveWriter {
     }
 
     private static func makeEntry(
-        from source: ArchiveSourceEntry,
-        archivedPathsByHostPath: [String: [String]]
+        from source: ArchiveSourceEntry
     ) throws -> WriteEntry? {
         guard let status = try Self.fileStatus(atPath: source.pathOnHost.path) else {
             return nil
@@ -441,11 +430,8 @@ extension ArchiveWriter {
         case .symbolicLink:
             entry.fileType = .symbolicLink
             entry.size = 0
-            entry.symlinkTarget = Self.rewriteArchivedAbsoluteSymlinkTarget(
-                status.symlinkTarget ?? "",
-                sourceEntryPath: source.pathInArchive,
-                archivedPathsByHostPath: archivedPathsByHostPath
-            )
+            // Match Docker build-context semantics and preserve the original target verbatim.
+            entry.symlinkTarget = status.symlinkTarget
         }
 
         entry.path = source.pathInArchive
@@ -555,30 +541,6 @@ extension ArchiveWriter {
         #endif
     }
 
-    private static func rewriteArchivedAbsoluteSymlinkTarget(
-        _ symlinkTarget: String,
-        sourceEntryPath: String,
-        archivedPathsByHostPath: [String: [String]]
-    ) -> String {
-        guard symlinkTarget.hasPrefix("/") else {
-            return symlinkTarget
-        }
-
-        let targetPath = URL(fileURLWithPath: symlinkTarget)
-            .standardizedFileURL
-            .resolvingSymlinksInPath()
-            .path
-        guard let targetArchivePaths = archivedPathsByHostPath[targetPath],
-            targetArchivePaths.count == 1,
-            let targetArchivePath = targetArchivePaths.first
-        else {
-            return symlinkTarget
-        }
-
-        let sourceDirectory = (sourceEntryPath as NSString).deletingLastPathComponent
-        return Self.relativeArchivePath(fromDirectory: sourceDirectory, to: targetArchivePath)
-    }
-
     private static func resolveArchivedDirectorySymlinkTarget(
         _ symlinkTarget: String,
         symlinkPath: FilePath
@@ -593,57 +555,5 @@ extension ArchiveWriter {
 
         let symlinkParent = symlinkPath.removingLastComponent()
         return symlinkParent.appending(symlinkTarget).lexicallyNormalized()
-    }
-
-    private static func rewriteArchivedDirectorySymlinkTarget(
-        _ symlinkTarget: String,
-        sourceEntryPath: String,
-        sourceRoot: FilePath,
-        resolvedTargetPath: FilePath
-    ) -> String {
-        guard symlinkTarget.hasPrefix("/"),
-            let targetArchivePath = Self.relativePath(path: resolvedTargetPath.string, within: sourceRoot.string)
-        else {
-            return symlinkTarget
-        }
-
-        let sourceDirectory = (sourceEntryPath as NSString).deletingLastPathComponent
-        return Self.relativeArchivePath(fromDirectory: sourceDirectory, to: targetArchivePath)
-    }
-
-    private static func relativePath(path: String, within root: String) -> String? {
-        if path == root {
-            return ""
-        }
-
-        let rootPrefix = root.hasSuffix("/") ? root : root + "/"
-        guard path.hasPrefix(rootPrefix) else {
-            return nil
-        }
-        return String(path.dropFirst(rootPrefix.count))
-    }
-
-    private static func relativeArchivePath(fromDirectory: String, to path: String) -> String {
-        let fromComponents = Self.archivePathComponents(fromDirectory)
-        let toComponents = Self.archivePathComponents(path)
-
-        var commonPrefixCount = 0
-        while commonPrefixCount < fromComponents.count,
-            commonPrefixCount < toComponents.count,
-            fromComponents[commonPrefixCount] == toComponents[commonPrefixCount]
-        {
-            commonPrefixCount += 1
-        }
-
-        let upwardTraversal = Array(repeating: "..", count: fromComponents.count - commonPrefixCount)
-        let remainder = Array(toComponents.dropFirst(commonPrefixCount))
-        let relativeComponents = upwardTraversal + remainder
-        return relativeComponents.isEmpty ? "." : relativeComponents.joined(separator: "/")
-    }
-
-    private static func archivePathComponents(_ path: String) -> [String] {
-        NSString(string: path).pathComponents.filter { component in
-            component != "/" && component != "."
-        }
     }
 }
