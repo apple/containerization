@@ -549,6 +549,38 @@ struct EXT4PathIOTests {
     }
 
     @Test
+    func multiExtentFileReadback() throws {
+        // Create an image large enough that the formatter produces multiple extents
+        // by interleaving file creation (which can cause non-contiguous allocation).
+        // This exercises the recursive readExtentNode() path for depth 0 and depth 1.
+        let url = try buildFS(minDiskSize: 32 * 1024 * 1024) { fmt in
+            // Create many files to consume blocks, then a large file that may
+            // span multiple extents due to intervening allocations.
+            for i in 0..<50 {
+                let content = String(repeating: Character(UnicodeScalar(65 + (i % 26))!), count: 8192)
+                try self.createFile(fmt, "/filler_\(i).txt", content)
+            }
+            // Create a large file — the formatter writes this contiguously, but the
+            // reader still exercises getExtents() → readExtentNode() with depth 0.
+            let bigContent = String(repeating: "X", count: 512 * 1024)
+            try self.createFile(fmt, "/big.bin", bigContent)
+        }
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let r = try openReader(url)
+
+        // Verify the large file reads back correctly
+        let data = try r.readFile(at: FilePath("/big.bin"))
+        #expect(data.count == 512 * 1024)
+        #expect(data.allSatisfy { $0 == UInt8(ascii: "X") })
+
+        // Verify filler files also read correctly
+        let filler0 = try r.readFile(at: FilePath("/filler_0.txt"))
+        #expect(filler0.count == 8192)
+        #expect(filler0.allSatisfy { $0 == UInt8(ascii: "A") })
+    }
+
+    @Test
     func largeFileReadAcrossBlocks() throws {
         // Keep this modest to avoid slow CI while still crossing multiple blocks.
         let bigSize = 2 * 1024 * 1024 + 123  // ~2 MiB + tail
