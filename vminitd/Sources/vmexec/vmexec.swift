@@ -26,8 +26,13 @@ import ContainerizationOS
 import FoundationEssentials
 import LCShim
 import Logging
-import Musl
 import SystemPackage
+
+#if canImport(Musl)
+import Musl
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 @main
 struct App: ParsableCommand {

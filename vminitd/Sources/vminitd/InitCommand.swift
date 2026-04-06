@@ -17,7 +17,16 @@
 import ArgumentParser
 import ContainerizationOS
 import LCShim
+
+#if canImport(Musl)
 import Musl
+private let _exit = Musl.exit
+private let _kill = Musl.kill
+#elseif canImport(Glibc)
+import Glibc
+private let _exit = Glibc.exit
+private let _kill = Glibc.kill
+#endif
 
 /// A minimal init process that:
 /// - Spawns and monitors a child process
@@ -78,7 +87,7 @@ struct InitCommand: ParsableCommand {
             let sig = sigtimedwait(&allSignals, &siginfo, &timeout)
 
             if sig > 0 && !Self.ignoredSignals.contains(sig) {
-                _ = Musl.kill(signalTarget, sig)
+                _ = _kill(signalTarget, sig)
             }
 
             while true {
@@ -93,6 +102,6 @@ struct InitCommand: ParsableCommand {
             }
         }
 
-        Musl.exit(childExitStatus ?? 1)
+        _exit(childExitStatus ?? 1)
     }
 }

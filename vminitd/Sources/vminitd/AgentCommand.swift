@@ -26,7 +26,11 @@ import NIOCore
 import NIOPosix
 
 #if os(Linux)
+#if canImport(Musl)
 import Musl
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import LCShim
 #endif
 
@@ -157,13 +161,13 @@ struct AgentCommand: AsyncParsableCommand {
             log.info("vminitd API returned, syncing filesystems")
 
             #if os(Linux)
-            Musl.sync()
+            sync()
             #endif
         } catch {
             log.error("vminitd boot error \(error)")
 
             #if os(Linux)
-            Musl.sync()
+            sync()
             #endif
 
             _exit(1)
