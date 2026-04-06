@@ -33,6 +33,9 @@ struct RunCommand: ParsableCommand {
     var bundlePath: String
 
     mutating func run() throws {
+        let syncPipe = FileDescriptor(rawValue: 3)
+        let ackPipe = FileDescriptor(rawValue: 4)
+
         do {
             let spec: ContainerizationOCI.Spec
             do {
@@ -41,7 +44,7 @@ struct RunCommand: ParsableCommand {
             } catch {
                 throw App.Failure(message: "failed to load OCI bundle at \(bundlePath): \(error)")
             }
-            try execInNamespace(spec: spec)
+            try execInNamespace(spec: spec, syncPipe: syncPipe, ackPipe: ackPipe)
         } catch {
             App.writeError(error)
             throw error
@@ -85,8 +88,8 @@ struct RunCommand: ParsableCommand {
 
     private func childSetup(
         spec: ContainerizationOCI.Spec,
-        ackPipe: FileDescriptor,
-        syncPipe: FileDescriptor
+        syncPipe: FileDescriptor,
+        ackPipe: FileDescriptor
     ) throws {
         guard let process = spec.process else {
             throw App.Failure(message: "no process configuration found in runtime spec")
@@ -243,12 +246,44 @@ struct RunCommand: ParsableCommand {
         return unshareFlags
     }
 
-    private func execInNamespace(spec: ContainerizationOCI.Spec) throws {
-        let syncPipe = FileDescriptor(rawValue: 3)
-        let ackPipe = FileDescriptor(rawValue: 4)
+    private func startMemoryMonitor(spec: ContainerizationOCI.Spec, syncPipe: FileDescriptor, ackPipe: FileDescriptor) throws {
+        let oomLimit = 1_000_000
+
+        let errorPipe = FileDescriptor(rawValue: 5)
+
+        let processID = fork()
+        guard processID != -1 else {
+            try? syncPipe.close()
+            try? ackPipe.close()
+            throw App.Errno(stage: "fork")
+        }
+
+        guard processID == 0 else {
+            return
+        }
+
+        try syncPipe.close()
+        try ackPipe.close()
+        try errorPipe.close()
+
+        if let linux = spec.linux, !linux.cgroupsPath.isEmpty {
+            let cgroupManager = try Cgroup2Manager.load(group: URL(filePath: linux.cgroupsPath))
+
+            while true {
+                usleep(1_000_000)
+                let events = try cgroupManager.getMemoryEvents()
+
+                if events.max > oomLimit {
+                    try cgroupManager.kill()
+                }
+            }
+        }
+    }
+
+    private func execInNamespace(spec: ContainerizationOCI.Spec, syncPipe: FileDescriptor, ackPipe: FileDescriptor) throws {
+        try startMemoryMonitor(spec: spec, syncPipe: syncPipe, ackPipe: ackPipe)
 
         let unshareFlags = try setupNamespaces(namespaces: spec.linux?.namespaces)
-
         guard unshare(unshareFlags) == 0 else {
             throw App.Errno(stage: "unshare(\(unshareFlags))")
         }
@@ -261,7 +296,7 @@ struct RunCommand: ParsableCommand {
         }
 
         if processID == 0 {  // child
-            try childSetup(spec: spec, ackPipe: ackPipe, syncPipe: syncPipe)
+            try childSetup(spec: spec, syncPipe: syncPipe, ackPipe: ackPipe)
         } else {  // parent process
             // Setup cgroup before child enters cgroup namespace
             if let linux = spec.linux {
