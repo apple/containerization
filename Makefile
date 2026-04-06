@@ -40,6 +40,14 @@ KATA_BINARY_PACKAGE := https://github.com/kata-containers/kata-containers/releas
 include Protobuf.Makefile
 .DEFAULT_GOAL := all
 
+.PHONY: deps
+deps:
+ifeq ($(UNAME_S),Linux)
+	sudo apt-get install -y libarchive-dev libbz2-dev liblzma-dev libssl-dev
+else
+	@echo "No additional dependencies required on $(UNAME_S)"
+endif
+
 .PHONY: all
 all: containerization
 all: init
@@ -57,11 +65,13 @@ containerization:
 	@echo Copying containerization binaries...
 	@mkdir -p bin
 	@install "$(BUILD_BIN_DIR)/cctl" ./bin/
+ifeq ($(UNAME_S),Darwin)
 	@install "$(BUILD_BIN_DIR)/containerization-integration" ./bin/
 
 	@echo Signing containerization binaries...
 	@codesign --force --sign - --timestamp=none --entitlements=signing/vz.entitlements bin/cctl
 	@codesign --force --sign - --timestamp=none --entitlements=signing/vz.entitlements bin/containerization-integration
+endif
 
 .PHONY: init
 init: containerization vminitd

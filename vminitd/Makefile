@@ -18,19 +18,32 @@ export GIT_COMMIT := $(shell git rev-parse HEAD)
 export GIT_TAG := $(shell git describe --tags --exact-match 2>/dev/null || echo "")
 export BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 SWIFT_WARNING_CONFIG := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors)
-SWIFT_CONFIGURATION := --swift-sdk aarch64-swift-linux-musl $(SWIFT_WARNING_CONFIG) -Xlinker -s --disable-automatic-resolution
+UNAME_M := $(shell uname -m)
+ifeq ($(UNAME_M),arm64)
+MUSL_ARCH := aarch64
+else ifeq ($(UNAME_M),aarch64)
+MUSL_ARCH := aarch64
+else
+MUSL_ARCH := x86_64
+endif
+
+SWIFT_CONFIGURATION := --swift-sdk $(MUSL_ARCH)-swift-linux-musl $(SWIFT_WARNING_CONFIG) -Xlinker -s --disable-automatic-resolution
 
 SWIFT_VERSION := 6.3
 SWIFT_SDK_URL := https://download.swift.org/swift-6.3-release/static-sdk/swift-6.3-RELEASE/swift-6.3-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz
 SWIFT_SDK_PATH := /tmp/$(notdir $(SWIFT_SDK_URL))
 
+SYSTEM_TYPE := $(shell uname -s)
+ifeq ($(SYSTEM_TYPE),Darwin)
 SWIFTLY_URL := https://download.swift.org/swiftly/darwin/swiftly.pkg
 SWIFTLY_FILENAME := $(notdir $(SWIFTLY_URL))
 SWIFTLY_BIN_DIR ?= ~/.swiftly/bin
 SWIFT := $(SWIFTLY_BIN_DIR)/swift
+else
+SWIFT ?= swift
+endif
 BUILD_BIN_DIR := $(shell $(SWIFT) build -c $(BUILD_CONFIGURATION) $(SWIFT_CONFIGURATION) --show-bin-path)
 
-SYSTEM_TYPE := $(shell uname -s)
 ifeq ($(SYSTEM_TYPE),Darwin)
 MACOS_VERSION := $(shell sw_vers -productVersion)
 MACOS_MAJOR := $(shell echo $(MACOS_VERSION) | cut -d. -f1)

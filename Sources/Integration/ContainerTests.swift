@@ -1294,12 +1294,12 @@ extension IntegrationSuite {
                 config.stderr = stderrBuffer
             }
 
-            let started = CFAbsoluteTimeGetCurrent()
+            let started = Date().timeIntervalSinceReferenceDate
 
             try await exec.start()
             let status = try await exec.wait()
 
-            let lasted = CFAbsoluteTimeGetCurrent() - started
+            let lasted = Date().timeIntervalSinceReferenceDate - started
             print("Test \(id) finished process ingesting stdio in \(lasted)")
 
             guard status.exitCode == 0 else {

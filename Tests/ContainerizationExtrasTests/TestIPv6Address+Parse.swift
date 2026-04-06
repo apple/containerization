@@ -161,7 +161,7 @@ struct IPv6AddressParseTests {
         let testInput = "FFFF"
 
         // Measure performance of parsing operation
-        let startTime = CFAbsoluteTimeGetCurrent()
+        let startTime = Date().timeIntervalSinceReferenceDate
         let count = 10000
         for _ in 0..<count {
             let utf8 = testInput.utf8
@@ -171,7 +171,7 @@ struct IPv6AddressParseTests {
             )
         }
 
-        let timeElapsed = CFAbsoluteTimeGetCurrent() - startTime
+        let timeElapsed = Date().timeIntervalSinceReferenceDate - startTime
 
         // Expect parsing to be reasonably fast (less than 1ms per operation on average)
         print("Parsed \(count) IPv6 addresses in \(timeElapsed)s")

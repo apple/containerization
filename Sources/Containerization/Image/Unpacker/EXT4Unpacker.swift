@@ -14,16 +14,13 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import ContainerizationArchive
+import ContainerizationEXT4
 import ContainerizationError
 import ContainerizationExtras
 import ContainerizationOCI
 import Foundation
-
-#if os(macOS)
-import ContainerizationArchive
-import ContainerizationEXT4
 import SystemPackage
-#endif
 
 public struct EXT4Unpacker: Unpacker {
     let blockSizeInBytes: UInt64
@@ -32,7 +29,6 @@ public struct EXT4Unpacker: Unpacker {
         self.blockSizeInBytes = blockSizeInBytes
     }
 
-    #if os(macOS)
     /// Performs the unpacking of a tar archive into a filesystem.
     /// - Parameters:
     ///   - archive: The archive to unpack.
@@ -56,7 +52,6 @@ public struct EXT4Unpacker: Unpacker {
             compression: compression
         )
     }
-    #endif
 
     /// Returns a `Mount` point after unpacking the image into a filesystem.
     /// - Parameters:
@@ -70,9 +65,6 @@ public struct EXT4Unpacker: Unpacker {
         at path: URL,
         progress: ProgressHandler? = nil
     ) async throws -> Mount {
-        #if !os(macOS)
-        throw ContainerizationError(.unsupported, message: "cannot unpack an image on current platform")
-        #else
         let cleanedPath = try prepareUnpackPath(path: path)
         let manifest = try await image.manifest(for: platform)
         let filesystem = try EXT4.Formatter(
@@ -144,7 +136,6 @@ public struct EXT4Unpacker: Unpacker {
             destination: "/",
             options: []
         )
-        #endif
     }
 
     private func prepareUnpackPath(path: URL) throws -> String {
@@ -155,7 +146,6 @@ public struct EXT4Unpacker: Unpacker {
         return blockPath
     }
 
-    #if os(macOS)
     private func compressionFilter(for mediaType: String) throws -> ContainerizationArchive.Filter {
         switch mediaType {
         case MediaTypes.imageLayer, MediaTypes.dockerImageLayer:
@@ -168,5 +158,4 @@ public struct EXT4Unpacker: Unpacker {
             throw ContainerizationError(.unsupported, message: "media type \(mediaType) not supported.")
         }
     }
-    #endif
 }
