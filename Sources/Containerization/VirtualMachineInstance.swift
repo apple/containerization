@@ -52,10 +52,10 @@ public protocol VirtualMachineInstance: Sendable {
 }
 
 extension VirtualMachineInstance {
-    func pause() async throws {
+    public func pause() async throws {
         throw ContainerizationError(.unsupported, message: "pause")
     }
-    func resume() async throws {
+    public func resume() async throws {
         throw ContainerizationError(.unsupported, message: "resume")
     }
 }
