@@ -281,7 +281,6 @@ extension EXT4.EXT4Reader {
         var parentStack: [EXT4.InodeNumber] = []  // Track parent chain for proper ".." handling
 
         var symlinkHops = 0
-        var visitedInodes = Set<EXT4.InodeNumber>()
 
         // Process components one at a time to handle symlinks in the middle of paths
         var componentIndex = 0
@@ -330,12 +329,6 @@ extension EXT4.EXT4Reader {
             // Check if child is a symlink
             let childInode = try getInode(number: child.1)
             if childInode.mode.isLink() && followSymlinks {
-                // Check for symlink loop
-                if visitedInodes.contains(child.1) {
-                    throw EXT4.PathIOError.symlinkLoop(FilePath(components.joined(separator: "/")).description)
-                }
-                visitedInodes.insert(child.1)
-
                 // Enforce max symlink depth
                 symlinkHops += 1
                 if symlinkHops > maxSymlinks {
