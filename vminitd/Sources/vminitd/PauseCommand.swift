@@ -17,7 +17,14 @@
 import ArgumentParser
 import Dispatch
 import Logging
+
+#if canImport(Musl)
 import Musl
+private let _exit = Musl.exit
+#elseif canImport(Glibc)
+import Glibc
+private let _exit = Glibc.exit
+#endif
 
 struct PauseCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
@@ -39,14 +46,14 @@ struct PauseCommand: ParsableCommand {
         let sigintSource = DispatchSource.makeSignalSource(signal: SIGINT)
         sigintSource.setEventHandler {
             log.info("Shutting down, got SIGINT")
-            Musl.exit(0)
+            _exit(0)
         }
         sigintSource.resume()
 
         let sigtermSource = DispatchSource.makeSignalSource(signal: SIGTERM)
         sigtermSource.setEventHandler {
             log.info("Shutting down, got SIGTERM")
-            Musl.exit(0)
+            _exit(0)
         }
         sigtermSource.resume()
 
@@ -60,10 +67,10 @@ struct PauseCommand: ParsableCommand {
         log.info("pause container running, waiting for signals...")
 
         while true {
-            Musl.pause()
+            _ = pause()
         }
 
         log.error("Error: infinite loop terminated")
-        Musl.exit(42)
+        _exit(42)
     }
 }

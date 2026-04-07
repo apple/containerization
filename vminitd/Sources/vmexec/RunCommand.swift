@@ -20,8 +20,13 @@ import ContainerizationOCI
 import ContainerizationOS
 import FoundationEssentials
 import LCShim
-import Musl
 import SystemPackage
+
+#if canImport(Musl)
+import Musl
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 struct RunCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
@@ -152,7 +157,7 @@ struct RunCommand: ParsableCommand {
 
         if !spec.hostname.isEmpty {
             let errCode = spec.hostname.withCString { ptr in
-                Musl.sethostname(ptr, spec.hostname.count)
+                sethostname(ptr, spec.hostname.count)
             }
             guard errCode == 0 else {
                 throw App.Errno(stage: "sethostname()")

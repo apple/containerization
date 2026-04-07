@@ -17,7 +17,12 @@
 import ContainerizationOCI
 import ContainerizationOS
 import FoundationEssentials
+
+#if canImport(Musl)
 import Musl
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 struct ContainerMount {
     private let mounts: [ContainerizationOCI.Mount]
