@@ -25,7 +25,8 @@ extension EXT4 {
     /// The `EXT4.Formatter` class provides methods to format a block device with the ext4 filesystem.
     /// It allows customization of block size and maximum disk size.
     public class Formatter {
-        let blockSize: UInt32
+        private let logBlockSize: UInt32 = 2
+        var blockSize: UInt32 { 1024 << logBlockSize }
         private var size: UInt64
         private let groupDescriptorSize: UInt32 = 32
 
@@ -61,8 +62,6 @@ extension EXT4 {
         ///
         /// - Parameters:
         ///   - devicePath: The path to the block device where the ext4 filesystem will be created.
-        ///   - blockSize: The block size of the ext4 filesystem, specified in bytes. Common values are
-        ///                4096 (4KB) or 1024 (1KB). Default is 4096 (4KB)
         ///   - minDiskSize: The minimum disk size required for the formatted filesystem.
         ///
         /// - Note: This ext4 formatter is designed for creating block devices out of container images and does not support all the
@@ -71,7 +70,7 @@ extension EXT4 {
         ///
         /// - Important: Ensure that the destination block device is accessible and has sufficient permissions
         ///              for formatting. The formatting process will erase all existing data on the device.
-        public init(_ devicePath: FilePath, blockSize: UInt32 = 4096, minDiskSize: UInt64 = 256.kib()) throws {
+        public init(_ devicePath: FilePath, minDiskSize: UInt64 = 256.kib()) throws {
             /// The constructor performs the following steps:
             ///
             /// 1. Creates the first 10 inodes:
@@ -96,7 +95,6 @@ extension EXT4 {
                 throw Error.notFound(devicePath)
             }
             self.handle = fileHandle
-            self.blockSize = blockSize
             self.size = minDiskSize
             // make this a 0 byte file
             guard ftruncate(self.handle.fileDescriptor, 0) == 0 else {
@@ -865,8 +863,8 @@ extension EXT4 {
             let freeInodesCount = computedInodes.lo - totalInodes
             superblock.freeInodesCount = freeInodesCount
             superblock.firstDataBlock = 0
-            superblock.logBlockSize = 2
-            superblock.logClusterSize = 2
+            superblock.logBlockSize = logBlockSize
+            superblock.logClusterSize = logBlockSize
             superblock.blocksPerGroup = self.blocksPerGroup
             superblock.clustersPerGroup = self.blocksPerGroup
             superblock.inodesPerGroup = blockGroupSize.inodesPerGroup
