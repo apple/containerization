@@ -257,13 +257,13 @@ extension EXT4 {
             var i = start
             var attribs: [ExtendedAttribute] = []
             // 16 is the size of 1 XAttrEntry
-            while i + 16 < buffer.count {
+            while i + 16 <= buffer.count {
                 let attributeStart = i
                 let rawXattrEntry = Array(buffer[i..<i + 16])
                 let xattrEntry = try EXT4.XAttrEntry(using: rawXattrEntry)
                 i += 16
                 var endIndex = i + Int(xattrEntry.nameLength)
-                guard endIndex < buffer.count else {
+                guard endIndex <= buffer.count else {
                     continue
                 }
                 let rawName = buffer[i..<endIndex]
