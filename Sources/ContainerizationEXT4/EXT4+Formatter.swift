@@ -757,19 +757,6 @@ extension EXT4 {
                     }
                 }
 
-                var freeBlocks: UInt32 = UInt32(self.blocksPerGroup)
-                if freeBlocks < blocks {
-                    freeBlocks = 0
-                } else if self.size / self.blockSize < self.blocksPerGroup {
-                    if blocks < UInt32(self.size / UInt64(self.blockSize)) {
-                        freeBlocks = UInt32(self.size / UInt64(self.blockSize)) - blocks
-                    } else {
-                        freeBlocks = 0
-                    }
-                } else {
-                    freeBlocks = UInt32(self.blocksPerGroup) - blocks
-                }
-
                 let blockBitmap = UInt64(bitmapOffset + 2 * group)
                 let inodeBitmap = UInt64(bitmapOffset + 2 * group + 1)
                 let inodeTable = inodeTableOffset + UInt64(group * inodeTableSizePerGroup)
