@@ -14,7 +14,6 @@ on:
 jobs:
   build:
     name: Linux compile check
-    if: github.repository == 'apple/containerization'
     timeout-minutes: 30
     runs-on: ubuntu-24.04
     container: swift:6.3-noble
@@ -35,10 +34,7 @@ jobs:
         run: make -C vminitd SWIFT_CONFIGURATION="--disable-automatic-resolution -Xswiftc -warnings-as-errors"
 
       - name: Install Static Linux SDK
-        run: |
-          curl -L -o /tmp/static-linux-sdk.tar.gz https://download.swift.org/swift-6.3-release/static-sdk/swift-6.3-RELEASE/swift-6.3-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz
-          swift sdk install /tmp/static-linux-sdk.tar.gz
-          rm /tmp/static-linux-sdk.tar.gz
+        run: make -C vminitd linux-sdk
 
       - name: Build vminitd (musl)
         run: make -C vminitd

@@ -17,6 +17,7 @@
 import ContainerizationIO
 import ContainerizationOS
 import Foundation
+import LCShim
 import Logging
 
 actor VsockProxy {
@@ -243,7 +244,7 @@ extension VsockProxy {
                     c.resume()
                 }
 
-                try! ProcessSupervisor.default.poller.add(clientFile.fileDescriptor, mask: EPOLLIN | EPOLLOUT) { mask in
+                try! ProcessSupervisor.default.poller.add(clientFile.fileDescriptor) { mask in
                     if mask.readyToRead && !eofFromClient {
                         let (fromEof, toEof) = Self.transferData(
                             fromFile: &clientFile,
@@ -274,7 +275,7 @@ extension VsockProxy {
                         // we should see no more EPOLLIN events on the client fd
                         // and no more EPOLLOUT events on the server fd
                         eofFromClient = true
-                        if shutdown(serverFile.fileDescriptor, SHUT_WR) != 0 {
+                        if shutdown(serverFile.fileDescriptor, Int32(SHUT_WR)) != 0 {
                             self.log?.warning(
                                 "failed to shut down client reads",
                                 metadata: [
@@ -295,7 +296,7 @@ extension VsockProxy {
                     }
                 }
 
-                try! ProcessSupervisor.default.poller.add(serverFile.fileDescriptor, mask: EPOLLIN | EPOLLOUT) { mask in
+                try! ProcessSupervisor.default.poller.add(serverFile.fileDescriptor) { mask in
                     if mask.readyToRead && !eofFromServer {
                         let (fromEof, toEof) = Self.transferData(
                             fromFile: &serverFile,
@@ -326,7 +327,7 @@ extension VsockProxy {
                         // we should see no more EPOLLIN events on the server fd
                         // and no more EPOLLOUT events on the client fd
                         eofFromServer = true
-                        if shutdown(clientFile.fileDescriptor, SHUT_WR) != 0 {
+                        if shutdown(clientFile.fileDescriptor, Int32(SHUT_WR)) != 0 {
                             self.log?.warning(
                                 "failed to shut down server reads",
                                 metadata: [
@@ -375,7 +376,7 @@ extension VsockProxy {
                 // half close, shut down client to server transfer
                 // we should see no more EPOLLIN events on the client fd
                 // and no more EPOLLOUT events on the server fd
-                if shutdown(toFile.fileDescriptor, SHUT_WR) != 0 {
+                if shutdown(toFile.fileDescriptor, Int32(SHUT_WR)) != 0 {
                     log?.warning(
                         "failed to shut down reads",
                         metadata: [

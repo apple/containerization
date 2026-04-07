@@ -14,11 +14,26 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 #if canImport(Musl)
 import Musl
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
+import CShim
 import Foundation
 import Synchronization
+
+// On glibc, epoll constants are EPOLL_EVENTS enum values. On musl they're
+// plain UInt32. These helpers normalize them to UInt32/Int32.
+private func epollMask(_ value: UInt32) -> UInt32 { value }
+private func epollMask(_ value: Int32) -> UInt32 { UInt32(bitPattern: value) }
+#if canImport(Glibc)
+private func epollMask(_ value: EPOLL_EVENTS) -> UInt32 { value.rawValue }
+private func epollFlag(_ value: EPOLL_EVENTS) -> Int32 { Int32(bitPattern: value.rawValue) }
+#endif
 
 /// Register file descriptors to receive events via Linux's
 /// epoll syscall surface.
@@ -26,12 +41,16 @@ public final class Epoll: Sendable {
     public typealias Mask = Int32
     public typealias Handler = (@Sendable (Mask) -> Void)
 
+    public static let maskIn: Int32 = Int32(bitPattern: epollMask(EPOLLIN))
+    public static let maskOut: Int32 = Int32(bitPattern: epollMask(EPOLLOUT))
+    public static let defaultMask: Int32 = maskIn | maskOut
+
     private let epollFD: Int32
     private let handlers = SafeMap<Int32, Handler>()
     private let pipe = Pipe()  // to wake up a waiting epoll_wait
 
     public init() throws {
-        let efd = epoll_create1(EPOLL_CLOEXEC)
+        let efd = epoll_create1(Int32(EPOLL_CLOEXEC))
         guard efd > 0 else {
             throw POSIXError.fromErrno()
         }
@@ -41,14 +60,14 @@ public final class Epoll: Sendable {
 
     public func add(
         _ fd: Int32,
-        mask: Int32 = EPOLLIN | EPOLLOUT,  // HUP is always added
+        mask: Int32 = Epoll.defaultMask,
         handler: @escaping Handler
     ) throws {
         guard fcntl(fd, F_SETFL, O_NONBLOCK) == 0 else {
             throw POSIXError.fromErrno()
         }
 
-        let events = EPOLLET | UInt32(bitPattern: mask)
+        let events = epollMask(EPOLLET) | UInt32(bitPattern: mask)
 
         var event = epoll_event()
         event.events = events
@@ -115,7 +134,7 @@ public final class Epoll: Sendable {
     public func delete(_ fd: Int32) throws {
         var event = epoll_event()
         let result = withUnsafeMutablePointer(to: &event) { ptr in
-            epoll_ctl(self.epollFD, EPOLL_CTL_DEL, fd, ptr)
+            epoll_ctl(self.epollFD, EPOLL_CTL_DEL, fd, ptr) as Int32
         }
         if result != 0 {
             if !acceptableDeletionErrno() {
@@ -162,20 +181,20 @@ public final class Epoll: Sendable {
 
 extension Epoll.Mask {
     public var isHangup: Bool {
-        (self & (EPOLLHUP | EPOLLERR)) != 0
+        (self & Int32(bitPattern: epollMask(EPOLLHUP) | epollMask(EPOLLERR))) != 0
     }
 
     public var isRhangup: Bool {
-        (self & EPOLLRDHUP) != 0
+        (self & Int32(bitPattern: epollMask(EPOLLRDHUP))) != 0
     }
 
     public var readyToRead: Bool {
-        (self & EPOLLIN) != 0
+        (self & Int32(bitPattern: epollMask(EPOLLIN))) != 0
     }
 
     public var readyToWrite: Bool {
-        (self & EPOLLOUT) != 0
+        (self & Int32(bitPattern: epollMask(EPOLLOUT))) != 0
     }
 }
 
-#endif  // canImport(Musl)
+#endif  // os(Linux)

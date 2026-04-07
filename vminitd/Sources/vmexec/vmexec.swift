@@ -158,46 +158,45 @@ extension App {
 
     static func setRLimits(rlimits: [ContainerizationOCI.POSIXRlimit]) throws {
         for rl in rlimits {
-            var limit = rlimit(rlim_cur: rl.soft, rlim_max: rl.hard)
             let resource: Int32
             switch rl.type {
             case "RLIMIT_AS":
-                resource = RLIMIT_AS
+                resource = CZ_RLIMIT_AS
             case "RLIMIT_CORE":
-                resource = RLIMIT_CORE
+                resource = CZ_RLIMIT_CORE
             case "RLIMIT_CPU":
-                resource = RLIMIT_CPU
+                resource = CZ_RLIMIT_CPU
             case "RLIMIT_DATA":
-                resource = RLIMIT_DATA
+                resource = CZ_RLIMIT_DATA
             case "RLIMIT_FSIZE":
-                resource = RLIMIT_FSIZE
+                resource = CZ_RLIMIT_FSIZE
             case "RLIMIT_LOCKS":
-                resource = RLIMIT_LOCKS
+                resource = CZ_RLIMIT_LOCKS
             case "RLIMIT_MEMLOCK":
-                resource = RLIMIT_MEMLOCK
+                resource = CZ_RLIMIT_MEMLOCK
             case "RLIMIT_MSGQUEUE":
-                resource = RLIMIT_MSGQUEUE
+                resource = CZ_RLIMIT_MSGQUEUE
             case "RLIMIT_NICE":
-                resource = RLIMIT_NICE
+                resource = CZ_RLIMIT_NICE
             case "RLIMIT_NOFILE":
-                resource = RLIMIT_NOFILE
+                resource = CZ_RLIMIT_NOFILE
             case "RLIMIT_NPROC":
-                resource = RLIMIT_NPROC
+                resource = CZ_RLIMIT_NPROC
             case "RLIMIT_RSS":
-                resource = RLIMIT_RSS
+                resource = CZ_RLIMIT_RSS
             case "RLIMIT_RTPRIO":
-                resource = RLIMIT_RTPRIO
+                resource = CZ_RLIMIT_RTPRIO
             case "RLIMIT_RTTIME":
-                resource = RLIMIT_RTTIME
+                resource = CZ_RLIMIT_RTTIME
             case "RLIMIT_SIGPENDING":
-                resource = RLIMIT_SIGPENDING
+                resource = CZ_RLIMIT_SIGPENDING
             case "RLIMIT_STACK":
-                resource = RLIMIT_STACK
+                resource = CZ_RLIMIT_STACK
             default:
                 errno = EINVAL
                 throw App.Errno(stage: "rlimit key unknown")
             }
-            guard setrlimit(resource, &limit) == 0 else {
+            guard CZ_setrlimit(resource, rl.soft, rl.hard) == 0 else {
                 throw App.Errno(stage: "setrlimit()")
             }
         }

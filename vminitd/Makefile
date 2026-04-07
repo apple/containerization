@@ -31,6 +31,7 @@ SWIFT_CONFIGURATION := --swift-sdk $(MUSL_ARCH)-swift-linux-musl $(SWIFT_WARNING
 
 SWIFT_VERSION := 6.3
 SWIFT_SDK_URL := https://download.swift.org/swift-6.3-release/static-sdk/swift-6.3-RELEASE/swift-6.3-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz
+SWIFT_SDK_CHECKSUM := d2078b69bdeb5c31202c10e9d8a11d6f66f82938b51a4b75f032ccb35c4c286c
 SWIFT_SDK_PATH := /tmp/$(notdir $(SWIFT_SDK_URL))
 
 SYSTEM_TYPE := $(shell uname -s)
@@ -64,7 +65,7 @@ all:
 	@install "$(BUILD_BIN_DIR)/vmexec" ./bin/
 
 .PHONY: cross-prep
-cross-prep: linux-sdk
+cross-prep: swift linux-sdk
 
 .PHONY: swiftly
 swiftly:
@@ -84,10 +85,10 @@ swift: swiftly
 	@${SWIFTLY_BIN_DIR}/swiftly install $(SWIFT_VERSION)
 
 .PHONY: linux-sdk
-linux-sdk: swift
+linux-sdk:
 	@echo Installing Static Linux SDK...
 	@curl -L -o $(SWIFT_SDK_PATH) $(SWIFT_SDK_URL)
-	-@$(SWIFT) sdk install $(SWIFT_SDK_PATH)
+	-@$(SWIFT) sdk install $(SWIFT_SDK_PATH) --checksum $(SWIFT_SDK_CHECKSUM)
 	@rm $(SWIFT_SDK_PATH)
 
 .PHONY: clean

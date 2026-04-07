@@ -56,6 +56,7 @@ let package = Package(
                 .product(name: "ContainerizationOCI", package: "containerization"),
                 .product(name: "ContainerizationOS", package: "containerization"),
                 .product(name: "SystemPackage", package: "swift-system"),
+                "LCShim",
             ]
         ),
         .executableTarget(
