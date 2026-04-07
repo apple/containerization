@@ -192,12 +192,11 @@ struct AgentCommand: AsyncParsableCommand {
     private static func adjustLimits(_ log: Logger) throws {
         let nrOpen = try String(contentsOfFile: "/proc/sys/fs/nr_open", encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let max = rlim_t(nrOpen) else {
+        guard let max = UInt64(nrOpen) else {
             throw POSIXError(.EINVAL)
         }
         log.debug("setting RLIMIT_NOFILE to \(max)")
-        var limits = rlimit(rlim_cur: max, rlim_max: max)
-        guard setrlimit(RLIMIT_NOFILE, &limits) == 0 else {
+        guard CZ_setrlimit(CZ_RLIMIT_NOFILE, max, max) == 0 else {
             throw POSIXError(.init(rawValue: errno)!)
         }
     }

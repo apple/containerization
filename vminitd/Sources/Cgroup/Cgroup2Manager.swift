@@ -26,6 +26,7 @@ import Musl
 import Glibc
 #endif
 
+import LCShim
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation

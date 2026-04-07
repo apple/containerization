@@ -15,6 +15,7 @@
 //===----------------------------------------------------------------------===//
 
 import Foundation
+import LCShim
 
 extension OSFile {
     struct SpliceFile: Sendable {
@@ -61,7 +62,7 @@ extension OSFile {
         while true {
             while (from.offset - to.offset) < count {
                 let toRead = count - (from.offset - to.offset)
-                let bytesRead = Foundation.splice(from.fileDescriptor, nil, to.writer, nil, toRead, UInt32(bitPattern: SPLICE_F_MOVE | SPLICE_F_NONBLOCK))
+                let bytesRead = LCShim.splice(from.fileDescriptor, nil, to.writer, nil, toRead, UInt32(bitPattern: LCShim.SPLICE_F_MOVE | LCShim.SPLICE_F_NONBLOCK))
                 if bytesRead == -1 {
                     if errno != EAGAIN && errno != EIO {
                         throw POSIXError(.init(rawValue: errno)!)
@@ -81,7 +82,7 @@ extension OSFile {
             }
             while to.offset < from.offset {
                 let toWrite = from.offset - to.offset
-                let bytesWrote = Foundation.splice(to.reader, nil, to.fileDescriptor, nil, toWrite, UInt32(bitPattern: SPLICE_F_MOVE | SPLICE_F_NONBLOCK))
+                let bytesWrote = LCShim.splice(to.reader, nil, to.fileDescriptor, nil, toWrite, UInt32(bitPattern: LCShim.SPLICE_F_MOVE | LCShim.SPLICE_F_NONBLOCK))
                 if bytesWrote == -1 {
                     if errno != EAGAIN && errno != EIO {
                         throw POSIXError(.init(rawValue: errno)!)

@@ -15,6 +15,7 @@
 //===----------------------------------------------------------------------===//
 
 import FoundationEssentials
+import LCShim
 
 #if canImport(Musl)
 import Musl

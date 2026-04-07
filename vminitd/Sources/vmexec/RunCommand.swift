@@ -81,7 +81,7 @@ struct RunCommand: ParsableCommand {
         guard statfs("/", &s) == 0 else {
             throw App.Errno(stage: "statfs(/)")
         }
-        flags |= s.f_flags
+        flags |= UInt(s.f_flags)
 
         guard mount("", "/", "", flags, "") == 0 else {
             throw App.Errno(stage: "mount rootfs ro")
