@@ -270,6 +270,9 @@ extension EXT4 {
                 let name = String(bytes: rawName, encoding: .ascii)!
                 let valueStart = Int(xattrEntry.valueOffset) + offset
                 let valueEnd = Int(xattrEntry.valueOffset) + Int(xattrEntry.valueSize) + offset
+                guard valueEnd <= buffer.count else {
+                    break
+                }
                 let value = [UInt8](buffer[valueStart..<valueEnd])
                 let xattr = ExtendedAttribute(idx: xattrEntry.nameIndex, compressedName: name, value: value)
                 attribs.append(xattr)
