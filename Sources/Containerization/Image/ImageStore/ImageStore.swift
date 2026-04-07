@@ -279,24 +279,14 @@ extension ImageStore {
     ///
     public func push(reference: String, platform: Platform? = nil, insecure: Bool = false, auth: Authentication? = nil, progress: ProgressHandler? = nil) async throws {
         let matcher = createPlatformMatcher(for: platform)
-        let img = try await self.get(reference: reference)
-        let allowedMediaTypes = [MediaTypes.dockerManifestList, MediaTypes.index]
-        guard allowedMediaTypes.contains(img.mediaType) else {
-            throw ContainerizationError(.internalError, message: "cannot push image \(reference) with Index media type \(img.mediaType)")
-        }
-        let ref = try Reference.parse(reference)
-        let name = ref.path
-        guard let tag = ref.tag ?? ref.digest else {
-            throw ContainerizationError(.invalidArgument, message: "invalid tag/digest for image reference \(reference)")
-        }
         let client = try RegistryClient(reference: reference, insecure: insecure, auth: auth, tlsConfiguration: TLSUtils.makeEnvironmentAwareTLSConfiguration())
-        let operation = ExportOperation(name: name, tag: tag, contentStore: self.contentStore, client: client, progress: progress)
-        try await operation.export(index: img.descriptor, platforms: matcher)
+        try await self.pushSingle(reference: reference, client: client, matcher: matcher, progress: progress)
     }
 
-    /// Push multiple image references to a remote registry, sharing a single registry client connection.
+    /// Push multiple image references to a remote registry, sharing a single ``RegistryClient``.
     ///
-    /// All references must target the same registry host since they share a single ``RegistryClient``.
+    /// All references must resolve to the same registry host. Passing references that target
+    /// different hosts throws a ``ContainerizationError`` with code ``invalidArgument``.
     ///
     /// - Parameters:
     ///   - references: An array of image reference strings to push.
@@ -314,29 +304,30 @@ extension ImageStore {
         references: [String], platform: Platform? = nil, insecure: Bool = false,
         auth: Authentication? = nil, maxConcurrentUploads: Int = 3, progress: ProgressHandler? = nil
     ) async throws {
-        guard !references.isEmpty else {
+        guard let firstReference = references.first else {
             return
         }
 
+        // Parse all references upfront: validate hosts and avoid re-parsing inside tasks.
+        let parsed = try references.map { ref in try Reference.parse(ref) }
+        let hosts = Set(parsed.compactMap { $0.resolvedDomain })
+        guard hosts.count == 1 else {
+            let hostList = hosts.sorted().joined(separator: ", ")
+            throw ContainerizationError(
+                .invalidArgument,
+                message: hosts.isEmpty
+                    ? "could not extract host from references"
+                    : "all references must target the same registry host, got: \(hostList)")
+        }
+
         let matcher = createPlatformMatcher(for: platform)
-        let allowedMediaTypes = [MediaTypes.dockerManifestList, MediaTypes.index]
         let client = try RegistryClient(
-            reference: references[0], insecure: insecure, auth: auth,
+            reference: firstReference, insecure: insecure, auth: auth,
             tlsConfiguration: TLSUtils.makeEnvironmentAwareTLSConfiguration())
 
         let pushOne: @Sendable (String) async -> (String, String?) = { reference in
             do {
-                let img = try await self.get(reference: reference)
-                guard allowedMediaTypes.contains(img.mediaType) else {
-                    throw ContainerizationError(.internalError, message: "cannot push image \(reference) with Index media type \(img.mediaType)")
-                }
-                let ref = try Reference.parse(reference)
-                let name = ref.path
-                guard let tag = ref.tag ?? ref.digest else {
-                    throw ContainerizationError(.invalidArgument, message: "invalid tag/digest for image reference \(reference)")
-                }
-                let operation = ExportOperation(name: name, tag: tag, contentStore: self.contentStore, client: client, progress: progress)
-                try await operation.export(index: img.descriptor, platforms: matcher)
+                try await self.pushSingle(reference: reference, client: client, matcher: matcher, progress: progress)
                 return (reference, nil)
             } catch {
                 return (reference, String(describing: error))
@@ -365,6 +356,22 @@ extension ImageStore {
             let details = failures.map { "\($0.reference): \($0.message)" }.joined(separator: "\n")
             throw ContainerizationError(.internalError, message: "failed to push one or more images:\n\(details)")
         }
+    }
+
+    private func pushSingle(
+        reference: String, client: ContentClient, matcher: @Sendable (Platform) -> Bool, progress: ProgressHandler?
+    ) async throws {
+        let allowedMediaTypes = [MediaTypes.dockerManifestList, MediaTypes.index]
+        let img = try await self.get(reference: reference)
+        guard allowedMediaTypes.contains(img.mediaType) else {
+            throw ContainerizationError(.internalError, message: "cannot push image \(reference): unsupported media type \(img.mediaType), expected an index or manifest list")
+        }
+        let ref = try Reference.parse(reference)
+        guard let tag = ref.tag ?? ref.digest else {
+            throw ContainerizationError(.invalidArgument, message: "invalid tag/digest for image reference \(reference)")
+        }
+        let operation = ExportOperation(name: ref.path, tag: tag, contentStore: self.contentStore, client: client, progress: progress)
+        try await operation.export(index: img.descriptor, platforms: matcher)
     }
 }
 
