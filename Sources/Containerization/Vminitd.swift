@@ -448,9 +448,10 @@ extension Vminitd {
         public let totalSize: UInt64
     }
 
+    /// Stat a path in the guest filesystem and return its metadata.
     public func stat(
         path: URL
-    ) async throws -> Foundation.stat {
+    ) async throws -> ContainerizationOS.Stat {
         let request = Com_Apple_Containerization_Sandbox_V3_StatRequest.with {
             $0.path = path.path
         }
@@ -461,21 +462,21 @@ extension Vminitd {
         }
 
         let s = response.stat
-        var result = Foundation.stat()
-        result.st_dev = dev_t(s.dev)
-        result.st_mode = mode_t(s.mode)
-        result.st_nlink = nlink_t(s.nlink)
-        result.st_ino = ino_t(s.ino)
-        result.st_uid = s.uid
-        result.st_gid = s.gid
-        result.st_rdev = dev_t(s.rdev)
-        // result.st_atimespec = timespec(tv_sec: Int(s.atime.seconds), tv_nsec: Int(s.atime.nanos))
-        // result.st_mtimespec = timespec(tv_sec: Int(s.mtime.seconds), tv_nsec: Int(s.mtime.nanos))
-        // result.st_ctimespec = timespec(tv_sec: Int(s.ctime.seconds), tv_nsec: Int(s.ctime.nanos))
-        result.st_size = off_t(s.size)
-        result.st_blocks = blkcnt_t(s.blocks)
-        result.st_blksize = Int32(s.blksize)
-        return result
+        return ContainerizationOS.Stat(
+            dev: s.dev,
+            ino: s.ino,
+            mode: s.mode,
+            nlink: s.nlink,
+            uid: s.uid,
+            gid: s.gid,
+            rdev: s.rdev,
+            size: s.size,
+            blksize: s.blksize,
+            blocks: s.blocks,
+            atime: TimeSpec(seconds: s.atime.seconds, nanoseconds: s.atime.nanos),
+            mtime: TimeSpec(seconds: s.mtime.seconds, nanoseconds: s.mtime.nanos),
+            ctime: TimeSpec(seconds: s.ctime.seconds, nanoseconds: s.ctime.nanos)
+        )
     }
 
     /// Unified copy control plane. Sends a CopyRequest over gRPC and processes
