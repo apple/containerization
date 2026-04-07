@@ -37,14 +37,13 @@ struct EXT4PathIOTests {
     ///   }
     private func buildFS(
         minDiskSize: UInt64 = 4 * 1024 * 1024,  // 4 MiB is enough for these tests
-        blockSize: UInt32 = 4096,
         populate: (EXT4.Formatter) throws -> Void
     ) throws -> URL {
         let url = makeTempImageURL()
         let path = FilePath(url.path)
 
         // 1) Format image
-        let formatter = try EXT4.Formatter(path, blockSize: blockSize, minDiskSize: minDiskSize)
+        let formatter = try EXT4.Formatter(path, minDiskSize: minDiskSize)
 
         // 2) Populate contents
         try populate(formatter)
