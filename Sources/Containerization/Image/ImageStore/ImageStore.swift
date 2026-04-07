@@ -289,7 +289,8 @@ extension ImageStore {
     /// different hosts throws a ``ContainerizationError`` with code ``invalidArgument``.
     ///
     /// - Parameters:
-    ///   - references: An array of image reference strings to push.
+    ///   - references: An array of fully qualified image reference strings to push.
+    ///                  Each must include a host (e.g., `"ghcr.io/myrepo/myimage:v1"`).
     ///   - platform: An optional parameter to indicate the platform to be pushed for each image.
     ///               Defaults to `nil` signifying that layers for all supported platforms will be pushed.
     ///   - insecure: A boolean indicating if the connection to the remote registry should be made via plain-text http or not.
@@ -310,14 +311,15 @@ extension ImageStore {
 
         // Parse all references upfront: validate hosts and avoid re-parsing inside tasks.
         let parsed = try references.map { ref in try Reference.parse(ref) }
-        let hosts = Set(parsed.compactMap { $0.resolvedDomain })
-        guard hosts.count == 1 else {
-            let hostList = hosts.sorted().joined(separator: ", ")
+        let hosts = parsed.compactMap { $0.resolvedDomain }
+        guard hosts.count == references.count else {
+            throw ContainerizationError(.invalidArgument, message: "all references must include a host")
+        }
+        let uniqueHosts = Set(hosts)
+        guard uniqueHosts.count == 1 else {
             throw ContainerizationError(
                 .invalidArgument,
-                message: hosts.isEmpty
-                    ? "could not extract host from references"
-                    : "all references must target the same registry host, got: \(hostList)")
+                message: "all references must target the same registry host, got: \(uniqueHosts.sorted().joined(separator: ", "))")
         }
 
         let matcher = createPlatformMatcher(for: platform)
