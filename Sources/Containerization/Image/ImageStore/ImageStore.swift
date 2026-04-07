@@ -293,6 +293,79 @@ extension ImageStore {
         let operation = ExportOperation(name: name, tag: tag, contentStore: self.contentStore, client: client, progress: progress)
         try await operation.export(index: img.descriptor, platforms: matcher)
     }
+
+    /// Push multiple image references to a remote registry, sharing a single registry client connection.
+    ///
+    /// All references must target the same registry host since they share a single ``RegistryClient``.
+    ///
+    /// - Parameters:
+    ///   - references: An array of image reference strings to push.
+    ///   - platform: An optional parameter to indicate the platform to be pushed for each image.
+    ///               Defaults to `nil` signifying that layers for all supported platforms will be pushed.
+    ///   - insecure: A boolean indicating if the connection to the remote registry should be made via plain-text http or not.
+    ///               Defaults to false, meaning the connection to the registry will be over https.
+    ///   - auth: An object that implements the `Authentication` protocol,
+    ///           used to add any credentials to the HTTP requests that are made to the registry.
+    ///           Defaults to `nil` meaning no additional credentials are added to any HTTP requests made to the registry.
+    ///   - maxConcurrentUploads: Maximum number of concurrent tag pushes. Defaults to 3.
+    ///   - progress: An optional handler over which progress update events about the push operations can be received.
+    ///
+    public func push(
+        references: [String], platform: Platform? = nil, insecure: Bool = false,
+        auth: Authentication? = nil, maxConcurrentUploads: Int = 3, progress: ProgressHandler? = nil
+    ) async throws {
+        guard !references.isEmpty else {
+            return
+        }
+
+        let matcher = createPlatformMatcher(for: platform)
+        let allowedMediaTypes = [MediaTypes.dockerManifestList, MediaTypes.index]
+        let client = try RegistryClient(
+            reference: references[0], insecure: insecure, auth: auth,
+            tlsConfiguration: TLSUtils.makeEnvironmentAwareTLSConfiguration())
+
+        let pushOne: @Sendable (String) async -> (String, String?) = { reference in
+            do {
+                let img = try await self.get(reference: reference)
+                guard allowedMediaTypes.contains(img.mediaType) else {
+                    throw ContainerizationError(.internalError, message: "cannot push image \(reference) with Index media type \(img.mediaType)")
+                }
+                let ref = try Reference.parse(reference)
+                let name = ref.path
+                guard let tag = ref.tag ?? ref.digest else {
+                    throw ContainerizationError(.invalidArgument, message: "invalid tag/digest for image reference \(reference)")
+                }
+                let operation = ExportOperation(name: name, tag: tag, contentStore: self.contentStore, client: client, progress: progress)
+                try await operation.export(index: img.descriptor, platforms: matcher)
+                return (reference, nil)
+            } catch {
+                return (reference, String(describing: error))
+            }
+        }
+
+        var iterator = references.makeIterator()
+        var failures: [(reference: String, message: String)] = []
+
+        await withTaskGroup(of: (String, String?).self) { group in
+            for _ in 0..<maxConcurrentUploads {
+                guard let reference = iterator.next() else { break }
+                group.addTask { await pushOne(reference) }
+            }
+            for await (ref, error) in group {
+                if let error {
+                    failures.append((ref, error))
+                }
+                if let reference = iterator.next() {
+                    group.addTask { await pushOne(reference) }
+                }
+            }
+        }
+
+        if !failures.isEmpty {
+            let details = failures.map { "\($0.reference): \($0.message)" }.joined(separator: "\n")
+            throw ContainerizationError(.internalError, message: "failed to push one or more images:\n\(details)")
+        }
+    }
 }
 
 extension ImageStore {
