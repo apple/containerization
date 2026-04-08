@@ -616,4 +616,15 @@ struct EXT4PathIOTests {
         #expect(dirPtr.pointee.path == FilePath("dir"))
         #expect(filePtr.pointee.path == FilePath("dir/file"))
     }
+
+    @Test
+    func fileTreeNodePathWithNamedRoot() {
+        let tree = EXT4.FileTree(EXT4.RootInode, "dir")
+
+        let filePtr = EXT4.Ptr<EXT4.FileTree.FileTreeNode>.allocate(capacity: 1)
+        filePtr.initialize(to: EXT4.FileTree.FileTreeNode(inode: 3, name: "file", parent: tree.root))
+        tree.root.pointee.children.append(filePtr)
+
+        #expect(filePtr.pointee.path == FilePath("dir/file"))
+    }
 }
