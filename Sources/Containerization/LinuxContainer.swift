@@ -711,18 +711,15 @@ extension LinuxContainer {
 
             let vm: any VirtualMachineInstance
             let relayManager: UnixSocketRelayManager
-            let fileMountContext: FileMountContext
 
             let startedState = try? state.startedState("stop")
             if let startedState {
                 vm = startedState.vm
                 relayManager = startedState.relayManager
-                fileMountContext = startedState.fileMountContext
             } else {
                 let createdState = try state.createdState("stop")
                 vm = createdState.vm
                 relayManager = createdState.relayManager
-                fileMountContext = createdState.fileMountContext
             }
 
             var firstError: Error?
@@ -801,9 +798,6 @@ extension LinuxContainer {
                     firstError = firstError ?? error
                 }
             }
-
-            // Clean up file mount temporary directories.
-            fileMountContext.cleanUp()
 
             do {
                 try await vm.stop()
