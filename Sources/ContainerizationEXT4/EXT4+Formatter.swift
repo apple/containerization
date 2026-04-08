@@ -595,16 +595,16 @@ extension EXT4 {
         //  The function performs any necessary final steps to ensure the integrity and consistency
         //  of the ext4 filesystem before it can be mounted and used.
         public func close() throws {
-            var breathWiseChildTree: [(parent: Ptr<FileTree.FileTreeNode>?, child: Ptr<FileTree.FileTreeNode>)] = [
+            var breadthWiseChildTree: [(parent: Ptr<FileTree.FileTreeNode>?, child: Ptr<FileTree.FileTreeNode>)] = [
                 (nil, self.tree.root)
             ]
-            while !breathWiseChildTree.isEmpty {
-                let (parent, child) = breathWiseChildTree.removeFirst()
+            while !breadthWiseChildTree.isEmpty {
+                let (parent, child) = breadthWiseChildTree.removeFirst()
                 try self.commit(parent, child)  // commit directories iteratively
                 if child.pointee.link != nil {
                     continue
                 }
-                breathWiseChildTree.append(contentsOf: child.pointee.children.map { (child, $0) })
+                breadthWiseChildTree.append(contentsOf: child.pointee.children.map { (child, $0) })
             }
             let blockGroupSize = optimizeBlockGroupLayout(blocks: self.currentBlock, inodes: UInt32(self.inodes.count))
             let inodeTableOffset = try self.commitInodeTable(
