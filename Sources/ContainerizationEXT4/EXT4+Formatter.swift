@@ -627,8 +627,9 @@ extension EXT4 {
             if diskSize < minimumDiskSize {  // for data + metadata
                 diskSize = minimumDiskSize
             }
+            let minimumDiskSize = UInt64(minimumDiskSize) * self.blockSize
             if self.size < minimumDiskSize {
-                self.size = UInt64(minimumDiskSize) * self.blockSize
+                self.size = minimumDiskSize
             }
             // number of blocks needed for group descriptors
             let groupDescriptorBlockCount: UInt32 = (blockGroupSize.blockGroups - 1) / self.groupsPerDescriptorBlock + 1
