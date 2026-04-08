@@ -17,6 +17,9 @@
 import ContainerizationOS
 import Foundation
 
+// JBD2 on-disk format reference:
+// https://www.kernel.org/doc/html/latest/filesystems/ext4/journal.html
+
 extension EXT4.Formatter {
     /// Entry point called from close() when journaling is enabled.
     func initializeJournal(
@@ -67,12 +70,12 @@ extension EXT4.Formatter {
             buf[offset + 3] = UInt8(value & 0xFF)
         }
 
-        // JBD2 block header
+        // JBD2 block header (§3.6.3): https://www.kernel.org/doc/html/latest/filesystems/ext4/journal.html#block-header
         writeU32(EXT4.JournalMagic, at: 0x00)  // h_magic
         writeU32(4, at: 0x04)  // h_blocktype = superblock v2
         writeU32(1, at: 0x08)  // h_sequence
 
-        // JBD2 superblock body
+        // JBD2 superblock body (§3.6.4): https://www.kernel.org/doc/html/latest/filesystems/ext4/journal.html#super-block
         writeU32(self.blockSize, at: 0x0C)  // s_blocksize
         writeU32(journalBlocks, at: 0x10)  // s_maxlen
         writeU32(1, at: 0x14)  // s_first (first usable block)
