@@ -44,13 +44,18 @@ extension EXT4.Formatter {
 
     private func calculateJournalSize(requestedSize: UInt64?, totalBlocks: UInt32) -> UInt32 {
         if let size = requestedSize {
-            return UInt32(size / UInt64(self.blockSize))
+            // Clamp to UInt32.max: the kernel caps internal journals at 2^32 blocks
+            // (per §3.6.4 s_maxlen), and a caller-supplied size large enough to exceed
+            // that would otherwise trap on the narrowing conversion.
+            let blocks = size / UInt64(self.blockSize)
+            return UInt32(min(blocks, UInt64(UInt32.max)))
         }
         let fsBytes = UInt64(totalBlocks) * UInt64(self.blockSize)
         let rawBytes = fsBytes / 256
         let minBytes: UInt64 = 4.mib()
         let maxBytes: UInt64 = 128.mib()
         let clampedBytes = min(max(rawBytes, minBytes), maxBytes)
+        // Safe: clampedBytes ≤ 128 MiB, so the quotient is at most 131,072 — well within UInt32.
         return UInt32(clampedBytes / UInt64(self.blockSize))
     }
 
@@ -61,6 +66,7 @@ extension EXT4.Formatter {
             UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8
         )
     ) throws {
+        // Safe: blockSize is UInt32; widening to Int (64-bit on all supported platforms) never truncates.
         var buf = [UInt8](repeating: 0, count: Int(self.blockSize))
 
         func writeU32(_ value: UInt32, at offset: Int) {
@@ -105,6 +111,8 @@ extension EXT4.Formatter {
     private func zeroJournalBlocks(count: UInt32) throws {
         guard count > 0 else { return }
         let chunkSize = 1.mib()
+        // Safe: both operands are UInt32, so their product peaks at ~17 TiB, which fits
+        // in Int64 (the width of Int on all 64-bit Apple platforms).
         let totalBytes = Int(count) * Int(self.blockSize)
         let zeroBuf = [UInt8](repeating: 0, count: min(Int(chunkSize), totalBytes))
         var remaining = totalBytes
@@ -136,7 +144,10 @@ extension EXT4.Formatter {
         journalInode.extraIsize = UInt16(EXT4.ExtraIsize)
         journalInode.flags = EXT4.InodeFlag.extents.rawValue
 
-        // Journal is one contiguous allocation → numExtents = 1 → inline extents (no disk I/O).
+        // Journal is one contiguous allocation → numExtents = 1 → extent tree fits inline
+        // in the inode, so writeExtents needs no extra disk I/O for extent index blocks.
+        // Safe: the journal is placed inside the filesystem, whose total block count is
+        // also a UInt32, so startBlock + blockCount cannot exceed UInt32.max.
         journalInode = (try? self.writeExtents(journalInode, (startBlock, startBlock + blockCount))) ?? journalInode
 
         self.inodes[Int(EXT4.JournalInode) - 1].initialize(to: journalInode)
