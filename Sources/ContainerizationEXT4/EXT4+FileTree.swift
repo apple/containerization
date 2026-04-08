@@ -75,7 +75,7 @@ extension EXT4 {
                 guard let dataPath = String(data: data, encoding: .utf8) else {
                     return nil
                 }
-                return FilePath(dataPath).pushing(FilePath(last)).lexicallyNormalized()
+                return FilePath(last).pushing(FilePath(dataPath)).lexicallyNormalized()
             }
         }
 
