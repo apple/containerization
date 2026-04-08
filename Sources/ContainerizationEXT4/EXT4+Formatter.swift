@@ -617,17 +617,17 @@ extension EXT4 {
             // write bitmaps and group descriptors
 
             let bitmapOffset = self.currentBlock
-            let bitmapSize: UInt32 = blockGroupSize.blockGroups * 2  // each group has two bitmaps - for inodes, and for blocks
-            let dataSize: UInt32 = bitmapOffset + bitmapSize  // last data block
-            var diskSize = dataSize
-            var minimumDiskSize = (blockGroupSize.blockGroups - 1) * self.blocksPerGroup + 1
+            let bitmapBlocks: UInt32 = blockGroupSize.blockGroups * 2  // each group has two bitmaps - for inodes, and for blocks
+            let dataBlocks: UInt32 = bitmapOffset + bitmapBlocks  // last data block
+            var diskBlocks = dataBlocks
+            var minimumDiskBlocks = (blockGroupSize.blockGroups - 1) * self.blocksPerGroup + 1
             if blockGroupSize.blockGroups == 1 {
-                minimumDiskSize = self.blocksPerGroup  // at least 1 block group
+                minimumDiskBlocks = self.blocksPerGroup  // at least 1 block group
             }
-            if diskSize < minimumDiskSize {  // for data + metadata
-                diskSize = minimumDiskSize
+            if diskBlocks < minimumDiskBlocks {  // for data + metadata
+                diskBlocks = minimumDiskBlocks
             }
-            let minimumDiskSize = UInt64(minimumDiskSize) * self.blockSize
+            let minimumDiskSize = UInt64(minimumDiskBlocks) * self.blockSize
             if self.size < minimumDiskSize {
                 self.size = minimumDiskSize
             }
@@ -681,13 +681,13 @@ extension EXT4 {
                 var blocks: UInt32 = 0
                 // blocks bitmap
                 var bitmap: [UInt8] = .init(repeating: 0, count: self.blockSize * 2)  // 1 for blocks, 1 for inodes
-                if (group + 1) * UInt32(self.blocksPerGroup) <= dataSize {  // fully allocated group
+                if (group + 1) * UInt32(self.blocksPerGroup) <= dataBlocks {  // fully allocated group
                     for i in 0..<(self.blockSize) {
                         bitmap[Int(i)] = 0xff  // mark as allocated
                     }
                     blocks = UInt32(self.blocksPerGroup)
-                } else if group * UInt32(self.blocksPerGroup) < dataSize {  // partially allocated group
-                    for i in 0..<dataSize - group * UInt32(self.blocksPerGroup) {
+                } else if group * UInt32(self.blocksPerGroup) < dataBlocks {  // partially allocated group
+                    for i in 0..<dataBlocks - group * UInt32(self.blocksPerGroup) {
                         bitmap[Int(i / 8)] |= 1 << (i % 8)
                         blocks += 1
                     }
@@ -709,7 +709,7 @@ extension EXT4 {
                 }
 
                 // last blockGroup if not aligned with total size should be marked as allocated
-                let remainingBlocks = diskSize % self.blocksPerGroup
+                let remainingBlocks = diskBlocks % self.blocksPerGroup
                 if group == totalGroups - 1 && remainingBlocks != 0 && self.size / self.blockSize < self.blocksPerGroup {
                     for i in remainingBlocks..<self.blocksPerGroup {
                         bitmap[Int(i / 8)] |= 1 << (i % 8)
