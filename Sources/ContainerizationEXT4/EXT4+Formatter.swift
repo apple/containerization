@@ -42,7 +42,7 @@ extension EXT4 {
             blockSize / groupDescriptorSize
         }
 
-        private var blockCount: UInt32 {
+        var blockCount: UInt32 {
             ((size - 1) / blockSize) + 1
         }
 
@@ -72,7 +72,11 @@ extension EXT4 {
         ///
         /// - Important: Ensure that the destination block device is accessible and has sufficient permissions
         ///              for formatting. The formatting process will erase all existing data on the device.
+<<<<<<< HEAD
         public init(_ devicePath: FilePath, blockSize: UInt32 = 4096, minDiskSize: UInt64 = 256.kib()) throws {
+=======
+        public init(_ devicePath: FilePath, blockSize: UInt32 = 4096, minDiskSize: UInt64 = 256.kib(), journal: JournalConfig? = nil) throws {
+>>>>>>> c38156b (Initial WIP for ext4 journal mode.)
             /// The constructor performs the following steps:
             ///
             /// 1. Creates the first 10 inodes:
@@ -123,6 +127,7 @@ extension EXT4 {
             }
             // step #2
             self.tree = FileTree(EXT4.RootInode, "/")
+            self.journalConfig = journal
             // skip past the superblock and block descriptor table
             try self.seek(block: self.groupDescriptorBlocks + 1)
             // lost+found directory is required for e2fsck to pass
@@ -603,6 +608,19 @@ extension EXT4 {
                 }
                 breadthWiseChildTree.append(contentsOf: child.pointee.children.map { (child, $0) })
             }
+
+            // Generate UUID once; shared by filesystem superblock and JBD2 superblock.
+            let filesystemUUID = UUID().uuid
+
+            // Journal init MUST precede optimizeBlockGroupLayout() and commitInodeTable().
+            // Reason 1: optimizeBlockGroupLayout reads self.currentBlock — journal blocks
+            //            must already be written to be counted in the layout calculation.
+            // Reason 2: commitInodeTable writes inode 8 to disk — setupJournalInode must
+            //            have updated self.inodes[7] in memory first.
+            if let config = journalConfig {
+                try initializeJournal(config: config, filesystemUUID: filesystemUUID)
+            }
+
             let blockGroupSize = optimizeBlockGroupLayout(blocks: self.currentBlock, inodes: UInt32(self.inodes.count))
             let inodeTableOffset = try self.commitInodeTable(
                 blockGroups: blockGroupSize.blockGroups,
@@ -860,7 +878,6 @@ extension EXT4 {
             superblock.firstInode = EXT4.FirstInode
             superblock.lpfInode = EXT4.LostAndFoundInode
             superblock.inodeSize = UInt16(EXT4.InodeSize)
-            superblock.featureCompat = CompatFeature.sparseSuper2 | CompatFeature.extAttr
             superblock.featureIncompat =
                 IncompatFeature.filetype | IncompatFeature.extents | IncompatFeature.flexBg
             superblock.featureRoCompat =
@@ -868,7 +885,21 @@ extension EXT4 {
             superblock.minExtraIsize = EXT4.ExtraIsize
             superblock.wantExtraIsize = EXT4.ExtraIsize
             superblock.logGroupsPerFlex = 31
-            superblock.uuid = UUID().uuid
+            superblock.uuid = filesystemUUID
+            var compatFeatures: UInt32 = CompatFeature.sparseSuper2 | CompatFeature.extAttr
+            if let config = journalConfig {
+                compatFeatures |= CompatFeature.hasJournal.rawValue
+                superblock.journalInum = EXT4.JournalInode
+                superblock.journalUUID = filesystemUUID
+                if let mode = config.defaultMode {
+                    switch mode {
+                    case .writeback: superblock.defaultMountOpts = DefaultMountOpts.journalWriteback
+                    case .ordered: superblock.defaultMountOpts = DefaultMountOpts.journalOrdered
+                    case .journal: superblock.defaultMountOpts = DefaultMountOpts.journalData
+                    }
+                }
+            }
+            superblock.featureCompat = compatFeatures
             try withUnsafeLittleEndianBytes(of: superblock) { bytes in
                 try self.handle.write(contentsOf: bytes)
             }
@@ -876,23 +907,24 @@ extension EXT4 {
         }
 
         // MARK: Private Methods and Properties
-        private var handle: FileHandle
-        private var inodes: [Ptr<Inode>]
+        var handle: FileHandle
+        var inodes: [Ptr<Inode>]
         private var tree: FileTree
         private var deletedBlocks: [(start: UInt32, end: UInt32)] = []
+        let journalConfig: JournalConfig?
 
-        private var pos: UInt64 {
+        var pos: UInt64 {
             guard let offset = try? self.handle.offset() else {
                 return 0
             }
             return offset
         }
 
-        private var currentBlock: UInt32 {
+        var currentBlock: UInt32 {
             self.pos / self.blockSize
         }
 
-        private func seek(block: UInt32) throws {
+        func seek(block: UInt32) throws {
             try self.handle.seek(toOffset: UInt64(block) * blockSize)
         }
 
@@ -1021,7 +1053,7 @@ extension EXT4 {
             }
         }
 
-        private func writeExtents(_ inode: Inode, _ blocks: (start: UInt32, end: UInt32)) throws -> Inode {
+        func writeExtents(_ inode: Inode, _ blocks: (start: UInt32, end: UInt32)) throws -> Inode {
             var inode = inode
             // rest of code assumes that extents MUST go into a new block
             if self.pos % self.blockSize != 0 {

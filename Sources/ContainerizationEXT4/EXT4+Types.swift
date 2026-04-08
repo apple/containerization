@@ -245,6 +245,15 @@ extension EXT4 {
         public var checksum: UInt32 = 0
     }
 
+    static let JournalMagic: UInt32 = 0xC03B_3998
+    static let JournalInode: InodeNumber = 8
+
+    struct DefaultMountOpts {
+        static let journalData: UInt32 = 0x0004  // data=journal
+        static let journalOrdered: UInt32 = 0x0008  // data=ordered
+        static let journalWriteback: UInt32 = 0x000C  // data=writeback
+    }
+
     struct CompatFeature {
         let rawValue: UInt32
 
