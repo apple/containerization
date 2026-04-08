@@ -892,6 +892,7 @@ extension EXT4 {
                 compatFeatures |= CompatFeature.hasJournal.rawValue
                 superblock.journalInum = EXT4.JournalInode
                 superblock.journalUUID = filesystemUUID
+                superblock.journalBlocks = journalInodeBlockBackup()
                 if let mode = config.defaultMode {
                     switch mode {
                     case .writeback: superblock.defaultMountOpts = DefaultMountOpts.journalWriteback

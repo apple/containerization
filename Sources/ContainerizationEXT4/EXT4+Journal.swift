@@ -86,6 +86,11 @@ extension EXT4.Formatter {
         writeU32(journalBlocks, at: 0x10)  // s_maxlen
         writeU32(1, at: 0x14)  // s_first (first usable block)
         writeU32(1, at: 0x18)  // s_sequence
+        // 0x1C s_start: left zero — kernel treats zero as "journal empty, begin at s_first"
+        // 0x20 s_errno: left zero — no prior abort error
+        // 0x24 s_feature_compat: left zero — no optional features (e.g. data-block checksums)
+        // 0x28 s_feature_incompat: left zero — non-zero unrecognised flags would cause mount refusal
+        // 0x2C s_feature_ro_compat: left zero — no flags defined by the spec
 
         // s_uuid at 0x30 (16 bytes)
         let uuidBytes = [
@@ -151,5 +156,30 @@ extension EXT4.Formatter {
         journalInode = (try? self.writeExtents(journalInode, (startBlock, startBlock + blockCount))) ?? journalInode
 
         self.inodes[Int(EXT4.JournalInode) - 1].initialize(to: journalInode)
+    }
+
+    func journalInodeBlockBackup() -> (
+        UInt32, UInt32, UInt32, UInt32, UInt32, UInt32, UInt32, UInt32,
+        UInt32, UInt32, UInt32, UInt32, UInt32, UInt32, UInt32, UInt32,
+        UInt32
+    ) {
+        let ji = self.inodes[Int(EXT4.JournalInode) - 1].pointee
+        // Extract the 15 UInt32 words from the inode's 60-byte extent-tree field,
+        // then append sizeLow and sizeHigh as words 15 and 16.
+        var words = [UInt32](repeating: 0, count: 17)
+        withUnsafeBytes(of: ji.block) { bytes in
+            for i in 0..<15 {
+                words[i] = bytes.load(fromByteOffset: i * 4, as: UInt32.self)
+            }
+        }
+        words[15] = ji.sizeLow
+        words[16] = ji.sizeHigh
+        return (
+            words[0], words[1], words[2], words[3],
+            words[4], words[5], words[6], words[7],
+            words[8], words[9], words[10], words[11],
+            words[12], words[13], words[14], words[15],
+            words[16]
+        )
     }
 }
