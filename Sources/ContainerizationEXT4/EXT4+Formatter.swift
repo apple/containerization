@@ -628,8 +628,9 @@ extension EXT4 {
                 diskBlocks = minimumDiskBlocks
             }
             let minimumDiskSize = UInt64(minimumDiskBlocks) * self.blockSize
-            if self.size < minimumDiskSize {
-                self.size = minimumDiskSize
+            var newSize = self.size
+            if newSize < minimumDiskSize {
+                newSize = minimumDiskSize
             }
             // number of blocks needed for group descriptors
             let groupDescriptorBlockCount: UInt32 = (blockGroupSize.blockGroups - 1) / self.groupsPerDescriptorBlock + 1
@@ -643,17 +644,10 @@ extension EXT4 {
             var groupDescriptors: [GroupDescriptor] = []
 
             let minGroups = (((self.pos / UInt64(self.blockSize)) - 1) / UInt64(self.blocksPerGroup)) + 1
-            if self.size < minGroups * blocksPerGroup * blockSize {
-                self.size = UInt64(minGroups * blocksPerGroup * blockSize)
-                let pos = self.pos
-                guard lseek(self.handle.fileDescriptor, off_t(self.size - 1), 0) == self.size - 1 else {
-                    throw Error.cannotResizeFS(self.size)
-                }
-                let zero: [UInt8] = [0]
-                try self.handle.write(contentsOf: zero)
-                try self.handle.seek(toOffset: pos)
+            if newSize < minGroups * blocksPerGroup * blockSize {
+                newSize = UInt64(minGroups * blocksPerGroup * blockSize)
             }
-            let totalGroups = (((self.size / UInt64(self.blockSize)) - 1) / UInt64(self.blocksPerGroup)) + 1
+            let totalGroups = (((newSize / UInt64(self.blockSize)) - 1) / UInt64(self.blocksPerGroup)) + 1
 
             // If the provided disk size is not aligned to a blockgroup boundary, it needs to
             // be expanded to the next blockgroup boundary.
@@ -664,8 +658,11 @@ extension EXT4 {
             //  Number of blocks: 549888
             //  Number of blockgroups = 549888 / 32768 = 16.78125
             //  Aligned disk size = 557056 blocks = 17 blockgroups: 2176 MB
-            if self.size < totalGroups * blocksPerGroup * blockSize {
-                self.size = UInt64(totalGroups * blocksPerGroup * blockSize)
+            if newSize < totalGroups * blocksPerGroup * blockSize {
+                newSize = UInt64(totalGroups * blocksPerGroup * blockSize)
+            }
+            if self.size < newSize {
+                self.size = newSize
                 let pos = self.pos
                 guard lseek(self.handle.fileDescriptor, off_t(self.size - 1), 0) == self.size - 1 else {
                     throw Error.cannotResizeFS(self.size)
