@@ -61,13 +61,6 @@ extension EXT4 {
                     components.append(ptr.pointee.name)
                     _ptr = ptr.pointee.parent
                 }
-                guard let last = components.last else {
-                    return nil
-                }
-                guard components.count > 1 else {
-                    return FilePath(last)
-                }
-                components = components.dropLast()
                 let path = components.reversed().joined(separator: "/")
                 guard let data = path.data(using: .utf8) else {
                     return nil
@@ -75,7 +68,7 @@ extension EXT4 {
                 guard let dataPath = String(data: data, encoding: .utf8) else {
                     return nil
                 }
-                return FilePath(last).pushing(FilePath(dataPath)).lexicallyNormalized()
+                return FilePath(dataPath).lexicallyNormalized()
             }
         }
 
