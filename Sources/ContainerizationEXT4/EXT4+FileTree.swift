@@ -62,13 +62,7 @@ extension EXT4 {
                     _ptr = ptr.pointee.parent
                 }
                 let path = components.reversed().joined(separator: "/")
-                guard let data = path.data(using: .utf8) else {
-                    return nil
-                }
-                guard let dataPath = String(data: data, encoding: .utf8) else {
-                    return nil
-                }
-                return FilePath(dataPath).lexicallyNormalized()
+                return FilePath(path).lexicallyNormalized()
             }
         }
 
