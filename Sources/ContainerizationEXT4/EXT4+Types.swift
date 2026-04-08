@@ -22,7 +22,7 @@ extension EXT4 {
     public struct SuperBlock {
         public var inodesCount: UInt32 = 0
         public var blocksCountLow: UInt32 = 0
-        public var rootBlocksCountLow: UInt32 = 0
+        public var reservedBlocksCountLow: UInt32 = 0
         public var freeBlocksCountLow: UInt32 = 0
         public var freeInodesCount: UInt32 = 0
         public var firstDataBlock: UInt32 = 0
@@ -120,7 +120,7 @@ extension EXT4 {
                 0
             )
         public var blocksCountHigh: UInt32 = 0
-        public var rBlocksCountHigh: UInt32 = 0
+        public var reservedBlocksCountHigh: UInt32 = 0
         public var freeBlocksCountHigh: UInt32 = 0
         public var minExtraIsize: UInt16 = 0
         public var wantExtraIsize: UInt16 = 0
