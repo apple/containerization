@@ -42,6 +42,7 @@ extension EXT4 {
             blockSize / groupDescriptorSize
         }
 
+        // internally accessed by journal setup
         var blockCount: UInt32 {
             ((size - 1) / blockSize) + 1
         }
@@ -913,11 +914,13 @@ extension EXT4 {
             try self.handle.write(contentsOf: Array<UInt8>.init(repeating: 0, count: 2048))
         }
 
-        // MARK: Private Methods and Properties
-        var handle: FileHandle
-        var inodes: [Ptr<Inode>]
+        // MARK: Private and internal methods and properties
         private var tree: FileTree
         private var deletedBlocks: [(start: UInt32, end: UInt32)] = []
+
+        // internally accessed by journal setup
+        var handle: FileHandle
+        var inodes: [Ptr<Inode>]
         let journalConfig: JournalConfig?
 
         var pos: UInt64 {
