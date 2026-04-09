@@ -1,4 +1,4 @@
-FROM swift:6.2
+FROM swift:6.3-noble
 
 RUN apt-get update \
 &&  apt-get install make \
