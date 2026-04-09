@@ -15,6 +15,7 @@
 //===----------------------------------------------------------------------===//
 
 import ArgumentParser
+import CVersion
 import Cgroup
 import Containerization
 import ContainerizationError
@@ -25,7 +26,11 @@ import NIOCore
 import NIOPosix
 
 #if os(Linux)
+#if canImport(Musl)
 import Musl
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import LCShim
 #endif
 
@@ -67,7 +72,14 @@ struct AgentCommand: AsyncParsableCommand {
 
         signal(SIGPIPE, SIG_IGN)
 
-        log.info("vminitd booting", metadata: ["version": "\(Application.configuration.version)"])
+        let gitCommit = String(cString: CZ_get_git_commit())
+        let gitTag = String(cString: CZ_get_git_tag())
+        let buildTime = String(cString: CZ_get_build_time())
+        var metadata: Logger.Metadata = ["commit": "\(gitCommit)", "built": "\(buildTime)"]
+        if !gitTag.isEmpty {
+            metadata["tag"] = "\(gitTag)"
+        }
+        log.info("vminitd booting", metadata: metadata)
 
         // Set of mounts necessary to be mounted prior to taking any RPCs.
         // 1. /proc as the sysctl rpc wouldn't make sense if it wasn't there (NOTE: This is done before this method
@@ -149,13 +161,13 @@ struct AgentCommand: AsyncParsableCommand {
             log.info("vminitd API returned, syncing filesystems")
 
             #if os(Linux)
-            Musl.sync()
+            sync()
             #endif
         } catch {
             log.error("vminitd boot error \(error)")
 
             #if os(Linux)
-            Musl.sync()
+            sync()
             #endif
 
             _exit(1)
@@ -180,12 +192,11 @@ struct AgentCommand: AsyncParsableCommand {
     private static func adjustLimits(_ log: Logger) throws {
         let nrOpen = try String(contentsOfFile: "/proc/sys/fs/nr_open", encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let max = rlim_t(nrOpen) else {
+        guard let max = UInt64(nrOpen) else {
             throw POSIXError(.EINVAL)
         }
         log.debug("setting RLIMIT_NOFILE to \(max)")
-        var limits = rlimit(rlim_cur: max, rlim_max: max)
-        guard setrlimit(RLIMIT_NOFILE, &limits) == 0 else {
+        guard CZ_setrlimit(CZ_RLIMIT_NOFILE, max, max) == 0 else {
             throw POSIXError(.init(rawValue: errno)!)
         }
     }

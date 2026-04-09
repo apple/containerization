@@ -14,8 +14,6 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-import Foundation
-
 /// MediaTypes represent all supported OCI image content types for both metadata and layer formats.
 /// Follows all distributable media types in: https://github.com/opencontainers/image-spec/blob/main/specs-go/v1/mediatype.go
 public struct MediaTypes: Codable, Sendable {

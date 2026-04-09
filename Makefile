@@ -18,7 +18,13 @@ WARNINGS_AS_ERRORS ?= true
 SWIFT_CONFIGURATION := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors) --disable-automatic-resolution
 
 # Commonly used locations
-SWIFT := "/usr/bin/swift"
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
+SWIFT ?= /usr/bin/swift
+else
+SWIFT ?= swift
+endif
+
 ROOT_DIR := $(shell git rev-parse --show-toplevel)
 BUILD_BIN_DIR = $(shell $(SWIFT) build -c $(BUILD_CONFIGURATION) --show-bin-path)
 COV_DATA_DIR = $(shell $(SWIFT) test --show-coverage-path | xargs dirname)
@@ -33,6 +39,14 @@ KATA_BINARY_PACKAGE := https://github.com/kata-containers/kata-containers/releas
 
 include Protobuf.Makefile
 .DEFAULT_GOAL := all
+
+.PHONY: deps
+deps:
+ifeq ($(UNAME_S),Linux)
+	sudo apt-get install -y libarchive-dev libbz2-dev liblzma-dev libssl-dev
+else
+	@echo "No additional dependencies required on $(UNAME_S)"
+endif
 
 .PHONY: all
 all: containerization
@@ -51,11 +65,13 @@ containerization:
 	@echo Copying containerization binaries...
 	@mkdir -p bin
 	@install "$(BUILD_BIN_DIR)/cctl" ./bin/
+ifeq ($(UNAME_S),Darwin)
 	@install "$(BUILD_BIN_DIR)/containerization-integration" ./bin/
 
 	@echo Signing containerization binaries...
 	@codesign --force --sign - --timestamp=none --entitlements=signing/vz.entitlements bin/cctl
 	@codesign --force --sign - --timestamp=none --entitlements=signing/vz.entitlements bin/containerization-integration
+endif
 
 .PHONY: init
 init: containerization vminitd

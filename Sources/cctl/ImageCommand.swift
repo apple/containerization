@@ -22,6 +22,7 @@ import ContainerizationExtras
 import ContainerizationOCI
 import Foundation
 
+#if os(macOS)
 extension Application {
     struct Images: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
@@ -292,3 +293,4 @@ extension Application {
         }
     }
 }
+#endif

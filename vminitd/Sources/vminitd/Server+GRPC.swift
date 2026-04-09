@@ -1177,7 +1177,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         do {
             let socket = try DefaultNetlinkSocket()
             let session = NetlinkSession(socket: socket, log: log)
-            let ipv4Gateway = try IPv4Address(request.ipv4Gateway)
+            let ipv4Gateway = !request.ipv4Gateway.isEmpty ? try IPv4Address(request.ipv4Gateway) : nil
             try session.routeAddDefault(interface: request.interface, ipv4Gateway: ipv4Gateway)
         } catch {
             log.error(

@@ -398,11 +398,11 @@ extension Vminitd {
     }
 
     /// Set the default route in the sandbox's environment.
-    public func routeAddDefault(name: String, ipv4Gateway: IPv4Address) async throws {
+    public func routeAddDefault(name: String, ipv4Gateway: IPv4Address?) async throws {
         _ = try await client.ipRouteAddDefault(
             .with {
                 $0.interface = name
-                $0.ipv4Gateway = ipv4Gateway.description
+                $0.ipv4Gateway = ipv4Gateway?.description ?? ""
             })
     }
 

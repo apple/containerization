@@ -26,6 +26,7 @@ import Musl
 import Glibc
 #endif
 
+import LCShim
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
@@ -206,29 +207,31 @@ package struct Cgroup2Manager: Sendable {
             ])
 
         if let memory = resources.memory, let limit = memory.limit {
+            // The OCI spec defines -1 as unlimited; cgroup v2 expects "max".
+            let value = limit < 0 ? "max" : String(limit)
             try Self.writeValue(
                 path: self.path,
-                value: String(limit),
+                value: value,
                 fileName: "memory.max"
             )
         }
 
-        if let cpu = resources.cpu {
-            if let quota = cpu.quota, let period = cpu.period {
-                // cpu.max format is "quota period"
-                let value = "\(quota) \(period)"
-                try Self.writeValue(
-                    path: self.path,
-                    value: value,
-                    fileName: "cpu.max"
-                )
-            }
+        if let cpu = resources.cpu, let quota = cpu.quota, let period = cpu.period {
+            // cpu.max format is "quota period"
+            let value = "\(quota) \(period)"
+            try Self.writeValue(
+                path: self.path,
+                value: value,
+                fileName: "cpu.max"
+            )
         }
 
         if let pids = resources.pids {
+            // The OCI spec defines -1 as unlimited; cgroup v2 expects "max".
+            let value = pids.limit < 0 ? "max" : String(pids.limit)
             try Self.writeValue(
                 path: self.path,
-                value: String(pids.limit),
+                value: value,
                 fileName: "pids.max"
             )
         }

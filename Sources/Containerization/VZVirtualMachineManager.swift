@@ -52,12 +52,15 @@ public struct VZVirtualMachineManager: VirtualMachineManager {
         // Use nested virtualization if requested in config or set as default in manager
         let useNestedVirtualization = vmConfig.nestedVirtualization || self.nestedVirtualization
 
+        // Clamp to system RAM as Virtualization.framework bounds us to this.
+        let memoryInBytes = min(vmConfig.memoryInBytes, ProcessInfo.processInfo.physicalMemory)
+
         return try VZVirtualMachineInstance(
             group: self.group,
             logger: self.logger,
             with: { instanceConfig in
                 instanceConfig.cpus = vmConfig.cpus
-                instanceConfig.memoryInBytes = vmConfig.memoryInBytes
+                instanceConfig.memoryInBytes = memoryInBytes
 
                 instanceConfig.kernel = self.kernel
                 instanceConfig.initialFilesystem = self.initialFilesystem

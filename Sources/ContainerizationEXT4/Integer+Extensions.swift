@@ -14,8 +14,6 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-import Foundation
-
 extension UInt64 {
     public var lo: UInt32 {
         UInt32(self & 0xffff_ffff)
@@ -34,7 +32,7 @@ extension UInt64 {
     }
 
     public static func / (lhs: Self, rhs: UInt32) -> UInt32 {
-        (lhs / UInt64(rhs)).lo
+        UInt32(lhs / UInt64(rhs))
     }
 
     public static func * (lhs: Self, rhs: UInt32) -> UInt64 {

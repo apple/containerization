@@ -281,7 +281,6 @@ extension EXT4.EXT4Reader {
         var parentStack: [EXT4.InodeNumber] = []  // Track parent chain for proper ".." handling
 
         var symlinkHops = 0
-        var visitedInodes = Set<EXT4.InodeNumber>()
 
         // Process components one at a time to handle symlinks in the middle of paths
         var componentIndex = 0
@@ -330,12 +329,6 @@ extension EXT4.EXT4Reader {
             // Check if child is a symlink
             let childInode = try getInode(number: child.1)
             if childInode.mode.isLink() && followSymlinks {
-                // Check for symlink loop
-                if visitedInodes.contains(child.1) {
-                    throw EXT4.PathIOError.symlinkLoop(FilePath(components.joined(separator: "/")).description)
-                }
-                visitedInodes.insert(child.1)
-
                 // Enforce max symlink depth
                 symlinkHops += 1
                 if symlinkHops > maxSymlinks {
@@ -376,70 +369,6 @@ extension EXT4.EXT4Reader {
         // All components processed - return final inode
         let finalInode = try getInode(number: current)
         return ResolvedPath(inodeNum: current, inode: finalInode)
-    }
-
-    /// Walk a sequence of path components from a starting inode with parent tracking.
-    /// Returns the final inode and updated parent stack.
-    private func walkWithParents(
-        current start: EXT4.InodeNumber,
-        components: [String],
-        parentStack initialStack: [EXT4.InodeNumber]
-    ) throws -> (EXT4.InodeNumber, [EXT4.InodeNumber]) {
-        var current = start
-        var parentStack = initialStack
-
-        if components.isEmpty { return (current, parentStack) }
-
-        for name in components {
-            if name == "." {
-                continue
-            }
-
-            if name == ".." {
-                // Handle parent directory traversal with proper tracking
-                if current == EXT4.RootInode {
-                    // At root, ".." points to itself (POSIX behavior)
-                    continue
-                }
-
-                // Use parent stack if available for accurate traversal
-                if !parentStack.isEmpty {
-                    current = parentStack.removeLast()
-                } else {
-                    // No parent tracking available - look up ".." entry in filesystem
-                    // This happens when we start traversal from a non-root inode
-                    let entries = try children(of: current)
-                    if let parent = entries.first(where: { $0.0 == ".." })?.1 {
-                        current = parent
-                    }
-                }
-                continue
-            }
-
-            // Regular component: verify current is a directory before traversing
-            let currentInode = try getInode(number: current)
-            guard currentInode.mode.isDir() else {
-                throw EXT4.PathIOError.notADirectory(name)
-            }
-
-            // Look up child in current directory
-            let entries = try children(of: current)
-            guard let child = entries.first(where: { $0.0 == name }) else {
-                throw EXT4.PathIOError.notFound(name)
-            }
-
-            // Push current to parent stack before descending
-            parentStack.append(current)
-            current = child.1
-        }
-
-        return (current, parentStack)
-    }
-
-    /// Walk a sequence of path components from a starting inode.
-    private func walk(current start: EXT4.InodeNumber, components: [String]) throws -> EXT4.InodeNumber {
-        let (result, _) = try walkWithParents(current: start, components: components, parentStack: [])
-        return result
     }
 
     /// Normalize a path into components, handling absolute and relative paths.

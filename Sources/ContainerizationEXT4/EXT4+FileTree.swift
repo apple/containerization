@@ -26,7 +26,7 @@ extension EXT4 {
             var blocks: (start: UInt32, end: UInt32)?
             var additionalBlocks: [(start: UInt32, end: UInt32)]?
             var link: InodeNumber?
-            private var parent: Ptr<FileTreeNode>?
+            private weak var parent: Ptr<FileTreeNode>?
 
             init(
                 inode: InodeNumber,
@@ -61,21 +61,8 @@ extension EXT4 {
                     components.append(ptr.pointee.name)
                     _ptr = ptr.pointee.parent
                 }
-                guard let last = components.last else {
-                    return nil
-                }
-                guard components.count > 1 else {
-                    return FilePath(last)
-                }
-                components = components.dropLast()
                 let path = components.reversed().joined(separator: "/")
-                guard let data = path.data(using: .utf8) else {
-                    return nil
-                }
-                guard let dataPath = String(data: data, encoding: .utf8) else {
-                    return nil
-                }
-                return FilePath(dataPath).pushing(FilePath(last)).lexicallyNormalized()
+                return FilePath(path).lexicallyNormalized()
             }
         }
 

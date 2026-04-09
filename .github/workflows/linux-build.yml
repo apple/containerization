@@ -1,0 +1,40 @@
+name: Linux build
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+  push:
+    branches:
+      - main
+      - release/*
+
+jobs:
+  build:
+    name: Linux compile check
+    timeout-minutes: 30
+    runs-on: ubuntu-24.04
+    container: swift:6.3-noble
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6
+        with:
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        run: apt-get update && apt-get install -y curl make libarchive-dev libbz2-dev liblzma-dev libssl-dev
+
+      - name: Build containerization
+        run: make containerization
+
+      - name: Build vminitd (glibc)
+        run: make -C vminitd SWIFT_CONFIGURATION="--disable-automatic-resolution -Xswiftc -warnings-as-errors"
+
+      - name: Install Static Linux SDK
+        run: make -C vminitd linux-sdk
+
+      - name: Build vminitd (musl)
+        run: make -C vminitd

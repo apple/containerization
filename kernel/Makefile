@@ -15,6 +15,7 @@
 KSOURCE ?= https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.18.5.tar.xz
 KIMAGE ?= kernel-build:0.1
 CURDIR := $(shell pwd)
+GIT_VERSION := $(shell git -C $(CURDIR) rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
 
 .DEFAULT_GOAL := all
 
@@ -36,6 +37,7 @@ endif
 		--rm \
 		--memory 16g \
 		-v ${CURDIR}:/kernel \
+		--env LOCALVERSION=-cz-${GIT_VERSION} \
 		--cwd /kernel \
 		${KIMAGE} \
 		/bin/bash -c "./build.sh"

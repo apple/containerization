@@ -14,7 +14,6 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-#if os(macOS)
 import ContainerizationError
 import ContainerizationExtras
 import ContainerizationOCI
@@ -457,6 +456,9 @@ extension LinuxPod {
                                 try await agent.routeAddLink(name: name, dstIPv4Addr: ipv4Gateway, srcIPv4Addr: nil)
                             }
                             try await agent.routeAddDefault(name: name, ipv4Gateway: ipv4Gateway)
+                        } else {
+                            self.logger?.debug("no gateway for \(name)")
+                            try await agent.routeAddDefault(name: name, ipv4Gateway: nil)
                         }
                     }
 
@@ -558,7 +560,7 @@ extension LinuxPod {
                         ))
                 }
 
-                spec.mounts = mounts
+                spec.mounts = cleanAndSortMounts(mounts)
 
                 // Configure namespaces for the container
                 var namespaces: [LinuxNamespace] = [
@@ -712,9 +714,6 @@ extension LinuxPod {
                         try? await process.delete()
                         container.process = nil
                         container.state = .stopped
-
-                        // Clean up file mount temporary directories.
-                        container.fileMountContext.cleanUp()
 
                         state.containers[containerID] = container
                     }
@@ -924,5 +923,3 @@ extension LinuxPod {
         try await relayAgent.relaySocket(port: port, configuration: socket)
     }
 }
-
-#endif

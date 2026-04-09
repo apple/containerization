@@ -113,7 +113,7 @@ import Foundation
 
  ### Inode Bitmap
 
- A sequence of bits, where each bit represents a inode in the block group. Since
+ A sequence of bits, where each bit represents an inode in the block group. Since
  inodes per group is a fixed number, this bitmap is made to be of sufficient length
  to accommodate that many inodes
 
@@ -210,7 +210,7 @@ import Foundation
 
  ## Directory entries
 
- The data blocks for directory inodes point to a list of directory entrees. Each entry
+ The data blocks for directory inodes point to a list of directory entries. Each entry
  consists of only a name and inode number. The name and inode number correspond to the
  name and inode number of the children of the directory
 

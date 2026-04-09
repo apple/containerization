@@ -18,6 +18,7 @@
 
 #if os(macOS)
 import ContainerizationArchive
+import ContainerizationExtras
 import Foundation
 import Testing
 import SystemPackage
@@ -41,10 +42,20 @@ struct Tar2EXT4Test: ~Copyable {
         "extendedattribute.test": Data([15, 26, 54, 1, 2, 4, 6, 7, 7]),
     ]
 
+    let layerDir: URL
+    let layer1Path: URL
+    let layer2Path: URL
+
     init() throws {
+        // Compute paths before any throwing code to satisfy ~Copyable initialization rules.
+        let layerDir = FileManager.default.uniqueTemporaryDirectory()
+        let layer1Path = layerDir.appendingPathComponent("layer1.tar.gz", isDirectory: false)
+        let layer2Path = layerDir.appendingPathComponent("layer2.tar.gz", isDirectory: false)
+        self.layerDir = layerDir
+        self.layer1Path = layer1Path
+        self.layer2Path = layer2Path
+
         // create layer1
-        let layer1Path = FileManager.default.uniqueTemporaryDirectory()
-            .appendingPathComponent("layer1.tar.gz", isDirectory: false)
         let layer1Archiver = try ArchiveWriter(
             configuration: ArchiveWriterConfiguration(format: .paxRestricted, filter: .gzip))
         try layer1Archiver.open(file: layer1Path)
@@ -56,8 +67,6 @@ struct Tar2EXT4Test: ~Copyable {
         try layer1Archiver.finishEncoding()
 
         // create layer2
-        let layer2Path = FileManager.default.uniqueTemporaryDirectory()
-            .appendingPathComponent("layer2.tar.gz", isDirectory: false)
         let layer2Archiver = try ArchiveWriter(
             configuration: ArchiveWriterConfiguration(format: .paxRestricted, filter: .gzip))
         try layer2Archiver.open(file: layer2Path)
@@ -81,18 +90,22 @@ struct Tar2EXT4Test: ~Copyable {
         // a new layer overwriting over an existing layer
         try layer2Archiver.writeEntry(entry: WriteEntry.file(path: "/dir2/file1", permissions: 0o644), data: nil)
         try layer2Archiver.finishEncoding()
+    }
 
-        let unpacker = try EXT4.Formatter(fsPath)
-        try unpacker.unpack(source: layer1Path)
-        try unpacker.unpack(source: layer2Path)
-        try unpacker.close()
+    private func unpackLayers() async throws {
+        let formatter = try EXT4.Formatter(fsPath)
+        try await formatter.unpack(source: layer1Path)
+        try await formatter.unpack(source: layer2Path)
+        try formatter.close()
     }
 
     deinit {
         try? FileManager.default.removeItem(at: fsPath.url)
+        try? FileManager.default.removeItem(at: layerDir)
     }
 
-    @Test func testUnpackBasic() throws {
+    @Test func testUnpackBasic() async throws {
+        try await unpackLayers()
         let ext4 = try EXT4.EXT4Reader(blockDevice: fsPath)
         // just a directory
         let dir1Inode = try ext4.getInode(number: 12)
@@ -125,8 +138,228 @@ struct Tar2EXT4Test: ~Copyable {
 
         let specialFileInode = try ext4.getInode(number: 20)
         let bytes = Data(Mirror(reflecting: specialFileInode.block).children.compactMap { $0.value as? UInt8 })
-        let specialFileTarget = try #require(FilePath(bytes), "Could not parse special file path")
+        let targetString = try #require(String(data: bytes, encoding: .utf8), "Could not parse special file path")
+        let specialFileTarget = FilePath(targetString)
         #expect(specialFileTarget.description.hasPrefix("special_ÆÂ©"))
+    }
+}
+
+/// Collects progress events in a thread-safe manner.
+private actor ProgressCollector {
+    var events: [ProgressEvent] = []
+
+    func append(_ newEvents: [ProgressEvent]) {
+        events.append(contentsOf: newEvents)
+    }
+
+    func allEvents() -> [ProgressEvent] {
+        events
+    }
+}
+
+struct UnpackProgressTest {
+    @Test func progressReportsAccurateSizes() async throws {
+        // Create an archive with files of known sizes
+        let tempDir = FileManager.default.uniqueTemporaryDirectory()
+        let archivePath = tempDir.appendingPathComponent("test.tar.gz", isDirectory: false)
+        let fsPath = FilePath(tempDir.appendingPathComponent("test.ext4.img", isDirectory: false))
+
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        // Create test data with specific sizes
+        let file1Data = Data(repeating: 0xAA, count: 1024)  // 1 KiB
+        let file2Data = Data(repeating: 0xBB, count: 4096)  // 4 KiB
+        let file3Data = Data(repeating: 0xCC, count: 512)  // 512 bytes
+        let expectedTotalSize: Int64 = 1024 + 4096 + 512  // 5632 bytes
+
+        // Build the archive
+        let archiver = try ArchiveWriter(
+            configuration: ArchiveWriterConfiguration(format: .paxRestricted, filter: .gzip))
+        try archiver.open(file: archivePath)
+
+        try archiver.writeEntry(entry: WriteEntry.dir(path: "/data", permissions: 0o755), data: nil)
+        try archiver.writeEntry(
+            entry: WriteEntry.file(path: "/data/file1.bin", permissions: 0o644, size: Int64(file1Data.count)),
+            data: file1Data)
+        try archiver.writeEntry(
+            entry: WriteEntry.file(path: "/data/file2.bin", permissions: 0o644, size: Int64(file2Data.count)),
+            data: file2Data)
+        try archiver.writeEntry(
+            entry: WriteEntry.file(path: "/data/file3.bin", permissions: 0o644, size: Int64(file3Data.count)),
+            data: file3Data)
+        // Include an empty file to verify it doesn't break size calculations
+        try archiver.writeEntry(
+            entry: WriteEntry.file(path: "/data/empty.bin", permissions: 0o644, size: 0),
+            data: Data())
+        try archiver.finishEncoding()
+
+        // Set up progress collection
+        let collector = ProgressCollector()
+        let shouldPrintProgress = ProcessInfo.processInfo.environment["PRINT_UNPACK_PROGRESS"] == "1"
+        let progressHandler: ProgressHandler = { events in
+            if shouldPrintProgress {
+                for event in events {
+                    print("unpack-progress \(event.event): \(event.value)")
+                }
+            }
+            await collector.append(events)
+        }
+
+        // Unpack with progress tracking
+        let formatter = try EXT4.Formatter(fsPath)
+        try await formatter.unpack(source: archivePath, progress: progressHandler)
+        try formatter.close()
+
+        // Analyze collected events
+        let allEvents = await collector.allEvents()
+
+        var reportedTotalSize: Int64 = 0
+        var reportedTotalItems: Int = 0
+        var cumulativeSize: Int64 = 0
+        var itemCount: Int = 0
+
+        for event in allEvents {
+            switch event {
+            case .addTotalSize(let value):
+                reportedTotalSize += value
+            case .addTotalItems(let value):
+                reportedTotalItems += value
+            case .addSize(let value):
+                cumulativeSize += value
+            case .addItems(let value):
+                itemCount += value
+            }
+        }
+
+        // Verify the progress contract
+        let expectedTotalItems: Int = 5  // 1 dir + 4 files
+        #expect(
+            reportedTotalSize == expectedTotalSize,
+            "Total size should be \(expectedTotalSize) bytes, got \(reportedTotalSize)")
+        #expect(
+            reportedTotalItems == expectedTotalItems,
+            "Total items should be \(expectedTotalItems), got \(reportedTotalItems)")
+        #expect(
+            cumulativeSize == expectedTotalSize,
+            "Cumulative size should equal total size (\(expectedTotalSize)), got \(cumulativeSize)")
+        #expect(
+            itemCount == expectedTotalItems,
+            "Should have processed \(expectedTotalItems) entries (1 dir + 4 files), got \(itemCount)")
+
+        // Verify incremental progress: we should get separate add-size events for each file
+        let addSizeEvents = allEvents.compactMap { event -> Int64? in
+            guard case .addSize(let value) = event else { return nil }
+            return value
+        }
+        #expect(
+            addSizeEvents.count == 4,
+            "Should have 4 add-size events (one per file, including empty), got \(addSizeEvents.count)")
+
+        // Verify individual file sizes were reported correctly
+        let reportedSizes = addSizeEvents.sorted()
+        #expect(
+            reportedSizes == [0, 512, 1024, 4096],
+            "Individual file sizes should be [0, 512, 1024, 4096], got \(reportedSizes)")
+
+        // Verify event-by-event behavior expected by clients:
+        // total remains stable and written bytes are monotonic as progress updates arrive.
+        var runningTotal: Int64?
+        var runningWritten: Int64 = 0
+        var previousSnapshot: (written: Int64, total: Int64?)?
+        var progressSnapshotCount = 0
+
+        for event in allEvents {
+            switch event {
+            case .addTotalSize(let value):
+                runningTotal = (runningTotal ?? 0) + value
+            case .addSize(let value):
+                runningWritten += value
+                let currentSnapshot = (written: runningWritten, total: runningTotal)
+                if let previousSnapshot {
+                    #expect(
+                        currentSnapshot.written >= previousSnapshot.written,
+                        "Written bytes should be monotonic: \(currentSnapshot.written) < \(previousSnapshot.written)")
+                    #expect(
+                        currentSnapshot.total == previousSnapshot.total,
+                        "Total bytes should remain stable across progress updates")
+                }
+                previousSnapshot = currentSnapshot
+                progressSnapshotCount += 1
+            default:
+                break
+            }
+        }
+
+        #expect(
+            progressSnapshotCount == addSizeEvents.count,
+            "Should produce one monotonic snapshot per add-size update")
+
+        // Verify totals come before incremental events (first pass before second pass)
+        let totalSizeIndex = try #require(
+            allEvents.firstIndex(where: {
+                guard case .addTotalSize = $0 else { return false }
+                return true
+            }),
+            "add-total-size event should be present")
+        let firstAddSizeIndex = try #require(
+            allEvents.firstIndex(where: {
+                guard case .addSize = $0 else { return false }
+                return true
+            }),
+            "add-size event should be present")
+        #expect(
+            totalSizeIndex < firstAddSizeIndex,
+            "add-total-size should be reported before add-size events")
+
+        let totalItemsIndex = try #require(
+            allEvents.firstIndex(where: {
+                guard case .addTotalItems = $0 else { return false }
+                return true
+            }),
+            "add-total-items event should be present")
+        let firstAddItemsIndex = try #require(
+            allEvents.firstIndex(where: {
+                guard case .addItems = $0 else { return false }
+                return true
+            }),
+            "add-items event should be present")
+        #expect(
+            totalItemsIndex < firstAddItemsIndex,
+            "add-total-items should be reported before add-items events")
+    }
+
+    @Test func progressHandlerIsOptional() async throws {
+        // Verify that unpacking works without a progress handler (existing behavior)
+        let tempDir = FileManager.default.uniqueTemporaryDirectory()
+        let archivePath = tempDir.appendingPathComponent("test.tar.gz", isDirectory: false)
+        let fsPath = FilePath(tempDir.appendingPathComponent("test.ext4.img", isDirectory: false))
+
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let archiver = try ArchiveWriter(
+            configuration: ArchiveWriterConfiguration(format: .paxRestricted, filter: .gzip))
+        try archiver.open(file: archivePath)
+        try archiver.writeEntry(entry: WriteEntry.dir(path: "/test", permissions: 0o755), data: nil)
+        let data = Data(repeating: 0x42, count: 100)
+        try archiver.writeEntry(
+            entry: WriteEntry.file(path: "/test/file.bin", permissions: 0o644, size: Int64(data.count)),
+            data: data)
+        try archiver.finishEncoding()
+
+        // Unpack without progress handler - should not throw
+        let formatter = try EXT4.Formatter(fsPath)
+        try await formatter.unpack(source: archivePath)
+        try formatter.close()
+
+        // Verify the file was unpacked correctly
+        let reader = try EXT4.EXT4Reader(blockDevice: fsPath)
+        let children = try reader.children(of: EXT4.RootInode)
+        let childNames = Set(children.map { $0.0 })
+        #expect(childNames.contains("test"), "Directory 'test' should exist in unpacked filesystem")
     }
 }
 

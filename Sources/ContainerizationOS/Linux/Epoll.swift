@@ -14,115 +14,172 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+import Foundation
+
 #if canImport(Musl)
 import Musl
+private let _write = Musl.write
+#elseif canImport(Glibc)
+import Glibc
+private let _write = Glibc.write
+#endif
 
-import Foundation
-import Synchronization
+import CShim
 
-/// Register file descriptors to receive events via Linux's
-/// epoll syscall surface.
+// On glibc, epoll constants are EPOLL_EVENTS enum values. On musl they're
+// plain UInt32. These helpers normalize them to UInt32/Int32.
+private func epollMask(_ value: UInt32) -> UInt32 { value }
+private func epollMask(_ value: Int32) -> UInt32 { UInt32(bitPattern: value) }
+#if canImport(Glibc)
+private func epollMask(_ value: EPOLL_EVENTS) -> UInt32 { value.rawValue }
+private func epollFlag(_ value: EPOLL_EVENTS) -> Int32 { Int32(bitPattern: value.rawValue) }
+#endif
+
+/// A thin wrapper around the Linux epoll syscall surface.
 public final class Epoll: Sendable {
-    public typealias Mask = Int32
-    public typealias Handler = (@Sendable (Mask) -> Void)
+    /// A set of epoll event flags.
+    public struct Mask: OptionSet, Sendable {
+        public let rawValue: UInt32
 
-    private let epollFD: Int32
-    private let handlers = SafeMap<Int32, Handler>()
-    private let pipe = Pipe()  // to wake up a waiting epoll_wait
-
-    public init() throws {
-        let efd = epoll_create1(EPOLL_CLOEXEC)
-        guard efd > 0 else {
-            throw POSIXError.fromErrno()
+        public init(rawValue: UInt32) {
+            self.rawValue = rawValue
         }
-        self.epollFD = efd
-        try self.add(pipe.fileHandleForReading.fileDescriptor) { _ in }
+
+        public static let input = Mask(rawValue: epollMask(EPOLLIN))
+        public static let output = Mask(rawValue: epollMask(EPOLLOUT))
+
+        public var isHangup: Bool {
+            !self.isDisjoint(with: Mask(rawValue: epollMask(EPOLLHUP) | epollMask(EPOLLERR)))
+        }
+
+        public var isRemoteHangup: Bool {
+            !self.isDisjoint(with: Mask(rawValue: epollMask(EPOLLRDHUP)))
+        }
+
+        public var readyToRead: Bool {
+            self.contains(.input)
+        }
+
+        public var readyToWrite: Bool {
+            self.contains(.output)
+        }
     }
 
-    public func add(
-        _ fd: Int32,
-        mask: Int32 = EPOLLIN | EPOLLOUT,  // HUP is always added
-        handler: @escaping Handler
-    ) throws {
+    /// An event returned by `wait()`.
+    public struct Event: Sendable {
+        public let fd: Int32
+        public let mask: Mask
+    }
+
+    private let epollFD: Int32
+    private let eventFD: Int32
+
+    public init() throws {
+        let efd = epoll_create1(Int32(EPOLL_CLOEXEC))
+        guard efd >= 0 else {
+            throw POSIXError.fromErrno()
+        }
+
+        let evfd = eventfd(0, Int32(EFD_CLOEXEC | EFD_NONBLOCK))
+        guard evfd >= 0 else {
+            let evfdErrno = POSIXError.fromErrno()
+            close(efd)
+            throw evfdErrno
+        }
+
+        self.epollFD = efd
+        self.eventFD = evfd
+
+        // Register the eventfd with epoll for shutdown signaling.
+        var event = epoll_event()
+        event.events = epollMask(EPOLLIN)
+        event.data.fd = self.eventFD
+        let ctlResult = withUnsafeMutablePointer(to: &event) { ptr in
+            epoll_ctl(efd, EPOLL_CTL_ADD, self.eventFD, ptr)
+        }
+        guard ctlResult == 0 else {
+            let ctlErrno = POSIXError.fromErrno()
+            close(evfd)
+            close(efd)
+            throw ctlErrno
+        }
+    }
+
+    deinit {
+        close(epollFD)
+        close(eventFD)
+    }
+
+    /// Register a file descriptor for edge-triggered monitoring.
+    public func add(_ fd: Int32, mask: Mask) throws {
         guard fcntl(fd, F_SETFL, O_NONBLOCK) == 0 else {
             throw POSIXError.fromErrno()
         }
 
-        let events = EPOLLET | UInt32(bitPattern: mask)
+        let events = epollMask(EPOLLET) | mask.rawValue
 
         var event = epoll_event()
         event.events = events
         event.data.fd = fd
 
         try withUnsafeMutablePointer(to: &event) { ptr in
-            while true {
-                if epoll_ctl(self.epollFD, EPOLL_CTL_ADD, fd, ptr) == -1 {
-                    if errno == EAGAIN || errno == EINTR {
-                        continue
-                    }
-                    throw POSIXError.fromErrno()
-                }
-                break
-            }
-        }
-
-        self.handlers.set(fd, handler)
-    }
-
-    /// Run the main epoll loop.
-    ///
-    /// max events to return in a single wait
-    /// timeout in ms.
-    /// -1 means block forever.
-    /// 0 means return immediately if no events.
-    public func run(maxEvents: Int = 128, timeout: Int32 = -1) throws {
-        var events: [epoll_event] = .init(
-            repeating: epoll_event(),
-            count: maxEvents
-        )
-
-        while true {
-            let n = epoll_wait(self.epollFD, &events, Int32(events.count), timeout)
-            guard n >= 0 else {
-                if errno == EINTR || errno == EAGAIN {
-                    continue  // go back to epoll_wait
-                }
+            if epoll_ctl(self.epollFD, EPOLL_CTL_ADD, fd, ptr) == -1 {
                 throw POSIXError.fromErrno()
             }
-
-            if n == 0 {
-                return  // if epoll wait times out, then n will be 0
-            }
-
-            for i in 0..<Int(n) {
-                let fd = events[i].data.fd
-                let mask = events[i].events
-
-                if fd == self.pipe.fileHandleForReading.fileDescriptor {
-                    close(self.epollFD)
-                    return  // this is a shutdown message
-                }
-
-                guard let handler = handlers.get(fd) else {
-                    continue
-                }
-                handler(Int32(bitPattern: mask))
-            }
         }
     }
 
-    /// Remove the provided fd from the monitored collection.
+    /// Remove a file descriptor from the monitored collection.
     public func delete(_ fd: Int32) throws {
         var event = epoll_event()
         let result = withUnsafeMutablePointer(to: &event) { ptr in
-            epoll_ctl(self.epollFD, EPOLL_CTL_DEL, fd, ptr)
+            epoll_ctl(self.epollFD, EPOLL_CTL_DEL, fd, ptr) as Int32
         }
         if result != 0 {
             if !acceptableDeletionErrno() {
                 throw POSIXError.fromErrno()
             }
         }
-        self.handlers.del(fd)
+    }
+
+    /// Wait for events.
+    ///
+    /// Returns ready events, an empty array on timeout, or `nil` on shutdown.
+    public func wait(maxEvents: Int = 128, timeout: Int32 = -1) -> [Event]? {
+        var events: [epoll_event] = .init(repeating: epoll_event(), count: maxEvents)
+
+        while true {
+            let n = epoll_wait(self.epollFD, &events, Int32(events.count), timeout)
+            if n < 0 {
+                if errno == EINTR || errno == EAGAIN {
+                    continue
+                }
+                preconditionFailure("epoll_wait failed unexpectedly: \(POSIXError.fromErrno())")
+            }
+
+            if n == 0 {
+                return []
+            }
+
+            var result: [Event] = []
+            result.reserveCapacity(Int(n))
+            for i in 0..<Int(n) {
+                let fd = events[i].data.fd
+                if fd == self.eventFD {
+                    return nil
+                }
+                result.append(Event(fd: fd, mask: Mask(rawValue: events[i].events)))
+            }
+            return result
+        }
+    }
+
+    /// Signal the epoll loop to stop waiting.
+    public func shutdown() {
+        var val: UInt64 = 1
+        let n = _write(eventFD, &val, MemoryLayout<UInt64>.size)
+        precondition(n == MemoryLayout<UInt64>.size, "eventfd write failed: \(POSIXError.fromErrno())")
     }
 
     // The errno's here are acceptable and can happen if the caller
@@ -130,52 +187,6 @@ public final class Epoll: Sendable {
     private func acceptableDeletionErrno() -> Bool {
         errno == ENOENT || errno == EBADF || errno == EPERM
     }
-
-    /// Shutdown the epoll handler.
-    public func shutdown() throws {
-        // wakes up epoll_wait and triggers a shutdown
-        try self.pipe.fileHandleForWriting.close()
-    }
-
-    private final class SafeMap<Key: Hashable & Sendable, Value: Sendable>: Sendable {
-        let dict = Mutex<[Key: Value]>([:])
-
-        func set(_ key: Key, _ value: Value) {
-            dict.withLock { @Sendable in
-                $0[key] = value
-            }
-        }
-
-        func get(_ key: Key) -> Value? {
-            dict.withLock { @Sendable in
-                $0[key]
-            }
-        }
-
-        func del(_ key: Key) {
-            dict.withLock { @Sendable in
-                _ = $0.removeValue(forKey: key)
-            }
-        }
-    }
 }
 
-extension Epoll.Mask {
-    public var isHangup: Bool {
-        (self & (EPOLLHUP | EPOLLERR)) != 0
-    }
-
-    public var isRhangup: Bool {
-        (self & EPOLLRDHUP) != 0
-    }
-
-    public var readyToRead: Bool {
-        (self & EPOLLIN) != 0
-    }
-
-    public var readyToWrite: Bool {
-        (self & EPOLLOUT) != 0
-    }
-}
-
-#endif  // canImport(Musl)
+#endif  // os(Linux)

@@ -14,13 +14,11 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-#if os(macOS)
-
-import Crypto
 import ContainerizationError
+import Crypto
 import Foundation
 
-public func hashMountSource(source: String) throws -> String {
+package func hashMountSource(source: String) throws -> String {
     // Resolve symlinks so different paths to the same directory get the same hash.
     let resolvedSource = URL(fileURLWithPath: source).resolvingSymlinksInPath().path
     guard let data = resolvedSource.data(using: .utf8) else {
@@ -28,5 +26,3 @@ public func hashMountSource(source: String) throws -> String {
     }
     return String(SHA256.hash(data: data).encoded.prefix(36))
 }
-
-#endif

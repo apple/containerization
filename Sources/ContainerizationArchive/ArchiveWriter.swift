@@ -22,7 +22,7 @@ import SystemPackage
 public final class ArchiveWriter {
     private static let chunkSize = 4 * 1024 * 1024
 
-    var underlying: OpaquePointer!
+    var underlying: OpaquePointer?
 
     /// Initialize a new `ArchiveWriter` with the given configuration.
     /// This method attempts to initialize an empty archive in memory, failing which it throws a `unableToCreateArchive` error.
@@ -66,15 +66,11 @@ public final class ArchiveWriter {
 
     /// Performs any necessary finalizations on the archive and releases resources.
     public func finishEncoding() throws {
-        if let u = underlying {
-            let r = archive_free(u)
-            do {
-                try wrap(r, ArchiveError.unableToCloseArchive, underlying: underlying)
-                underlying = nil
-            } catch {
-                underlying = nil
-                throw error
-            }
+        guard let u = underlying else { return }
+        underlying = nil
+        let r = archive_free(u)
+        guard r == ARCHIVE_OK else {
+            throw ArchiveError.unableToCloseArchive(r)
         }
     }
 

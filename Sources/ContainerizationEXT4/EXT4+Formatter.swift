@@ -90,7 +90,7 @@ extension EXT4 {
             ///    checker).
 
             if !FileManager.default.fileExists(atPath: devicePath.description) {
-                FileManager.default.createFile(atPath: devicePath.description, contents: nil)
+                _ = FileManager.default.createFile(atPath: devicePath.description, contents: nil)
             }
             guard let fileHandle = FileHandle(forWritingTo: devicePath) else {
                 throw Error.notFound(devicePath)
@@ -595,16 +595,16 @@ extension EXT4 {
         //  The function performs any necessary final steps to ensure the integrity and consistency
         //  of the ext4 filesystem before it can be mounted and used.
         public func close() throws {
-            var breathWiseChildTree: [(parent: Ptr<FileTree.FileTreeNode>?, child: Ptr<FileTree.FileTreeNode>)] = [
+            var breadthWiseChildTree: [(parent: Ptr<FileTree.FileTreeNode>?, child: Ptr<FileTree.FileTreeNode>)] = [
                 (nil, self.tree.root)
             ]
-            while !breathWiseChildTree.isEmpty {
-                let (parent, child) = breathWiseChildTree.removeFirst()
+            while !breadthWiseChildTree.isEmpty {
+                let (parent, child) = breadthWiseChildTree.removeFirst()
                 try self.commit(parent, child)  // commit directories iteratively
                 if child.pointee.link != nil {
                     continue
                 }
-                breathWiseChildTree.append(contentsOf: child.pointee.children.map { (child, $0) })
+                breadthWiseChildTree.append(contentsOf: child.pointee.children.map { (child, $0) })
             }
             let blockGroupSize = optimizeBlockGroupLayout(blocks: self.currentBlock, inodes: UInt32(self.inodes.count))
             let inodeTableOffset = try self.commitInodeTable(
@@ -617,18 +617,20 @@ extension EXT4 {
             // write bitmaps and group descriptors
 
             let bitmapOffset = self.currentBlock
-            let bitmapSize: UInt32 = blockGroupSize.blockGroups * 2  // each group has two bitmaps - for inodes, and for blocks
-            let dataSize: UInt32 = bitmapOffset + bitmapSize  // last data block
-            var diskSize = dataSize
-            var minimumDiskSize = (blockGroupSize.blockGroups - 1) * self.blocksPerGroup + 1
+            let bitmapBlocks: UInt32 = blockGroupSize.blockGroups * 2  // each group has two bitmaps - for inodes, and for blocks
+            let dataBlocks: UInt32 = bitmapOffset + bitmapBlocks  // last data block
+            var diskBlocks = dataBlocks
+            var minimumDiskBlocks = (blockGroupSize.blockGroups - 1) * self.blocksPerGroup + 1
             if blockGroupSize.blockGroups == 1 {
-                minimumDiskSize = self.blocksPerGroup  // at least 1 block group
+                minimumDiskBlocks = self.blocksPerGroup  // at least 1 block group
             }
-            if diskSize < minimumDiskSize {  // for data + metadata
-                diskSize = minimumDiskSize
+            if diskBlocks < minimumDiskBlocks {  // for data + metadata
+                diskBlocks = minimumDiskBlocks
             }
-            if self.size < minimumDiskSize {
-                self.size = UInt64(minimumDiskSize) * self.blockSize
+            let minimumDiskSize = UInt64(minimumDiskBlocks) * self.blockSize
+            var newSize = self.size
+            if newSize < minimumDiskSize {
+                newSize = minimumDiskSize
             }
             // number of blocks needed for group descriptors
             let groupDescriptorBlockCount: UInt32 = (blockGroupSize.blockGroups - 1) / self.groupsPerDescriptorBlock + 1
@@ -642,17 +644,10 @@ extension EXT4 {
             var groupDescriptors: [GroupDescriptor] = []
 
             let minGroups = (((self.pos / UInt64(self.blockSize)) - 1) / UInt64(self.blocksPerGroup)) + 1
-            if self.size < minGroups * blocksPerGroup * blockSize {
-                self.size = UInt64(minGroups * blocksPerGroup * blockSize)
-                let pos = self.pos
-                guard lseek(self.handle.fileDescriptor, off_t(self.size - 1), 0) == self.size - 1 else {
-                    throw Error.cannotResizeFS(self.size)
-                }
-                let zero: [UInt8] = [0]
-                try self.handle.write(contentsOf: zero)
-                try self.handle.seek(toOffset: pos)
+            if newSize < minGroups * blocksPerGroup * blockSize {
+                newSize = UInt64(minGroups * blocksPerGroup * blockSize)
             }
-            let totalGroups = (((self.size / UInt64(self.blockSize)) - 1) / UInt64(self.blocksPerGroup)) + 1
+            let totalGroups = (((newSize / UInt64(self.blockSize)) - 1) / UInt64(self.blocksPerGroup)) + 1
 
             // If the provided disk size is not aligned to a blockgroup boundary, it needs to
             // be expanded to the next blockgroup boundary.
@@ -663,8 +658,11 @@ extension EXT4 {
             //  Number of blocks: 549888
             //  Number of blockgroups = 549888 / 32768 = 16.78125
             //  Aligned disk size = 557056 blocks = 17 blockgroups: 2176 MB
-            if self.size < totalGroups * blocksPerGroup * blockSize {
-                self.size = UInt64(totalGroups * blocksPerGroup * blockSize)
+            if newSize < totalGroups * blocksPerGroup * blockSize {
+                newSize = UInt64(totalGroups * blocksPerGroup * blockSize)
+            }
+            if self.size < newSize {
+                self.size = newSize
                 let pos = self.pos
                 guard lseek(self.handle.fileDescriptor, off_t(self.size - 1), 0) == self.size - 1 else {
                     throw Error.cannotResizeFS(self.size)
@@ -680,13 +678,13 @@ extension EXT4 {
                 var blocks: UInt32 = 0
                 // blocks bitmap
                 var bitmap: [UInt8] = .init(repeating: 0, count: self.blockSize * 2)  // 1 for blocks, 1 for inodes
-                if (group + 1) * UInt32(self.blocksPerGroup) <= dataSize {  // fully allocated group
+                if (group + 1) * UInt32(self.blocksPerGroup) <= dataBlocks {  // fully allocated group
                     for i in 0..<(self.blockSize) {
                         bitmap[Int(i)] = 0xff  // mark as allocated
                     }
                     blocks = UInt32(self.blocksPerGroup)
-                } else if group * UInt32(self.blocksPerGroup) < dataSize {  // partially allocated group
-                    for i in 0..<dataSize - group * UInt32(self.blocksPerGroup) {
+                } else if group * UInt32(self.blocksPerGroup) < dataBlocks {  // partially allocated group
+                    for i in 0..<dataBlocks - group * UInt32(self.blocksPerGroup) {
                         bitmap[Int(i / 8)] |= 1 << (i % 8)
                         blocks += 1
                     }
@@ -699,14 +697,16 @@ extension EXT4 {
                     for i in 0...usedGroupDescriptorBlocks {
                         bitmap[Int(i / 8)] |= 1 << (i % 8)
                     }
-                    for i in usedGroupDescriptorBlocks + 1...self.groupDescriptorBlocks {
-                        bitmap[Int(i / 8)] &= ~(1 << (i % 8))
-                        blocks -= 1
+                    if usedGroupDescriptorBlocks + 1 <= self.groupDescriptorBlocks {
+                        for i in usedGroupDescriptorBlocks + 1...self.groupDescriptorBlocks {
+                            bitmap[Int(i / 8)] &= ~(1 << (i % 8))
+                            blocks -= 1
+                        }
                     }
                 }
 
                 // last blockGroup if not aligned with total size should be marked as allocated
-                let remainingBlocks = diskSize % self.blocksPerGroup
+                let remainingBlocks = diskBlocks % self.blocksPerGroup
                 if group == totalGroups - 1 && remainingBlocks != 0 && self.size / self.blockSize < self.blocksPerGroup {
                     for i in remainingBlocks..<self.blocksPerGroup {
                         bitmap[Int(i / 8)] |= 1 << (i % 8)
@@ -755,19 +755,6 @@ extension EXT4 {
                     }
                 }
 
-                var freeBlocks: UInt32 = UInt32(self.blocksPerGroup)
-                if freeBlocks < blocks {
-                    freeBlocks = 0
-                } else if self.size / self.blockSize < self.blocksPerGroup {
-                    if blocks < UInt32(self.size / UInt64(self.blockSize)) {
-                        freeBlocks = UInt32(self.size / UInt64(self.blockSize)) - blocks
-                    } else {
-                        freeBlocks = 0
-                    }
-                } else {
-                    freeBlocks = UInt32(self.blocksPerGroup) - blocks
-                }
-
                 let blockBitmap = UInt64(bitmapOffset + 2 * group)
                 let inodeBitmap = UInt64(bitmapOffset + 2 * group + 1)
                 let inodeTable = inodeTableOffset + UInt64(group * inodeTableSizePerGroup)
@@ -804,16 +791,7 @@ extension EXT4 {
                 inodeBitmap[Int(i) / 8] &= ~(1 << (i % 8))
             }
             for group in blockGroupSize.blockGroups..<totalGroups.lo {
-                var blocksInGroup = UInt32(self.blocksPerGroup)
-                if group == totalGroups.lo {
-                    if UInt64(self.size / UInt64(self.blockSize)) < self.blocksPerGroup {
-                        break
-                    }
-                    blocksInGroup = UInt32((self.size / UInt64(self.blockSize)) % UInt64(self.blocksPerGroup))
-                    if blocksInGroup == 0 {
-                        break
-                    }
-                }
+                let blocksInGroup = UInt32(self.blocksPerGroup)
                 let blockBitmapOffset = UInt64(group * self.blocksPerGroup + inodeTableSizePerGroup)
                 let inodeBitmapOffset = UInt64(group * self.blocksPerGroup + inodeTableSizePerGroup + 1)
                 let inodeTableOffset = UInt64(self.blocksPerGroup) * group
@@ -837,20 +815,6 @@ extension EXT4 {
                     ))
                 totalBlocks += (inodeTableSizePerGroup + 2)
                 try self.seek(block: group * self.blocksPerGroup + inodeTableSizePerGroup)
-
-                if group == totalGroups.lo {
-                    var blockBitmapLo: [UInt8] = .init(repeating: 0, count: Int(self.blocksPerGroup) / 8)
-                    for i in blocksInGroup..<UInt32(self.blocksPerGroup) {
-                        blockBitmapLo[Int(i) / 8] |= 1 << (i % 8)
-                    }
-                    for i in 0..<inodeTableSizePerGroup + 2 {
-                        blockBitmapLo[Int(i) / 8] |= 1 << (i % 8)
-                    }
-                    try self.handle.write(contentsOf: blockBitmapLo)
-                    try self.handle.write(contentsOf: inodeBitmap)
-                    continue
-                }
-
                 try self.handle.write(contentsOf: blockBitmap)
                 try self.handle.write(contentsOf: inodeBitmap)
             }
@@ -952,7 +916,7 @@ extension EXT4 {
                     contentsOf: Array<UInt8>.init(repeating: 0, count: Int(EXT4.InodeSize) - inodeSize))
             }
             let tableSize: UInt64 = UInt64(EXT4.InodeSize) * blockGroups * inodesPerGroup
-            let rest = tableSize - uint32(self.inodes.count) * EXT4.InodeSize
+            let rest = tableSize - UInt64(self.inodes.count) * EXT4.InodeSize
             let zeroBlock = Array<UInt8>.init(repeating: 0, count: Int(self.blockSize))
             for _ in 0..<(rest / self.blockSize) {
                 try self.handle.write(contentsOf: zeroBlock)
@@ -1101,7 +1065,7 @@ extension EXT4 {
                     }
                 }
             case 5..<4 * UInt32(extentsPerBlock) + 1:
-                let extentBlocks = numExtents / extentsPerBlock + 1
+                let extentBlocks = (numExtents + extentsPerBlock - 1) / extentsPerBlock
                 usedBlocks += extentBlocks
                 let extentHeader = ExtentHeader(
                     magic: EXT4.ExtentHeaderMagic,

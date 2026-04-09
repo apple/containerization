@@ -17,6 +17,7 @@
 import ContainerizationIO
 import ContainerizationOS
 import Foundation
+import LCShim
 import Logging
 
 actor VsockProxy {
@@ -233,8 +234,8 @@ extension VsockProxy {
                     )
 
                     do {
-                        try ProcessSupervisor.default.poller.delete(clientFile.fileDescriptor)
-                        try ProcessSupervisor.default.poller.delete(serverFile.fileDescriptor)
+                        try ProcessSupervisor.default.unregisterFd(clientFile.fileDescriptor)
+                        try ProcessSupervisor.default.unregisterFd(serverFile.fileDescriptor)
                         try conn.close()
                         try relayTo.close()
                     } catch {
@@ -243,7 +244,7 @@ extension VsockProxy {
                     c.resume()
                 }
 
-                try! ProcessSupervisor.default.poller.add(clientFile.fileDescriptor, mask: EPOLLIN | EPOLLOUT) { mask in
+                try! ProcessSupervisor.default.registerFd(clientFile.fileDescriptor, mask: [.input, .output]) { mask in
                     if mask.readyToRead && !eofFromClient {
                         let (fromEof, toEof) = Self.transferData(
                             fromFile: &clientFile,
@@ -269,12 +270,12 @@ extension VsockProxy {
                     if mask.isHangup {
                         eofFromClient = true
                         eofFromServer = true
-                    } else if mask.isRhangup && !eofFromClient {
+                    } else if mask.isRemoteHangup && !eofFromClient {
                         // half close, shut down client to server transfer
                         // we should see no more EPOLLIN events on the client fd
                         // and no more EPOLLOUT events on the server fd
                         eofFromClient = true
-                        if shutdown(serverFile.fileDescriptor, SHUT_WR) != 0 {
+                        if shutdown(serverFile.fileDescriptor, Int32(SHUT_WR)) != 0 {
                             self.log?.warning(
                                 "failed to shut down client reads",
                                 metadata: [
@@ -295,7 +296,7 @@ extension VsockProxy {
                     }
                 }
 
-                try! ProcessSupervisor.default.poller.add(serverFile.fileDescriptor, mask: EPOLLIN | EPOLLOUT) { mask in
+                try! ProcessSupervisor.default.registerFd(serverFile.fileDescriptor, mask: [.input, .output]) { mask in
                     if mask.readyToRead && !eofFromServer {
                         let (fromEof, toEof) = Self.transferData(
                             fromFile: &serverFile,
@@ -321,12 +322,12 @@ extension VsockProxy {
                     if mask.isHangup {
                         eofFromClient = true
                         eofFromServer = true
-                    } else if mask.isRhangup && !eofFromServer {
+                    } else if mask.isRemoteHangup && !eofFromServer {
                         // half close, shut down server to client transfer
                         // we should see no more EPOLLIN events on the server fd
                         // and no more EPOLLOUT events on the client fd
                         eofFromServer = true
-                        if shutdown(clientFile.fileDescriptor, SHUT_WR) != 0 {
+                        if shutdown(clientFile.fileDescriptor, Int32(SHUT_WR)) != 0 {
                             self.log?.warning(
                                 "failed to shut down server reads",
                                 metadata: [
@@ -375,7 +376,7 @@ extension VsockProxy {
                 // half close, shut down client to server transfer
                 // we should see no more EPOLLIN events on the client fd
                 // and no more EPOLLOUT events on the server fd
-                if shutdown(toFile.fileDescriptor, SHUT_WR) != 0 {
+                if shutdown(toFile.fileDescriptor, Int32(SHUT_WR)) != 0 {
                     log?.warning(
                         "failed to shut down reads",
                         metadata: [

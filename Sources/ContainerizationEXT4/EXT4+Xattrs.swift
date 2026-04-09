@@ -18,7 +18,7 @@ import Foundation
 
 /*
  * Note: Both the entries and values for the attributes need to occupy a size that is a multiple of 4,
- * meaning, in cases where the attribute name or value is less than not a multiple of 4, it is padded with 0
+ * meaning, in cases where the attribute name or value is not a multiple of 4, it is padded with 0
  * until it reaches that size.
  */
 
@@ -62,7 +62,7 @@ extension EXT4 {
             var i = 0
             while i + 3 < value.count {
                 let s = value[i..<i + 4]
-                let v = UInt32(littleEndian: s.withUnsafeBytes { $0.load(as: UInt32.self) })
+                let v = s.withUnsafeBytes { $0.loadLittleEndian(as: UInt32.self) }
                 hash = (hash << 16) ^ (hash >> 16) ^ v
                 i += 4
             }
@@ -72,7 +72,7 @@ extension EXT4 {
                 for (i, byte) in value[last...].enumerated() {
                     buff[i] = byte
                 }
-                let v = UInt32(littleEndian: buff.withUnsafeBytes { $0.load(as: UInt32.self) })
+                let v = buff.withUnsafeBytes { $0.loadLittleEndian(as: UInt32.self) }
                 hash = (hash << 16) ^ (hash >> 16) ^ v
             }
             return hash
@@ -177,10 +177,13 @@ extension EXT4 {
             }
             var attributes = self.blockAttributes
             attributes.sort(by: {
-                if ($0.index < $1.index) || ($0.name.count < $1.name.count) || ($0.name < $1.name) {
-                    return true
+                if $0.index != $1.index {
+                    return $0.index < $1.index
                 }
-                return false
+                if $0.name.count != $1.name.count {
+                    return $0.name.count < $1.name.count
+                }
+                return $0.name < $1.name
             })
             try Self.write(buffer: &buffer, attrs: attributes, start: UInt16(idx), delta: UInt16(idx), inline: false)
         }
@@ -254,19 +257,24 @@ extension EXT4 {
             var i = start
             var attribs: [ExtendedAttribute] = []
             // 16 is the size of 1 XAttrEntry
-            while i + 16 < buffer.count {
+            while i + 16 <= buffer.count {
                 let attributeStart = i
                 let rawXattrEntry = Array(buffer[i..<i + 16])
                 let xattrEntry = try EXT4.XAttrEntry(using: rawXattrEntry)
                 i += 16
                 var endIndex = i + Int(xattrEntry.nameLength)
-                guard endIndex < buffer.count else {
+                guard endIndex <= buffer.count else {
                     continue
                 }
                 let rawName = buffer[i..<endIndex]
-                let name = String(bytes: rawName, encoding: .ascii)!
+                guard let name = String(bytes: rawName, encoding: .ascii) else {
+                    throw Error.nonAsciiXattrName
+                }
                 let valueStart = Int(xattrEntry.valueOffset) + offset
                 let valueEnd = Int(xattrEntry.valueOffset) + Int(xattrEntry.valueSize) + offset
+                guard valueEnd <= buffer.count else {
+                    break
+                }
                 let value = [UInt8](buffer[valueStart..<valueEnd])
                 let xattr = ExtendedAttribute(idx: xattrEntry.nameIndex, compressedName: name, value: value)
                 attribs.append(xattr)
@@ -287,6 +295,7 @@ extension EXT4 {
             case insufficientSpace(_ inode: Int)
             case malformedXattrBuffer
             case convertAsciiString(_ s: String)
+            case nonAsciiXattrName
             case missingXAttrHeader
 
             public var description: String {
@@ -297,6 +306,8 @@ extension EXT4 {
                     return "malformed extended attribute buffer"
                 case .convertAsciiString(let s):
                     return "cannot convert string \(s) to a list of ASCII characters"
+                case .nonAsciiXattrName:
+                    return "extended attribute name contains non-ASCII bytes"
                 case .missingXAttrHeader:
                     return "missing header for extended attribute entry"
                 }

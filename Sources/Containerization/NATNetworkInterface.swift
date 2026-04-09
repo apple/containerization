@@ -20,7 +20,6 @@ import vmnet
 import Virtualization
 import ContainerizationError
 import ContainerizationExtras
-import Foundation
 import Synchronization
 
 /// An interface that uses NAT to provide an IP address for a given

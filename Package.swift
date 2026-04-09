@@ -65,7 +65,7 @@ let package = Package(
                 "ContainerizationOS",
                 "ContainerizationIO",
                 "ContainerizationExtras",
-                .target(name: "ContainerizationEXT4", condition: .when(platforms: [.macOS])),
+                "ContainerizationEXT4",
             ],
             exclude: [
                 "../Containerization/SandboxContext/SandboxContext.proto"
@@ -84,15 +84,6 @@ let package = Package(
                 "ContainerizationOS",
             ]
         ),
-        .executableTarget(
-            name: "containerization-integration",
-            dependencies: [
-                .product(name: "Logging", package: "swift-log"),
-                .product(name: "ArgumentParser", package: "swift-argument-parser"),
-                "Containerization",
-            ],
-            path: "Sources/Integration"
-        ),
         .testTarget(
             name: "ContainerizationUnitTests",
             dependencies: ["Containerization"],
@@ -105,7 +96,7 @@ let package = Package(
         .target(
             name: "ContainerizationEXT4",
             dependencies: [
-                .target(name: "ContainerizationArchive", condition: .when(platforms: [.macOS])),
+                "ContainerizationArchive",
                 .product(name: "SystemPackage", package: "swift-system"),
                 "ContainerizationOS",
             ],
@@ -266,3 +257,17 @@ let package = Package(
         ),
     ]
 )
+
+#if os(macOS)
+package.targets.append(
+    .executableTarget(
+        name: "containerization-integration",
+        dependencies: [
+            .product(name: "Logging", package: "swift-log"),
+            .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            "Containerization",
+        ],
+        path: "Sources/Integration"
+    )
+)
+#endif

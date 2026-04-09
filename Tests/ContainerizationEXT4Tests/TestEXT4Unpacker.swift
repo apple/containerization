@@ -28,7 +28,7 @@ struct Ext4UnpackerTests {
             .appendingPathComponent("ext4.unpacked.oci.img.delme", isDirectory: false))
 
     final class MockEXT4Unpacker {
-        static func Unpack(index: String, fsPath: FilePath) throws {
+        static func Unpack(index: String, fsPath: FilePath) async throws {
             let fs = try EXT4.Formatter(fsPath)
             let bundle = Bundle.module
             guard let indexPath = bundle.url(forResource: index, withExtension: nil) else {
@@ -67,14 +67,14 @@ struct Ext4UnpackerTests {
                 guard let layerPath = bundle.url(forResource: layerDigest, withExtension: nil) else {
                     throw NSError(domain: "layer \(layerDigest) not found", code: 1)
                 }
-                try fs.unpack(source: layerPath)
+                try await fs.unpack(source: layerPath)
             }
             try fs.close()
         }
     }
 
-    @Test func eXT4Unpacker() throws {
-        try MockEXT4Unpacker.Unpack(index: self.indexSHA, fsPath: self.fsPath)
+    @Test func eXT4Unpacker() async throws {
+        try await MockEXT4Unpacker.Unpack(index: self.indexSHA, fsPath: self.fsPath)
         let ext4 = try EXT4.EXT4Reader(blockDevice: self.fsPath)
         let children = try ext4.children(of: EXT4.RootInode)
         #expect(

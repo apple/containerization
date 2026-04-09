@@ -89,6 +89,22 @@ public class ImageStoreTests: ContainsAuth {
         try await self.store.push(reference: upstreamTag, auth: authentication)
     }
 
+    @Test(.disabled("External users cannot push images, disable while we find a better solution"))
+    func testImageStorePushMultipleReferences() async throws {
+        guard let authentication = Self.authentication else {
+            return
+        }
+        let imageReference = "ghcr.io/apple/containerization/dockermanifestimage:0.0.2"
+
+        let remoteImageName = "ghcr.io/apple/test-images/image-push"
+        let epoch = Int(Date().timeIntervalSince1970)
+        let tags = ["\(remoteImageName):\(epoch)-a", "\(remoteImageName):\(epoch)-b", "\(remoteImageName):\(epoch)-c"]
+        for tag in tags {
+            let _ = try await self.store.tag(existing: imageReference, new: tag)
+        }
+        try await self.store.push(references: tags, auth: authentication, maxConcurrentUploads: 2)
+    }
+
     @Test func testLoadImageWithoutAnnotations() async throws {
         let fileManager = FileManager.default
         let tempDir = fileManager.uniqueTemporaryDirectory()
