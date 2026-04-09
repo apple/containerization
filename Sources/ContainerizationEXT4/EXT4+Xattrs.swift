@@ -18,7 +18,7 @@ import Foundation
 
 /*
  * Note: Both the entries and values for the attributes need to occupy a size that is a multiple of 4,
- * meaning, in cases where the attribute name or value is less than not a multiple of 4, it is padded with 0
+ * meaning, in cases where the attribute name or value is not a multiple of 4, it is padded with 0
  * until it reaches that size.
  */
 
