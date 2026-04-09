@@ -110,6 +110,8 @@ extension FileMountContext {
             // Only add the directory share once per unique parent directory.
             if !sharedParentTags.contains(prepared.tag) {
                 sharedParentTags.insert(prepared.tag)
+                // The destination here is unused. We mount the share ourselves
+                // to a location under /run in mountHoldingDirectories.
                 let directoryShare = Mount.share(
                     source: prepared.parentDirectory.path,
                     destination: "/.file-mount-holding",
