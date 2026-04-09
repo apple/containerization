@@ -62,7 +62,7 @@ extension EXT4 {
             var i = 0
             while i + 3 < value.count {
                 let s = value[i..<i + 4]
-                let v = UInt32(littleEndian: s.withUnsafeBytes { $0.load(as: UInt32.self) })
+                let v = s.withUnsafeBytes { $0.loadLittleEndian(as: UInt32.self) }
                 hash = (hash << 16) ^ (hash >> 16) ^ v
                 i += 4
             }
@@ -72,7 +72,7 @@ extension EXT4 {
                 for (i, byte) in value[last...].enumerated() {
                     buff[i] = byte
                 }
-                let v = UInt32(littleEndian: buff.withUnsafeBytes { $0.load(as: UInt32.self) })
+                let v = buff.withUnsafeBytes { $0.loadLittleEndian(as: UInt32.self) }
                 hash = (hash << 16) ^ (hash >> 16) ^ v
             }
             return hash
