@@ -267,7 +267,9 @@ extension EXT4 {
                     continue
                 }
                 let rawName = buffer[i..<endIndex]
-                let name = String(bytes: rawName, encoding: .ascii)!
+                guard let name = String(bytes: rawName, encoding: .ascii) else {
+                    throw Error.nonAsciiXattrName
+                }
                 let valueStart = Int(xattrEntry.valueOffset) + offset
                 let valueEnd = Int(xattrEntry.valueOffset) + Int(xattrEntry.valueSize) + offset
                 let value = [UInt8](buffer[valueStart..<valueEnd])
@@ -290,6 +292,7 @@ extension EXT4 {
             case insufficientSpace(_ inode: Int)
             case malformedXattrBuffer
             case convertAsciiString(_ s: String)
+            case nonAsciiXattrName
             case missingXAttrHeader
 
             public var description: String {
@@ -300,6 +303,8 @@ extension EXT4 {
                     return "malformed extended attribute buffer"
                 case .convertAsciiString(let s):
                     return "cannot convert string \(s) to a list of ASCII characters"
+                case .nonAsciiXattrName:
+                    return "extended attribute name contains non-ASCII bytes"
                 case .missingXAttrHeader:
                     return "missing header for extended attribute entry"
                 }
