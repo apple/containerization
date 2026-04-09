@@ -27,7 +27,12 @@ else
 MUSL_ARCH := x86_64
 endif
 
-SWIFT_CONFIGURATION := --swift-sdk $(MUSL_ARCH)-swift-linux-musl $(SWIFT_WARNING_CONFIG) -Xlinker -s --disable-automatic-resolution
+LIBC ?= musl
+ifeq ($(LIBC),musl)
+SWIFT_SDK_FLAGS := --swift-sdk $(MUSL_ARCH)-swift-linux-musl
+endif
+
+SWIFT_CONFIGURATION := $(SWIFT_SDK_FLAGS) $(SWIFT_WARNING_CONFIG) -Xlinker -s --disable-automatic-resolution
 
 SWIFT_VERSION := 6.3
 SWIFT_SDK_URL := https://download.swift.org/swift-6.3-release/static-sdk/swift-6.3-RELEASE/swift-6.3-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz
