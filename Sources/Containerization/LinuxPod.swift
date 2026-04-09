@@ -715,9 +715,6 @@ extension LinuxPod {
                         container.process = nil
                         container.state = .stopped
 
-                        // Clean up file mount temporary directories.
-                        container.fileMountContext.cleanUp()
-
                         state.containers[containerID] = container
                     }
                 }

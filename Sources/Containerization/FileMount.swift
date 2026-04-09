@@ -21,15 +21,9 @@ import Foundation
 /// Manages single-file mounts by transforming them into virtiofs directory shares
 /// plus bind mounts.
 ///
-/// Since virtiofs only supports sharing directories, mounting a single file without
-/// exposing the other potential files in that directory needs a little bit of a "hack".
-/// The one we've landed on is:
-///
-/// 1. Creating a temporary directory containing a hardlink to the file
-/// 2. Sharing that directory via virtiofs to a holding location in the guest
-/// 3. Bind mounting the specific file from the holding location to the final destination
-///
-/// This type handles all three steps transparently.
+/// Since virtiofs only supports sharing directories, mounting a single file requires
+/// sharing the file's parent directory via virtiofs and then bind mounting the specific
+/// file from that share to the final destination in the container.
 struct FileMountContext: Sendable {
     /// Metadata for a single prepared file mount.
     struct PreparedMount: Sendable {
@@ -37,11 +31,11 @@ struct FileMountContext: Sendable {
         let hostFilePath: String
         /// Where the user wants the file in the container
         let containerDestination: String
-        /// Just the filename
+        /// Just the filename (after resolving symlinks)
         let filename: String
-        /// Temp directory containing the hardlinked file
-        let tempDirectory: URL
-        /// The virtiofs tag (hash of temp dir path). Used to find the AttachedFilesystem
+        /// The parent directory containing the file (after resolving symlinks)
+        let parentDirectory: URL
+        /// The virtiofs tag (hash of parent dir path). Used to find the AttachedFilesystem
         let tag: String
         /// Mount options from the original mount
         let options: [String]
@@ -77,14 +71,16 @@ extension FileMountContext {
     /// Prepare mounts for a container, detecting file mounts and transforming them.
     ///
     /// This method stats each virtiofs mount source. If it's a regular file rather than
-    /// a directory, it creates a temporary directory with a hardlink to the file and
-    /// substitutes a directory share for the original mount.
+    /// a directory, it shares the file's parent directory via virtiofs and records the
+    /// metadata needed to bind mount the specific file later.
     ///
     /// - Parameter mounts: The original mounts from the container config
     /// - Returns: A FileMountContext containing transformed mounts and tracking info
     static func prepare(mounts: [Mount]) throws -> FileMountContext {
         var context = FileMountContext()
         var transformed: [Mount] = []
+        // Track parent directories we've already added a share for to avoid duplicates.
+        var sharedParentTags: Set<String> = []
 
         for mount in mounts {
             // Only virtiofs mounts can be files
@@ -111,15 +107,17 @@ extension FileMountContext {
             // It's a file, so prepare it.
             let prepared = try context.prepareFileMount(mount: mount, runtimeOptions: runtimeOpts)
 
-            // Create a regular directory share for the temp directory.
-            // The destination here is unused. We'll mount it ourselves to a location under /run.
-            let directoryShare = Mount.share(
-                source: prepared.tempDirectory.path,
-                destination: "/.file-mount-holding",
-                options: mount.options.filter { $0 != "bind" },
-                runtimeOptions: runtimeOpts
-            )
-            transformed.append(directoryShare)
+            // Only add the directory share once per unique parent directory.
+            if !sharedParentTags.contains(prepared.tag) {
+                sharedParentTags.insert(prepared.tag)
+                let directoryShare = Mount.share(
+                    source: prepared.parentDirectory.path,
+                    destination: "/.file-mount-holding",
+                    options: mount.options.filter { $0 != "bind" },
+                    runtimeOptions: runtimeOpts
+                )
+                transformed.append(directoryShare)
+            }
         }
 
         context.transformedMounts = transformed
@@ -131,34 +129,15 @@ extension FileMountContext {
         runtimeOptions: [String]
     ) throws -> PreparedMount {
         let resolvedSource = URL(fileURLWithPath: mount.source).resolvingSymlinksInPath()
-        let sourceURL = URL(fileURLWithPath: mount.source)
-        let filename = sourceURL.lastPathComponent
-
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("containerization-file-mounts")
-            .appendingPathComponent(UUID().uuidString)
-
-        try FileManager.default.createDirectory(
-            at: tempDir,
-            withIntermediateDirectories: true
-        )
-
-        // Hardlink the file (falls back to copy if cross-filesystem)
-        let destURL = tempDir.appendingPathComponent(filename)
-        do {
-            try FileManager.default.linkItem(at: resolvedSource, to: destURL)
-        } catch {
-            // Hardlink failed. Fall back to copy
-            try FileManager.default.copyItem(at: resolvedSource, to: destURL)
-        }
-
-        let tag = try hashMountSource(source: tempDir.path)
+        let filename = resolvedSource.lastPathComponent
+        let parentDirectory = resolvedSource.deletingLastPathComponent()
+        let tag = try hashMountSource(source: parentDirectory.path)
 
         let prepared = PreparedMount(
             hostFilePath: mount.source,
             containerDestination: mount.destination,
             filename: filename,
-            tempDirectory: tempDir,
+            parentDirectory: parentDirectory,
             tag: tag,
             options: mount.options,
             guestHoldingPath: nil
@@ -178,30 +157,39 @@ extension FileMountContext {
         vmMounts: [AttachedFilesystem],
         agent: any VirtualMachineAgent
     ) async throws {
+        // Track which tags we've already mounted to avoid duplicate mounts
+        // when multiple files share the same parent directory.
+        var mountedTags: Set<String> = []
+
         for i in preparedMounts.indices {
             let prepared = preparedMounts[i]
 
-            // Find the attached filesystem by matching the virtiofs tag
-            guard
-                let attached = vmMounts.first(where: {
-                    $0.type == "virtiofs" && $0.source == prepared.tag
-                })
-            else {
-                throw ContainerizationError(
-                    .notFound,
-                    message: "could not find attached filesystem for file mount \(prepared.hostFilePath)"
-                )
-            }
-
             let guestPath = "/run/file-mounts/\(prepared.tag)"
-            try await agent.mkdir(path: guestPath, all: true, perms: 0o755)
-            try await agent.mount(
-                ContainerizationOCI.Mount(
-                    type: "virtiofs",
-                    source: attached.source,
-                    destination: guestPath,
-                    options: []
-                ))
+
+            if !mountedTags.contains(prepared.tag) {
+                // Find the attached filesystem by matching the virtiofs tag
+                guard
+                    let attached = vmMounts.first(where: {
+                        $0.type == "virtiofs" && $0.source == prepared.tag
+                    })
+                else {
+                    throw ContainerizationError(
+                        .notFound,
+                        message: "could not find attached filesystem for file mount \(prepared.hostFilePath)"
+                    )
+                }
+
+                try await agent.mkdir(path: guestPath, all: true, perms: 0o755)
+                try await agent.mount(
+                    ContainerizationOCI.Mount(
+                        type: "virtiofs",
+                        source: attached.source,
+                        destination: guestPath,
+                        options: []
+                    ))
+
+                mountedTags.insert(prepared.tag)
+            }
 
             preparedMounts[i].guestHoldingPath = guestPath
         }
@@ -222,16 +210,6 @@ extension FileMountContext {
                 destination: prepared.containerDestination,
                 options: ["bind"] + prepared.options
             )
-        }
-    }
-}
-
-extension FileMountContext {
-    /// Clean up temp directories.
-    func cleanUp() {
-        let fm = FileManager.default
-        for prepared in preparedMounts {
-            try? fm.removeItem(at: prepared.tempDirectory)
         }
     }
 }
