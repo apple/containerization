@@ -24,6 +24,7 @@
 #if defined(__linux__)
 
 #include <sys/epoll.h>
+#include <sys/eventfd.h>
 #include <sys/vfs.h>
 
 #endif /* __linux__ */
