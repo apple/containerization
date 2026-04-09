@@ -28,6 +28,7 @@ extension EXT4 {
         public var firstDataBlock: UInt32 = 0
         public var logBlockSize: UInt32 = 0
         public var logClusterSize: UInt32 = 0
+        public var blockSize: UInt32 { 1024 << logBlockSize }
         public var blocksPerGroup: UInt32 = 0
         public var clustersPerGroup: UInt32 = 0
         public var inodesPerGroup: UInt32 = 0

@@ -32,9 +32,7 @@ extension EXT4 {
 
         var hardlinks: [FilePath: InodeNumber] = [:]
         var tree: EXT4.FileTree = EXT4.FileTree(EXT4.RootInode, ".")
-        var blockSize: UInt64 {
-            UInt64(1024 * (1 << _superBlock.logBlockSize))
-        }
+        var blockSize: UInt64 { UInt64(_superBlock.blockSize) }
 
         private var groupDescriptorSize: UInt16 {
             if _superBlock.featureIncompat & EXT4.IncompatFeature.bit64.rawValue != 0 {
@@ -120,7 +118,7 @@ extension EXT4 {
         }
 
         private func readGroupDescriptor(_ number: UInt32) throws -> GroupDescriptor {
-            let bs = UInt64(1024 * (1 << _superBlock.logBlockSize))
+            let bs = self.blockSize
             let offset = bs + UInt64(number) * UInt64(self.groupDescriptorSize)
             try self.handle.seek(toOffset: offset)
             guard let data = try? self.handle.read(upToCount: MemoryLayout<EXT4.GroupDescriptor>.size) else {
