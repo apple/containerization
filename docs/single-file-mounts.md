@@ -50,6 +50,6 @@ can avoid single-file mounts entirely:
   the behavior explicit and gives the container access to the full directory at the
   destination path.
 
-- **Stage files into a dedicated directory**: Copy or link the files you need into a
-  dedicated directory on the host and mount that directory instead. This gives you full
-  control over what is visible to the guest.
+- **Stage files into a dedicated directory**: Copy the files you need into a dedicated
+  directory on the host and mount that directory instead. This gives you full control
+  over what is visible to the guest.
