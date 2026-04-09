@@ -500,6 +500,34 @@ struct EXT4PathIOTests {
     }
 
     @Test
+    func sameAbsoluteSymlinkFollowedTwice() throws {
+        let url = try buildFS { fmt in
+            try self.createDir(fmt, "/target")
+            try self.createFile(fmt, "/target/file.txt", "OK")
+            try self.createSymlink(fmt, "/symlink", "/target")
+        }
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let r = try openReader(url)
+        let data = try r.readFile(at: FilePath("/symlink/../symlink/file.txt"))
+        #expect(String(decoding: data, as: UTF8.self) == "OK")
+    }
+
+    @Test
+    func sameRelativeSymlinkFollowedTwice() throws {
+        let url = try buildFS { fmt in
+            try self.createDir(fmt, "/target")
+            try self.createFile(fmt, "/target/file.txt", "OK")
+            try self.createSymlink(fmt, "/symlink", "../target")
+        }
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let r = try openReader(url)
+        let data = try r.readFile(at: FilePath("/symlink/../symlink/file.txt"))
+        #expect(String(decoding: data, as: UTF8.self) == "OK")
+    }
+
+    @Test
     func boundsCheckingForInvalidExtents() throws {
         // This test verifies that the reader properly validates extent addresses
         // Note: We can't easily create an image with invalid extents using the Formatter,
