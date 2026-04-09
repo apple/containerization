@@ -249,9 +249,9 @@ extension EXT4 {
     static let JournalInode: InodeNumber = 8
 
     struct DefaultMountOpts {
-        static let journalData: UInt32 = 0x0004  // data=journal
-        static let journalOrdered: UInt32 = 0x0008  // data=ordered
-        static let journalWriteback: UInt32 = 0x000C  // data=writeback
+        static let journalData: UInt32 = 0x0020  // data=journal
+        static let journalOrdered: UInt32 = 0x0040  // data=ordered
+        static let journalWriteback: UInt32 = 0x0060  // data=writeback
     }
 
     struct CompatFeature {

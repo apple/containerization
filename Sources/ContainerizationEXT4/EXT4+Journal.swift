@@ -37,7 +37,7 @@ extension EXT4.Formatter {
         let journalStartBlock = self.currentBlock
         try writeJournalSuperblock(journalBlocks: journalBlocks, filesystemUUID: filesystemUUID)
         try zeroJournalBlocks(count: journalBlocks - 1)
-        setupJournalInode(startBlock: journalStartBlock, blockCount: journalBlocks)
+        try setupJournalInode(startBlock: journalStartBlock, blockCount: journalBlocks)
     }
 
     // MARK: - Private helpers
@@ -128,7 +128,7 @@ extension EXT4.Formatter {
         }
     }
 
-    private func setupJournalInode(startBlock: UInt32, blockCount: UInt32) {
+    private func setupJournalInode(startBlock: UInt32, blockCount: UInt32) throws {
         var journalInode = EXT4.Inode()
         journalInode.mode = EXT4.Inode.Mode(.S_IFREG, 0o600)
         journalInode.uid = 0
@@ -153,7 +153,7 @@ extension EXT4.Formatter {
         // in the inode, so writeExtents needs no extra disk I/O for extent index blocks.
         // Safe: the journal is placed inside the filesystem, whose total block count is
         // also a UInt32, so startBlock + blockCount cannot exceed UInt32.max.
-        journalInode = (try? self.writeExtents(journalInode, (startBlock, startBlock + blockCount))) ?? journalInode
+        journalInode = try self.writeExtents(journalInode, (startBlock, startBlock + blockCount))
 
         self.inodes[Int(EXT4.JournalInode) - 1].initialize(to: journalInode)
     }
