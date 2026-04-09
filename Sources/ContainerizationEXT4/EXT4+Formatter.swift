@@ -73,11 +73,7 @@ extension EXT4 {
         ///
         /// - Important: Ensure that the destination block device is accessible and has sufficient permissions
         ///              for formatting. The formatting process will erase all existing data on the device.
-<<<<<<< HEAD
-        public init(_ devicePath: FilePath, blockSize: UInt32 = 4096, minDiskSize: UInt64 = 256.kib()) throws {
-=======
         public init(_ devicePath: FilePath, blockSize: UInt32 = 4096, minDiskSize: UInt64 = 256.kib(), journal: JournalConfig? = nil) throws {
->>>>>>> c38156b (Initial WIP for ext4 journal mode.)
             /// The constructor performs the following steps:
             ///
             /// 1. Creates the first 10 inodes:
@@ -900,6 +896,7 @@ extension EXT4 {
                 superblock.journalInum = EXT4.JournalInode
                 superblock.journalUUID = filesystemUUID
                 superblock.journalBlocks = journalInodeBlockBackup()
+                superblock.journalBackupType = 1  // s_jnl_backup_type: 1 = s_jnl_blocks[] holds a valid inode backup
                 if let mode = config.defaultMode {
                     switch mode {
                     case .writeback: superblock.defaultMountOpts = DefaultMountOpts.journalWriteback
@@ -909,6 +906,34 @@ extension EXT4 {
                 }
             }
             superblock.featureCompat = compatFeatures
+
+            // Fields intentionally left at zero:
+            // s_r_blocks_count_lo: no blocks reserved for root
+            // s_mtime / s_wtime: never mounted/written; kernel updates on first access
+            // s_mnt_count / s_max_mnt_count: no forced-fsck-after-N-mounts policy
+            // s_lastcheck / s_checkinterval: no time-based fsck scheduling
+            // s_def_resuid / s_def_resgid: reserved blocks owned by uid/gid 0 (root)
+            // s_block_group_nr: this superblock resides in group 0
+            // s_volume_name: no volume label
+            // s_last_mounted: no recorded prior mount path
+            // s_algorithm_usage_bitmap: obsolete compression field, not used
+            // s_prealloc_blocks / s_prealloc_dir_blocks: block preallocation not enabled
+            // s_reserved_gdt_blocks: online resize not supported
+            // s_journal_dev: journal is internal (inode 8), not on an external device
+            // s_last_orphan: fresh filesystem, no pending orphan cleanup
+            // s_hash_seed / s_def_hash_version: kernel initialises htree hash seed at first mount
+            // s_first_meta_bg: meta block group feature not enabled
+            // s_mkfs_time: creation timestamp not recorded
+            // s_raid_stride / s_mmp_interval / s_mmp_block / s_raid_stripe_width: no RAID or MMP
+            // s_checksum_type / s_checksum_seed: metadata checksums not enabled (no csum feature bit)
+            // s_snapshot_*: snapshot feature not enabled
+            // s_error_count / s_first_error_* / s_last_error_*: fresh filesystem, no recorded errors
+            // s_usr_quota_inum / s_grp_quota_inum / s_prj_quota_inum: quotas not enabled
+            // s_overhead_clusters: kernel computes dynamically; zero is always safe
+            // s_backup_bgs: sparse_super2 active but no secondary backup groups requested
+            // s_encrypt_algos / s_encrypt_pw_salt: encryption not enabled
+            // s_checksum: superblock checksum not enabled (no metadata_csum feature bit)
+
             try withUnsafeLittleEndianBytes(of: superblock) { bytes in
                 try self.handle.write(contentsOf: bytes)
             }
@@ -1269,6 +1294,7 @@ extension EXT4 {
             case cannotCreateSparseFile(_ path: FilePath)
             case cannotResizeFS(_ size: UInt64)
             case invalidBlockSize(_ size: UInt32)
+            case journalTooSmall(_ size: UInt64)
             public var description: String {
                 switch self {
                 case .notDirectory(let path):
@@ -1303,6 +1329,8 @@ extension EXT4 {
                     return "cannot resize fs to \(size) bytes"
                 case .invalidBlockSize(let size):
                     return "invalid block size \(size): must be 1024, 2048, or 4096"
+                case .journalTooSmall(let size):
+                    return "requested journal size \(size) bytes is too small; minimum is 1024 blocks (EXT4_MIN_JOURNAL_BLOCKS)"
                 }
             }
         }

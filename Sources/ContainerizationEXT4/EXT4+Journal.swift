@@ -29,7 +29,7 @@ extension EXT4.Formatter {
             UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8
         )
     ) throws {
-        let journalBlocks = calculateJournalSize(requestedSize: config.size, totalBlocks: blockCount)
+        let journalBlocks = try calculateJournalSize(requestedSize: config.size, totalBlocks: blockCount)
         // Align to block boundary before recording start.
         if self.pos % self.blockSize != 0 {
             try self.seek(block: self.currentBlock + 1)
@@ -42,12 +42,17 @@ extension EXT4.Formatter {
 
     // MARK: - Private helpers
 
-    private func calculateJournalSize(requestedSize: UInt64?, totalBlocks: UInt32) -> UInt32 {
+    private func calculateJournalSize(requestedSize: UInt64?, totalBlocks: UInt32) throws -> UInt32 {
         if let size = requestedSize {
             // Clamp to UInt32.max: the kernel caps internal journals at 2^32 blocks
             // (per §3.6.4 s_maxlen), and a caller-supplied size large enough to exceed
             // that would otherwise trap on the narrowing conversion.
             let blocks = size / UInt64(self.blockSize)
+            // EXT4_MIN_JOURNAL_BLOCKS = 1024: the kernel refuses to mount with fewer.
+            // blocks == 0 would also cause a UInt32 underflow in the caller.
+            guard blocks >= 1024 else {
+                throw EXT4.Formatter.Error.journalTooSmall(size)
+            }
             return UInt32(min(blocks, UInt64(UInt32.max)))
         }
         let fsBytes = UInt64(totalBlocks) * UInt64(self.blockSize)
@@ -147,12 +152,13 @@ extension EXT4.Formatter {
         journalInode.crtimeExtra = now.hi
         journalInode.linksCount = 1
         journalInode.extraIsize = UInt16(EXT4.ExtraIsize)
-        journalInode.flags = EXT4.InodeFlag.extents.rawValue
+        journalInode.flags = EXT4.InodeFlag.extents.rawValue | EXT4.InodeFlag.hugeFile.rawValue
 
         // Journal is one contiguous allocation → numExtents = 1 → extent tree fits inline
         // in the inode, so writeExtents needs no extra disk I/O for extent index blocks.
-        // Safe: the journal is placed inside the filesystem, whose total block count is
-        // also a UInt32, so startBlock + blockCount cannot exceed UInt32.max.
+        // Safe: blockCount is at most UInt32.max and startBlock ≥ 0, so the addition could
+        // theoretically overflow — but zeroJournalBlocks would have already failed with an
+        // I/O error if the journal extended past the end of the filesystem image.
         journalInode = try self.writeExtents(journalInode, (startBlock, startBlock + blockCount))
 
         self.inodes[Int(EXT4.JournalInode) - 1].initialize(to: journalInode)
@@ -164,16 +170,16 @@ extension EXT4.Formatter {
         UInt32
     ) {
         let ji = self.inodes[Int(EXT4.JournalInode) - 1].pointee
-        // Extract the 15 UInt32 words from the inode's 60-byte extent-tree field,
-        // then append sizeLow and sizeHigh as words 15 and 16.
+        // s_jnl_blocks layout (§4.1.2): first 15 words = i_block[] extent-tree data,
+        // 16th word (index 15) = i_size_high, 17th word (index 16) = i_size.
         var words = [UInt32](repeating: 0, count: 17)
         withUnsafeBytes(of: ji.block) { bytes in
             for i in 0..<15 {
                 words[i] = bytes.load(fromByteOffset: i * 4, as: UInt32.self)
             }
         }
-        words[15] = ji.sizeLow
-        words[16] = ji.sizeHigh
+        words[15] = ji.sizeHigh  // i_size_high (16th element per spec)
+        words[16] = ji.sizeLow  // i_size      (17th element per spec)
         return (
             words[0], words[1], words[2], words[3],
             words[4], words[5], words[6], words[7],
