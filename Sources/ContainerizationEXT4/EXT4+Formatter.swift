@@ -1026,6 +1026,130 @@ extension EXT4 {
             }
         }
 
+        /// Recursively writes extent tree nodes to disk and returns the
+        /// ExtentIndex entries that the parent should store.
+        ///
+        /// At depth 1, this writes leaf blocks (containing ExtentLeaf entries).
+        /// At depth > 1, this recurses to build child subtrees first, then
+        /// writes index blocks pointing to those children.
+        private func writeExtentSubtree(
+            depth: UInt16,
+            numExtents: UInt32,
+            numBlocks: UInt32,
+            start: UInt32,
+            entriesPerBlock: UInt32,
+            extentBlockCount: inout UInt32
+        ) throws -> [ExtentIndex] {
+            var indices: [ExtentIndex] = []
+            let childDepth = depth - 1
+
+            // How many child blocks do we need at this level?
+            // Each child block can ultimately cover entriesPerBlock^childDepth leaf extents.
+            var leafCapacityPerChild: UInt32 = entriesPerBlock
+            for _ in 1..<depth {
+                leafCapacityPerChild *= entriesPerBlock
+            }
+            let numChildren = (numExtents + leafCapacityPerChild - 1) / leafCapacityPerChild
+            var extentsWritten: UInt32 = 0
+
+            for _ in 0..<numChildren {
+                let extentsForChild = min(numExtents - extentsWritten, leafCapacityPerChild)
+                let logicalOffset = extentsWritten * EXT4.MaxBlocksPerExtent
+
+                if childDepth == 0 {
+                    // Write a leaf block containing ExtentLeaf entries.
+                    if self.pos % self.blockSize != 0 {
+                        try self.seek(block: self.currentBlock + 1)
+                    }
+                    let leafBlockAddr = self.currentBlock
+                    extentBlockCount += 1
+
+                    let leafHeader = ExtentHeader(
+                        magic: EXT4.ExtentHeaderMagic,
+                        entries: UInt16(extentsForChild),
+                        max: UInt16(entriesPerBlock),
+                        depth: 0,
+                        generation: 0
+                    )
+                    var leafNode = ExtentLeafNode(header: leafHeader, leaves: [])
+                    fillExtents(
+                        node: &leafNode, numExtents: extentsForChild, numBlocks: numBlocks,
+                        start: start,
+                        offset: logicalOffset)
+                    try withUnsafeLittleEndianBytes(of: leafNode.header) { bytes in
+                        try self.handle.write(contentsOf: bytes)
+                    }
+                    for leaf in leafNode.leaves {
+                        try withUnsafeLittleEndianBytes(of: leaf) { bytes in
+                            try self.handle.write(contentsOf: bytes)
+                        }
+                    }
+                    let checksum = leafNode.leaves.last?.block ?? 0
+                    let extentTail = ExtentTail(checksum: checksum)
+                    try withUnsafeLittleEndianBytes(of: extentTail) { bytes in
+                        try self.handle.write(contentsOf: bytes)
+                    }
+
+                    indices.append(
+                        ExtentIndex(
+                            block: logicalOffset,
+                            leafLow: leafBlockAddr,
+                            leafHigh: 0,
+                            unused: 0
+                        ))
+                } else {
+                    // Recurse to build the child subtree, then write an index
+                    // block pointing to the returned child indices.
+                    let childIndices = try writeExtentSubtree(
+                        depth: childDepth,
+                        numExtents: extentsForChild,
+                        numBlocks: numBlocks,
+                        start: start,
+                        entriesPerBlock: entriesPerBlock,
+                        extentBlockCount: &extentBlockCount
+                    )
+
+                    // Write the index block for this subtree.
+                    if self.pos % self.blockSize != 0 {
+                        try self.seek(block: self.currentBlock + 1)
+                    }
+                    let indexBlockAddr = self.currentBlock
+                    extentBlockCount += 1
+
+                    let indexHeader = ExtentHeader(
+                        magic: EXT4.ExtentHeaderMagic,
+                        entries: UInt16(childIndices.count),
+                        max: UInt16(entriesPerBlock),
+                        depth: childDepth,
+                        generation: 0
+                    )
+                    try withUnsafeLittleEndianBytes(of: indexHeader) { bytes in
+                        try self.handle.write(contentsOf: bytes)
+                    }
+                    for childIdx in childIndices {
+                        try withUnsafeLittleEndianBytes(of: childIdx) { bytes in
+                            try self.handle.write(contentsOf: bytes)
+                        }
+                    }
+                    let checksum = childIndices.last?.block ?? 0
+                    let extentTail = ExtentTail(checksum: checksum)
+                    try withUnsafeLittleEndianBytes(of: extentTail) { bytes in
+                        try self.handle.write(contentsOf: bytes)
+                    }
+
+                    indices.append(
+                        ExtentIndex(
+                            block: logicalOffset,
+                            leafLow: indexBlockAddr,
+                            leafHigh: 0,
+                            unused: 0
+                        ))
+                }
+                extentsWritten += extentsForChild
+            }
+            return indices
+        }
+
         private func writeExtents(_ inode: Inode, _ blocks: (start: UInt32, end: UInt32)) throws -> Inode {
             var inode = inode
             // rest of code assumes that extents MUST go into a new block
@@ -1035,14 +1159,31 @@ extension EXT4 {
             let dataBlocks = blocks.end - blocks.start
             let numExtents = (dataBlocks + EXT4.MaxBlocksPerExtent - 1) / EXT4.MaxBlocksPerExtent
             var usedBlocks = dataBlocks
-            let extentNodeSize = 12
-            let extentsPerBlock = self.blockSize / extentNodeSize - 1
+            let extentNodeSize: UInt32 = 12
+            let entriesPerBlock = self.blockSize / extentNodeSize - 1
             var blockData: [UInt8] = .init(repeating: 0, count: 60)
             var blockIndex: Int = 0
-            switch numExtents {
-            case 0:
+
+            guard numExtents > 0 else {
                 return inode  // noop
-            case 1..<5:
+            }
+
+            // Determine the required tree depth.
+            // Depth 0: up to 4 extents fit inline in the inode.
+            // Depth N (N >= 1): each level multiplies capacity by entriesPerBlock,
+            // with up to 4 entries at the root.
+            var depth: UInt16 = 0
+            var capacity: UInt32 = 4
+            while capacity < numExtents {
+                depth += 1
+                capacity = 4
+                for _ in 0..<depth {
+                    capacity *= entriesPerBlock
+                }
+            }
+
+            if depth == 0 {
+                // All extents fit inline in the inode's 60-byte block field.
                 let extentHeader = ExtentHeader(
                     magic: EXT4.ExtentHeaderMagic,
                     entries: UInt16(numExtents),
@@ -1066,73 +1207,42 @@ extension EXT4 {
                         }
                     }
                 }
-            case 5..<4 * UInt32(extentsPerBlock) + 1:
-                let extentBlocks = (numExtents + extentsPerBlock - 1) / extentsPerBlock
-                usedBlocks += extentBlocks
+            } else {
+                // Build the extent tree bottom-up. writeExtentSubtree writes
+                // child blocks to disk and returns the index entries for the
+                // parent level.
+                var extentBlockCount: UInt32 = 0
+                let rootIndices = try writeExtentSubtree(
+                    depth: depth,
+                    numExtents: numExtents,
+                    numBlocks: dataBlocks,
+                    start: blocks.start,
+                    entriesPerBlock: entriesPerBlock,
+                    extentBlockCount: &extentBlockCount
+                )
+                usedBlocks += extentBlockCount
+
                 let extentHeader = ExtentHeader(
                     magic: EXT4.ExtentHeaderMagic,
-                    entries: UInt16(extentBlocks),
+                    entries: UInt16(rootIndices.count),
                     max: 4,
-                    depth: 1,
+                    depth: depth,
                     generation: 0
                 )
-                var root = ExtentIndexNode(header: extentHeader, indices: [])
-                for i in 0..<extentBlocks {
-                    if self.pos % self.blockSize != 0 {
-                        try self.seek(block: self.currentBlock + 1)
-                    }
-                    let extentIdx = ExtentIndex(
-                        block: i * extentsPerBlock * EXT4.MaxBlocksPerExtent,
-                        leafLow: self.currentBlock,
-                        leafHigh: 0,
-                        unused: 0)
-                    var extentsInBlock = numExtents - i * extentsPerBlock
-                    if extentsInBlock > extentsPerBlock {
-                        extentsInBlock = extentsPerBlock
-                    }
-                    let leafHeader = ExtentHeader(
-                        magic: EXT4.ExtentHeaderMagic,
-                        entries: UInt16(extentsInBlock),
-                        max: UInt16(extentsPerBlock),
-                        depth: 0,
-                        generation: 0
-                    )
-                    var leafNode = ExtentLeafNode(header: leafHeader, leaves: [])
-                    let offset = i * extentsPerBlock * EXT4.MaxBlocksPerExtent
-                    fillExtents(
-                        node: &leafNode, numExtents: extentsInBlock, numBlocks: dataBlocks,
-                        start: blocks.start,
-                        offset: offset)
-                    try withUnsafeLittleEndianBytes(of: leafNode.header) { bytes in
-                        try self.handle.write(contentsOf: bytes)
-                    }
-                    for leaf in leafNode.leaves {
-                        try withUnsafeLittleEndianBytes(of: leaf) { bytes in
-                            try self.handle.write(contentsOf: bytes)
-                        }
-                    }
-                    let extentTail = ExtentTail(checksum: leafNode.leaves.last!.block)
-                    try withUnsafeLittleEndianBytes(of: extentTail) { bytes in
-                        try self.handle.write(contentsOf: bytes)
-                    }
-                    root.indices.append(extentIdx)
-                }
-                withUnsafeLittleEndianBytes(of: root.header) { bytes in
+                withUnsafeLittleEndianBytes(of: extentHeader) { bytes in
                     for b in bytes {
                         blockData[blockIndex] = b
                         blockIndex = blockIndex + 1
                     }
                 }
-                for leaf in root.indices {
-                    withUnsafeLittleEndianBytes(of: leaf) { bytes in
+                for idx in rootIndices {
+                    withUnsafeLittleEndianBytes(of: idx) { bytes in
                         for b in bytes {
                             blockData[blockIndex] = b
                             blockIndex = blockIndex + 1
                         }
                     }
                 }
-            default:
-                throw Error.fileTooBig(UInt64(dataBlocks) * self.blockSize)
             }
             inode.block = (
                 blockData[0], blockData[1], blockData[2], blockData[3], blockData[4], blockData[5], blockData[6],
