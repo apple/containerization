@@ -25,7 +25,7 @@ extension EXT4 {
     /// The `EXT4.Formatter` class provides methods to format a block device with the ext4 filesystem.
     /// It allows customization of block size and maximum disk size.
     public class Formatter {
-        private let logBlockSize: UInt32 = 2
+        private let logBlockSize: UInt32
         var blockSize: UInt32 { 1024 << logBlockSize }
         private var size: UInt64
         private let groupDescriptorSize: UInt32 = 32
@@ -62,6 +62,8 @@ extension EXT4 {
         ///
         /// - Parameters:
         ///   - devicePath: The path to the block device where the ext4 filesystem will be created.
+        ///   - blockSize: The filesystem block size in bytes. Must be a power of two in the set
+        ///     {1024, 2048, 4096}. Defaults to 4096.
         ///   - minDiskSize: The minimum disk size required for the formatted filesystem.
         ///
         /// - Note: This ext4 formatter is designed for creating block devices out of container images and does not support all the
@@ -70,7 +72,7 @@ extension EXT4 {
         ///
         /// - Important: Ensure that the destination block device is accessible and has sufficient permissions
         ///              for formatting. The formatting process will erase all existing data on the device.
-        public init(_ devicePath: FilePath, minDiskSize: UInt64 = 256.kib()) throws {
+        public init(_ devicePath: FilePath, blockSize: UInt32 = 4096, minDiskSize: UInt64 = 256.kib()) throws {
             /// The constructor performs the following steps:
             ///
             /// 1. Creates the first 10 inodes:
@@ -88,6 +90,10 @@ extension EXT4 {
             /// 5. Creates a "/lost+found" directory to satisfy the requirements of e2fsck (ext2/3/4 filesystem
             ///    checker).
 
+            guard blockSize >= 1024 && blockSize <= 4096 && blockSize.nonzeroBitCount == 1 else {
+                throw Error.invalidBlockSize(blockSize)
+            }
+            self.logBlockSize = UInt32(blockSize.trailingZeroBitCount) - 10
             if !FileManager.default.fileExists(atPath: devicePath.description) {
                 _ = FileManager.default.createFile(atPath: devicePath.description, contents: nil)
             }
@@ -1226,6 +1232,7 @@ extension EXT4 {
             case cannotTruncateFile(_ path: FilePath)
             case cannotCreateSparseFile(_ path: FilePath)
             case cannotResizeFS(_ size: UInt64)
+            case invalidBlockSize(_ size: UInt32)
             public var description: String {
                 switch self {
                 case .notDirectory(let path):
@@ -1258,6 +1265,8 @@ extension EXT4 {
                     return "cannot create sparse file at \(path)"
                 case .cannotResizeFS(let size):
                     return "cannot resize fs to \(size) bytes"
+                case .invalidBlockSize(let size):
+                    return "invalid block size \(size): must be 1024, 2048, or 4096"
                 }
             }
         }
