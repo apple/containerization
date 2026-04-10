@@ -14,7 +14,14 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if canImport(Darwin)
+import Darwin
+#endif
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 
 /// Helper type to deal with system control functionalities.
 public struct Sysctl {

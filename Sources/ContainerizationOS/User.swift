@@ -15,7 +15,12 @@
 //===----------------------------------------------------------------------===//
 
 import ContainerizationError
+
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 
 /// `User` provides utilities to ensure that a given username exists in
 /// /etc/passwd (and /etc/group). Largely inspired by runc (and moby's)
