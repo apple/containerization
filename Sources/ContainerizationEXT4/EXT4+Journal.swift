@@ -44,23 +44,28 @@ extension EXT4.Formatter {
 
     private func calculateJournalSize(requestedSize: UInt64?, totalBlocks: UInt32) throws -> UInt32 {
         if let size = requestedSize {
-            // Clamp to UInt32.max: the kernel caps internal journals at 2^32 blocks
-            // (per §3.6.4 s_maxlen), and a caller-supplied size large enough to exceed
-            // that would otherwise trap on the narrowing conversion.
             let blocks = size / UInt64(self.blockSize)
-            // EXT4_MIN_JOURNAL_BLOCKS = 1024: the kernel refuses to mount with fewer.
+            // JBD2_MIN_JOURNAL_BLOCKS: the kernel refuses to mount with fewer.
             // blocks == 0 would also cause a UInt32 underflow in the caller.
-            guard blocks >= 1024 else {
+            guard blocks >= EXT4.MinJournalBlocks else {
                 throw EXT4.Formatter.Error.journalTooSmall(size)
             }
-            return UInt32(min(blocks, UInt64(UInt32.max)))
+            guard blocks <= UInt64(totalBlocks) / 2 else {
+                throw EXT4.Formatter.Error.journalTooLarge(size)
+            }
+            // Safe: blocks ≤ totalBlocks / 2 ≤ UInt32.max / 2, so narrowing cannot trap.
+            return UInt32(blocks)
         }
+        // Default sizing: scale with the filesystem, with a floor determined by JBD2_MIN_JOURNAL_BLOCKS
+        // and a ceiling that follows e2fsprogs convention: 128 MiB for filesystems up to 128 GiB,
+        // and 1 GiB for larger filesystems. The larger ceiling was introduced in e2fsprogs 1.43.2:
+        // https://e2fsprogs.sourceforge.net/e2fsprogs-release.html#1.43.2
         let fsBytes = UInt64(totalBlocks) * UInt64(self.blockSize)
-        let rawBytes = fsBytes / 256
-        let minBytes: UInt64 = 4.mib()
-        let maxBytes: UInt64 = 128.mib()
-        let clampedBytes = min(max(rawBytes, minBytes), maxBytes)
-        // Safe: clampedBytes ≤ 128 MiB, so the quotient is at most 131,072 — well within UInt32.
+        let scaledBytes = fsBytes / 64  // 1/64th of the filesystem, matching e2fsprogs defaults
+        let minBytes: UInt64 = UInt64(EXT4.MinJournalBlocks) * UInt64(self.blockSize)
+        let maxBytes: UInt64 = fsBytes > 128.gib() ? 1.gib() : 128.mib()
+        let clampedBytes = min(max(scaledBytes, minBytes), maxBytes)
+        // Safe: clampedBytes ≤ 1 GiB and blockSize ≥ 1, so the quotient fits in UInt32.
         return UInt32(clampedBytes / UInt64(self.blockSize))
     }
 

@@ -63,9 +63,14 @@ extension EXT4 {
         ///
         /// - Parameters:
         ///   - devicePath: The path to the block device where the ext4 filesystem will be created.
+<<<<<<< HEAD
         ///   - blockSize: The filesystem block size in bytes. Must be a power of two in the set
         ///     {1024, 2048, 4096}. Defaults to 4096.
+=======
+        ///   - blockSize: The filesystem block size.
+>>>>>>> 4639b7a (PR feedback - journal size clamping fixes.)
         ///   - minDiskSize: The minimum disk size required for the formatted filesystem.
+        ///   - journal: The JBD2 journal size and mode, or nil for an unjournalled filesystem.
         ///
         /// - Note: This ext4 formatter is designed for creating block devices out of container images and does not support all the
         ///         features and options available in the full ext4 filesystem implementation. It focuses
@@ -1288,6 +1293,7 @@ extension EXT4 {
             case cannotResizeFS(_ size: UInt64)
             case invalidBlockSize(_ size: UInt32)
             case journalTooSmall(_ size: UInt64)
+            case journalTooLarge(_ size: UInt64)
             public var description: String {
                 switch self {
                 case .notDirectory(let path):
@@ -1323,7 +1329,9 @@ extension EXT4 {
                 case .invalidBlockSize(let size):
                     return "invalid block size \(size): must be 1024, 2048, or 4096"
                 case .journalTooSmall(let size):
-                    return "requested journal size \(size) bytes is too small; minimum is 1024 blocks (EXT4_MIN_JOURNAL_BLOCKS)"
+                    return "requested journal size \(size) bytes is too small; minimum is \(EXT4.MinJournalBlocks) blocks (JBD2_MIN_JOURNAL_BLOCKS)"
+                case .journalTooLarge(let size):
+                    return "requested journal size \(size) bytes exceeds half the filesystem size"
                 }
             }
         }
