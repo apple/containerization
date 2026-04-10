@@ -63,12 +63,9 @@ extension EXT4 {
         ///
         /// - Parameters:
         ///   - devicePath: The path to the block device where the ext4 filesystem will be created.
-<<<<<<< HEAD
         ///   - blockSize: The filesystem block size in bytes. Must be a power of two in the set
         ///     {1024, 2048, 4096}. Defaults to 4096.
-=======
         ///   - blockSize: The filesystem block size.
->>>>>>> 4639b7a (PR feedback - journal size clamping fixes.)
         ///   - minDiskSize: The minimum disk size required for the formatted filesystem.
         ///   - journal: The JBD2 journal size and mode, or nil for an unjournalled filesystem.
         ///
