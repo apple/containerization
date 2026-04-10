@@ -50,6 +50,15 @@ extension EXT4.Formatter {
             guard blocks >= EXT4.MinJournalBlocks else {
                 throw EXT4.Formatter.Error.journalTooSmall(size)
             }
+            // A journal larger than half the filesystem is unlikely to be useful. In
+            // writeback or ordered mode only metadata is journaled, so even the 1 GiB
+            // default ceiling is generous. Only data=journal mode journals data blocks
+            // too, and even then sizing beyond half the filesystem would be wasteful.
+            // This is a policy limit, not a kernel hard limit; exceeding it would not
+            // cause a mount failure.
+            // Note: totalBlocks derives from minDiskSize; close() may expand the filesystem
+            // slightly for block group alignment. The check is conservative — the final
+            // filesystem can only be larger, so this guard never permits an oversized journal.
             guard blocks <= UInt64(totalBlocks) / 2 else {
                 throw EXT4.Formatter.Error.journalTooLarge(size)
             }
@@ -61,9 +70,17 @@ extension EXT4.Formatter {
         // and 1 GiB for larger filesystems. The larger ceiling was introduced in e2fsprogs 1.43.2:
         // https://e2fsprogs.sourceforge.net/e2fsprogs-release.html#1.43.2
         let fsBytes = UInt64(totalBlocks) * UInt64(self.blockSize)
-        let scaledBytes = fsBytes / 64  // 1/64th of the filesystem, matching e2fsprogs defaults
+        let halfFsBytes = fsBytes / 2
         let minBytes: UInt64 = UInt64(EXT4.MinJournalBlocks) * UInt64(self.blockSize)
-        let maxBytes: UInt64 = fsBytes > 128.gib() ? 1.gib() : 128.mib()
+        // Note: totalBlocks derives from minDiskSize; close() may expand the filesystem
+        // substantially if minDiskSize is small relative to content. This check is
+        // conservative — the final filesystem can only be larger, so false positives
+        // (rejecting a journal that would have fit) are possible but false negatives are not.
+        guard minBytes <= halfFsBytes else {
+            throw EXT4.Formatter.Error.filesystemTooSmallForJournal
+        }
+        let scaledBytes = fsBytes / 64  // 1/64th of the filesystem, matching e2fsprogs defaults
+        let maxBytes: UInt64 = min(fsBytes > 128.gib() ? 1.gib() : 128.mib(), halfFsBytes)
         let clampedBytes = min(max(scaledBytes, minBytes), maxBytes)
         // Safe: clampedBytes ≤ 1 GiB and blockSize ≥ 1, so the quotient fits in UInt32.
         return UInt32(clampedBytes / UInt64(self.blockSize))

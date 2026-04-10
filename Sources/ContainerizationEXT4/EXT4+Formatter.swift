@@ -1301,6 +1301,7 @@ extension EXT4 {
             case invalidBlockSize(_ size: UInt32)
             case journalTooSmall(_ size: UInt64)
             case journalTooLarge(_ size: UInt64)
+            case filesystemTooSmallForJournal
             public var description: String {
                 switch self {
                 case .notDirectory(let path):
@@ -1338,7 +1339,9 @@ extension EXT4 {
                 case .journalTooSmall(let size):
                     return "requested journal size \(size) bytes is too small; minimum is \(EXT4.MinJournalBlocks) blocks (JBD2_MIN_JOURNAL_BLOCKS)"
                 case .journalTooLarge(let size):
-                    return "requested journal size \(size) bytes exceeds half the filesystem size"
+                    return "requested journal size \(size) bytes exceeds half the filesystem size; a journal this large is unlikely to be useful"
+                case .filesystemTooSmallForJournal:
+                    return "filesystem is too small to accommodate a minimum-sized journal; increase minDiskSize to at least \(2 * EXT4.MinJournalBlocks) blocks"
                 }
             }
         }
