@@ -150,8 +150,8 @@ struct AgentCommand: AsyncParsableCommand {
         }
         t.start()
 
-        let eg = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
-        let blockingPool = NIOThreadPool(numberOfThreads: System.coreCount)
+        let eg = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        let blockingPool = NIOThreadPool(numberOfThreads: 2)
         blockingPool.start()
         let server = Initd(log: log, group: eg, blockingPool: blockingPool)
 

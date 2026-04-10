@@ -524,9 +524,9 @@ extension LinuxContainer {
 
             // Calculate VM memory with overhead for the guest agent.
             // The container cgroup limit stays at the requested memory, but the VM
-            // gets an additional 50MB for the guest agent (could be higher, could be lower
-            // but this is a decent baseline for now).
-            let guestAgentOverhead: UInt64 = 50.mib()
+            // gets an additional 75MiB for the guest agent (could be higher, could
+            // be lower but this is a decent baseline for now).
+            let guestAgentOverhead: UInt64 = 75.mib()
             let mib: UInt64 = 1.mib()
             let vmMemory = (self.memoryInBytes + guestAgentOverhead + mib - 1) & ~(mib - 1)
 
