@@ -85,6 +85,11 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtoc
     handler: @escaping (Com_Apple_Containerization_Sandbox_V3_CopyResponse) -> Void
   ) -> ServerStreamingCall<Com_Apple_Containerization_Sandbox_V3_CopyRequest, Com_Apple_Containerization_Sandbox_V3_CopyResponse>
 
+  func stat(
+    _ request: Com_Apple_Containerization_Sandbox_V3_StatRequest,
+    callOptions: CallOptions?
+  ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_StatRequest, Com_Apple_Containerization_Sandbox_V3_StatResponse>
+
   func createProcess(
     _ request: Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest,
     callOptions: CallOptions?
@@ -363,6 +368,24 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextClientProtocol {
       callOptions: callOptions ?? self.defaultCallOptions,
       interceptors: self.interceptors?.makeCopyInterceptors() ?? [],
       handler: handler
+    )
+  }
+
+  /// Stat a path in the guest filesystem.
+  ///
+  /// - Parameters:
+  ///   - request: Request to send to Stat.
+  ///   - callOptions: Call options.
+  /// - Returns: A `UnaryCall` with futures for the metadata, status and response.
+  public func stat(
+    _ request: Com_Apple_Containerization_Sandbox_V3_StatRequest,
+    callOptions: CallOptions? = nil
+  ) -> UnaryCall<Com_Apple_Containerization_Sandbox_V3_StatRequest, Com_Apple_Containerization_Sandbox_V3_StatResponse> {
+    return self.makeUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.stat.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeStatInterceptors() ?? []
     )
   }
 
@@ -805,6 +828,11 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientP
     callOptions: CallOptions?
   ) -> GRPCAsyncServerStreamingCall<Com_Apple_Containerization_Sandbox_V3_CopyRequest, Com_Apple_Containerization_Sandbox_V3_CopyResponse>
 
+  func makeStatCall(
+    _ request: Com_Apple_Containerization_Sandbox_V3_StatRequest,
+    callOptions: CallOptions?
+  ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_StatRequest, Com_Apple_Containerization_Sandbox_V3_StatResponse>
+
   func makeCreateProcessCall(
     _ request: Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest,
     callOptions: CallOptions?
@@ -1023,6 +1051,18 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientProtoco
       request: request,
       callOptions: callOptions ?? self.defaultCallOptions,
       interceptors: self.interceptors?.makeCopyInterceptors() ?? []
+    )
+  }
+
+  public func makeStatCall(
+    _ request: Com_Apple_Containerization_Sandbox_V3_StatRequest,
+    callOptions: CallOptions? = nil
+  ) -> GRPCAsyncUnaryCall<Com_Apple_Containerization_Sandbox_V3_StatRequest, Com_Apple_Containerization_Sandbox_V3_StatResponse> {
+    return self.makeAsyncUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.stat.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeStatInterceptors() ?? []
     )
   }
 
@@ -1365,6 +1405,18 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClientProtoco
     )
   }
 
+  public func stat(
+    _ request: Com_Apple_Containerization_Sandbox_V3_StatRequest,
+    callOptions: CallOptions? = nil
+  ) async throws -> Com_Apple_Containerization_Sandbox_V3_StatResponse {
+    return try await self.performAsyncUnaryCall(
+      path: Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.stat.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeStatInterceptors() ?? []
+    )
+  }
+
   public func createProcess(
     _ request: Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest,
     callOptions: CallOptions? = nil
@@ -1631,6 +1683,9 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextClientInterc
   /// - Returns: Interceptors to use when invoking 'copy'.
   func makeCopyInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_CopyRequest, Com_Apple_Containerization_Sandbox_V3_CopyResponse>]
 
+  /// - Returns: Interceptors to use when invoking 'stat'.
+  func makeStatInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_StatRequest, Com_Apple_Containerization_Sandbox_V3_StatResponse>]
+
   /// - Returns: Interceptors to use when invoking 'createProcess'.
   func makeCreateProcessInterceptors() -> [ClientInterceptor<Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest, Com_Apple_Containerization_Sandbox_V3_CreateProcessResponse>]
 
@@ -1701,6 +1756,7 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.setupEmulator,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.writeFile,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.copy,
+      Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.stat,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.createProcess,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.deleteProcess,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata.Methods.startProcess,
@@ -1781,6 +1837,12 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextClientMetadata {
       name: "Copy",
       path: "/com.apple.containerization.sandbox.v3.SandboxContext/Copy",
       type: GRPCCallType.serverStreaming
+    )
+
+    public static let stat = GRPCMethodDescriptor(
+      name: "Stat",
+      path: "/com.apple.containerization.sandbox.v3.SandboxContext/Stat",
+      type: GRPCCallType.unary
     )
 
     public static let createProcess = GRPCMethodDescriptor(
@@ -1930,6 +1992,9 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider: Ca
   /// Data transfer happens over a dedicated vsock connection;
   /// the gRPC stream is used only for control/metadata.
   func copy(request: Com_Apple_Containerization_Sandbox_V3_CopyRequest, context: StreamingResponseCallContext<Com_Apple_Containerization_Sandbox_V3_CopyResponse>) -> EventLoopFuture<GRPCStatus>
+
+  /// Stat a path in the guest filesystem.
+  func stat(request: Com_Apple_Containerization_Sandbox_V3_StatRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_StatResponse>
 
   /// Create a new process inside the container.
   func createProcess(request: Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest, context: StatusOnlyCallContext) -> EventLoopFuture<Com_Apple_Containerization_Sandbox_V3_CreateProcessResponse>
@@ -2087,6 +2152,15 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextProvider {
         responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_CopyResponse>(),
         interceptors: self.interceptors?.makeCopyInterceptors() ?? [],
         userFunction: self.copy(request:context:)
+      )
+
+    case "Stat":
+      return UnaryServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_StatRequest>(),
+        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_StatResponse>(),
+        interceptors: self.interceptors?.makeStatInterceptors() ?? [],
+        userFunction: self.stat(request:context:)
       )
 
     case "CreateProcess":
@@ -2328,6 +2402,12 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvide
     context: GRPCAsyncServerCallContext
   ) async throws
 
+  /// Stat a path in the guest filesystem.
+  func stat(
+    request: Com_Apple_Containerization_Sandbox_V3_StatRequest,
+    context: GRPCAsyncServerCallContext
+  ) async throws -> Com_Apple_Containerization_Sandbox_V3_StatResponse
+
   /// Create a new process inside the container.
   func createProcess(
     request: Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest,
@@ -2547,6 +2627,15 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvider {
         wrapping: { try await self.copy(request: $0, responseStream: $1, context: $2) }
       )
 
+    case "Stat":
+      return GRPCAsyncServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_StatRequest>(),
+        responseSerializer: ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_StatResponse>(),
+        interceptors: self.interceptors?.makeStatInterceptors() ?? [],
+        wrapping: { try await self.stat(request: $0, context: $1) }
+      )
+
     case "CreateProcess":
       return GRPCAsyncServerHandler(
         context: context,
@@ -2757,6 +2846,10 @@ public protocol Com_Apple_Containerization_Sandbox_V3_SandboxContextServerInterc
   ///   Defaults to calling `self.makeInterceptors()`.
   func makeCopyInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_CopyRequest, Com_Apple_Containerization_Sandbox_V3_CopyResponse>]
 
+  /// - Returns: Interceptors to use when handling 'stat'.
+  ///   Defaults to calling `self.makeInterceptors()`.
+  func makeStatInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_StatRequest, Com_Apple_Containerization_Sandbox_V3_StatResponse>]
+
   /// - Returns: Interceptors to use when handling 'createProcess'.
   ///   Defaults to calling `self.makeInterceptors()`.
   func makeCreateProcessInterceptors() -> [ServerInterceptor<Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest, Com_Apple_Containerization_Sandbox_V3_CreateProcessResponse>]
@@ -2845,6 +2938,7 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.setupEmulator,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.writeFile,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.copy,
+      Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.stat,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.createProcess,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.deleteProcess,
       Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata.Methods.startProcess,
@@ -2925,6 +3019,12 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContextServerMetadata {
       name: "Copy",
       path: "/com.apple.containerization.sandbox.v3.SandboxContext/Copy",
       type: GRPCCallType.serverStreaming
+    )
+
+    public static let stat = GRPCMethodDescriptor(
+      name: "Stat",
+      path: "/com.apple.containerization.sandbox.v3.SandboxContext/Stat",
+      type: GRPCCallType.unary
     )
 
     public static let createProcess = GRPCMethodDescriptor(

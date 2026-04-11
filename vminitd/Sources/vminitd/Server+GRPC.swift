@@ -37,12 +37,14 @@ private let _mount = Musl.mount
 private let _umount = Musl.umount2
 private let _kill = Musl.kill
 private let _sync = Musl.sync
+private let _stat: @Sendable (UnsafePointer<CChar>, UnsafeMutablePointer<Musl.stat>) -> Int32 = stat
 #elseif canImport(Glibc)
 import Glibc
 private let _mount = Glibc.mount
 private let _umount = Glibc.umount2
 private let _kill = Glibc.kill
 private let _sync = Glibc.sync
+private let _stat: @Sendable (UnsafePointer<CChar>, UnsafeMutablePointer<Glibc.stat>) -> Int32 = stat
 #endif
 
 extension ContainerizationError {
@@ -353,6 +355,59 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncProvid
         }
 
         return .init()
+    }
+
+    func stat(
+        request: Com_Apple_Containerization_Sandbox_V3_StatRequest,
+        context: GRPCAsyncServerCallContext,
+    ) async throws -> Com_Apple_Containerization_Sandbox_V3_StatResponse {
+        log.debug(
+            "stat",
+            metadata: [
+                "path": "\(request.path)"
+            ]
+        )
+
+        #if os(Linux)
+        #if canImport(Musl)
+        var s = Musl.stat()
+        #elseif canImport(Glibc)
+        var s = Glibc.stat()
+        #endif
+        let result = _stat(request.path, &s)
+        if result == -1 {
+            let error = swiftErrno("stat")
+            return .with { $0.error = "\(error)" }
+        }
+        return .with {
+            $0.stat = .with {
+                $0.dev = UInt64(s.st_dev)
+                $0.ino = UInt64(s.st_ino)
+                $0.mode = s.st_mode
+                $0.nlink = UInt64(s.st_nlink)
+                $0.uid = s.st_uid
+                $0.gid = s.st_gid
+                $0.rdev = UInt64(s.st_rdev)
+                $0.size = Int64(s.st_size)
+                $0.blksize = Int64(s.st_blksize)
+                $0.blocks = Int64(s.st_blocks)
+                $0.atime = .with {
+                    $0.seconds = Int64(s.st_atim.tv_sec)
+                    $0.nanos = Int32(s.st_atim.tv_nsec)
+                }
+                $0.mtime = .with {
+                    $0.seconds = Int64(s.st_mtim.tv_sec)
+                    $0.nanos = Int32(s.st_mtim.tv_nsec)
+                }
+                $0.ctime = .with {
+                    $0.seconds = Int64(s.st_ctim.tv_sec)
+                    $0.nanos = Int32(s.st_ctim.tv_nsec)
+                }
+            }
+        }
+        #else
+        fatalError("stat not supported on platform")
+        #endif
     }
 
     // Chunk size for streaming file transfers (1MB).

@@ -448,6 +448,37 @@ extension Vminitd {
         public let totalSize: UInt64
     }
 
+    /// Stat a path in the guest filesystem and return its metadata.
+    public func stat(
+        path: URL
+    ) async throws -> ContainerizationOS.Stat {
+        let request = Com_Apple_Containerization_Sandbox_V3_StatRequest.with {
+            $0.path = path.path
+        }
+
+        let response = try await client.stat(request)
+        guard response.error.isEmpty else {
+            throw ContainerizationError(.internalError, message: "stat: \(response.error)")
+        }
+
+        let s = response.stat
+        return ContainerizationOS.Stat(
+            dev: s.dev,
+            ino: s.ino,
+            mode: s.mode,
+            nlink: s.nlink,
+            uid: s.uid,
+            gid: s.gid,
+            rdev: s.rdev,
+            size: s.size,
+            blksize: s.blksize,
+            blocks: s.blocks,
+            atime: TimeSpec(seconds: s.atime.seconds, nanoseconds: s.atime.nanos),
+            mtime: TimeSpec(seconds: s.mtime.seconds, nanoseconds: s.mtime.nanos),
+            ctime: TimeSpec(seconds: s.ctime.seconds, nanoseconds: s.ctime.nanos)
+        )
+    }
+
     /// Unified copy control plane. Sends a CopyRequest over gRPC and processes
     /// the response stream. Data transfer happens over a separate vsock connection
     /// managed by the caller.
