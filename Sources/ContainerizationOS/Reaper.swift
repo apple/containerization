@@ -14,7 +14,18 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if canImport(Musl)
+import Musl
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Darwin)
+import Darwin
+#endif
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 
 /// A process reaper that returns exited processes along
 /// with their exit status.

@@ -15,7 +15,11 @@
 //===----------------------------------------------------------------------===//
 
 #if os(macOS)
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 
 /// Holds the result of a query to the keychain.
 public struct KeychainQueryResult {

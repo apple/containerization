@@ -14,7 +14,19 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
+
+#if canImport(Musl)
+import Musl
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Darwin)
+import Darwin
+#endif
 
 /// The `resolvingSymlinksInPath` method of the `URL` struct does not resolve the symlinks
 /// for directories under `/private` which include`tmp`, `var` and `etc`
@@ -34,9 +46,11 @@ extension URL {
         let parts = url.pathComponents
         if parts.count > 1 {
             if (parts.first == "/") && ["tmp", "var", "etc"].contains(parts[1]) {
-                if let resolved = NSURL.fileURL(withPathComponents: ["/", "private"] + parts[1...]) {
-                    return resolved
+                var resolved = URL(filePath: "/private")
+                for part in parts[1...] {
+                    resolved.append(path: part)
                 }
+                return resolved
             }
         }
         #endif
@@ -44,10 +58,14 @@ extension URL {
     }
 
     public var isDirectory: Bool {
-        (try? resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+        var st = stat()
+        guard stat(self.path, &st) == 0 else { return false }
+        return (st.st_mode & S_IFMT) == S_IFDIR
     }
 
     public var isSymlink: Bool {
-        (try? resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true
+        var st = stat()
+        guard lstat(self.path, &st) == 0 else { return false }
+        return (st.st_mode & S_IFMT) == S_IFLNK
     }
 }
