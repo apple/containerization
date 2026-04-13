@@ -123,19 +123,23 @@ struct AgentCommand: AsyncParsableCommand {
         try cgManager.toggleAllAvailableControllers(enable: true)
 
         // Set memory.high threshold to 75 MiB
-        let threshold: UInt64 = 75 * 1024 * 1024
-        try cgManager.setMemoryHigh(bytes: threshold)
+        let high: UInt64 = 75 * 1024 * 1024
+        // Set memory.low to 50 MiB to avoid reclaiming vminitd's memory
+        let low: UInt64 = 50 * 1024 * 1024
+
+        try cgManager.setMemoryHigh(bytes: high)
+        try cgManager.setMemoryLow(bytes: low)
         try cgManager.addProcess(pid: getpid())
 
         let memoryMonitor = try MemoryMonitor(
             cgroupManager: cgManager,
-            threshold: threshold,
+            threshold: high,
             logger: log
         ) { [log] (currentUsage, highMark) in
             log.warning(
                 "vminitd memory threshold exceeded",
                 metadata: [
-                    "threshold_bytes": "\(threshold)",
+                    "threshold_bytes": "\(high)",
                     "current_bytes": "\(currentUsage)",
                     "high_events_total": "\(highMark)",
                 ])

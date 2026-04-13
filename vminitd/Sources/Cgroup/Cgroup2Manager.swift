@@ -252,6 +252,21 @@ package struct Cgroup2Manager: Sendable {
         )
     }
 
+    package func setMemoryLow(bytes: UInt64) throws {
+        self.logger?.debug(
+            "setting memory.low",
+            metadata: [
+                "path": "\(self.path.path)",
+                "bytes": "\(bytes)",
+            ]
+        )
+
+        try Self.writeValue(
+            path: self.path,
+            value: String(bytes),
+            fileName: "memory.low")
+    }
+
     package func getMemoryEvents() throws -> MemoryEvents {
         let content = try readFileContent(fileName: "memory.events")
         let values = parseKeyValuePairs(content)
