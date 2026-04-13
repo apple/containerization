@@ -108,6 +108,7 @@ public struct Vminitd: Sendable {
             .withConnectedSocket(connection.fileDescriptor).wait()
         let transport = HTTP2ClientTransport.WrappedChannel.wrapping(
             channel: channel,
+            config: .defaults { $0.connection.maxIdleTime = nil }
         )
         let grpcClient = GRPCClient(transport: transport)
         self.grpcClient = grpcClient
