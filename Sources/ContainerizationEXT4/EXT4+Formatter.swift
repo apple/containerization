@@ -114,17 +114,12 @@ extension EXT4 {
             try self.handle.write(contentsOf: zero)
             // step #1
             self.inodes = [
-                Ptr<Inode>.allocate(capacity: 1),  // defective block inode
-                {
-                    let root = Inode.Root()
-                    let rootPtr = Ptr<Inode>.allocate(capacity: 1)
-                    rootPtr.initialize(to: root)
-                    return rootPtr
-                }(),
+                Ptr(Inode()),  // defective block inode
+                Ptr(Inode.Root()),
             ]
             // reserved inodes
             for _ in 2..<EXT4.FirstInode - 1 {
-                inodes.append(Ptr<Inode>.allocate(capacity: 1))
+                inodes.append(Ptr(Inode()))
             }
             // step #2
             self.tree = FileTree(EXT4.RootInode, "/")
@@ -159,7 +154,7 @@ extension EXT4 {
                 throw Error.cannotCreateHardlinksToDirTarget(link)
             }
             targetInode.linksCount += 1
-            targetInodePtr.initialize(to: targetInode)
+            targetInodePtr.pointee = targetInode
             let parentPath: FilePath = link.dir
             if self.tree.lookup(path: link) != nil {
                 try self.unlink(path: link)
@@ -173,18 +168,17 @@ extension EXT4 {
             guard parentInode.linksCount < EXT4.MaxLinks else {
                 throw Error.maximumLinksExceeded(parentPath)
             }
-            let linkTreeNodePtr = Ptr<FileTree.FileTreeNode>.allocate(capacity: 1)
-            let linkTreeNode = FileTree.FileTreeNode(
-                inode: InodeNumber(2),  // this field is ignored, using 2 so array operations dont panic
-                name: link.base,
-                parent: parentTreeNodePtr,
-                children: [],
-                blocks: nil,
-                link: targetNode.inode
-            )
-            linkTreeNodePtr.initialize(to: linkTreeNode)
+            let linkTreeNodePtr = Ptr(
+                FileTree.FileTreeNode(
+                    inode: InodeNumber(2),  // this field is ignored, using 2 so array operations dont panic
+                    name: link.base,
+                    parent: parentTreeNodePtr,
+                    children: [],
+                    blocks: nil,
+                    link: targetNode.inode
+                ))
             parentTreeNode.children.append(linkTreeNodePtr)
-            parentTreeNodePtr.initialize(to: parentTreeNode)
+            parentTreeNodePtr.pointee = parentTreeNode
         }
 
         // Deletes the file or directory at the specified path from the filesystem.
@@ -228,11 +222,11 @@ extension EXT4 {
                         parentInode.linksCount -= 1
                     }
                 }
-                parentInodePtr.initialize(to: parentInode)
+                parentInodePtr.pointee = parentInode
                 parentNode.children.removeAll { childPtr in
                     childPtr.pointee.name == path.base
                 }
-                parentNodePtr.initialize(to: parentNode)
+                parentNodePtr.pointee = parentNode
             }
 
             if let hardlink = pathNode.link {
@@ -241,7 +235,7 @@ extension EXT4 {
                 var linkedInode = linkedInodePtr.pointee
                 if linkedInode.linksCount > 1 {
                     linkedInode.linksCount -= 1
-                    linkedInodePtr.initialize(to: linkedInode)
+                    linkedInodePtr.pointee = linkedInode
                 }
             }
 
@@ -260,7 +254,7 @@ extension EXT4 {
             let now = Date().fs()
             pathInode = Inode()
             pathInode.dtime = now.lo
-            pathInodePtr.initialize(to: pathInode)
+            pathInodePtr.pointee = pathInode
         }
 
         //  Creates a file, directory, or symlink at the specified path, recursively creating parent directories if they don't already exist.
@@ -341,7 +335,7 @@ extension EXT4 {
                             inode.gid = gid.lo
                             inode.gidHigh = gid.hi
                         }
-                        inodePtr.initialize(to: inode)
+                        inodePtr.pointee = inode
                         return
                     }
                 } else if let _ = node.link {  // ok to overwrite links
@@ -368,25 +362,24 @@ extension EXT4 {
                 throw Error.maximumLinksExceeded(parentPath)
             }
 
-            let childInodePtr = Ptr<Inode>.allocate(capacity: 1)
+            let childInodePtr = Ptr(Inode())
             var childInode = Inode()
             var startBlock: UInt32 = 0
             var endBlock: UInt32 = 0
             defer {  // update metadata
-                childInodePtr.initialize(to: childInode)
-                parentInodePtr.initialize(to: parentInode)
+                childInodePtr.pointee = childInode
+                parentInodePtr.pointee = parentInode
                 self.inodes.append(childInodePtr)
-                let childTreeNodePtr = Ptr<FileTree.FileTreeNode>.allocate(capacity: 1)
-                let childTreeNode = FileTree.FileTreeNode(
-                    inode: InodeNumber(self.inodes.count),
-                    name: path.base,
-                    parent: parentTreeNodePtr,
-                    children: [],
-                    blocks: (startBlock, endBlock)
-                )
-                childTreeNodePtr.initialize(to: childTreeNode)
+                let childTreeNodePtr = Ptr(
+                    FileTree.FileTreeNode(
+                        inode: InodeNumber(self.inodes.count),
+                        name: path.base,
+                        parent: parentTreeNodePtr,
+                        children: [],
+                        blocks: (startBlock, endBlock)
+                    ))
                 parentTreeNode.children.append(childTreeNodePtr)
-                parentTreeNodePtr.initialize(to: parentTreeNode)
+                parentTreeNodePtr.pointee = parentTreeNode
             }
             childInode.mode = mode
             // uid,gid
@@ -997,14 +990,14 @@ extension EXT4 {
                 let size: UInt64 = UInt64(endBlock - startBlock) * self.blockSize
                 inode.sizeLow = size.lo
                 inode.sizeHigh = size.hi
-                inodePtr.initialize(to: inode)
+                inodePtr.pointee = inode
                 node.blocks = (startBlock, endBlock)
-                nodePtr.initialize(to: node)
+                nodePtr.pointee = node
                 if self.pos % self.blockSize != 0 {
                     try self.seek(block: self.currentBlock + 1)
                 }
                 inode = try self.writeExtents(inode, (startBlock, endBlock))
-                inodePtr.initialize(to: inode)
+                inodePtr.pointee = inode
             }
         }
 
@@ -1272,10 +1265,6 @@ extension EXT4 {
         }
 
         deinit {
-            for inode in inodes {
-                inode.deinitialize(count: 1)
-                inode.deallocate()
-            }
             self.inodes.removeAll()
         }
     }

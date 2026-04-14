@@ -69,8 +69,7 @@ extension EXT4 {
         var root: Ptr<FileTreeNode>
 
         init(_ root: InodeNumber, _ name: String) {
-            self.root = Ptr<FileTreeNode>.allocate(capacity: 1)
-            self.root.initialize(to: FileTreeNode(inode: root, name: name, parent: nil))
+            self.root = Ptr(FileTreeNode(inode: root, name: name, parent: nil))
         }
 
         func lookup(path: FilePath) -> Ptr<FileTreeNode>? {
