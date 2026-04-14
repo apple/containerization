@@ -55,3 +55,6 @@ jobs:
 
       - name: Build vminitd (musl)
         run: make -C vminitd
+
+      - name: Run unit tests
+        run: swift test --disable-automatic-resolution -Xswiftc -warnings-as-errors
