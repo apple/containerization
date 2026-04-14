@@ -14,10 +14,12 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import Compression
 import ContainerizationError
 import Crypto
 import Foundation
 import NIOCore
+import zlib
 
 /// Provides a context to write data into a directory.
 public class ContentWriter {
@@ -133,5 +135,169 @@ public class ContentWriter {
     public func create<T: Encodable>(from content: T) throws -> (size: Int64, digest: SHA256.Digest) {
         let data = try self.encoder.encode(content)
         return try self.write(data)
+    }
+
+    /// Computes the SHA256 digest of the uncompressed content of a gzip file.
+    ///
+    /// Per the OCI Image Specification, a DiffID is the SHA256 digest of the
+    /// uncompressed layer content. This method streams the compressed file in
+    /// chunks, decompresses through Apple's Compression framework, and feeds
+    /// each decompressed chunk into an incremental SHA256 hasher. Neither the
+    /// full compressed nor the full decompressed data is held in memory.
+    ///
+    /// - Parameter url: The URL of the gzip-compressed file.
+    /// - Returns: The SHA256 digest of the uncompressed content.
+    public static func diffID(of url: URL) throws -> SHA256.Digest {
+        let fileHandle = try FileHandle(forReadingFrom: url)
+        defer { fileHandle.closeFile() }
+
+        let headerReadSize = 512
+        guard let headerData = Self.readExactly(fileHandle: fileHandle, count: headerReadSize),
+            !headerData.isEmpty
+        else {
+            throw ContainerizationError(.internalError, message: "invalid gzip file")
+        }
+        let headerSize = try Self.gzipHeaderSize(headerData)
+
+        fileHandle.seekToEndOfFile()
+        let fileSize = fileHandle.offsetInFile
+        guard fileSize >= 8 else {
+            throw ContainerizationError(.internalError, message: "gzip trailer mismatch")
+        }
+        fileHandle.seek(toFileOffset: fileSize - 8)
+        guard let trailerData = Self.readExactly(fileHandle: fileHandle, count: 8),
+            trailerData.count == 8
+        else {
+            throw ContainerizationError(.internalError, message: "gzip trailer mismatch")
+        }
+        let expectedCRC =
+            UInt32(trailerData[trailerData.startIndex])
+            | (UInt32(trailerData[trailerData.startIndex + 1]) << 8)
+            | (UInt32(trailerData[trailerData.startIndex + 2]) << 16)
+            | (UInt32(trailerData[trailerData.startIndex + 3]) << 24)
+        let expectedSize =
+            UInt32(trailerData[trailerData.startIndex + 4])
+            | (UInt32(trailerData[trailerData.startIndex + 5]) << 8)
+            | (UInt32(trailerData[trailerData.startIndex + 6]) << 16)
+            | (UInt32(trailerData[trailerData.startIndex + 7]) << 24)
+
+        fileHandle.seek(toFileOffset: UInt64(headerSize))
+        var compressedBytesRemaining = Int(fileSize) - headerSize - 8
+        guard compressedBytesRemaining >= 0 else {
+            throw ContainerizationError(.internalError, message: "invalid gzip file")
+        }
+
+        let chunkSize = 65_536
+        let sourceBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: chunkSize)
+        let destinationBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: chunkSize)
+        defer {
+            sourceBuffer.deallocate()
+            destinationBuffer.deallocate()
+        }
+
+        let stream = UnsafeMutablePointer<compression_stream>.allocate(capacity: 1)
+        defer { stream.deallocate() }
+
+        var status = compression_stream_init(stream, COMPRESSION_STREAM_DECODE, COMPRESSION_ZLIB)
+        guard status != COMPRESSION_STATUS_ERROR else {
+            throw ContainerizationError(.internalError, message: "gzip decompression failed")
+        }
+        defer { compression_stream_destroy(stream) }
+
+        stream.pointee.src_ptr = UnsafePointer(sourceBuffer)
+        stream.pointee.src_size = 0
+        stream.pointee.dst_ptr = destinationBuffer
+        stream.pointee.dst_size = chunkSize
+
+        var hasher = SHA256()
+        var runningCRC: uLong = crc32(0, nil, 0)
+        var totalDecompressedSize: UInt64 = 0
+        var inputExhausted = false
+
+        while status != COMPRESSION_STATUS_END {
+            if stream.pointee.src_size == 0 && !inputExhausted {
+                let toRead = min(chunkSize, compressedBytesRemaining)
+                if toRead > 0,
+                    let chunk = fileHandle.readData(ofLength: toRead) as Data?,
+                    !chunk.isEmpty
+                {
+                    compressedBytesRemaining -= chunk.count
+                    chunk.copyBytes(to: sourceBuffer, count: chunk.count)
+                    stream.pointee.src_ptr = UnsafePointer(sourceBuffer)
+                    stream.pointee.src_size = chunk.count
+                } else {
+                    inputExhausted = true
+                }
+            }
+
+            stream.pointee.dst_ptr = destinationBuffer
+            stream.pointee.dst_size = chunkSize
+
+            let flags: Int32 = inputExhausted ? Int32(COMPRESSION_STREAM_FINALIZE.rawValue) : 0
+            status = compression_stream_process(stream, flags)
+
+            switch status {
+            case COMPRESSION_STATUS_OK, COMPRESSION_STATUS_END:
+                let produced = chunkSize - stream.pointee.dst_size
+                if produced > 0 {
+                    let buf = UnsafeBufferPointer(start: destinationBuffer, count: produced)
+                    hasher.update(bufferPointer: UnsafeRawBufferPointer(buf))
+                    runningCRC = crc32(runningCRC, destinationBuffer, uInt(produced))
+                    totalDecompressedSize += UInt64(produced)
+                }
+            default:
+                throw ContainerizationError(.internalError, message: "gzip decompression failed")
+            }
+        }
+
+        let actualCRC = UInt32(truncatingIfNeeded: runningCRC)
+        let actualSize = UInt32(truncatingIfNeeded: totalDecompressedSize)
+
+        guard expectedCRC == actualCRC, expectedSize == actualSize else {
+            throw ContainerizationError(.internalError, message: "gzip trailer mismatch")
+        }
+
+        return hasher.finalize()
+    }
+
+    private static func readExactly(fileHandle: FileHandle, count: Int) -> Data? {
+        let data = fileHandle.readData(ofLength: count)
+        return data.isEmpty ? nil : data
+    }
+
+    private static func gzipHeaderSize(_ data: Data) throws -> Int {
+        guard data.count >= 10,
+            data[data.startIndex] == 0x1f,
+            data[data.startIndex + 1] == 0x8b,
+            data[data.startIndex + 2] == 0x08
+        else {
+            throw ContainerizationError(.internalError, message: "invalid gzip file")
+        }
+
+        let start = data.startIndex
+        let flags = data[start + 3]
+        var offset = 10
+
+        if flags & 0x04 != 0 {
+            guard data.count >= offset + 2 else {
+                throw ContainerizationError(.internalError, message: "invalid gzip file")
+            }
+            let extraLen = Int(data[start + offset]) | (Int(data[start + offset + 1]) << 8)
+            offset += 2 + extraLen
+        }
+        if flags & 0x08 != 0 {
+            while offset < data.count && data[start + offset] != 0 { offset += 1 }
+            offset += 1
+        }
+        if flags & 0x10 != 0 {
+            while offset < data.count && data[start + offset] != 0 { offset += 1 }
+            offset += 1
+        }
+        if flags & 0x02 != 0 { offset += 2 }
+
+        guard offset < data.count else {
+            throw ContainerizationError(.internalError, message: "invalid gzip file")
+        }
+        return offset
     }
 }
