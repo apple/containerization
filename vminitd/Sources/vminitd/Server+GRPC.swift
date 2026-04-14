@@ -615,6 +615,47 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         }
     }
 
+    func filesystemOperation(request: Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest, context: GRPCCore.ServerContext)
+        async throws -> Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse
+    {
+        log.debug(
+            "filesystemOperation",
+            metadata: [
+                "operation": "\(request.operation)",
+                "path": "\(request.path)",
+            ])
+
+        // TODO: path validation
+
+        do {
+            switch request.operation {
+                case .freeze:
+                    try freezeFilesystem(path: request.path)
+                case .thaw:
+                    try thawFilesystem(path: request.path)
+                case .none:
+                    throw RPCError(code: .invalidArgument, message: "invalid operation")
+            }
+        } catch {
+            log.error(
+                "filesystemOperation",
+                metadata: [
+                    "error": "\(error)"
+                ])
+            throw RPCError(code: .internalError, message: "filesystemOperation", cause: error)
+        }
+
+        return .init()
+    }
+
+    private func freezeFilesystem(path: String) throws {
+        // TODO: implement freeze
+    }
+
+    private func thawFilesystem(path: String) throws {
+        // TODO: implement thaw
+    }
+
     func umount(request: Com_Apple_Containerization_Sandbox_V3_UmountRequest, context: GRPCCore.ServerContext)
         async throws -> Com_Apple_Containerization_Sandbox_V3_UmountResponse
     {
