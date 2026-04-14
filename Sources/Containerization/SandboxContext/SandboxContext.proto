@@ -30,6 +30,8 @@ service SandboxContext {
   rpc Copy(CopyRequest) returns (stream CopyResponse);
   // Stat a path in the guest filesystem.
   rpc Stat(StatRequest) returns (StatResponse);
+  // Perform a filesystem operation on a mounted filesystem.
+  rpc FilesystemOperation(FilesystemOperationRequest) returns (FilesystemOperationResponse);
 
   // Create a new process inside the container.
   rpc CreateProcess(CreateProcessRequest) returns (CreateProcessResponse);
@@ -291,6 +293,19 @@ message StatResponse {
   Stat stat = 1;
   string error = 2; // Non-empty if stat failed.
 }
+
+message FiFreezeParams {}
+message FiThawParams {}
+
+message FilesystemOperationRequest {
+  string path = 1;
+  oneof operation {
+    FiFreezeParams freeze = 2;
+    FiThawParams thaw = 3;
+  }
+}
+
+message FilesystemOperationResponse {}
 
 message IpLinkSetRequest {
   string interface = 1;
