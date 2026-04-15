@@ -625,16 +625,45 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                 "path": "\(request.path)",
             ])
 
-        // TODO: path validation
+        if !request.path.hasPrefix("/") {
+            throw RPCError(code: .invalidArgument, message: "path must be absolute")
+        }
+
+        var finfo: stat = stat()
+        let rc = lstat(request.path, &finfo)
+        if rc != 0 {
+            throw RPCError(code: .notFound, message: "failed to stat path")
+        }
+
+        if (finfo.st_mode & S_IFMT) == S_IFLNK {
+            throw RPCError(code: .internalError, message: "path cannot be a symlink")
+        }
+
+        fd = open(request.path, O_RDONLY)
+        if fd < 0 {
+            throw RPCError(code: .internalError, message: "failed to open path")
+        }
+
+        defer { close(fd) }
 
         do {
             switch request.operation {
-                case .freeze:
-                    try freezeFilesystem(path: request.path)
-                case .thaw:
-                    try thawFilesystem(path: request.path)
-                case .none:
-                    throw RPCError(code: .invalidArgument, message: "invalid operation")
+            case .freeze:
+                log.debug(
+                    "filesystemOperation: freezing filesystem",
+                    metadata: [
+                        "path": "\(request.path)"
+                    ])
+                try freezeFilesystem(fd: fd)
+            case .thaw:
+                log.debug(
+                    "filesystemOperation: thawing filesystem",
+                    metadata: [
+                        "path": "\(request.path)"
+                    ])
+                try thawFilesystem(fd: fd)
+            case .none:
+                throw RPCError(code: .invalidArgument, message: "invalid operation")
             }
         } catch {
             log.error(
@@ -648,12 +677,28 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         return .init()
     }
 
-    private func freezeFilesystem(path: String) throws {
-        // TODO: implement freeze
+    private func freezeFilesystem(fd: Int32) throws {
+        #if os(Linux)
+        static let FIFREEZE: UInt = 0xC004_5877
+        let rc: CInt = ioctl(fd, FIFREEZE, 0)
+        if rc != 0 {
+            throw RPCError(code: .internalError, message: "freeze failed")
+        }
+        #else
+        fatalError("freeze not supported on platform")
+        #endif
     }
 
-    private func thawFilesystem(path: String) throws {
-        // TODO: implement thaw
+    private func thawFilesystem(fd: Int32) throws {
+        #if os(Linux)
+        static let FITHAW: UInt = 0xC004_5878
+        let rc: CInt = ioctl(fd, FITHAW, 0)
+        if rc != 0 {
+            throw RPCError(code: .internalError, message: "thaw failed")
+        }
+        #else
+        fatalError("thaw not supported on platform")
+        #endif
     }
 
     func umount(request: Com_Apple_Containerization_Sandbox_V3_UmountRequest, context: GRPCCore.ServerContext)
