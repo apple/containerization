@@ -89,6 +89,10 @@ ifeq ($(LIBC),all)
 else
 	$(call linux_run,make containerization && make -C vminitd LIBC=$(LIBC))
 endif
+
+.PHONY: linux-test
+linux-test:
+	$(call linux_run,swift test $(SWIFT_CONFIGURATION))
 endif
 
 .PHONY: all
