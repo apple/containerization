@@ -141,9 +141,7 @@ public final class Epoll: Sendable {
             epoll_ctl(self.epollFD, EPOLL_CTL_DEL, fd, ptr) as Int32
         }
         if result != 0 {
-            if !acceptableDeletionErrno() {
-                throw POSIXError.fromErrno()
-            }
+            throw POSIXError.fromErrno()
         }
     }
 
@@ -186,11 +184,6 @@ public final class Epoll: Sendable {
         precondition(n == MemoryLayout<UInt64>.size, "eventfd write failed: \(POSIXError.fromErrno())")
     }
 
-    // The errno's here are acceptable and can happen if the caller
-    // closed the underlying fd before calling delete().
-    private func acceptableDeletionErrno() -> Bool {
-        errno == ENOENT || errno == EBADF || errno == EPERM
-    }
 }
 
 #endif  // os(Linux)
