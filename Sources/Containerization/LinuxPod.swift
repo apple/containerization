@@ -59,6 +59,8 @@ public final class LinuxPod: Sendable {
         /// The default hosts file configuration for all containers in the pod.
         /// Individual containers can override this by setting their own `hosts` configuration.
         public var hosts: Hosts?
+        /// Volumes attached to the pod. Can be shared with multiple containers.
+        public var volumes: [PodVolume] = []
 
         public init() {}
     }
@@ -86,8 +88,68 @@ public final class LinuxPod: Sendable {
         /// Run the container with a minimal init process that handles signal
         /// forwarding and zombie reaping.
         public var useInit: Bool = false
+        /// The container mounts that references pod-level attached volumes.
+        public var volumeMounts: [VolumeMount] = []
 
         public init() {}
+    }
+
+    /// A volume that is attached at the pod level and can be shared by multiple containers.
+    public struct PodVolume: Sendable {
+        /// Describes the backing storage for the volume.
+        public enum Source: Sendable {
+            /// A network block device (NBD) volume.
+            case nbd(url: URL, timeout: TimeInterval? = nil, readOnly: Bool = false)
+        }
+
+        /// The logical name of this volume. Containers reference this name in their `VolumeMount` entries.
+        public var name: String
+        /// The backing storage source for this volume.
+        public var source: Source
+        /// The filesystem format on the volume.
+        public var format: String
+
+        public init(name: String, source: Source, format: String) {
+            self.name = name
+            self.source = source
+            self.format = format
+        }
+
+        func toMount() -> Mount {
+            switch source {
+            case .nbd(let url, let timeout, let readOnly):
+                var runtimeOptions: [String] = []
+                if let timeout {
+                    runtimeOptions.append("vzTimeout=\(timeout)")
+                }
+                if readOnly {
+                    runtimeOptions.append("vzForcedReadOnly=true")
+                }
+                return Mount.block(
+                    format: self.format,
+                    source: url.absoluteString,
+                    destination: LinuxPod.guestVolumePath(name),
+                    options: readOnly ? ["ro"] : [],
+                    runtimeOptions: runtimeOptions
+                )
+            }
+        }
+    }
+
+    /// A container mount that references a pod-level attached volume.
+    public struct VolumeMount: Sendable {
+        /// The name of the `PodVolume` to mount.
+        public var name: String
+        /// The destination path inside the container.
+        public var destination: String
+        /// Mount options (e.g. ["ro"]).
+        public var options: [String]
+
+        public init(name: String, destination: String, options: [String] = []) {
+            self.name = name
+            self.destination = destination
+            self.options = options
+        }
     }
 
     private struct PodContainer: Sendable {
@@ -257,6 +319,10 @@ public final class LinuxPod: Sendable {
     private static func guestSocketStagingPath(_ containerID: String, socketID: String) -> String {
         "/run/container/\(containerID)/sockets/\(socketID).sock"
     }
+
+    private static func guestVolumePath(_ volumeName: String) -> String {
+        "/run/volumes/\(volumeName)"
+    }
 }
 
 extension LinuxPod {
@@ -332,6 +398,33 @@ extension LinuxPod {
                 mountsByID[id] = [modifiedRootfs] + container.fileMountContext.transformedMounts
             }
 
+            // Validate pod volume names are unique.
+            var volumeNames = Set<String>()
+            for volume in self.config.volumes {
+                guard volumeNames.insert(volume.name).inserted else {
+                    throw ContainerizationError(
+                        .invalidArgument,
+                        message: "duplicate pod volume name \"\(volume.name)\""
+                    )
+                }
+            }
+
+            // Validate that all container volumeMounts reference valid pod volume names.
+            for (id, container) in state.containers {
+                for volumeMount in container.config.volumeMounts {
+                    guard volumeNames.contains(volumeMount.name) else {
+                        throw ContainerizationError(
+                            .invalidArgument,
+                            message: "container \(id) references unknown pod volume \"\(volumeMount.name)\""
+                        )
+                    }
+                }
+            }
+            let podVolumeMounts = self.config.volumes.map { $0.toMount() }
+            if !podVolumeMounts.isEmpty {
+                mountsByID[self.id] = podVolumeMounts
+            }
+
             let vmConfig = VMConfiguration(
                 cpus: self.config.cpus,
                 memoryInBytes: self.config.memoryInBytes,
@@ -347,6 +440,7 @@ extension LinuxPod {
 
             do {
                 let containers = state.containers
+                let volumes = self.config.volumes
                 let shareProcessNamespace = self.config.shareProcessNamespace
                 let pauseProcessHolder = Mutex<LinuxProcess?>(nil)
                 let fileMountContextUpdates = Mutex<[String: FileMountContext]>([:])
@@ -427,6 +521,26 @@ extension LinuxPod {
                             )
                             fileMountContextUpdates.withLock { $0[id] = ctx }
                         }
+                    }
+
+                    // Mount pod-level volumes.
+                    let podVolumeAttachments = vm.mounts[self.id] ?? []
+                    for (index, volume) in volumes.enumerated() {
+                        guard index < podVolumeAttachments.count else {
+                            throw ContainerizationError(
+                                .notFound,
+                                message: "attached filesystem not found for pod volume \"\(volume.name)\""
+                            )
+                        }
+                        let attachment = podVolumeAttachments[index]
+                        let guestPath = Self.guestVolumePath(volume.name)
+                        try await agent.mount(
+                            ContainerizationOCI.Mount(
+                                type: volume.format,
+                                source: attachment.source,
+                                destination: guestPath,
+                                options: []
+                            ))
                     }
 
                     // Start up unix socket relays for each container
@@ -557,6 +671,17 @@ extension LinuxPod {
                             source: Self.guestSocketStagingPath(containerID, socketID: socket.id),
                             destination: socket.destination.path,
                             options: ["bind"]
+                        ))
+                }
+
+                // Bind mount pod volumes into the container.
+                for volumeMount in container.config.volumeMounts {
+                    mounts.append(
+                        ContainerizationOCI.Mount(
+                            type: "none",
+                            source: Self.guestVolumePath(volumeMount.name),
+                            destination: volumeMount.destination,
+                            options: ["bind"] + volumeMount.options
                         ))
                 }
 
@@ -716,6 +841,18 @@ extension LinuxPod {
                         container.state = .stopped
 
                         state.containers[containerID] = container
+                    }
+                }
+
+                // Unmount pod-level volumes.
+                if createdState.vm.state != .stopped && !self.config.volumes.isEmpty {
+                    try? await createdState.vm.withAgent { agent in
+                        for volume in self.config.volumes {
+                            try await agent.umount(
+                                path: Self.guestVolumePath(volume.name),
+                                flags: 0
+                            )
+                        }
                     }
                 }
 
