@@ -179,6 +179,94 @@ extension ArchiveWriter {
 }
 
 extension ArchiveWriter {
+    private func archive(_ relativePath: FilePath, dirPath: FilePath) throws {
+        let fm = FileManager.default
+
+        let fullPath = dirPath.appending(relativePath.string)
+
+        var statInfo = stat()
+        guard lstat(fullPath.string, &statInfo) == 0 else {
+            let errNo = errno
+            let err = POSIXErrorCode(rawValue: errNo) ?? .EINVAL
+            throw ArchiveError.failedToCreateArchive("lstat failed for '\(fullPath)': \(POSIXError(err))")
+        }
+
+        let mode = statInfo.st_mode
+        let uid = statInfo.st_uid
+        let gid = statInfo.st_gid
+        var size: Int64 = 0
+        let type: URLFileResourceType
+
+        if (mode & S_IFMT) == S_IFREG {
+            type = .regular
+            size = Int64(statInfo.st_size)
+        } else if (mode & S_IFMT) == S_IFDIR {
+            type = .directory
+        } else if (mode & S_IFMT) == S_IFLNK {
+            type = .symbolicLink
+        } else {
+            return
+        }
+
+        #if os(macOS)
+        let created = Date(timeIntervalSince1970: Double(statInfo.st_ctimespec.tv_sec))
+        let access = Date(timeIntervalSince1970: Double(statInfo.st_atimespec.tv_sec))
+        let modified = Date(timeIntervalSince1970: Double(statInfo.st_mtimespec.tv_sec))
+        #else
+        let created = Date(timeIntervalSince1970: Double(statInfo.st_ctim.tv_sec))
+        let access = Date(timeIntervalSince1970: Double(statInfo.st_atim.tv_sec))
+        let modified = Date(timeIntervalSince1970: Double(statInfo.st_mtim.tv_sec))
+        #endif
+
+        let entry = WriteEntry()
+        if type == .symbolicLink {
+            let targetPath = try fm.destinationOfSymbolicLink(atPath: fullPath.string)
+            // Resolve the target relative to the symlink's parent, not the archive root.
+            let symlinkParent = fullPath.removingLastComponent()
+            let resolvedFull = symlinkParent.appending(targetPath).lexicallyNormalized()
+            guard resolvedFull.starts(with: dirPath) else {
+                return
+            }
+            entry.symlinkTarget = targetPath
+        }
+
+        entry.path = relativePath.string
+        entry.size = size
+        entry.creationDate = created
+        entry.modificationDate = modified
+        entry.contentAccessDate = access
+        entry.fileType = type
+        entry.group = gid
+        entry.owner = uid
+        entry.permissions = mode
+        if type == .regular {
+            let buf = UnsafeMutableRawBufferPointer.allocate(byteCount: Self.chunkSize, alignment: 1)
+            guard let baseAddress = buf.baseAddress else {
+                throw ArchiveError.failedToCreateArchive("cannot create temporary buffer of size \(Self.chunkSize)")
+            }
+            defer { buf.deallocate() }
+            let fd = Foundation.open(fullPath.string, O_RDONLY)
+            guard fd >= 0 else {
+                let err = POSIXErrorCode(rawValue: errno) ?? .EINVAL
+                throw ArchiveError.failedToCreateArchive("cannot open file \(fullPath.string) for reading: \(err)")
+            }
+            defer { close(fd) }
+            try self.writeHeader(entry: entry)
+            while true {
+                let n = read(fd, baseAddress, Self.chunkSize)
+                if n == 0 { break }
+                if n < 0 {
+                    let err = POSIXErrorCode(rawValue: errno) ?? .EIO
+                    throw ArchiveError.failedToCreateArchive("failed to read from file \(fullPath.string): \(err)")
+                }
+                try self.writeData(data: UnsafeRawBufferPointer(start: baseAddress, count: n))
+            }
+            try self.finishEntry()
+        } else {
+            try self.writeEntry(entry: entry, data: nil)
+        }
+    }
+
     /// Recursively archives the content of a directory. Regular files, symlinks and directories are added into the archive.
     /// Note: Symlinks are added to the archive if both the source and target for the symlink are both contained in the top level directory.
     public func archiveDirectory(_ dir: URL) throws {
@@ -214,88 +302,32 @@ extension ArchiveWriter {
         try self.writeHeader(entry: rootEntry)
 
         for case let relativePath as String in enumerator {
-            let fullPath = dirPath.appending(relativePath)
+            try archive(FilePath(relativePath), dirPath: dirPath)
+        }
+    }
 
-            var statInfo = stat()
-            guard lstat(fullPath.string, &statInfo) == 0 else {
-                let errNo = errno
-                let err = POSIXErrorCode(rawValue: errNo) ?? .EINVAL
-                throw ArchiveError.failedToCreateArchive("lstat failed for '\(fullPath)': \(POSIXError(err))")
+    public func archiveURLs(_ urls: [URL], base: URL) throws {
+        let fm = FileManager.default
+
+        for url in urls {
+            guard url.path.starts(with: base.path) else {
+                throw ArchiveError.failedToCreateArchive("'\(url.path)' is not under '\(base.path)'")
             }
 
-            let mode = statInfo.st_mode
-            let uid = statInfo.st_uid
-            let gid = statInfo.st_gid
-            var size: Int64 = 0
-            let type: URLFileResourceType
+            let basePathCount = base.path == "/" ? 1 : (base.path.count + 1)
+            let path = FilePath(String(url.path.dropFirst(basePathCount)))
+            if url.isDirectory {
+                guard let enumerator = fm.enumerator(atPath: url.path) else {
+                    throw POSIXError(.ENOTDIR)
+                }
 
-            if (mode & S_IFMT) == S_IFREG {
-                type = .regular
-                size = Int64(statInfo.st_size)
-            } else if (mode & S_IFMT) == S_IFDIR {
-                type = .directory
-            } else if (mode & S_IFMT) == S_IFLNK {
-                type = .symbolicLink
+                for case let child as String in enumerator {
+                    let relativePath = path.appending(child)
+
+                    try archive(relativePath, dirPath: FilePath(base.path))
+                }
             } else {
-                continue
-            }
-
-            #if os(macOS)
-            let created = Date(timeIntervalSince1970: Double(statInfo.st_ctimespec.tv_sec))
-            let access = Date(timeIntervalSince1970: Double(statInfo.st_atimespec.tv_sec))
-            let modified = Date(timeIntervalSince1970: Double(statInfo.st_mtimespec.tv_sec))
-            #else
-            let created = Date(timeIntervalSince1970: Double(statInfo.st_ctim.tv_sec))
-            let access = Date(timeIntervalSince1970: Double(statInfo.st_atim.tv_sec))
-            let modified = Date(timeIntervalSince1970: Double(statInfo.st_mtim.tv_sec))
-            #endif
-
-            let entry = WriteEntry()
-            if type == .symbolicLink {
-                let targetPath = try fm.destinationOfSymbolicLink(atPath: fullPath.string)
-                // Resolve the target relative to the symlink's parent, not the archive root.
-                let symlinkParent = fullPath.removingLastComponent()
-                let resolvedFull = symlinkParent.appending(targetPath).lexicallyNormalized()
-                guard resolvedFull.starts(with: dirPath) else {
-                    continue
-                }
-                entry.symlinkTarget = targetPath
-            }
-
-            entry.path = relativePath
-            entry.size = size
-            entry.creationDate = created
-            entry.modificationDate = modified
-            entry.contentAccessDate = access
-            entry.fileType = type
-            entry.group = gid
-            entry.owner = uid
-            entry.permissions = mode
-            if type == .regular {
-                let buf = UnsafeMutableRawBufferPointer.allocate(byteCount: Self.chunkSize, alignment: 1)
-                guard let baseAddress = buf.baseAddress else {
-                    throw ArchiveError.failedToCreateArchive("cannot create temporary buffer of size \(Self.chunkSize)")
-                }
-                defer { buf.deallocate() }
-                let fd = Foundation.open(fullPath.string, O_RDONLY)
-                guard fd >= 0 else {
-                    let err = POSIXErrorCode(rawValue: errno) ?? .EINVAL
-                    throw ArchiveError.failedToCreateArchive("cannot open file \(fullPath.string) for reading: \(err)")
-                }
-                defer { close(fd) }
-                try self.writeHeader(entry: entry)
-                while true {
-                    let n = read(fd, baseAddress, Self.chunkSize)
-                    if n == 0 { break }
-                    if n < 0 {
-                        let err = POSIXErrorCode(rawValue: errno) ?? .EIO
-                        throw ArchiveError.failedToCreateArchive("failed to read from file \(fullPath.string): \(err)")
-                    }
-                    try self.writeData(data: UnsafeRawBufferPointer(start: baseAddress, count: n))
-                }
-                try self.finishEntry()
-            } else {
-                try self.writeEntry(entry: entry, data: nil)
+                try archive(path, dirPath: FilePath(base.path))
             }
         }
     }
