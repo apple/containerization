@@ -48,6 +48,8 @@ public final class HTTP2ConnectBufferingHandler: ChannelDuplexHandler, Removable
     private var removalScheduled = false
     private var bufferedReads: [NIOAny] = []
 
+    public init() {}
+
     public func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         bufferedReads.append(data)
     }
