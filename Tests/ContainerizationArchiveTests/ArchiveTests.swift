@@ -17,6 +17,7 @@
 //
 
 import Foundation
+import SystemPackage
 import Testing
 
 @testable import ContainerizationArchive
@@ -559,7 +560,7 @@ struct ArchiveTests {
         #expect(try String(contentsOf: extractDir.appendingPathComponent("only.txt"), encoding: .utf8) == "only file")
     }
 
-    // MARK: - archiveURLs tests
+    // MARK: - archive tests
 
     @Test func archiveURLsBasic() throws {
         let testDir = createTemporaryDirectory(baseName: "ArchiveTests.archiveURLsBasic")!
@@ -568,13 +569,13 @@ struct ArchiveTests {
         try "alpha content".write(to: testDir.appendingPathComponent("alpha.txt"), atomically: true, encoding: .utf8)
         try "beta content".write(to: testDir.appendingPathComponent("beta.txt"), atomically: true, encoding: .utf8)
 
-        let files = [
-            testDir.appendingPathComponent("alpha.txt"),
-            testDir.appendingPathComponent("beta.txt"),
+        let files: [FilePath] = [
+            FilePath(testDir.appendingPathComponent("alpha.txt").path),
+            FilePath(testDir.appendingPathComponent("beta.txt").path),
         ]
         let archiveURL = testDir.appendingPathComponent("test.tar.gz")
         let writer = try ArchiveWriter(format: .pax, filter: .gzip, file: archiveURL)
-        try writer.archiveURLs(files, base: testDir)
+        try writer.archive(files, base: FilePath(testDir.path))
         try writer.finishEncoding()
 
         var entries: [String: String] = [:]
@@ -595,7 +596,7 @@ struct ArchiveTests {
         let archiveURL = testDir.appendingPathComponent("test.tar.gz")
         let writer = try ArchiveWriter(format: .pax, filter: .gzip, file: archiveURL)
         #expect(throws: Never.self) {
-            try writer.archiveURLs([], base: testDir)
+            try writer.archive([], base: FilePath(testDir.path))
         }
         try writer.finishEncoding()
 
@@ -613,7 +614,7 @@ struct ArchiveTests {
 
         let archiveURL = testDir.appendingPathComponent("test.tar.gz")
         let writer = try ArchiveWriter(format: .pax, filter: .gzip, file: archiveURL)
-        try writer.archiveURLs([testDir.appendingPathComponent("only.txt")], base: testDir)
+        try writer.archive([FilePath(testDir.appendingPathComponent("only.txt").path)], base: FilePath(testDir.path))
         try writer.finishEncoding()
 
         var entries: [String: String] = [:]
@@ -637,7 +638,7 @@ struct ArchiveTests {
 
         let archiveURL = testDir.appendingPathComponent("test.tar.gz")
         let writer = try ArchiveWriter(format: .pax, filter: .gzip, file: archiveURL)
-        try writer.archiveURLs([execFile], base: testDir)
+        try writer.archive([FilePath(execFile.path)], base: FilePath(testDir.path))
         try writer.finishEncoding()
 
         let extractDir = testDir.appendingPathComponent("extract")
@@ -661,14 +662,14 @@ struct ArchiveTests {
         try "a content".write(to: sourceDir.appendingPathComponent("a/deep.txt"), atomically: true, encoding: .utf8)
         try "nested content".write(to: sourceDir.appendingPathComponent("b/c/nested.txt"), atomically: true, encoding: .utf8)
 
-        let files = [
-            sourceDir.appendingPathComponent("top.txt"),
-            sourceDir.appendingPathComponent("a/deep.txt"),
-            sourceDir.appendingPathComponent("b/c/nested.txt"),
+        let files: [FilePath] = [
+            FilePath(sourceDir.appendingPathComponent("top.txt").path),
+            FilePath(sourceDir.appendingPathComponent("a/deep.txt").path),
+            FilePath(sourceDir.appendingPathComponent("b/c/nested.txt").path),
         ]
         let archiveURL = testDir.appendingPathComponent("test.tar.gz")
         let writer = try ArchiveWriter(format: .pax, filter: .gzip, file: archiveURL)
-        try writer.archiveURLs(files, base: sourceDir)
+        try writer.archive(files, base: FilePath(sourceDir.path))
         try writer.finishEncoding()
 
         let extractDir = testDir.appendingPathComponent("extract")
@@ -694,13 +695,13 @@ struct ArchiveTests {
         try "sub content".write(to: subDir.appendingPathComponent("sub.txt"), atomically: true, encoding: .utf8)
         try "deep content".write(to: subDir.appendingPathComponent("nested/deep.txt"), atomically: true, encoding: .utf8)
 
-        let urls = [
-            sourceDir.appendingPathComponent("top.txt"),
-            subDir,
+        let urls: [FilePath] = [
+            FilePath(sourceDir.appendingPathComponent("top.txt").path),
+            FilePath(subDir.path),
         ]
         let archiveURL = testDir.appendingPathComponent("test.tar.gz")
         let writer = try ArchiveWriter(format: .pax, filter: .gzip, file: archiveURL)
-        try writer.archiveURLs(urls, base: sourceDir)
+        try writer.archive(urls, base: FilePath(sourceDir.path))
         try writer.finishEncoding()
 
         let extractDir = testDir.appendingPathComponent("extract")
@@ -711,6 +712,55 @@ struct ArchiveTests {
         #expect(try String(contentsOf: extractDir.appendingPathComponent("top.txt"), encoding: .utf8) == "top content")
         #expect(try String(contentsOf: extractDir.appendingPathComponent("subdir/sub.txt"), encoding: .utf8) == "sub content")
         #expect(try String(contentsOf: extractDir.appendingPathComponent("subdir/nested/deep.txt"), encoding: .utf8) == "deep content")
+    }
+
+    @Test func archiveURLsSymlinks() throws {
+        let testDir = createTemporaryDirectory(baseName: "ArchiveTests.archiveURLsSymlinks")!
+        defer { try? FileManager.default.removeItem(at: testDir) }
+
+        let sourceDir = testDir.appendingPathComponent("source")
+        try FileManager.default.createDirectory(at: sourceDir, withIntermediateDirectories: true)
+
+        let fileURL = sourceDir.appendingPathComponent("file.txt")
+        try "symlink content".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        try FileManager.default.createSymbolicLink(
+            atPath: sourceDir.appendingPathComponent("absolute").path,
+            withDestinationPath: fileURL.path
+        )
+        try FileManager.default.createSymbolicLink(
+            atPath: sourceDir.appendingPathComponent("relative").path,
+            withDestinationPath: "file.txt"
+        )
+
+        let archiveURL = testDir.appendingPathComponent("test.tar.gz")
+        let writer = try ArchiveWriter(format: .pax, filter: .gzip, file: archiveURL)
+        try writer.archive([FilePath(sourceDir.path)], base: FilePath(testDir.path))
+        try writer.finishEncoding()
+
+        let extractDir = testDir.appendingPathComponent("extract")
+        let reader = try ArchiveReader(file: archiveURL)
+        let rejected = try reader.extractContents(to: extractDir)
+
+        #expect(rejected.isEmpty)
+
+        let extractedSource = extractDir.appendingPathComponent("source")
+        #expect(
+            try String(contentsOf: extractedSource.appendingPathComponent("file.txt"), encoding: .utf8)
+                == "symlink content")
+
+        let relTarget = try FileManager.default.destinationOfSymbolicLink(
+            atPath: extractedSource.appendingPathComponent("relative").path)
+        #expect(relTarget == "file.txt")
+        #expect(
+            try String(contentsOf: extractedSource.appendingPathComponent("relative"), encoding: .utf8)
+                == "symlink content")
+
+        let absTarget = try FileManager.default.destinationOfSymbolicLink(
+            atPath: extractedSource.appendingPathComponent("absolute").path)
+
+        print("absTarget: \(absTarget), fileURL: \(fileURL.path)")
+        #expect(absTarget == fileURL.path)
     }
 
     @Test func archiveDirectorySymlinkRelativeSubdir() throws {

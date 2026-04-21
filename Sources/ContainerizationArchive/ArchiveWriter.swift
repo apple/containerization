@@ -306,28 +306,32 @@ extension ArchiveWriter {
         }
     }
 
-    public func archiveURLs(_ urls: [URL], base: URL) throws {
+    public func archive(_ paths: [FilePath], base: FilePath) throws {
         let fm = FileManager.default
+        let base = base.lexicallyNormalized()
 
-        for url in urls {
-            guard url.path.starts(with: base.path) else {
-                throw ArchiveError.failedToCreateArchive("'\(url.path)' is not under '\(base.path)'")
+        for path in paths {
+            guard path.starts(with: base) else {
+                throw ArchiveError.failedToCreateArchive("'\(path.string)' is not under '\(base.string)'")
             }
 
-            let basePathCount = base.path == "/" ? 1 : (base.path.count + 1)
-            let path = FilePath(String(url.path.dropFirst(basePathCount)))
-            if url.isDirectory {
-                guard let enumerator = fm.enumerator(atPath: url.path) else {
+            let relativePath = path.components.dropFirst(base.components.count)
+                .reduce(into: FilePath("")) { $0.append($1) }
+
+            var isDir: ObjCBool = false
+            fm.fileExists(atPath: path.string, isDirectory: &isDir)
+            if isDir.boolValue {
+                guard let enumerator = fm.enumerator(atPath: path.string) else {
                     throw POSIXError(.ENOTDIR)
                 }
 
                 for case let child as String in enumerator {
-                    let relativePath = path.appending(child)
+                    let childPath = relativePath.appending(child)
 
-                    try archive(relativePath, dirPath: FilePath(base.path))
+                    try archive(childPath, dirPath: base)
                 }
             } else {
-                try archive(path, dirPath: FilePath(base.path))
+                try archive(relativePath, dirPath: base)
             }
         }
     }
