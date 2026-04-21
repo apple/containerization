@@ -42,7 +42,8 @@ extension EXT4 {
             blockSize / groupDescriptorSize
         }
 
-        private var blockCount: UInt32 {
+        // internally accessed by journal setup
+        var blockCount: UInt32 {
             ((size - 1) / blockSize) + 1
         }
 
@@ -64,7 +65,9 @@ extension EXT4 {
         ///   - devicePath: The path to the block device where the ext4 filesystem will be created.
         ///   - blockSize: The filesystem block size in bytes. Must be a power of two in the set
         ///     {1024, 2048, 4096}. Defaults to 4096.
-        ///   - minDiskSize: The minimum disk size required for the formatted filesystem.
+        ///   - minDiskSize: The minimum usable capacity for the filesystem. When a journal is
+        ///     configured, the actual image size will be larger than this value by the journal size.
+        ///   - journal: The JBD2 journal size and mode, or nil for an unjournalled filesystem.
         ///
         /// - Note: This ext4 formatter is designed for creating block devices out of container images and does not support all the
         ///         features and options available in the full ext4 filesystem implementation. It focuses
@@ -72,7 +75,7 @@ extension EXT4 {
         ///
         /// - Important: Ensure that the destination block device is accessible and has sufficient permissions
         ///              for formatting. The formatting process will erase all existing data on the device.
-        public init(_ devicePath: FilePath, blockSize: UInt32 = 4096, minDiskSize: UInt64 = 256.kib()) throws {
+        public init(_ devicePath: FilePath, blockSize: UInt32 = 4096, minDiskSize: UInt64 = 256.kib(), journal: JournalConfig? = nil) throws {
             /// The constructor performs the following steps:
             ///
             /// 1. Creates the first 10 inodes:
@@ -92,6 +95,9 @@ extension EXT4 {
 
             guard blockSize >= 1024 && blockSize <= 4096 && blockSize.nonzeroBitCount == 1 else {
                 throw Error.invalidBlockSize(blockSize)
+            }
+            guard minDiskSize / UInt64(blockSize) <= UInt64(UInt32.max) else {
+                throw Error.cannotResizeFS(minDiskSize)
             }
             self.logBlockSize = UInt32(blockSize.trailingZeroBitCount) - 10
             if !FileManager.default.fileExists(atPath: devicePath.description) {
@@ -123,6 +129,7 @@ extension EXT4 {
             }
             // step #2
             self.tree = FileTree(EXT4.RootInode, "/")
+            self.journalConfig = journal
             // skip past the superblock and block descriptor table
             try self.seek(block: self.groupDescriptorBlocks + 1)
             // lost+found directory is required for e2fsck to pass
@@ -582,6 +589,9 @@ extension EXT4 {
         //
         //  This function is responsible for finalizing the formatting process of an ext4 filesystem
         //  after the following structures have been written:
+        //  - JBD2 journal (inode 8): Written first when a journal config is provided. Includes the
+        //    JBD2 superblock and zeroed journal data blocks. self.size is expanded by the journal
+        //    size so that minDiskSize represents usable capacity rather than total image size.
         //  - Inode table: Contains information about each file and directory in the filesystem.
         //  - Block bitmap: Tracks the allocation status of each block in the filesystem.
         //  - Inode bitmap: Tracks the allocation status of each inode in the filesystem.
@@ -603,6 +613,26 @@ extension EXT4 {
                 }
                 breadthWiseChildTree.append(contentsOf: child.pointee.children.map { (child, $0) })
             }
+
+            // Generate UUID once; shared by filesystem superblock and JBD2 superblock.
+            let filesystemUUID = UUID().uuid
+
+            // Journal init MUST precede optimizeBlockGroupLayout() and commitInodeTable().
+            // Reason 1: optimizeBlockGroupLayout reads self.currentBlock — journal blocks
+            //            must already be written to be counted in the layout calculation.
+            // Reason 2: commitInodeTable writes inode 8 to disk — setupJournalInode must
+            //            have updated self.inodes[7] in memory first.
+            var journalByteCount: UInt64 = 0
+            if let config = journalConfig {
+                // initializeJournal returns the number of blocks written for the journal.
+                // journalByteCount is fed into the newSize floor below so that minDiskSize
+                // represents usable capacity: the journal is additive overhead on top of
+                // the content area. self.size is left unmodified here so the existing
+                // lseek + write file-extension path handles the physical resize.
+                let journalBlocks = try initializeJournal(config: config, filesystemUUID: filesystemUUID)
+                journalByteCount = UInt64(journalBlocks) * self.blockSize
+            }
+
             let blockGroupSize = optimizeBlockGroupLayout(blocks: self.currentBlock, inodes: UInt32(self.inodes.count))
             let inodeTableOffset = try self.commitInodeTable(
                 blockGroups: blockGroupSize.blockGroups,
@@ -617,17 +647,18 @@ extension EXT4 {
             let bitmapBlocks: UInt32 = blockGroupSize.blockGroups * 2  // each group has two bitmaps - for inodes, and for blocks
             let dataBlocks: UInt32 = bitmapOffset + bitmapBlocks  // last data block
             var diskBlocks = dataBlocks
-            var minimumDiskBlocks = (blockGroupSize.blockGroups - 1) * self.blocksPerGroup + 1
+            var contentRequiredBlocks = (blockGroupSize.blockGroups - 1) * self.blocksPerGroup + 1
             if blockGroupSize.blockGroups == 1 {
-                minimumDiskBlocks = self.blocksPerGroup  // at least 1 block group
+                contentRequiredBlocks = self.blocksPerGroup  // at least 1 block group
             }
-            if diskBlocks < minimumDiskBlocks {  // for data + metadata
-                diskBlocks = minimumDiskBlocks
+            if diskBlocks < contentRequiredBlocks {  // for data + metadata
+                diskBlocks = contentRequiredBlocks
             }
-            let minimumDiskSize = UInt64(minimumDiskBlocks) * self.blockSize
-            var newSize = self.size
-            if newSize < minimumDiskSize {
-                newSize = minimumDiskSize
+            let contentRequiredSize = UInt64(contentRequiredBlocks) * self.blockSize
+            // minDiskSize is usable capacity; the journal is additive on top.
+            var newSize = self.size + journalByteCount
+            if newSize < contentRequiredSize {
+                newSize = contentRequiredSize
             }
             // number of blocks needed for group descriptors
             let groupDescriptorBlockCount: UInt32 = (blockGroupSize.blockGroups - 1) / self.groupsPerDescriptorBlock + 1
@@ -658,7 +689,15 @@ extension EXT4 {
             if newSize < totalGroups * blocksPerGroup * blockSize {
                 newSize = UInt64(totalGroups * blocksPerGroup * blockSize)
             }
+            // Snapshot groupDescriptorBlocks before self.size potentially changes: the bitmap
+            // loop uses this to identify which GDT slots were physically reserved at init time,
+            // so it can mark any unused slots as free without accidentally freeing content blocks
+            // written starting at reservedDescriptorBlocks + 1.
+            let reservedDescriptorBlocks = self.groupDescriptorBlocks
             if self.size < newSize {
+                guard newSize / UInt64(self.blockSize) <= UInt64(UInt32.max) else {
+                    throw Error.cannotResizeFS(newSize)
+                }
                 self.size = newSize
                 let pos = self.pos
                 guard lseek(self.handle.fileDescriptor, off_t(self.size - 1), 0) == self.size - 1 else {
@@ -694,8 +733,8 @@ extension EXT4 {
                     for i in 0...usedGroupDescriptorBlocks {
                         bitmap[Int(i / 8)] |= 1 << (i % 8)
                     }
-                    if usedGroupDescriptorBlocks + 1 <= self.groupDescriptorBlocks {
-                        for i in usedGroupDescriptorBlocks + 1...self.groupDescriptorBlocks {
+                    if usedGroupDescriptorBlocks + 1 <= reservedDescriptorBlocks {
+                        for i in usedGroupDescriptorBlocks + 1...reservedDescriptorBlocks {
                             bitmap[Int(i / 8)] &= ~(1 << (i % 8))
                             blocks -= 1
                         }
@@ -860,7 +899,6 @@ extension EXT4 {
             superblock.firstInode = EXT4.FirstInode
             superblock.lpfInode = EXT4.LostAndFoundInode
             superblock.inodeSize = UInt16(EXT4.InodeSize)
-            superblock.featureCompat = CompatFeature.sparseSuper2 | CompatFeature.extAttr
             superblock.featureIncompat =
                 IncompatFeature.filetype | IncompatFeature.extents | IncompatFeature.flexBg
             superblock.featureRoCompat =
@@ -868,31 +906,78 @@ extension EXT4 {
             superblock.minExtraIsize = EXT4.ExtraIsize
             superblock.wantExtraIsize = EXT4.ExtraIsize
             superblock.logGroupsPerFlex = 31
-            superblock.uuid = UUID().uuid
+            superblock.uuid = filesystemUUID
+            var compatFeatures: UInt32 = CompatFeature.sparseSuper2 | CompatFeature.extAttr
+            if let config = journalConfig {
+                compatFeatures |= CompatFeature.hasJournal.rawValue
+                superblock.journalInum = EXT4.JournalInode
+                superblock.journalUUID = filesystemUUID
+                superblock.journalBlocks = journalInodeBlockBackup()
+                superblock.journalBackupType = 1  // s_jnl_backup_type: 1 = s_jnl_blocks[] holds a valid inode backup
+                if let mode = config.defaultMode {
+                    switch mode {
+                    case .writeback: superblock.defaultMountOpts = DefaultMountOpts.journalWriteback
+                    case .ordered: superblock.defaultMountOpts = DefaultMountOpts.journalOrdered
+                    case .journal: superblock.defaultMountOpts = DefaultMountOpts.journalData
+                    }
+                }
+            }
+            superblock.featureCompat = compatFeatures
+
+            // Fields intentionally left at zero:
+            // s_r_blocks_count_lo: no blocks reserved for root
+            // s_mtime / s_wtime: never mounted/written; kernel updates on first access
+            // s_mnt_count / s_max_mnt_count: no forced-fsck-after-N-mounts policy
+            // s_lastcheck / s_checkinterval: no time-based fsck scheduling
+            // s_def_resuid / s_def_resgid: reserved blocks owned by uid/gid 0 (root)
+            // s_block_group_nr: this superblock resides in group 0
+            // s_volume_name: no volume label
+            // s_last_mounted: no recorded prior mount path
+            // s_algorithm_usage_bitmap: obsolete compression field, not used
+            // s_prealloc_blocks / s_prealloc_dir_blocks: block preallocation not enabled
+            // s_reserved_gdt_blocks: online resize not supported
+            // s_journal_dev: journal is internal (inode 8), not on an external device
+            // s_last_orphan: fresh filesystem, no pending orphan cleanup
+            // s_hash_seed / s_def_hash_version: kernel initialises htree hash seed at first mount
+            // s_first_meta_bg: meta block group feature not enabled
+            // s_mkfs_time: creation timestamp not recorded
+            // s_raid_stride / s_mmp_interval / s_mmp_block / s_raid_stripe_width: no RAID or MMP
+            // s_checksum_type / s_checksum_seed: metadata checksums not enabled (no csum feature bit)
+            // s_snapshot_*: snapshot feature not enabled
+            // s_error_count / s_first_error_* / s_last_error_*: fresh filesystem, no recorded errors
+            // s_usr_quota_inum / s_grp_quota_inum / s_prj_quota_inum: quotas not enabled
+            // s_overhead_clusters: kernel computes dynamically; zero is always safe
+            // s_backup_bgs: sparse_super2 active but no secondary backup groups requested
+            // s_encrypt_algos / s_encrypt_pw_salt: encryption not enabled
+            // s_checksum: superblock checksum not enabled (no metadata_csum feature bit)
+
             try withUnsafeLittleEndianBytes(of: superblock) { bytes in
                 try self.handle.write(contentsOf: bytes)
             }
             try self.handle.write(contentsOf: Array<UInt8>.init(repeating: 0, count: 2048))
         }
 
-        // MARK: Private Methods and Properties
-        private var handle: FileHandle
-        private var inodes: [Ptr<Inode>]
+        // MARK: Private and internal methods and properties
         private var tree: FileTree
         private var deletedBlocks: [(start: UInt32, end: UInt32)] = []
 
-        private var pos: UInt64 {
+        // internally accessed by journal setup
+        var handle: FileHandle
+        var inodes: [Ptr<Inode>]
+        let journalConfig: JournalConfig?
+
+        var pos: UInt64 {
             guard let offset = try? self.handle.offset() else {
                 return 0
             }
             return offset
         }
 
-        private var currentBlock: UInt32 {
+        var currentBlock: UInt32 {
             self.pos / self.blockSize
         }
 
-        private func seek(block: UInt32) throws {
+        func seek(block: UInt32) throws {
             try self.handle.seek(toOffset: UInt64(block) * blockSize)
         }
 
@@ -1021,7 +1106,7 @@ extension EXT4 {
             }
         }
 
-        private func writeExtents(_ inode: Inode, _ blocks: (start: UInt32, end: UInt32)) throws -> Inode {
+        func writeExtents(_ inode: Inode, _ blocks: (start: UInt32, end: UInt32)) throws -> Inode {
             var inode = inode
             // rest of code assumes that extents MUST go into a new block
             if self.pos % self.blockSize != 0 {
@@ -1149,6 +1234,7 @@ extension EXT4 {
             inode.flags = InodeFlag.extents | inode.flags
             return inode
         }
+
         // writes a single directory entry
         private func writeDirEntry(name: String, inode: InodeNumber, left: inout Int, link: InodeNumber? = nil) throws {
             guard self.inodes[Int(inode) - 1].pointee.linksCount > 0 else {
@@ -1226,6 +1312,7 @@ extension EXT4 {
             case cannotCreateSparseFile(_ path: FilePath)
             case cannotResizeFS(_ size: UInt64)
             case invalidBlockSize(_ size: UInt32)
+            case journalTooSmall(_ size: UInt64)
             public var description: String {
                 switch self {
                 case .notDirectory(let path):
@@ -1257,9 +1344,11 @@ extension EXT4 {
                 case .cannotCreateSparseFile(let path):
                     return "cannot create sparse file at \(path)"
                 case .cannotResizeFS(let size):
-                    return "cannot resize fs to \(size) bytes"
+                    return "cannot set filesystem size to \(size) bytes"
                 case .invalidBlockSize(let size):
                     return "invalid block size \(size): must be 1024, 2048, or 4096"
+                case .journalTooSmall(let size):
+                    return "requested journal size \(size) bytes is too small; minimum is \(EXT4.MinJournalBlocks) blocks (JBD2_MIN_JOURNAL_BLOCKS)"
                 }
             }
         }
