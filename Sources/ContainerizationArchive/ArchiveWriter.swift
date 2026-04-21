@@ -319,7 +319,7 @@ extension ArchiveWriter {
                 .reduce(into: FilePath("")) { $0.append($1) }
 
             var isDir: ObjCBool = false
-            fm.fileExists(atPath: path.string, isDirectory: &isDir)
+            _ = fm.fileExists(atPath: path.string, isDirectory: &isDir)
             if isDir.boolValue {
                 guard let enumerator = fm.enumerator(atPath: path.string) else {
                     throw POSIXError(.ENOTDIR)
