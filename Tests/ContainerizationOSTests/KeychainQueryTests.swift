@@ -14,6 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(macOS)
+
 import Foundation
 import Testing
 
@@ -77,3 +79,5 @@ struct KeychainQueryTests {
         ProcessInfo.processInfo.environment["CI"] != nil
     }
 }
+
+#endif

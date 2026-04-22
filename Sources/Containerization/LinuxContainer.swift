@@ -530,6 +530,9 @@ extension LinuxContainer {
             let mib: UInt64 = 1.mib()
             let vmMemory = (self.memoryInBytes + guestAgentOverhead + mib - 1) & ~(mib - 1)
 
+            // Give the guest agent a core to play with outside of the container.
+            let vmCpus = self.cpus + 1
+
             // Prepare file mounts. This transforms single-file mounts into directory shares.
             let fileMountContext = try FileMountContext.prepare(mounts: self.config.mounts)
             // This is dumb, but alas.
@@ -542,7 +545,7 @@ extension LinuxContainer {
             }
 
             let vmConfig = VMConfiguration(
-                cpus: self.cpus,
+                cpus: vmCpus,
                 memoryInBytes: vmMemory,
                 interfaces: self.interfaces,
                 mountsByID: [self.id: containerMounts],

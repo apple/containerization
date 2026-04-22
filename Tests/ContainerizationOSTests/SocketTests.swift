@@ -47,7 +47,7 @@ final class SocketTests {
         var cmsgBuf = [UInt8](repeating: 0, count: Int(CZ_CMSG_SPACE(Int(MemoryLayout<Int32>.size))))
 
         msg.msg_control = withUnsafeMutablePointer(to: &cmsgBuf[0]) { UnsafeMutableRawPointer($0) }
-        msg.msg_controllen = socklen_t(cmsgBuf.count)
+        msg.msg_controllen = .init(cmsgBuf.count)
 
         // Set up control message
         let cmsgPtr = withUnsafeMutablePointer(to: &msg) { CZ_CMSG_FIRSTHDR($0) }
@@ -56,8 +56,8 @@ final class SocketTests {
         }
 
         cmsg.pointee.cmsg_level = SOL_SOCKET
-        cmsg.pointee.cmsg_type = SCM_RIGHTS
-        cmsg.pointee.cmsg_len = socklen_t(CZ_CMSG_LEN(Int(MemoryLayout<Int32>.size)))
+        cmsg.pointee.cmsg_type = .init(SCM_RIGHTS)
+        cmsg.pointee.cmsg_len = .init(CZ_CMSG_LEN(Int(MemoryLayout<Int32>.size)))
 
         guard let dataPtr = CZ_CMSG_DATA(cmsg) else {
             throw SocketError.invalidFileDescriptor
@@ -78,7 +78,11 @@ final class SocketTests {
     func testSCMRightsFileDescriptorPassing() throws {
         // Create a socketpair for testing
         var fds: [Int32] = [0, 0]
+        #if os(macOS)
         let result = socketpair(AF_UNIX, SOCK_STREAM, 0, &fds)
+        #else
+        let result = socketpair(AF_UNIX, Int32(SOCK_STREAM.rawValue), 0, &fds)
+        #endif
         try #require(result == 0, "socketpair should succeed")
 
         defer {

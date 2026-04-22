@@ -293,6 +293,24 @@ public enum EXT4 {
     static let MaxBlocksPerExtent: UInt32 = 0x8000
     static let MaxFileSize: UInt64 = 128.gib()
     static let SuperBlockOffset: UInt64 = 1024
+
+    public struct JournalConfig: Sendable {
+        public var size: UInt64?
+        public var defaultMode: JournalMode?
+
+        public enum JournalMode: Sendable {
+            case writeback
+            case ordered
+            case journal
+        }
+
+        public init(size: UInt64? = nil, defaultMode: JournalMode? = nil) {
+            self.size = size
+            self.defaultMode = defaultMode
+        }
+
+        public static let `default` = JournalConfig()
+    }
 }
 
 extension EXT4 {

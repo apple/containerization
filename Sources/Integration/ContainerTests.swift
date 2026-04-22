@@ -3490,6 +3490,179 @@ extension IntegrationSuite {
         }
     }
 
+    // Validates the on-disk structure of a journaled EXT4 image on the host before
+    // attempting a container mount. This catches geometry mismatches (superblock block
+    // count vs. physical file size) and missing journal metadata without requiring
+    // e2fsck to be present in the container image.
+    //
+    // Uses raw values for internal constants because integration tests cannot use
+    // @testable import: CompatFeature.hasJournal = 0x4, EXT4.JournalInode = 8.
+    private func verifyJournalFilesystem(
+        at path: URL,
+        minDiskSize: UInt64,
+        expectedMountOpts: UInt32
+    ) throws {
+        let attrs = try FileManager.default.attributesOfItem(atPath: path.absolutePath())
+        guard let fileSize = attrs[.size] as? UInt64 else {
+            throw IntegrationError.assert(msg: "could not read file size for \(path.lastPathComponent)")
+        }
+        let reader = try EXT4.EXT4Reader(blockDevice: FilePath(path.absolutePath()))
+        let sb = reader.superBlock
+        let blocksCount = UInt64(sb.blocksCountLow) | (UInt64(sb.blocksCountHigh) << 32)
+        let blockSize = UInt64(sb.blockSize)
+        guard fileSize == blocksCount * blockSize else {
+            throw IntegrationError.assert(
+                msg: "geometry mismatch: fileSize=\(fileSize), blocksCount=\(blocksCount), blockSize=\(blockSize)")
+        }
+        guard fileSize > minDiskSize else {
+            throw IntegrationError.assert(
+                msg: "journal did not grow the image: fileSize=\(fileSize), minDiskSize=\(minDiskSize)")
+        }
+        guard sb.featureCompat & 0x4 != 0 else {
+            throw IntegrationError.assert(
+                msg: "COMPAT_HAS_JOURNAL not set in featureCompat (0x\(String(sb.featureCompat, radix: 16)))")
+        }
+        guard sb.journalInum == 8 else {
+            throw IntegrationError.assert(msg: "journalInum=\(sb.journalInum), expected 8")
+        }
+        guard sb.defaultMountOpts == expectedMountOpts else {
+            throw IntegrationError.assert(
+                msg: "defaultMountOpts=0x\(String(sb.defaultMountOpts, radix: 16)), expected 0x\(String(expectedMountOpts, radix: 16)))")
+        }
+    }
+
+    func testWritableLayerJournalWriteback() async throws {
+        let id = "test-writable-layer-journal-writeback"
+        let bs = try await bootstrap(id)
+
+        let writableLayerPath = Self.testDir.appending(component: "\(id)-writable.ext4")
+        try? FileManager.default.removeItem(at: writableLayerPath)
+        let filesystem = try EXT4.Formatter(
+            FilePath(writableLayerPath.absolutePath()),
+            minDiskSize: 512.mib(),
+            journal: .init(defaultMode: .writeback)
+        )
+        try filesystem.close()
+        // 0x0060 = data=writeback | barrier
+        try verifyJournalFilesystem(at: writableLayerPath, minDiskSize: 512.mib(), expectedMountOpts: 0x0060)
+        let writableLayer = Mount.block(
+            format: "ext4",
+            source: writableLayerPath.absolutePath(),
+            destination: "/",
+            options: []
+        )
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, writableLayer: writableLayer, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/sh", "-c", "echo 'journal writeback' > /tmp/testfile && cat /tmp/testfile"]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process failed with status \(status)")
+        }
+        guard let output = String(data: buffer.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+        }
+        guard output.trimmingCharacters(in: .whitespacesAndNewlines) == "journal writeback" else {
+            throw IntegrationError.assert(msg: "unexpected output: \(output)")
+        }
+    }
+
+    func testWritableLayerJournalOrdered() async throws {
+        let id = "test-writable-layer-journal-ordered"
+        let bs = try await bootstrap(id)
+
+        let writableLayerPath = Self.testDir.appending(component: "\(id)-writable.ext4")
+        try? FileManager.default.removeItem(at: writableLayerPath)
+        let filesystem = try EXT4.Formatter(
+            FilePath(writableLayerPath.absolutePath()),
+            minDiskSize: 512.mib(),
+            journal: .init(defaultMode: .ordered)
+        )
+        try filesystem.close()
+        // 0x0040 = data=ordered | barrier
+        try verifyJournalFilesystem(at: writableLayerPath, minDiskSize: 512.mib(), expectedMountOpts: 0x0040)
+        let writableLayer = Mount.block(
+            format: "ext4",
+            source: writableLayerPath.absolutePath(),
+            destination: "/",
+            options: []
+        )
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, writableLayer: writableLayer, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/sh", "-c", "echo 'journal ordered' > /tmp/testfile && cat /tmp/testfile"]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process failed with status \(status)")
+        }
+        guard let output = String(data: buffer.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+        }
+        guard output.trimmingCharacters(in: .whitespacesAndNewlines) == "journal ordered" else {
+            throw IntegrationError.assert(msg: "unexpected output: \(output)")
+        }
+    }
+
+    func testWritableLayerJournalData() async throws {
+        let id = "test-writable-layer-journal-data"
+        let bs = try await bootstrap(id)
+
+        let writableLayerPath = Self.testDir.appending(component: "\(id)-writable.ext4")
+        try? FileManager.default.removeItem(at: writableLayerPath)
+        let filesystem = try EXT4.Formatter(
+            FilePath(writableLayerPath.absolutePath()),
+            minDiskSize: 512.mib(),
+            journal: .init(defaultMode: .journal)
+        )
+        try filesystem.close()
+        // 0x0020 = data=journal | barrier
+        try verifyJournalFilesystem(at: writableLayerPath, minDiskSize: 512.mib(), expectedMountOpts: 0x0020)
+        let writableLayer = Mount.block(
+            format: "ext4",
+            source: writableLayerPath.absolutePath(),
+            destination: "/",
+            options: []
+        )
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, writableLayer: writableLayer, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/sh", "-c", "echo 'journal data' > /tmp/testfile && cat /tmp/testfile"]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process failed with status \(status)")
+        }
+        guard let output = String(data: buffer.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+        }
+        guard output.trimmingCharacters(in: .whitespacesAndNewlines) == "journal data" else {
+            throw IntegrationError.assert(msg: "unexpected output: \(output)")
+        }
+    }
+
     func testWritableLayerPreservesLowerLayer() async throws {
         let id = "test-writable-layer-preserves-lower"
 
