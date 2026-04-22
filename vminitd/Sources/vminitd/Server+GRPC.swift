@@ -632,16 +632,18 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         var finfo: stat = stat()
         let rc = lstat(request.path, &finfo)
         if rc != 0 {
-            throw RPCError(code: .notFound, message: "failed to stat path")
+            let error = swiftErrno("lstat")
+            throw RPCError(code: .notFound, message: "failed to stat path", cause: error)
         }
 
         if (finfo.st_mode & S_IFMT) == S_IFLNK {
             throw RPCError(code: .internalError, message: "path cannot be a symlink")
         }
 
-        fd = open(request.path, O_RDONLY)
+        let fd = open(request.path, O_RDONLY)
         if fd < 0 {
-            throw RPCError(code: .internalError, message: "failed to open path")
+            let error = swiftErrno("open")
+            throw RPCError(code: .internalError, message: "failed to open path", cause: error)
         }
 
         defer { close(fd) }
@@ -649,18 +651,8 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         do {
             switch request.operation {
             case .freeze:
-                log.debug(
-                    "filesystemOperation: freezing filesystem",
-                    metadata: [
-                        "path": "\(request.path)"
-                    ])
                 try freezeFilesystem(fd: fd)
             case .thaw:
-                log.debug(
-                    "filesystemOperation: thawing filesystem",
-                    metadata: [
-                        "path": "\(request.path)"
-                    ])
                 try thawFilesystem(fd: fd)
             case .none:
                 throw RPCError(code: .invalidArgument, message: "invalid operation")
@@ -677,28 +669,24 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         return .init()
     }
 
+    private static let FIFREEZE: UInt = 0xC004_5877
+
     private func freezeFilesystem(fd: Int32) throws {
-        #if os(Linux)
-        static let FIFREEZE: UInt = 0xC004_5877
         let rc: CInt = ioctl(fd, FIFREEZE, 0)
         if rc != 0 {
-            throw RPCError(code: .internalError, message: "freeze failed")
+            let error = swiftErrno("ioctl(FIFREEZE)")
+            throw RPCError(code: .internalError, message: "freeze failed", cause: error)
         }
-        #else
-        fatalError("freeze not supported on platform")
-        #endif
     }
 
+    private static let FITHAW: UInt = 0xC004_5878
+
     private func thawFilesystem(fd: Int32) throws {
-        #if os(Linux)
-        static let FITHAW: UInt = 0xC004_5878
         let rc: CInt = ioctl(fd, FITHAW, 0)
         if rc != 0 {
-            throw RPCError(code: .internalError, message: "thaw failed")
+            let error = swiftErrno("ioctl(FITHAW)")
+            throw RPCError(code: .internalError, message: "thaw failed", cause: error)
         }
-        #else
-        fatalError("thaw not supported on platform")
-        #endif
     }
 
     func umount(request: Com_Apple_Containerization_Sandbox_V3_UmountRequest, context: GRPCCore.ServerContext)
