@@ -25,6 +25,11 @@ public struct WriteFileFlags {
     public var create = false
 }
 
+public enum FilesystemOperation {
+    case freeze
+    case thaw
+}
+
 /// A protocol for the agent running inside a virtual machine. If an operation isn't
 /// supported the implementation MUST return a ContainerizationError with a code of
 /// `.unsupported`.
@@ -34,6 +39,8 @@ public protocol VirtualMachineAgent: Sendable {
     func standardSetup() async throws
     /// Close any resources held by the agent.
     func close() async throws
+    // Perform a filesystem operation on the given path.
+    func filesystemOperation(operation: FilesystemOperation, path: String) async throws
 
     // POSIX-y
     func getenv(key: String) async throws -> String
