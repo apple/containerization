@@ -99,3 +99,194 @@ struct MountTests {
         #expect(sorted.map(\.destination) == ["/", "/foo", "/tmp/bar/baz"])
     }
 }
+
+@Suite("AttachedFilesystem runtimeOptions dispatch")
+struct AttachedFilesystemTests {
+
+    @Test func virtioblkMountAllocatesBlockDevice() throws {
+        let mount = Mount.block(
+            format: "ext4",
+            source: "/path/to/disk.img",
+            destination: "/data"
+        )
+        let allocator = Character.blockDeviceTagAllocator()
+        let attached = try AttachedFilesystem(mount: mount, allocator: allocator)
+
+        #expect(attached.source == "/dev/vda")
+        #expect(attached.type == "ext4")
+        #expect(attached.destination == "/data")
+    }
+
+    @Test func nbdMountAllocatesBlockDevice() throws {
+        let mount = Mount.block(
+            format: "ext4",
+            source: "nbd://localhost:10809",
+            destination: "/data"
+        )
+        let allocator = Character.blockDeviceTagAllocator()
+        let attached = try AttachedFilesystem(mount: mount, allocator: allocator)
+
+        #expect(attached.source == "/dev/vda")
+        #expect(attached.type == "ext4")
+        #expect(attached.destination == "/data")
+    }
+
+    @Test func nbdMountWithNonExt4FormatAllocatesBlockDevice() throws {
+        let mount = Mount.block(
+            format: "xfs",
+            source: "nbd://localhost:10809",
+            destination: "/data"
+        )
+        let allocator = Character.blockDeviceTagAllocator()
+        let attached = try AttachedFilesystem(mount: mount, allocator: allocator)
+
+        #expect(attached.source == "/dev/vda")
+        #expect(attached.type == "xfs")
+    }
+
+    @Test func multipleBlockDevicesAllocateSequentially() throws {
+        let allocator = Character.blockDeviceTagAllocator()
+
+        let m1 = Mount.block(format: "ext4", source: "/disk1.img", destination: "/a")
+        let m2 = Mount.block(format: "ext4", source: "nbd://host:10809", destination: "/b")
+        let m3 = Mount.block(format: "ext4", source: "/disk2.img", destination: "/c")
+
+        let a1 = try AttachedFilesystem(mount: m1, allocator: allocator)
+        let a2 = try AttachedFilesystem(mount: m2, allocator: allocator)
+        let a3 = try AttachedFilesystem(mount: m3, allocator: allocator)
+
+        #expect(a1.source == "/dev/vda")
+        #expect(a2.source == "/dev/vdb")
+        #expect(a3.source == "/dev/vdc")
+    }
+
+    @Test func anyMountUsesSourceDirectly() throws {
+        let mount = Mount.any(
+            type: "tmpfs",
+            source: "tmpfs",
+            destination: "/tmp"
+        )
+        let allocator = Character.blockDeviceTagAllocator()
+        let attached = try AttachedFilesystem(mount: mount, allocator: allocator)
+
+        #expect(attached.source == "tmpfs")
+    }
+}
+
+@Suite("PodVolume and VolumeMount types")
+struct PodVolumeTests {
+
+    @Test func podVolumeNBDSourceCreation() {
+        let volume = LinuxPod.PodVolume(
+            name: "shared-data",
+            source: .nbd(url: URL(string: "nbd://localhost:10809")!),
+            format: "ext4"
+        )
+
+        #expect(volume.name == "shared-data")
+        #expect(volume.format == "ext4")
+        if case .nbd(let url, let timeout, let readOnly) = volume.source {
+            #expect(url.absoluteString == "nbd://localhost:10809")
+            #expect(timeout == nil)
+            #expect(readOnly == false)
+        } else {
+            Issue.record("Expected .nbd source")
+        }
+    }
+
+    @Test func podVolumeNBDSourceWithOptions() {
+        let volume = LinuxPod.PodVolume(
+            name: "data",
+            source: .nbd(url: URL(string: "nbd://host:10809")!, timeout: 30, readOnly: true),
+            format: "xfs"
+        )
+
+        if case .nbd(_, let timeout, let readOnly) = volume.source {
+            #expect(timeout == 30)
+            #expect(readOnly == true)
+        } else {
+            Issue.record("Expected .nbd source")
+        }
+    }
+
+    @Test func podVolumeToMountConvertsCorrectly() {
+        let volume = LinuxPod.PodVolume(
+            name: "my-vol",
+            source: .nbd(url: URL(string: "nbd://host:10809/export")!),
+            format: "ext4"
+        )
+
+        let mount = volume.toMount()
+
+        #expect(mount.source == "nbd://host:10809/export")
+        #expect(mount.destination == "/run/volumes/my-vol")
+        #expect(mount.type == "ext4")
+        #expect(mount.isBlock)
+    }
+
+    @Test func podVolumeToMountWithReadOnlySetsOptions() {
+        let volume = LinuxPod.PodVolume(
+            name: "ro-vol",
+            source: .nbd(url: URL(string: "nbd://host:10809")!, readOnly: true),
+            format: "ext4"
+        )
+
+        let mount = volume.toMount()
+
+        #expect(mount.options.contains("ro"))
+        if case .virtioblk(let opts) = mount.runtimeOptions {
+            #expect(opts.contains("vzForcedReadOnly=true"))
+        } else {
+            Issue.record("Expected virtioblk runtime options")
+        }
+    }
+
+    @Test func podVolumeToMountWithTimeoutSetsRuntimeOption() {
+        let volume = LinuxPod.PodVolume(
+            name: "data",
+            source: .nbd(url: URL(string: "nbd://host:10809")!, timeout: 60),
+            format: "ext4"
+        )
+
+        let mount = volume.toMount()
+
+        if case .virtioblk(let opts) = mount.runtimeOptions {
+            #expect(opts.contains("vzTimeout=60.0"))
+        } else {
+            Issue.record("Expected virtioblk runtime options")
+        }
+    }
+
+    @Test func podVolumeToMountUsesMountType() {
+        let volume = LinuxPod.PodVolume(
+            name: "data",
+            source: .nbd(url: URL(string: "nbd://host:10809")!),
+            format: "xfs"
+        )
+
+        let mount = volume.toMount()
+
+        #expect(mount.type == "xfs")
+    }
+
+    @Test func volumeMountCreation() {
+        let vm = LinuxPod.VolumeMount(
+            name: "shared",
+            destination: "/data",
+            options: ["ro"]
+        )
+
+        #expect(vm.name == "shared")
+        #expect(vm.destination == "/data")
+        #expect(vm.options == ["ro"])
+    }
+
+    @Test func volumeMountDefaultOptions() {
+        let vm = LinuxPod.VolumeMount(
+            name: "data",
+            destination: "/mnt"
+        )
+
+        #expect(vm.options.isEmpty)
+    }
+}

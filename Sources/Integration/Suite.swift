@@ -379,6 +379,8 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container workingDir created", testWorkingDirCreated),
                 Test("container workingDir exec created", testWorkingDirExecCreated),
                 Test("container mount sort by depth", testMountsSortedByDepth),
+                Test("container NBD mount", testContainerNBDMount),
+                Test("container NBD read-only", testContainerNBDReadOnly),
 
                 // Pods
                 Test("pod single container", testPodSingleContainer),
@@ -420,6 +422,13 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("pod unix socket into guest symlink", testPodUnixSocketIntoGuestSymlink),
                 Test("pod sysctl", testPodSysctl),
                 Test("pod sysctl multiple containers", testPodSysctlMultipleContainers),
+                Test("pod shared NBD volume", testPodSharedNBDVolume),
+                Test("pod multiple NBD volumes", testPodMultipleNBDVolumes),
+                Test("pod unreferenced NBD volume", testPodUnreferencedVolume),
+                Test("pod NBD volume persistence", testPodNBDVolumePersistence),
+                Test("pod NBD concurrent writes", testPodNBDConcurrentWrites),
+                Test("pod invalid volume reference", testPodInvalidVolumeReference),
+                Test("pod duplicate volume name", testPodDuplicateVolumeName),
             ] + macOS26Tests()
 
         let filteredTests: [Test]

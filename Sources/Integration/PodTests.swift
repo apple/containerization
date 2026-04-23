@@ -2032,4 +2032,61 @@ extension IntegrationSuite {
             throw error
         }
     }
+
+    func testPodInvalidVolumeReference() async throws {
+        let id = "test-pod-invalid-volume-ref"
+        let bs = try await bootstrap(id)
+
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
+            config.process.arguments = ["/bin/true"]
+            config.volumeMounts = [
+                .init(name: "nonexistent-volume", destination: "/data")
+            ]
+        }
+
+        do {
+            try await pod.create()
+            try? await pod.stop()
+            throw IntegrationError.assert(msg: "expected create() to fail for invalid volume reference")
+        } catch let error as ContainerizationError {
+            guard error.code == .invalidArgument else {
+                throw IntegrationError.assert(msg: "expected invalidArgument error, got: \(error)")
+            }
+        }
+    }
+
+    func testPodDuplicateVolumeName() async throws {
+        let id = "test-pod-duplicate-volume-name"
+        let bs = try await bootstrap(id)
+
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+            config.volumes = [
+                .init(name: "data", source: .nbd(url: URL(string: "nbd://localhost:10809")!), format: "ext4"),
+                .init(name: "data", source: .nbd(url: URL(string: "nbd://localhost:10809")!), format: "ext4"),
+            ]
+        }
+
+        try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
+            config.process.arguments = ["/bin/true"]
+        }
+
+        do {
+            try await pod.create()
+            try? await pod.stop()
+            throw IntegrationError.assert(msg: "expected create() to fail for duplicate volume name")
+        } catch let error as ContainerizationError {
+            guard error.code == .invalidArgument else {
+                throw IntegrationError.assert(msg: "expected invalidArgument error, got: \(error)")
+            }
+        }
+    }
 }

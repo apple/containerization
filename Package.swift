@@ -269,6 +269,8 @@ package.targets.append(
         dependencies: [
             .product(name: "Logging", package: "swift-log"),
             .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            .product(name: "NIOCore", package: "swift-nio"),
+            .product(name: "NIOPosix", package: "swift-nio"),
             "Containerization",
         ],
         path: "Sources/Integration"
