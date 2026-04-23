@@ -35,7 +35,7 @@ LIBARCHIVE_UPSTREAM_REPO := https://github.com/libarchive/libarchive
 LIBARCHIVE_UPSTREAM_VERSION := v3.7.7
 LIBARCHIVE_LOCAL_DIR := workdir/libarchive
 
-KATA_BINARY_PACKAGE := https://github.com/kata-containers/kata-containers/releases/download/3.17.0/kata-static-3.17.0-arm64.tar.xz
+KATA_BINARY_PACKAGE := https://github.com/kata-containers/kata-containers/releases/download/3.26.0/kata-static-3.26.0-arm64.tar.zst
 
 SWIFT_VERSION := $(shell cat $(ROOT_DIR)/.swift-version)
 SWIFT_SDK_URL := $(shell grep '^SWIFT_SDK_URL' vminitd/Makefile | head -1 | sed 's/.*:= *//')
@@ -178,12 +178,12 @@ endif
 .PHONY: fetch-default-kernel
 fetch-default-kernel:
 	@mkdir -p .local/ bin/
-ifeq (,$(wildcard .local/kata.tar.gz))
-	@curl -SsL -o .local/kata.tar.gz ${KATA_BINARY_PACKAGE}
+ifeq (,$(wildcard .local/kata.tar.zst))
+	@curl -SL -o .local/kata.tar.zst ${KATA_BINARY_PACKAGE}
 endif
 ifeq (,$(wildcard .local/vmlinux))
-	@tar -zxf .local/kata.tar.gz -C .local/ --strip-components=1
-	@cp -L .local/opt/kata/share/kata-containers/vmlinux.container .local/vmlinux
+	@tar --zstd -xf .local/kata.tar.zst -C .local/ --strip-components=1
+	@cp -L .local/opt/kata/share/kata-containers/vmlinux-6.18.5-177 .local/vmlinux
 endif
 ifeq (,$(wildcard bin/vmlinux))
 	@cp .local/vmlinux bin/vmlinux
