@@ -590,12 +590,16 @@ extension LinuxContainer {
                     // For every interface asked for:
                     // 1. Add the address requested
                     // 2. Online the adapter
-                    // 3. If a gateway IP address is present, add the default route.
+                    // 3. For the first interface, add the default route
+                    var defaultRouteSet = false
                     for (index, i) in self.interfaces.enumerated() {
                         let name = "eth\(index)"
                         self.logger?.debug("setting up interface \(name) with address \(i.ipv4Address)")
                         try await agent.addressAdd(name: name, ipv4Address: i.ipv4Address)
                         try await agent.up(name: name, mtu: i.mtu)
+                        if defaultRouteSet {
+                            continue
+                        }
                         if let ipv4Gateway = i.ipv4Gateway {
                             if !i.ipv4Address.contains(ipv4Gateway) {
                                 self.logger?.debug("gateway \(ipv4Gateway) is outside subnet \(i.ipv4Address), adding a route first")
@@ -606,6 +610,7 @@ extension LinuxContainer {
                             self.logger?.debug("no gateway for \(name)")
                             try await agent.routeAddDefault(name: name, ipv4Gateway: nil)
                         }
+                        defaultRouteSet = true
                     }
 
                     // Setup /etc/resolv.conf and /etc/hosts if asked for.
