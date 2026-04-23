@@ -202,8 +202,8 @@ swift-fmt:
 	@$(SWIFT) format --recursive --configuration .swift-format -i $(SWIFT_SRC)
 
 swift-fmt-check:
-	   @echo Checking code formatting compliance...
-	   @$(SWIFT) format lint --recursive --strict --configuration .swift-format-nolint $(SWIFT_SRC)
+	@echo Checking code formatting compliance...
+	@$(SWIFT) format lint --recursive --strict --configuration .swift-format-nolint $(SWIFT_SRC)
 
 .PHONY: update-licenses
 update-licenses:
@@ -244,6 +244,14 @@ docs:
 cleancontent:
 	@echo Cleaning the content...
 	@rm -rf ~/Library/Application\ Support/com.apple.containerization
+
+.PHONY: examples
+examples:
+	@echo Building examples...
+	@mkdir -p bin
+	@"$(MAKE)" -C examples/sandboxy build BUILD_CONFIGURATION=$(BUILD_CONFIGURATION)
+	@install examples/sandboxy/bin/sandboxy ./bin/
+	@codesign --force --sign - --timestamp=none --entitlements=signing/vz.entitlements bin/sandboxy
 
 .PHONY: clean
 clean:
