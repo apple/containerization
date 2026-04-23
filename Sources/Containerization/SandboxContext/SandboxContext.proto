@@ -28,6 +28,8 @@ service SandboxContext {
   // Data transfer happens over a dedicated vsock connection;
   // the gRPC stream is used only for control/metadata.
   rpc Copy(CopyRequest) returns (stream CopyResponse);
+  // Perform a filesystem operation on a mounted filesystem.
+  rpc FilesystemOperation(FilesystemOperationRequest) returns (FilesystemOperationResponse);
 
   // Create a new process inside the container.
   rpc CreateProcess(CreateProcessRequest) returns (CreateProcessResponse);
@@ -266,6 +268,19 @@ message CopyResponse {
   // Non-empty if an error occurred.
   string error = 4;
 }
+
+message FiFreezeParams {}
+message FiThawParams {}
+
+message FilesystemOperationRequest {
+  string path = 1;
+  oneof operation {
+    FiFreezeParams freeze = 2;
+    FiThawParams thaw = 3;
+  }
+}
+
+message FilesystemOperationResponse {}
 
 message IpLinkSetRequest {
   string interface = 1;
