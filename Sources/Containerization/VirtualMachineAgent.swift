@@ -73,6 +73,9 @@ public protocol VirtualMachineAgent: Sendable {
     func configureDNS(config: DNS, location: String) async throws
     func configureHosts(config: Hosts, location: String) async throws
 
+    // Time
+    func setTime(sec: Int64, usec: Int32) async throws
+
     // Container statistics
     func containerStatistics(containerIDs: [String], categories: StatCategory) async throws -> [ContainerStatistics]
 }
@@ -96,5 +99,9 @@ extension VirtualMachineAgent {
 
     public func sync() async throws {
         throw ContainerizationError(.unsupported, message: "sync")
+    }
+
+    public func setTime(sec: Int64, usec: Int32) async throws {
+        throw ContainerizationError(.unsupported, message: "setTime")
     }
 }
