@@ -19,10 +19,6 @@ import Foundation
 
 extension Socket: IOCloser {}
 
-extension Terminal: IOCloser {
-    var fileDescriptor: Int32 {
-        self.handle.fileDescriptor
-    }
-}
+extension Terminal: IOCloser {}
 
 extension FileHandle: IOCloser {}

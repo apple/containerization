@@ -14,16 +14,31 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
+
+#if canImport(Musl)
+import Musl
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Darwin)
+import Darwin
+#else
+#error("Unsupported platform")
+#endif
+
+private func sysClose(_ fd: Int32) -> Int32 { close(fd) }
+private func sysWrite(_ fd: Int32, _ buf: UnsafeRawPointer, _ count: Int) -> Int { write(fd, buf, count) }
 
 /// `Terminal` provides a clean interface to deal with terminal interactions on Unix platforms.
 public struct Terminal: Sendable {
     private let initState: termios?
 
-    private var descriptor: Int32 {
-        handle.fileDescriptor
-    }
-    public let handle: FileHandle
+    /// The underlying file descriptor.
+    public let fileDescriptor: Int32
 
     public init(descriptor: Int32, setInitState: Bool = true) throws {
         if setInitState {
@@ -31,12 +46,25 @@ public struct Terminal: Sendable {
         } else {
             initState = nil
         }
-        self.handle = .init(fileDescriptor: descriptor, closeOnDealloc: false)
+        self.fileDescriptor = descriptor
     }
 
     /// Write the provided data to the tty device.
     public func write(_ data: Data) throws {
-        try handle.write(contentsOf: data)
+        try data.withUnsafeBytes { buffer in
+            guard let base = buffer.baseAddress, buffer.count > 0 else { return }
+            let fd = fileDescriptor
+            var offset = 0
+            while offset < buffer.count {
+                let n = Syscall.retrying {
+                    sysWrite(fd, base.advanced(by: offset), buffer.count - offset)
+                }
+                if n < 0 {
+                    throw POSIXError(.init(rawValue: errno)!)
+                }
+                offset += n
+            }
+        }
     }
 
     /// The winsize for a pty.
@@ -78,7 +106,7 @@ public struct Terminal: Sendable {
     public var size: Size {
         get throws {
             var ws = winsize()
-            try fromSyscall(ioctl(descriptor, UInt(TIOCGWINSZ), &ws))
+            try fromSyscall(ioctl(fileDescriptor, UInt(TIOCGWINSZ), &ws))
             return Size(ws)
         }
     }
@@ -119,14 +147,14 @@ extension Terminal {
     ///  - Parameter pty: A pty to resize from.
     public func resize(from pty: Terminal) throws {
         var ws = try pty.size
-        try fromSyscall(ioctl(descriptor, UInt(TIOCSWINSZ), &ws))
+        try fromSyscall(ioctl(fileDescriptor, UInt(TIOCSWINSZ), &ws))
     }
 
     /// Resize the pty to the provided window size.
     ///  - Parameter size: A window size for a pty.
     public func resize(size: Size) throws {
         var ws = size.size
-        try fromSyscall(ioctl(descriptor, UInt(TIOCSWINSZ), &ws))
+        try fromSyscall(ioctl(fileDescriptor, UInt(TIOCSWINSZ), &ws))
     }
 
     /// Resize the pty to the provided window size.
@@ -134,34 +162,34 @@ extension Terminal {
     /// - Parameter height: A height or rows of the terminal.
     public func resize(width: UInt16, height: UInt16) throws {
         var ws = Size(width: width, height: height)
-        try fromSyscall(ioctl(descriptor, UInt(TIOCSWINSZ), &ws))
+        try fromSyscall(ioctl(fileDescriptor, UInt(TIOCSWINSZ), &ws))
     }
 }
 
 extension Terminal {
     /// Enable raw mode for the pty.
     public func setraw() throws {
-        var attr = try Self.getattr(descriptor)
+        var attr = try Self.getattr(fileDescriptor)
         cfmakeraw(&attr)
         attr.c_oflag = attr.c_oflag | tcflag_t(OPOST)
-        try fromSyscall(tcsetattr(descriptor, TCSANOW, &attr))
+        try fromSyscall(tcsetattr(fileDescriptor, TCSANOW, &attr))
     }
 
     /// Enable echo support.
     /// Chars typed will be displayed to the terminal.
     public func enableEcho() throws {
-        var attr = try Self.getattr(descriptor)
+        var attr = try Self.getattr(fileDescriptor)
         attr.c_iflag &= ~tcflag_t(ICRNL)
         attr.c_lflag &= ~tcflag_t(ICANON | ECHO)
-        try fromSyscall(tcsetattr(descriptor, TCSANOW, &attr))
+        try fromSyscall(tcsetattr(fileDescriptor, TCSANOW, &attr))
     }
 
     /// Disable echo support.
     /// Chars typed will not be displayed back to the terminal.
     public func disableEcho() throws {
-        var attr = try Self.getattr(descriptor)
+        var attr = try Self.getattr(fileDescriptor)
         attr.c_lflag &= ~tcflag_t(ECHO)
-        try fromSyscall(tcsetattr(descriptor, TCSANOW, &attr))
+        try fromSyscall(tcsetattr(fileDescriptor, TCSANOW, &attr))
     }
 
     private static func getattr(_ fd: Int32) throws -> termios {
@@ -176,22 +204,15 @@ extension Terminal {
 extension Terminal {
     /// Close this pty's file descriptor.
     public func close() throws {
-        do {
-            // Use FileHandle's close directly as it sets the underlying fd in the object
-            // to -1 for us.
-            try self.handle.close()
-        } catch {
-            if let error = error as NSError?, error.domain == NSPOSIXErrorDomain {
-                throw POSIXError(.init(rawValue: Int32(error.code))!)
-            }
-            throw error
+        guard sysClose(fileDescriptor) == 0 else {
+            throw POSIXError(.init(rawValue: errno)!)
         }
     }
 
     /// Reset the pty to its initial state.
     public func reset() throws {
         if var attr = initState {
-            try fromSyscall(tcsetattr(descriptor, TCSANOW, &attr))
+            try fromSyscall(tcsetattr(fileDescriptor, TCSANOW, &attr))
         }
     }
 

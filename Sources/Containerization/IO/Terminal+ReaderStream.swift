@@ -15,20 +15,41 @@
 //===----------------------------------------------------------------------===//
 
 import ContainerizationOS
+@preconcurrency import Dispatch
 import Foundation
 
 extension Terminal: ReaderStream {
     public func stream() -> AsyncStream<Data> {
-        .init { cont in
-            self.handle.readabilityHandler = { handle in
-                let data = handle.availableData
-                if data.isEmpty {
-                    self.handle.readabilityHandler = nil
-                    cont.finish()
-                    return
+        let fd = self.fileDescriptor
+        guard fd >= 0 else {
+            return AsyncStream { $0.finish() }
+        }
+
+        return AsyncStream { continuation in
+            let source = DispatchSource.makeReadSource(
+                fileDescriptor: fd,
+                queue: DispatchQueue(label: "com.apple.containerization.terminal.reader")
+            )
+
+            var buffer = [UInt8](repeating: 0, count: Int(getpagesize()))
+            source.setEventHandler {
+                let bytesRead = read(fd, &buffer, buffer.count)
+                if bytesRead > 0 {
+                    continuation.yield(Data(buffer[..<bytesRead]))
+                } else {
+                    source.cancel()
                 }
-                cont.yield(data)
             }
+
+            source.setCancelHandler {
+                continuation.finish()
+            }
+
+            continuation.onTermination = { _ in
+                source.cancel()
+            }
+
+            source.activate()
         }
     }
 }
