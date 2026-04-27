@@ -269,18 +269,32 @@ message CopyResponse {
   string error = 4;
 }
 
+message FiTrimParams {
+    uint64 start = 1;
+    uint64 len = 2;
+    uint64 minimum_len = 3;
+  }
 message FiFreezeParams {}
 message FiThawParams {}
+
+message FiTrimResult {
+  uint64 trimmed_bytes = 1;
+}
 
 message FilesystemOperationRequest {
   string path = 1;
   oneof operation {
-    FiFreezeParams freeze = 2;
-    FiThawParams thaw = 3;
+    FiTrimParams trim = 2;
+    FiFreezeParams freeze = 3;
+    FiThawParams thaw = 4;
   }
 }
 
-message FilesystemOperationResponse {}
+message FilesystemOperationResponse {
+  oneof result {
+    FiTrimResult trim = 1;
+  }
+}
 
 message IpLinkSetRequest {
   string interface = 1;
