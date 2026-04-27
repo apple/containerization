@@ -990,31 +990,31 @@ public struct Com_Apple_Containerization_Sandbox_V3_Stat: Sendable {
 
   /// st_atim: time of last access
   public var atime: SwiftProtobuf.Google_Protobuf_Timestamp {
-    get {return _atime ?? SwiftProtobuf.Google_Protobuf_Timestamp()}
+    get {_atime ?? SwiftProtobuf.Google_Protobuf_Timestamp()}
     set {_atime = newValue}
   }
   /// Returns true if `atime` has been explicitly set.
-  public var hasAtime: Bool {return self._atime != nil}
+  public var hasAtime: Bool {self._atime != nil}
   /// Clears the value of `atime`. Subsequent reads from it will return its default value.
   public mutating func clearAtime() {self._atime = nil}
 
   /// st_mtim: time of last modification
   public var mtime: SwiftProtobuf.Google_Protobuf_Timestamp {
-    get {return _mtime ?? SwiftProtobuf.Google_Protobuf_Timestamp()}
+    get {_mtime ?? SwiftProtobuf.Google_Protobuf_Timestamp()}
     set {_mtime = newValue}
   }
   /// Returns true if `mtime` has been explicitly set.
-  public var hasMtime: Bool {return self._mtime != nil}
+  public var hasMtime: Bool {self._mtime != nil}
   /// Clears the value of `mtime`. Subsequent reads from it will return its default value.
   public mutating func clearMtime() {self._mtime = nil}
 
   /// st_ctim: time of last status change
   public var ctime: SwiftProtobuf.Google_Protobuf_Timestamp {
-    get {return _ctime ?? SwiftProtobuf.Google_Protobuf_Timestamp()}
+    get {_ctime ?? SwiftProtobuf.Google_Protobuf_Timestamp()}
     set {_ctime = newValue}
   }
   /// Returns true if `ctime` has been explicitly set.
-  public var hasCtime: Bool {return self._ctime != nil}
+  public var hasCtime: Bool {self._ctime != nil}
   /// Clears the value of `ctime`. Subsequent reads from it will return its default value.
   public mutating func clearCtime() {self._ctime = nil}
 
@@ -1033,17 +1033,17 @@ public struct Com_Apple_Containerization_Sandbox_V3_StatResponse: @unchecked Sen
   // methods supported on all messages.
 
   public var stat: Com_Apple_Containerization_Sandbox_V3_Stat {
-    get {return _storage._stat ?? Com_Apple_Containerization_Sandbox_V3_Stat()}
+    get {_storage._stat ?? Com_Apple_Containerization_Sandbox_V3_Stat()}
     set {_uniqueStorage()._stat = newValue}
   }
   /// Returns true if `stat` has been explicitly set.
-  public var hasStat: Bool {return _storage._stat != nil}
+  public var hasStat: Bool {_storage._stat != nil}
   /// Clears the value of `stat`. Subsequent reads from it will return its default value.
   public mutating func clearStat() {_uniqueStorage()._stat = nil}
 
   /// Non-empty if stat failed.
   public var error: String {
-    get {return _storage._error}
+    get {_storage._error}
     set {_uniqueStorage()._error = newValue}
   }
 
@@ -2929,9 +2929,7 @@ extension Com_Apple_Containerization_Sandbox_V3_CopyResponse.Status: SwiftProtob
 
 extension Com_Apple_Containerization_Sandbox_V3_StatRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".StatRequest"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "path"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2961,21 +2959,7 @@ extension Com_Apple_Containerization_Sandbox_V3_StatRequest: SwiftProtobuf.Messa
 
 extension Com_Apple_Containerization_Sandbox_V3_Stat: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Stat"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "dev"),
-    2: .same(proto: "ino"),
-    3: .same(proto: "mode"),
-    4: .same(proto: "nlink"),
-    5: .same(proto: "uid"),
-    6: .same(proto: "gid"),
-    7: .same(proto: "rdev"),
-    8: .same(proto: "size"),
-    9: .same(proto: "blksize"),
-    10: .same(proto: "blocks"),
-    11: .same(proto: "atime"),
-    12: .same(proto: "mtime"),
-    13: .same(proto: "ctime"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dev\0\u{1}ino\0\u{1}mode\0\u{1}nlink\0\u{1}uid\0\u{1}gid\0\u{1}rdev\0\u{1}size\0\u{1}blksize\0\u{1}blocks\0\u{1}atime\0\u{1}mtime\0\u{1}ctime\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3069,10 +3053,7 @@ extension Com_Apple_Containerization_Sandbox_V3_Stat: SwiftProtobuf.Message, Swi
 
 extension Com_Apple_Containerization_Sandbox_V3_StatResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".StatResponse"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "stat"),
-    2: .same(proto: "error"),
-  ]
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}stat\0\u{1}error\0")
 
   fileprivate class _StorageClass {
     var _stat: Com_Apple_Containerization_Sandbox_V3_Stat? = nil

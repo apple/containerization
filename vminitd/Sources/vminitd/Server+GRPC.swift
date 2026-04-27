@@ -366,7 +366,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
 
     func stat(
         request: Com_Apple_Containerization_Sandbox_V3_StatRequest,
-        context: GRPCAsyncServerCallContext,
+        context: GRPCCore.ServerContext,
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_StatResponse {
         log.debug(
             "stat",
