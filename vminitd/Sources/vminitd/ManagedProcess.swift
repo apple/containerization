@@ -20,7 +20,6 @@ import ContainerizationError
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
-import GRPC
 import Logging
 import Synchronization
 
@@ -61,7 +60,6 @@ final class ManagedProcess: ContainerProcess, Sendable {
     private let errorPipe: Pipe
     private let terminal: Bool
     private let bundle: ContainerizationOCI.Bundle
-    private let cgroupManager: Cgroup2Manager?
 
     var pid: Int32? {
         self.state.withLock {
@@ -73,7 +71,6 @@ final class ManagedProcess: ContainerProcess, Sendable {
         id: String,
         stdio: HostStdio,
         bundle: ContainerizationOCI.Bundle,
-        cgroupManager: Cgroup2Manager? = nil,
         owningPid: Int32? = nil,
         log: Logger
     ) throws {
@@ -140,7 +137,6 @@ final class ManagedProcess: ContainerProcess, Sendable {
         // Setup IO early. We expect the host to be listening already.
         try io.start(process: &command)
 
-        self.cgroupManager = cgroupManager
         self.command = command
         self.terminal = stdio.terminal
         self.bundle = bundle

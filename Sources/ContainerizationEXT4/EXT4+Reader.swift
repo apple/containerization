@@ -32,9 +32,7 @@ extension EXT4 {
 
         var hardlinks: [FilePath: InodeNumber] = [:]
         var tree: EXT4.FileTree = EXT4.FileTree(EXT4.RootInode, ".")
-        var blockSize: UInt64 {
-            UInt64(1024 * (1 << _superBlock.logBlockSize))
-        }
+        var blockSize: UInt64 { UInt64(_superBlock.blockSize) }
 
         private var groupDescriptorSize: UInt16 {
             if _superBlock.featureIncompat & EXT4.IncompatFeature.bit64.rawValue != 0 {
@@ -91,7 +89,6 @@ extension EXT4 {
                     }
 
                     let blocks = try self.getExtents(inode: itemInodeNum)
-                    let itemTreeNodePtr = Ptr<FileTree.FileTreeNode>.allocate(capacity: 1)
                     let itemTreeNode = FileTree.FileTreeNode(
                         inode: itemInodeNum,
                         name: itemName,
@@ -104,9 +101,9 @@ extension EXT4 {
                         }
                         itemTreeNode.blocks = blocks.first
                     }
-                    itemTreeNodePtr.initialize(to: itemTreeNode)
+                    let itemTreeNodePtr = Ptr(itemTreeNode)
                     root.children.append(itemTreeNodePtr)
-                    itemPtr.initialize(to: root)
+                    itemPtr.pointee = root
                     let itemInode = try self.getInode(number: itemInodeNum)
                     if itemInode.mode.isDir() {
                         items.append((itemTreeNodePtr, itemInodeNum))
@@ -120,7 +117,7 @@ extension EXT4 {
         }
 
         private func readGroupDescriptor(_ number: UInt32) throws -> GroupDescriptor {
-            let bs = UInt64(1024 * (1 << _superBlock.logBlockSize))
+            let bs = self.blockSize
             let offset = bs + UInt64(number) * UInt64(self.groupDescriptorSize)
             try self.handle.seek(toOffset: offset)
             guard let data = try? self.handle.read(upToCount: MemoryLayout<EXT4.GroupDescriptor>.size) else {
@@ -171,13 +168,17 @@ extension EXT4 {
         private func getDirEntries(dirTree: Data) throws -> [(String, InodeNumber)] {
             var children: [(String, InodeNumber)] = []
             var offset = 0
+            let entrySize = MemoryLayout<DirectoryEntry>.size
             while offset < dirTree.count {
-                let length = MemoryLayout<DirectoryEntry>.size
-                let dirEntry = dirTree.subdata(in: offset..<offset + length).withUnsafeBytes {
+                let dirEntry = dirTree.subdata(in: offset..<offset + entrySize).withUnsafeBytes {
                     $0.loadLittleEndian(as: DirectoryEntry.self)
                 }
-                if dirEntry.inode == 0 {
+                guard dirEntry.recordLength >= entrySize else {
                     break
+                }
+                if dirEntry.inode == 0 {
+                    offset += Int(dirEntry.recordLength)
+                    continue
                 }
                 let nameData = dirTree.subdata(in: offset + 8..<offset + 8 + Int(dirEntry.nameLength))
                 let name = String(data: nameData, encoding: .utf8) ?? ""
@@ -211,7 +212,7 @@ extension EXT4 {
                 // When depth is 0 the extent header is followed by extent leaves
                 for _ in 0..<header.entries {
                     let leaf = inodeBlock.subdata(in: offset..<offset + extentLeafSize).withUnsafeBytes {
-                        $0.load(as: ExtentLeaf.self)
+                        $0.loadLittleEndian(as: ExtentLeaf.self)
                     }
                     extents.append((leaf.startLow, leaf.startLow + UInt32(leaf.length)))
                     offset += extentLeafSize
@@ -220,7 +221,7 @@ extension EXT4 {
                 // When depth is 1 the extent header is followed by extent indices which point to leaves
                 for _ in 0..<header.entries {
                     let indexNode = inodeBlock.subdata(in: offset..<offset + extentIndexSize).withUnsafeBytes {
-                        $0.load(as: ExtentIndex.self)
+                        $0.loadLittleEndian(as: ExtentIndex.self)
                     }
                     try self.seek(block: indexNode.leafLow)
                     guard let block = try self.handle.read(upToCount: Int(self.blockSize)) else {

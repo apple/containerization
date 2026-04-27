@@ -14,8 +14,16 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-import Foundation
+import Dispatch
 import Synchronization
+
+#if canImport(Musl)
+import Musl
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Darwin)
+import Darwin
+#endif
 
 /// Async friendly wrapper around `DispatchSourceSignal`. Provides an `AsyncStream`
 /// interface to get notified of received signals.

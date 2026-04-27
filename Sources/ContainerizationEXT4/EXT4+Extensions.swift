@@ -76,16 +76,16 @@ extension EXT4.XAttrEntry {
         nameLength = bytes[0]
         nameIndex = bytes[1]
         let rawValue = Array(bytes[2...3])
-        valueOffset = UInt16(littleEndian: rawValue.withUnsafeBytes { $0.load(as: UInt16.self) })
+        valueOffset = rawValue.withUnsafeBytes { $0.loadLittleEndian(as: UInt16.self) }
 
         let rawValueInum = Array(bytes[4...7])
-        valueInum = UInt32(littleEndian: rawValueInum.withUnsafeBytes { $0.load(as: UInt32.self) })
+        valueInum = rawValueInum.withUnsafeBytes { $0.loadLittleEndian(as: UInt32.self) }
 
         let rawSize = Array(bytes[8...11])
-        valueSize = UInt32(littleEndian: rawSize.withUnsafeBytes { $0.load(as: UInt32.self) })
+        valueSize = rawSize.withUnsafeBytes { $0.loadLittleEndian(as: UInt32.self) }
 
         let rawHash = Array(bytes[12...])
-        hash = UInt32(littleEndian: rawHash.withUnsafeBytes { $0.load(as: UInt32.self) })
+        hash = rawHash.withUnsafeBytes { $0.loadLittleEndian(as: UInt32.self) }
     }
 }
 

@@ -14,16 +14,13 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import ContainerizationArchive
+import ContainerizationEXT4
 import ContainerizationError
 import ContainerizationExtras
 import ContainerizationOCI
 import Foundation
-
-#if os(macOS)
-import ContainerizationArchive
-import ContainerizationEXT4
 import SystemPackage
-#endif
 
 public struct EXT4Unpacker: Unpacker {
     let blockSizeInBytes: UInt64
@@ -32,7 +29,6 @@ public struct EXT4Unpacker: Unpacker {
         self.blockSizeInBytes = blockSizeInBytes
     }
 
-    #if os(macOS)
     /// Performs the unpacking of a tar archive into a filesystem.
     /// - Parameters:
     ///   - archive: The archive to unpack.
@@ -42,7 +38,7 @@ public struct EXT4Unpacker: Unpacker {
         archive: URL,
         compression: ContainerizationArchive.Filter,
         at path: URL
-    ) throws {
+    ) async throws {
         let cleanedPath = try prepareUnpackPath(path: path)
         let filesystem = try EXT4.Formatter(
             FilePath(cleanedPath),
@@ -50,14 +46,12 @@ public struct EXT4Unpacker: Unpacker {
         )
         defer { try? filesystem.close() }
 
-        try filesystem.unpack(
+        try await filesystem.unpack(
             source: archive,
             format: .paxRestricted,
-            compression: compression,
-            progress: nil
+            compression: compression
         )
     }
-    #endif
 
     /// Returns a `Mount` point after unpacking the image into a filesystem.
     /// - Parameters:
@@ -71,9 +65,6 @@ public struct EXT4Unpacker: Unpacker {
         at path: URL,
         progress: ProgressHandler? = nil
     ) async throws -> Mount {
-        #if !os(macOS)
-        throw ContainerizationError(.unsupported, message: "cannot unpack an image on current platform")
-        #else
         let cleanedPath = try prepareUnpackPath(path: path)
         let manifest = try await image.manifest(for: platform)
         let filesystem = try EXT4.Formatter(
@@ -84,27 +75,59 @@ public struct EXT4Unpacker: Unpacker {
         )
         defer { try? filesystem.close() }
 
+        // Resolve layer paths upfront. When progress reporting is enabled and a layer
+        // uses zstd, decompress once so both the size-scanning pass and the unpack
+        // pass share the same decompressed file.
+        var resolvedLayers: [(file: URL, filter: ContainerizationArchive.Filter)] = []
+        var decompressedFiles: [URL] = []
         for layer in manifest.layers {
             try Task.checkCancellation()
             let content = try await image.getContent(digest: layer.digest)
-
-            let compression: ContainerizationArchive.Filter
-            switch layer.mediaType {
-            case MediaTypes.imageLayer, MediaTypes.dockerImageLayer:
-                compression = .none
-            case MediaTypes.imageLayerGzip, MediaTypes.dockerImageLayerGzip:
-                compression = .gzip
-            case MediaTypes.imageLayerZstd, MediaTypes.dockerImageLayerZstd:
-                compression = .zstd
-            default:
-                throw ContainerizationError(.unsupported, message: "media type \(layer.mediaType) not supported.")
+            let compression = try compressionFilter(for: layer.mediaType)
+            if progress != nil && compression == .zstd {
+                let decompressed = try ArchiveReader.decompressZstd(content.path)
+                decompressedFiles.append(decompressed)
+                resolvedLayers.append((file: decompressed, filter: .none))
+            } else {
+                resolvedLayers.append((file: content.path, filter: compression))
             }
-            try filesystem.unpack(
-                source: content.path,
+        }
+        defer {
+            for file in decompressedFiles {
+                ArchiveReader.cleanUpDecompressedZstd(file)
+            }
+        }
+
+        if let progress {
+            var totalSize: Int64 = 0
+            var totalItems: Int = 0
+            for layer in resolvedLayers {
+                try Task.checkCancellation()
+                let totals = try EXT4.Formatter.scanArchiveHeaders(
+                    format: .paxRestricted, filter: layer.filter, file: layer.file)
+                totalSize += totals.size
+                totalItems += totals.items
+            }
+            var totalEvents: [ProgressEvent] = []
+            if totalSize > 0 {
+                totalEvents.append(.addTotalSize(totalSize))
+            }
+            if totalItems > 0 {
+                totalEvents.append(.addTotalItems(totalItems))
+            }
+            if !totalEvents.isEmpty {
+                await progress(totalEvents)
+            }
+        }
+
+        for resolved in resolvedLayers {
+            try Task.checkCancellation()
+            let reader = try ArchiveReader(
                 format: .paxRestricted,
-                compression: compression,
-                progress: progress
+                filter: resolved.filter,
+                file: resolved.file
             )
+            try await filesystem.unpack(reader: reader, progress: progress)
         }
 
         return .block(
@@ -113,7 +136,6 @@ public struct EXT4Unpacker: Unpacker {
             destination: "/",
             options: []
         )
-        #endif
     }
 
     private func prepareUnpackPath(path: URL) throws -> String {
@@ -122,5 +144,18 @@ public struct EXT4Unpacker: Unpacker {
             throw ContainerizationError(.exists, message: "block device already exists at \(blockPath)")
         }
         return blockPath
+    }
+
+    private func compressionFilter(for mediaType: String) throws -> ContainerizationArchive.Filter {
+        switch mediaType {
+        case MediaTypes.imageLayer, MediaTypes.dockerImageLayer:
+            return .none
+        case MediaTypes.imageLayerGzip, MediaTypes.dockerImageLayerGzip:
+            return .gzip
+        case MediaTypes.imageLayerZstd, MediaTypes.dockerImageLayerZstd:
+            return .zstd
+        default:
+            throw ContainerizationError(.unsupported, message: "media type \(mediaType) not supported.")
+        }
     }
 }

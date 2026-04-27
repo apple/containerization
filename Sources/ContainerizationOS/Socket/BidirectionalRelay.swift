@@ -15,9 +15,23 @@
 //===----------------------------------------------------------------------===//
 
 import ContainerizationError
-import Foundation
+import Dispatch
 import Logging
 import Synchronization
+
+#if canImport(Musl)
+import Musl
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Darwin)
+import Darwin
+#endif
+
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
+import Foundation
+#endif
 
 /// Manages bidirectional data relay between two file descriptors using `DispatchSource`.
 public final class BidirectionalRelay: Sendable {

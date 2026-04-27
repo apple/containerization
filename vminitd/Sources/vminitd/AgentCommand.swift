@@ -26,7 +26,11 @@ import NIOCore
 import NIOPosix
 
 #if os(Linux)
+#if canImport(Musl)
 import Musl
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import LCShim
 #endif
 
@@ -119,19 +123,23 @@ struct AgentCommand: AsyncParsableCommand {
         try cgManager.toggleAllAvailableControllers(enable: true)
 
         // Set memory.high threshold to 75 MiB
-        let threshold: UInt64 = 75 * 1024 * 1024
-        try cgManager.setMemoryHigh(bytes: threshold)
+        let high: UInt64 = 75 * 1024 * 1024
+        // Set memory.low to 50 MiB to avoid reclaiming vminitd's memory
+        let low: UInt64 = 50 * 1024 * 1024
+
+        try cgManager.setMemoryHigh(bytes: high)
+        try cgManager.setMemoryLow(bytes: low)
         try cgManager.addProcess(pid: getpid())
 
         let memoryMonitor = try MemoryMonitor(
             cgroupManager: cgManager,
-            threshold: threshold,
+            threshold: high,
             logger: log
         ) { [log] (currentUsage, highMark) in
             log.warning(
                 "vminitd memory threshold exceeded",
                 metadata: [
-                    "threshold_bytes": "\(threshold)",
+                    "threshold_bytes": "\(high)",
                     "current_bytes": "\(currentUsage)",
                     "high_events_total": "\(highMark)",
                 ])
@@ -146,8 +154,8 @@ struct AgentCommand: AsyncParsableCommand {
         }
         t.start()
 
-        let eg = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
-        let blockingPool = NIOThreadPool(numberOfThreads: System.coreCount)
+        let eg = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        let blockingPool = NIOThreadPool(numberOfThreads: 2)
         blockingPool.start()
         let server = Initd(log: log, group: eg, blockingPool: blockingPool)
 
@@ -157,13 +165,13 @@ struct AgentCommand: AsyncParsableCommand {
             log.info("vminitd API returned, syncing filesystems")
 
             #if os(Linux)
-            Musl.sync()
+            sync()
             #endif
         } catch {
             log.error("vminitd boot error \(error)")
 
             #if os(Linux)
-            Musl.sync()
+            sync()
             #endif
 
             _exit(1)
@@ -188,12 +196,11 @@ struct AgentCommand: AsyncParsableCommand {
     private static func adjustLimits(_ log: Logger) throws {
         let nrOpen = try String(contentsOfFile: "/proc/sys/fs/nr_open", encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let max = rlim_t(nrOpen) else {
+        guard let max = UInt64(nrOpen) else {
             throw POSIXError(.EINVAL)
         }
         log.debug("setting RLIMIT_NOFILE to \(max)")
-        var limits = rlimit(rlim_cur: max, rlim_max: max)
-        guard setrlimit(RLIMIT_NOFILE, &limits) == 0 else {
+        guard CZ_setrlimit(CZ_RLIMIT_NOFILE, max, max) == 0 else {
             throw POSIXError(.init(rawValue: errno)!)
         }
     }

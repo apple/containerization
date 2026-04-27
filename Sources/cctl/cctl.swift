@@ -61,12 +61,19 @@ struct Application: AsyncParsableCommand {
         commandName: "cctl",
         abstract: "Utility CLI for Containerization",
         version: "2.0.0",
-        subcommands: [
-            Images.self,
-            Login.self,
-            Rootfs.self,
-            Run.self,
-        ]
+        subcommands: {
+            var commands: [any ParsableCommand.Type] = [
+                Rootfs.self
+            ]
+            #if os(macOS)
+            commands += [
+                Images.self,
+                Login.self,
+                Run.self,
+            ]
+            #endif
+            return commands
+        }()
     )
 }
 

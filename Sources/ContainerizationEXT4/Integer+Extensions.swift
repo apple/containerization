@@ -32,7 +32,7 @@ extension UInt64 {
     }
 
     public static func / (lhs: Self, rhs: UInt32) -> UInt32 {
-        (lhs / UInt64(rhs)).lo
+        UInt32(lhs / UInt64(rhs))
     }
 
     public static func * (lhs: Self, rhs: UInt32) -> UInt64 {

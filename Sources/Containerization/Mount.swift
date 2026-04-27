@@ -14,10 +14,11 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-#if os(macOS)
-import Foundation
-import Virtualization
 import ContainerizationError
+import Foundation
+
+#if os(macOS)
+import Virtualization
 #endif
 
 /// A filesystem mount exposed to a container.

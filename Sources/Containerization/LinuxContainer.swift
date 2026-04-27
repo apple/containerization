@@ -14,7 +14,6 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-#if os(macOS)
 import ContainerizationArchive
 import ContainerizationError
 import ContainerizationExtras
@@ -22,6 +21,7 @@ import ContainerizationOCI
 import Foundation
 import Logging
 import Synchronization
+import SystemPackage
 
 import struct ContainerizationOS.Terminal
 
@@ -524,16 +524,14 @@ extension LinuxContainer {
 
             // Calculate VM memory with overhead for the guest agent.
             // The container cgroup limit stays at the requested memory, but the VM
-            // gets an additional 50MB for the guest agent (could be higher, could be lower
-            // but this is a decent baseline for now).
-            //
-            // Clamp to system RAM if the total would exceed it as Virtualization.framework
-            // bounds us to this.
-            let guestAgentOverhead: UInt64 = 50.mib()
-            let vmMemory = min(
-                self.memoryInBytes + guestAgentOverhead,
-                ProcessInfo.processInfo.physicalMemory
-            )
+            // gets an additional 75MiB for the guest agent (could be higher, could
+            // be lower but this is a decent baseline for now).
+            let guestAgentOverhead: UInt64 = 75.mib()
+            let mib: UInt64 = 1.mib()
+            let vmMemory = (self.memoryInBytes + guestAgentOverhead + mib - 1) & ~(mib - 1)
+
+            // Give the guest agent a core to play with outside of the container.
+            let vmCpus = self.cpus + 1
 
             // Prepare file mounts. This transforms single-file mounts into directory shares.
             let fileMountContext = try FileMountContext.prepare(mounts: self.config.mounts)
@@ -547,7 +545,7 @@ extension LinuxContainer {
             }
 
             let vmConfig = VMConfiguration(
-                cpus: self.cpus,
+                cpus: vmCpus,
                 memoryInBytes: vmMemory,
                 interfaces: self.interfaces,
                 mountsByID: [self.id: containerMounts],
@@ -592,19 +590,27 @@ extension LinuxContainer {
                     // For every interface asked for:
                     // 1. Add the address requested
                     // 2. Online the adapter
-                    // 3. If a gateway IP address is present, add the default route.
+                    // 3. For the first interface, add the default route
+                    var defaultRouteSet = false
                     for (index, i) in self.interfaces.enumerated() {
                         let name = "eth\(index)"
                         self.logger?.debug("setting up interface \(name) with address \(i.ipv4Address)")
                         try await agent.addressAdd(name: name, ipv4Address: i.ipv4Address)
                         try await agent.up(name: name, mtu: i.mtu)
+                        if defaultRouteSet {
+                            continue
+                        }
                         if let ipv4Gateway = i.ipv4Gateway {
                             if !i.ipv4Address.contains(ipv4Gateway) {
                                 self.logger?.debug("gateway \(ipv4Gateway) is outside subnet \(i.ipv4Address), adding a route first")
                                 try await agent.routeAddLink(name: name, dstIPv4Addr: ipv4Gateway, srcIPv4Addr: i.ipv4Address.address)
                             }
                             try await agent.routeAddDefault(name: name, ipv4Gateway: ipv4Gateway)
+                        } else {
+                            self.logger?.debug("no gateway for \(name)")
+                            try await agent.routeAddDefault(name: name, ipv4Gateway: nil)
                         }
+                        defaultRouteSet = true
                     }
 
                     // Setup /etc/resolv.conf and /etc/hosts if asked for.
@@ -671,7 +677,7 @@ extension LinuxContainer {
                         ))
                 }
 
-                spec.mounts = mounts
+                spec.mounts = cleanAndSortMounts(mounts)
 
                 let stdio = IOUtil.setup(
                     portAllocator: self.hostVsockPorts,
@@ -702,46 +708,6 @@ extension LinuxContainer {
         }
     }
 
-    private static func setupIO(
-        portAllocator: borrowing Atomic<UInt32>,
-        stdin: ReaderStream?,
-        stdout: Writer?,
-        stderr: Writer?
-    ) -> LinuxProcess.Stdio {
-        var stdinSetup: LinuxProcess.StdioReaderSetup? = nil
-        if let reader = stdin {
-            let ret = portAllocator.wrappingAdd(1, ordering: .relaxed)
-            stdinSetup = .init(
-                port: ret.oldValue,
-                reader: reader
-            )
-        }
-
-        var stdoutSetup: LinuxProcess.StdioSetup? = nil
-        if let writer = stdout {
-            let ret = portAllocator.wrappingAdd(1, ordering: .relaxed)
-            stdoutSetup = LinuxProcess.StdioSetup(
-                port: ret.oldValue,
-                writer: writer
-            )
-        }
-
-        var stderrSetup: LinuxProcess.StdioSetup? = nil
-        if let writer = stderr {
-            let ret = portAllocator.wrappingAdd(1, ordering: .relaxed)
-            stderrSetup = LinuxProcess.StdioSetup(
-                port: ret.oldValue,
-                writer: writer
-            )
-        }
-
-        return LinuxProcess.Stdio(
-            stdin: stdinSetup,
-            stdout: stdoutSetup,
-            stderr: stderrSetup
-        )
-    }
-
     /// Stop the container from executing. This MUST be called even if wait() has returned
     /// as their are additional resources to free.
     public func stop() async throws {
@@ -753,18 +719,15 @@ extension LinuxContainer {
 
             let vm: any VirtualMachineInstance
             let relayManager: UnixSocketRelayManager
-            let fileMountContext: FileMountContext
 
             let startedState = try? state.startedState("stop")
             if let startedState {
                 vm = startedState.vm
                 relayManager = startedState.relayManager
-                fileMountContext = startedState.fileMountContext
             } else {
                 let createdState = try state.createdState("stop")
                 vm = createdState.vm
                 relayManager = createdState.relayManager
-                fileMountContext = createdState.fileMountContext
             }
 
             var firstError: Error?
@@ -843,9 +806,6 @@ extension LinuxContainer {
                     firstError = firstError ?? error
                 }
             }
-
-            // Clean up file mount temporary directories.
-            fileMountContext.cleanUp()
 
             do {
                 try await vm.stop()
@@ -1292,6 +1252,26 @@ extension AttachedFilesystem {
     }
 }
 
+/// Normalize mount destinations via ``FilePath/lexicallyNormalized()`` and
+/// sort mounts by the depth of their destination path. This ensures that
+/// higher level mounts don't shadow other mounts. For example, if a user
+/// specifies mounts for `/tmp/foo/bar` and `/tmp`, sorting by depth ensures
+/// `/tmp` is mounted first without shadowing `/tmp/foo/bar`.
+func cleanAndSortMounts(_ mounts: [ContainerizationOCI.Mount]) -> [ContainerizationOCI.Mount] {
+    var mounts = mounts
+    for i in mounts.indices {
+        mounts[i].destination = FilePath(mounts[i].destination).lexicallyNormalized().string
+    }
+    return sortMountsByDestinationDepth(mounts)
+}
+
+/// Sort mounts by the depth of their destination path.
+func sortMountsByDestinationDepth(_ mounts: [ContainerizationOCI.Mount]) -> [ContainerizationOCI.Mount] {
+    mounts.sorted { a, b in
+        a.destination.split(separator: "/").count < b.destination.split(separator: "/").count
+    }
+}
+
 struct IOUtil {
     static func setup(
         portAllocator: borrowing Atomic<UInt32>,
@@ -1333,5 +1313,3 @@ struct IOUtil {
         )
     }
 }
-
-#endif

@@ -19,31 +19,47 @@ import ContainerizationExtras
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
-import GRPC
+import GRPCCore
+import GRPCNIOTransportCore
 import NIOCore
 import NIOPosix
 
 /// A remote connection into the vminitd Linux guest agent via a port (vsock).
 /// Used to modify the runtime environment of the Linux sandbox.
 public struct Vminitd: Sendable {
-    public typealias Client = Com_Apple_Containerization_Sandbox_V3_SandboxContextAsyncClient
-
     // Default vsock port that the agent and client use.
     public static let port: UInt32 = 1024
 
-    let client: Client
+    let client: Com_Apple_Containerization_Sandbox_V3_SandboxContext.Client<HTTP2ClientTransport.WrappedChannel>
+    private let grpcClient: GRPCClient<HTTP2ClientTransport.WrappedChannel>
+    private let connectionTask: Task<Void, Error>
 
-    public init(client: Client) {
-        self.client = client
-    }
-
-    public init(connection: FileHandle, group: EventLoopGroup) {
-        self.client = .init(connection: connection, group: group)
+    public init(connection: FileHandle, group: any EventLoopGroup) throws {
+        let channel = try ClientBootstrap(group: group)
+            .channelInitializer { channel in
+                channel.eventLoop.makeCompletedFuture(withResultOf: {
+                    try channel.pipeline.syncOperations.addHandler(HTTP2ConnectBufferingHandler())
+                })
+            }
+            .withConnectedSocket(connection.fileDescriptor).wait()
+        let transport = HTTP2ClientTransport.WrappedChannel.wrapping(
+            channel: channel,
+            config: .defaults { $0.connection.maxIdleTime = nil }
+        )
+        let grpcClient = GRPCClient(transport: transport)
+        self.grpcClient = grpcClient
+        self.client = Com_Apple_Containerization_Sandbox_V3_SandboxContext.Client(wrapping: self.grpcClient)
+        // Not very structured concurrency friendly, but we'd need to expose a way on the protocol to "run" the
+        // agent otherwise, which some agents might not even need.
+        self.connectionTask = Task {
+            try await grpcClient.runConnections()
+        }
     }
 
     /// Close the connection to the guest agent.
     public func close() async throws {
-        try await client.close()
+        self.grpcClient.beginGracefulShutdown()
+        try await self.connectionTask.value
     }
 }
 
@@ -265,17 +281,17 @@ extension Vminitd: VirtualMachineAgent {
                 $0.containerID = containerID
             }
         }
-        var callOpts: CallOptions?
+
+        var callOpts = GRPCCore.CallOptions.defaults
         if let timeoutInSeconds {
-            var copts = CallOptions()
-            copts.timeLimit = .timeout(.seconds(timeoutInSeconds))
-            callOpts = copts
+            callOpts.timeout = .seconds(timeoutInSeconds)
         }
+
         do {
-            let resp = try await client.waitProcess(request, callOptions: callOpts)
+            let resp = try await client.waitProcess(request, options: callOpts)
             return ExitStatus(exitCode: resp.exitCode, exitedAt: resp.exitedAt.date)
         } catch {
-            if let err = error as? GRPCError.RPCTimedOut {
+            if let err = error as? RPCError, err.code == .deadlineExceeded {
                 throw ContainerizationError(
                     .timeout,
                     message: "failed to wait for process exit within timeout of \(timeoutInSeconds!) seconds",
@@ -398,11 +414,11 @@ extension Vminitd {
     }
 
     /// Set the default route in the sandbox's environment.
-    public func routeAddDefault(name: String, ipv4Gateway: IPv4Address) async throws {
+    public func routeAddDefault(name: String, ipv4Gateway: IPv4Address?) async throws {
         _ = try await client.ipRouteAddDefault(
             .with {
                 $0.interface = name
-                $0.ipv4Gateway = ipv4Gateway.description
+                $0.ipv4Gateway = ipv4Gateway?.description ?? ""
             })
     }
 
@@ -493,7 +509,7 @@ extension Vminitd {
         mode: UInt32 = 0,
         createParents: Bool = false,
         isArchive: Bool = false,
-        onMetadata: @Sendable (CopyMetadata) -> Void = { _ in }
+        onMetadata: @Sendable @escaping (CopyMetadata) -> Void = { _ in }
     ) async throws {
         let request = Com_Apple_Containerization_Sandbox_V3_CopyRequest.with {
             $0.direction = direction
@@ -504,21 +520,23 @@ extension Vminitd {
             $0.isArchive = isArchive
         }
 
-        let stream = client.copy(request)
-
-        for try await response in stream {
-            if !response.error.isEmpty {
-                throw ContainerizationError(.internalError, message: "copy: \(response.error)")
-            }
-            switch response.status {
-            case .metadata:
-                onMetadata(CopyMetadata(isArchive: response.isArchive, totalSize: response.totalSize))
-            case .complete:
-                break
-            case .UNRECOGNIZED(let value):
-                throw ContainerizationError(.internalError, message: "copy: unrecognized response status \(value)")
-            }
-        }
+        try await client.copy(
+            request,
+            onResponse: { stream in
+                for try await response in stream.messages {
+                    if !response.error.isEmpty {
+                        throw ContainerizationError(.internalError, message: "copy: \(response.error)")
+                    }
+                    switch response.status {
+                    case .metadata:
+                        onMetadata(CopyMetadata(isArchive: response.isArchive, totalSize: response.totalSize))
+                    case .complete:
+                        break
+                    case .UNRECOGNIZED(let value):
+                        throw ContainerizationError(.internalError, message: "copy: unrecognized response status \(value)")
+                    }
+                }
+            })
     }
 }
 
@@ -540,22 +558,6 @@ extension Hosts {
                 }
             }
         }
-    }
-}
-
-extension Vminitd.Client {
-    public init(connection: FileHandle, group: EventLoopGroup) {
-        var config = ClientConnection.Configuration.default(
-            target: .connectedSocket(connection.fileDescriptor),
-            eventLoopGroup: group
-        )
-        config.connectionBackoff = nil
-        config.maximumReceiveMessageLength = Int(64.mib())
-        self = .init(channel: ClientConnection(configuration: config))
-    }
-
-    public func close() async throws {
-        try await self.channel.close().get()
     }
 }
 

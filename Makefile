@@ -18,7 +18,13 @@ WARNINGS_AS_ERRORS ?= true
 SWIFT_CONFIGURATION := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors) --disable-automatic-resolution
 
 # Commonly used locations
-SWIFT := "/usr/bin/swift"
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
+SWIFT ?= /usr/bin/swift
+else
+SWIFT ?= swift
+endif
+
 ROOT_DIR := $(shell git rev-parse --show-toplevel)
 BUILD_BIN_DIR = $(shell $(SWIFT) build -c $(BUILD_CONFIGURATION) --show-bin-path)
 COV_DATA_DIR = $(shell $(SWIFT) test --show-coverage-path | xargs dirname)
@@ -31,8 +37,63 @@ LIBARCHIVE_LOCAL_DIR := workdir/libarchive
 
 KATA_BINARY_PACKAGE := https://github.com/kata-containers/kata-containers/releases/download/3.17.0/kata-static-3.17.0-arm64.tar.xz
 
+SWIFT_VERSION := $(shell cat $(ROOT_DIR)/.swift-version)
+SWIFT_SDK_URL := $(shell grep '^SWIFT_SDK_URL' vminitd/Makefile | head -1 | sed 's/.*:= *//')
+SWIFT_SDK_CHECKSUM := $(shell grep '^SWIFT_SDK_CHECKSUM' vminitd/Makefile | head -1 | sed 's/.*:= *//')
+LINUX_DEV_IMAGE := containerization-dev:$(SWIFT_VERSION)
+
+# Run a command inside a Linux dev container.
+# Requires 'container' (https://github.com/apple/container).
+# Automatically builds the dev image if it doesn't exist.
+define linux_run
+	@if ! command -v container > /dev/null 2>&1; then \
+		echo "Error: 'container' CLI not found. Install from https://github.com/apple/container"; \
+		exit 1; \
+	fi
+	@if ! container image list -q 2>/dev/null | grep -q "$(LINUX_DEV_IMAGE)"; then \
+		echo "Building Linux dev container image..."; \
+		$(MAKE) linux-image; \
+	fi
+	@container run --memory 8gb --cpus 4 -v $(ROOT_DIR):/workspace -w /workspace $(LINUX_DEV_IMAGE) \
+		bash -c "$(1)"
+endef
+
 include Protobuf.Makefile
 .DEFAULT_GOAL := all
+
+.PHONY: deps
+deps:
+ifeq ($(UNAME_S),Linux)
+	sudo apt-get install -y libarchive-dev libbz2-dev liblzma-dev libssl-dev
+else
+	@echo "No additional dependencies required on $(UNAME_S)"
+endif
+
+ifeq ($(UNAME_S),Darwin)
+.PHONY: linux-image
+linux-image:
+	container build \
+		--progress plain \
+		-f images/linux-dev/Dockerfile \
+		--build-arg SWIFT_VERSION=$(SWIFT_VERSION) \
+		--build-arg SWIFT_SDK_URL=$(SWIFT_SDK_URL) \
+		--build-arg SWIFT_SDK_CHECKSUM=$(SWIFT_SDK_CHECKSUM) \
+		-t $(LINUX_DEV_IMAGE) \
+		.
+
+.PHONY: linux-build
+linux-build: LIBC ?= musl
+linux-build:
+ifeq ($(LIBC),all)
+	$(call linux_run,make containerization && make -C vminitd LIBC=glibc && make -C vminitd LIBC=musl)
+else
+	$(call linux_run,make containerization && make -C vminitd LIBC=$(LIBC))
+endif
+
+.PHONY: linux-test
+linux-test:
+	$(call linux_run,swift test $(SWIFT_CONFIGURATION))
+endif
 
 .PHONY: all
 all: containerization
@@ -51,11 +112,13 @@ containerization:
 	@echo Copying containerization binaries...
 	@mkdir -p bin
 	@install "$(BUILD_BIN_DIR)/cctl" ./bin/
+ifeq ($(UNAME_S),Darwin)
 	@install "$(BUILD_BIN_DIR)/containerization-integration" ./bin/
 
 	@echo Signing containerization binaries...
 	@codesign --force --sign - --timestamp=none --entitlements=signing/vz.entitlements bin/cctl
 	@codesign --force --sign - --timestamp=none --entitlements=signing/vz.entitlements bin/containerization-integration
+endif
 
 .PHONY: init
 init: containerization vminitd

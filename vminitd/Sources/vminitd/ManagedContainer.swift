@@ -89,7 +89,6 @@ actor ManagedContainer {
                     id: id,
                     stdio: stdio,
                     bundle: bundle,
-                    cgroupManager: cgManager,
                     owningPid: nil,
                     log: log
                 )

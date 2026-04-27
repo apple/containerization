@@ -15,6 +15,7 @@
  */
 
 #include <sys/prctl.h>
+#include <sys/resource.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 
@@ -38,4 +39,12 @@ int CZ_pidfd_getfd(int pidfd, int targetfd, unsigned int flags) {
 
 int CZ_prctl_set_no_new_privs() {
   return prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
+}
+
+int CZ_setrlimit(int resource, unsigned long long soft,
+                 unsigned long long hard) {
+  struct rlimit limit;
+  limit.rlim_cur = (rlim_t)soft;
+  limit.rlim_max = (rlim_t)hard;
+  return setrlimit(resource, &limit);
 }

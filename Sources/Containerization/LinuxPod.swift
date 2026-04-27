@@ -14,7 +14,6 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-#if os(macOS)
 import ContainerizationError
 import ContainerizationExtras
 import ContainerizationOCI
@@ -445,19 +444,27 @@ extension LinuxPod {
                     // For every interface asked for:
                     // 1. Add the address requested
                     // 2. Online the adapter
-                    // 3. If a gateway IP address is present, add the default route.
+                    // 3. For the first interface, add the default route
+                    var defaultRouteSet = false
                     for (index, i) in self.interfaces.enumerated() {
                         let name = "eth\(index)"
                         self.logger?.debug("setting up interface \(name) with address \(i.ipv4Address)")
                         try await agent.addressAdd(name: name, ipv4Address: i.ipv4Address)
                         try await agent.up(name: name, mtu: i.mtu)
+                        if defaultRouteSet {
+                            continue
+                        }
                         if let ipv4Gateway = i.ipv4Gateway {
                             if !i.ipv4Address.contains(ipv4Gateway) {
                                 self.logger?.debug("gateway \(ipv4Gateway) is outside subnet \(i.ipv4Address), adding a route first")
                                 try await agent.routeAddLink(name: name, dstIPv4Addr: ipv4Gateway, srcIPv4Addr: nil)
                             }
                             try await agent.routeAddDefault(name: name, ipv4Gateway: ipv4Gateway)
+                        } else {
+                            self.logger?.debug("no gateway for \(name)")
+                            try await agent.routeAddDefault(name: name, ipv4Gateway: nil)
                         }
+                        defaultRouteSet = true
                     }
 
                     // Setup /etc/resolv.conf and /etc/hosts for each container.
@@ -558,7 +565,7 @@ extension LinuxPod {
                         ))
                 }
 
-                spec.mounts = mounts
+                spec.mounts = cleanAndSortMounts(mounts)
 
                 // Configure namespaces for the container
                 var namespaces: [LinuxNamespace] = [
@@ -712,9 +719,6 @@ extension LinuxPod {
                         try? await process.delete()
                         container.process = nil
                         container.state = .stopped
-
-                        // Clean up file mount temporary directories.
-                        container.fileMountContext.cleanUp()
 
                         state.containers[containerID] = container
                     }
@@ -924,5 +928,3 @@ extension LinuxPod {
         try await relayAgent.relaySocket(port: port, configuration: socket)
     }
 }
-
-#endif

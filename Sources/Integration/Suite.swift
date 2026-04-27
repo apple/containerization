@@ -282,7 +282,7 @@ struct IntegrationSuite: AsyncParsableCommand {
     // Hopefully this improves over time.
     func run() async throws {
         try Self.adjustLimits()
-        let suiteStarted = CFAbsoluteTimeGetCurrent()
+        let suiteStarted = Date().timeIntervalSinceReferenceDate
         log.info("starting integration suite\n")
 
         let tests: [Test] =
@@ -341,6 +341,9 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container read-only rootfs hosts file", testReadOnlyRootfsHostsFileWritten),
                 Test("container read-only rootfs DNS", testReadOnlyRootfsDNSConfigured),
                 Test("container writable layer", testWritableLayer),
+                Test("container writable layer journal writeback", testWritableLayerJournalWriteback),
+                Test("container writable layer journal ordered", testWritableLayerJournalOrdered),
+                Test("container writable layer journal data", testWritableLayerJournalData),
                 Test("container writable layer preserves lower", testWritableLayerPreservesLowerLayer),
                 Test("container writable layer reads from lower", testWritableLayerReadsFromLower),
                 Test("container writable layer with ro lower", testWritableLayerWithReadOnlyLower),
@@ -353,11 +356,10 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("stdin binary data", testStdinBinaryData),
                 Test("stdin multiple chunks", testStdinMultipleChunks),
                 Test("stdin very large", testStdinVeryLarge),
-                // FIXME: reenable when single file mount issues resolved
-                //Test("container single file mount", testSingleFileMount),
-                //Test("container single file mount read-only", testSingleFileMountReadOnly),
-                //Test("container single file mount write-back", testSingleFileMountWriteBack),
-                //Test("container single file mount symlink", testSingleFileMountSymlink),
+                Test("container single file mount", testSingleFileMount),
+                Test("container single file mount read-only", testSingleFileMountReadOnly),
+                Test("container single file mount write-back", testSingleFileMountWriteBack),
+                Test("container single file mount symlink", testSingleFileMountSymlink),
                 Test("container rlimit open files", testRLimitOpenFiles),
                 Test("container rlimit multiple", testRLimitMultiple),
                 Test("container rlimit exec", testRLimitExec),
@@ -376,6 +378,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container noNewPrivileges exec", testNoNewPrivilegesExec),
                 Test("container workingDir created", testWorkingDirCreated),
                 Test("container workingDir exec created", testWorkingDirExecCreated),
+                Test("container mount sort by depth", testMountsSortedByDepth),
 
                 // Pods
                 Test("pod single container", testPodSingleContainer),
@@ -397,7 +400,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("pod shared PID namespace", testPodSharedPIDNamespace),
                 Test("pod read-only rootfs", testPodReadOnlyRootfs),
                 Test("pod read-only rootfs DNS", testPodReadOnlyRootfsDNSConfigured),
-                //Test("pod single file mount", testPodSingleFileMount),
+                Test("pod single file mount", testPodSingleFileMount),
                 Test("pod container hosts config", testPodContainerHostsConfig),
                 Test("pod multiple containers different DNS", testPodMultipleContainersDifferentDNS),
                 Test("pod multiple containers different hosts", testPodMultipleContainersDifferentHosts),
@@ -438,9 +441,9 @@ struct IntegrationSuite: AsyncParsableCommand {
                         do {
                             log.info("test \(job.name) started...")
 
-                            let started = CFAbsoluteTimeGetCurrent()
+                            let started = Date().timeIntervalSinceReferenceDate
                             try await job.work()
-                            let lasted = CFAbsoluteTimeGetCurrent() - started
+                            let lasted = Date().timeIntervalSinceReferenceDate - started
 
                             log.info("✅ test \(job.name) complete in \(lasted)s.")
                             passed.add(1, ordering: .relaxed)
@@ -459,7 +462,7 @@ struct IntegrationSuite: AsyncParsableCommand {
         let passedCount = passed.load(ordering: .acquiring)
         let skippedCount = skipped.load(ordering: .acquiring)
 
-        let ended = CFAbsoluteTimeGetCurrent() - suiteStarted
+        let ended = Date().timeIntervalSinceReferenceDate - suiteStarted
         var finishingText = "\n\nIntegration suite completed in \(ended)s with \(passedCount)/\(filteredTests.count) passed"
         if skipped.load(ordering: .acquiring) > 0 {
             finishingText += " and \(skippedCount)/\(filteredTests.count) skipped"

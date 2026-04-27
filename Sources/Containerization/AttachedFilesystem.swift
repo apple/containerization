@@ -28,7 +28,6 @@ public struct AttachedFilesystem: Sendable {
     /// The options to use when mounting the filesystem.
     public var options: [String]
 
-    #if os(macOS)
     public init(mount: Mount, allocator: any AddressAllocator<Character>) throws {
         switch mount.type {
         case "virtiofs":
@@ -44,7 +43,6 @@ public struct AttachedFilesystem: Sendable {
         self.options = mount.options
         self.destination = mount.destination
     }
-    #endif
 
     public init(type: String, source: String, destination: String, options: [String]) {
         self.type = type

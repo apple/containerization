@@ -51,6 +51,34 @@ struct TestEXT4ExtendedAttribute {
         }
     }
 
+    @Test func lastXattrNotDroppedAtBufferBoundary() throws {
+        let buffer: [UInt8] = [
+            0,  // nameLength
+            8,  // nameIndex
+            0, 0,  // valueOffset
+            0, 0, 0, 0,  // valueInum
+            0, 0, 0, 0,  // valueSize
+            0, 0, 0, 0,  // hash
+        ]
+        let attrs = try EXT4.FileXattrsState.read(buffer: buffer, start: 0, offset: 0)
+        try #require(attrs.count == 1)
+        #expect(attrs[0].fullName == "system.richacl")
+    }
+
+    @Test func xattrOutOfBoundsValueDoesNotCrash() throws {
+        let buffer: [UInt8] = [
+            1,  // nameLength
+            1,  // nameIndex
+            17, 0,  // valueOffset
+            0, 0, 0, 0,  // valueInum
+            4, 0, 0, 0,  // valueSize
+            0, 0, 0, 0,  // hash
+            UInt8(ascii: "a"), 0, 0, 0,  // name
+        ]
+        let attrs = try EXT4.FileXattrsState.read(buffer: buffer, start: 0, offset: 0)
+        #expect(attrs.isEmpty)
+    }
+
     @Test func encodeDecodeAttributes() {
         let xattrs: [String: Data] = [
             "foo.bar": Data([1, 2, 3]),

@@ -1,0 +1,60 @@
+name: Linux build
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+  push:
+    branches:
+      - main
+      - release/*
+
+jobs:
+  swift-version:
+    name: Determine Swift version
+    runs-on: ubuntu-24.04
+    outputs:
+      image: ${{ steps.version.outputs.image }}
+    steps:
+      - name: Checkout .swift-version
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6
+        with:
+          sparse-checkout: .swift-version
+          sparse-checkout-cone-mode: false
+
+      - name: Read Swift version
+        id: version
+        run: echo "image=swift:$(cat .swift-version)-noble" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Linux compile check
+    needs: swift-version
+    timeout-minutes: 30
+    runs-on: ubuntu-24.04
+    container: ${{ needs.swift-version.outputs.image }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6
+        with:
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        run: apt-get update && apt-get install -y curl make libarchive-dev libbz2-dev liblzma-dev libssl-dev
+
+      - name: Build containerization
+        run: make containerization
+
+      - name: Build vminitd (glibc)
+        run: make -C vminitd SWIFT_CONFIGURATION="--disable-automatic-resolution -Xswiftc -warnings-as-errors"
+
+      - name: Install Static Linux SDK
+        run: make -C vminitd linux-sdk
+
+      - name: Build vminitd (musl)
+        run: make -C vminitd
+
+      - name: Run unit tests
+        run: swift test --disable-automatic-resolution -Xswiftc -warnings-as-errors

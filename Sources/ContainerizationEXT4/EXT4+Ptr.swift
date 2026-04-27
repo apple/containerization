@@ -17,67 +17,20 @@
 extension EXT4 {
     class Ptr<T> {
         let underlying: UnsafeMutablePointer<T>
-        private var capacity: Int
-        private var initialized: Bool
-        private var allocated: Bool
 
         var pointee: T {
-            underlying.pointee
+            get { underlying.pointee }
+            set { underlying.pointee = newValue }
         }
 
-        init(capacity: Int) {
-            self.underlying = UnsafeMutablePointer<T>.allocate(capacity: capacity)
-            self.capacity = capacity
-            self.allocated = true
-            self.initialized = false
-        }
-
-        static func allocate(capacity: Int) -> Ptr<T> {
-            Ptr<T>(capacity: capacity)
-        }
-
-        func initialize(to value: T) {
-            guard self.allocated else {
-                return
-            }
-            if self.initialized {
-                self.underlying.deinitialize(count: self.capacity)
-            }
+        init(_ value: T) {
+            self.underlying = .allocate(capacity: 1)
             self.underlying.initialize(to: value)
-            self.allocated = true
-            self.initialized = true
-        }
-
-        func deallocate() {
-            guard self.allocated else {
-                return
-            }
-            self.underlying.deallocate()
-            self.allocated = false
-            self.initialized = false
-        }
-
-        func deinitialize(count: Int) {
-            guard self.allocated else {
-                return
-            }
-            guard self.initialized else {
-                return
-            }
-            self.underlying.deinitialize(count: count)
-            self.initialized = false
-            self.allocated = true
-        }
-
-        func move() -> T {
-            self.initialized = false
-            self.allocated = true
-            return self.underlying.move()
         }
 
         deinit {
-            self.deinitialize(count: self.capacity)
-            self.deallocate()
+            underlying.deinitialize(count: 1)
+            underlying.deallocate()
         }
     }
 }

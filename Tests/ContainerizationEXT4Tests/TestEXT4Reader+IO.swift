@@ -37,14 +37,13 @@ struct EXT4PathIOTests {
     ///   }
     private func buildFS(
         minDiskSize: UInt64 = 4 * 1024 * 1024,  // 4 MiB is enough for these tests
-        blockSize: UInt32 = 4096,
         populate: (EXT4.Formatter) throws -> Void
     ) throws -> URL {
         let url = makeTempImageURL()
         let path = FilePath(url.path)
 
         // 1) Format image
-        let formatter = try EXT4.Formatter(path, blockSize: blockSize, minDiskSize: minDiskSize)
+        let formatter = try EXT4.Formatter(path, minDiskSize: minDiskSize)
 
         // 2) Populate contents
         try populate(formatter)
@@ -500,6 +499,34 @@ struct EXT4PathIOTests {
     }
 
     @Test
+    func sameAbsoluteSymlinkFollowedTwice() throws {
+        let url = try buildFS { fmt in
+            try self.createDir(fmt, "/target")
+            try self.createFile(fmt, "/target/file.txt", "OK")
+            try self.createSymlink(fmt, "/symlink", "/target")
+        }
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let r = try openReader(url)
+        let data = try r.readFile(at: FilePath("/symlink/../symlink/file.txt"))
+        #expect(String(decoding: data, as: UTF8.self) == "OK")
+    }
+
+    @Test
+    func sameRelativeSymlinkFollowedTwice() throws {
+        let url = try buildFS { fmt in
+            try self.createDir(fmt, "/target")
+            try self.createFile(fmt, "/target/file.txt", "OK")
+            try self.createSymlink(fmt, "/symlink", "../target")
+        }
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let r = try openReader(url)
+        let data = try r.readFile(at: FilePath("/symlink/../symlink/file.txt"))
+        #expect(String(decoding: data, as: UTF8.self) == "OK")
+    }
+
+    @Test
     func boundsCheckingForInvalidExtents() throws {
         // This test verifies that the reader properly validates extent addresses
         // Note: We can't easily create an image with invalid extents using the Formatter,
@@ -583,5 +610,43 @@ struct EXT4PathIOTests {
         // Read to EOF without count
         let all = try r.readFile(at: FilePath("/big/file.bin"))
         #expect(all.count == bigSize)
+    }
+
+    @Test
+    func fileTreeNodePathWithAbsoluteRoot() {
+        let tree = EXT4.FileTree(EXT4.RootInode, "/")
+
+        let dirPtr = EXT4.Ptr(EXT4.FileTree.FileTreeNode(inode: 3, name: "dir", parent: tree.root))
+        tree.root.pointee.children.append(dirPtr)
+
+        let filePtr = EXT4.Ptr(EXT4.FileTree.FileTreeNode(inode: 4, name: "file", parent: dirPtr))
+        dirPtr.pointee.children.append(filePtr)
+
+        #expect(dirPtr.pointee.path == FilePath("/dir"))
+        #expect(filePtr.pointee.path == FilePath("/dir/file"))
+    }
+
+    @Test
+    func fileTreeNodePathWithRelativeRoot() {
+        let tree = EXT4.FileTree(EXT4.RootInode, ".")
+
+        let dirPtr = EXT4.Ptr(EXT4.FileTree.FileTreeNode(inode: 3, name: "dir", parent: tree.root))
+        tree.root.pointee.children.append(dirPtr)
+
+        let filePtr = EXT4.Ptr(EXT4.FileTree.FileTreeNode(inode: 4, name: "file", parent: dirPtr))
+        dirPtr.pointee.children.append(filePtr)
+
+        #expect(dirPtr.pointee.path == FilePath("dir"))
+        #expect(filePtr.pointee.path == FilePath("dir/file"))
+    }
+
+    @Test
+    func fileTreeNodePathWithNamedRoot() {
+        let tree = EXT4.FileTree(EXT4.RootInode, "dir")
+
+        let filePtr = EXT4.Ptr(EXT4.FileTree.FileTreeNode(inode: 3, name: "file", parent: tree.root))
+        tree.root.pointee.children.append(filePtr)
+
+        #expect(filePtr.pointee.path == FilePath("dir/file"))
     }
 }
