@@ -1635,6 +1635,96 @@ extension IntegrationSuite {
         }
     }
 
+    func testStat() async throws {
+        let id = "test-stat"
+
+        let bs = try await bootstrap(id)
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        func assertExec(_ container: LinuxContainer, id: String, cmd: String) async throws {
+            let exec = try await container.exec(id) { config in
+                config.arguments = ["sh", "-c", cmd]
+            }
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "\(id) failed with exit code \(status.exitCode)")
+            }
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // regular file: "regular file" is exactly 12 bytes
+            try await assertExec(container, id: "create-regular-file", cmd: "echo -n 'regular file' > /tmp/regular-file.txt")
+            // directory
+            try await assertExec(container, id: "create-dir", cmd: "mkdir /tmp/test-dir")
+            // relative symlink so stat() resolves the target within the same directory
+            try await assertExec(container, id: "create-symlink", cmd: "ln -s regular-file.txt /tmp/test-link")
+            // FIFO
+            try await assertExec(container, id: "create-fifo", cmd: "mkfifo /tmp/test-fifo")
+
+            let vsock = try await container.dialVsock(port: 1024)
+            let vminitd = try Vminitd(connection: vsock, group: Self.eventLoop)
+
+            let root = URL(filePath: container.root)
+
+            // --- regular file ---
+            let regularStat = try await vminitd.stat(path: root.appending(path: "tmp/regular-file.txt"))
+            guard (regularStat.mode & UInt32(S_IFMT)) == S_IFREG else {
+                throw IntegrationError.assert(msg: "regular file: expected S_IFREG, got mode 0x\(String(regularStat.mode, radix: 16))")
+            }
+            guard regularStat.size == 12 else {
+                throw IntegrationError.assert(msg: "regular file: expected size 12, got \(regularStat.size)")
+            }
+            guard regularStat.ino > 0 else {
+                throw IntegrationError.assert(msg: "regular file: expected non-zero inode, got \(regularStat.ino)")
+            }
+            guard regularStat.nlink >= 1 else {
+                throw IntegrationError.assert(msg: "regular file: expected nlink >= 1, got \(regularStat.nlink)")
+            }
+
+            // --- directory ---
+            let dirStat = try await vminitd.stat(path: root.appending(path: "tmp/test-dir"))
+            guard (dirStat.mode & UInt32(S_IFMT)) == S_IFDIR else {
+                throw IntegrationError.assert(msg: "directory: expected S_IFDIR, got mode 0x\(String(dirStat.mode, radix: 16))")
+            }
+            // A directory always has at least 2 hard links (. and its entry in the parent)
+            guard dirStat.nlink >= 2 else {
+                throw IntegrationError.assert(msg: "directory: expected nlink >= 2, got \(dirStat.nlink)")
+            }
+
+            // --- symlink ---
+            // stat(2) follows symlinks, so the result reflects the target regular file
+            let symlinkStat = try await vminitd.stat(path: root.appending(path: "tmp/test-link"))
+            guard (symlinkStat.mode & UInt32(S_IFMT)) == S_IFREG else {
+                throw IntegrationError.assert(msg: "symlink (followed): expected S_IFREG, got mode 0x\(String(symlinkStat.mode, radix: 16))")
+            }
+            guard symlinkStat.size == regularStat.size else {
+                throw IntegrationError.assert(msg: "symlink (followed): expected size \(regularStat.size), got \(symlinkStat.size)")
+            }
+
+            // --- FIFO ---
+            let fifoStat = try await vminitd.stat(path: root.appending(path: "tmp/test-fifo"))
+            guard (fifoStat.mode & UInt32(S_IFMT)) == S_IFIFO else {
+                throw IntegrationError.assert(msg: "FIFO: expected S_IFIFO, got mode 0x\(String(fifoStat.mode, radix: 16))")
+            }
+
+            try await container.kill(SIGKILL)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
     func testCopyIn() async throws {
         let id = "test-copy-in"
 
