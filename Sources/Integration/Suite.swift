@@ -324,6 +324,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container capabilities OCI default", testCapabilitiesOCIDefault),
                 Test("container capabilities all capabilities", testCapabilitiesAllCapabilities),
                 Test("container capabilities file ownership", testCapabilitiesFileOwnership),
+                Test("container stat", testStat),
                 Test("container copy in", testCopyIn),
                 Test("container copy out", testCopyOut),
                 Test("container copy large file", testCopyLargeFile),
