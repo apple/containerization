@@ -615,6 +615,95 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         }
     }
 
+    func filesystemOperation(request: Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest, context: GRPCCore.ServerContext)
+        async throws -> Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse
+    {
+        log.debug(
+            "filesystemOperation",
+            metadata: [
+                "operation": "\(request.operation)",
+                "path": "\(request.path)",
+            ])
+
+        if !request.path.hasPrefix("/") {
+            throw RPCError(code: .invalidArgument, message: "path must be absolute")
+        }
+
+        var finfo: stat = stat()
+        let rc = lstat(request.path, &finfo)
+        if rc != 0 {
+            let error = swiftErrno("lstat")
+            throw RPCError(code: .notFound, message: "failed to stat path", cause: error)
+        }
+
+        if (finfo.st_mode & S_IFMT) == S_IFLNK {
+            throw RPCError(code: .internalError, message: "path cannot be a symlink")
+        }
+
+        let fd = open(request.path, O_RDONLY)
+        if fd < 0 {
+            let error = swiftErrno("open")
+            throw RPCError(code: .internalError, message: "failed to open path", cause: error)
+        }
+
+        defer { close(fd) }
+
+        do {
+            switch request.operation {
+            case .freeze:
+                try freezeFilesystem(fd: fd)
+            case .thaw:
+                try thawFilesystem(fd: fd)
+            case .trim(let params):
+                try trimFilesystem(fd: fd, params: params)
+            case .none:
+                throw RPCError(code: .invalidArgument, message: "invalid operation")
+            }
+        } catch {
+            log.error(
+                "filesystemOperation",
+                metadata: [
+                    "error": "\(error)"
+                ])
+            throw RPCError(code: .internalError, message: "filesystemOperation", cause: error)
+        }
+
+        return .init()
+    }
+
+    private static let FIFREEZE: UInt = 0xC004_5877
+
+    private func freezeFilesystem(fd: Int32) throws {
+        let rc: CInt = ioctl(fd, FIFREEZE, 0)
+        if rc != 0 {
+            let error = swiftErrno("ioctl(FIFREEZE)")
+            throw RPCError(code: .internalError, message: "freeze failed", cause: error)
+        }
+    }
+
+    private static let FITHAW: UInt = 0xC004_5878
+
+    private func thawFilesystem(fd: Int32) throws {
+        let rc: CInt = ioctl(fd, FITHAW, 0)
+        if rc != 0 {
+            let error = swiftErrno("ioctl(FITHAW)")
+            throw RPCError(code: .internalError, message: "thaw failed", cause: error)
+        }
+    }
+
+    private static let FITRIM: UInt = 0xC004_5879
+
+    private func trimFilesystem(fd: Int32, params: Com_Apple_Containerization_Sandbox_V3_FiTrimParams) throws {
+
+        // TODO logic for trim filesystem
+
+        let rc: CInt = ioctl(fd, FITRIM, 0)
+        if rc != 0 {
+            let error = swiftErrno("ioctl(FITRIM)")
+            throw RPCError(code: .internalError, message: "trim failed", cause: error)
+        }
+    }
+
     func umount(request: Com_Apple_Containerization_Sandbox_V3_UmountRequest, context: GRPCCore.ServerContext)
         async throws -> Com_Apple_Containerization_Sandbox_V3_UmountResponse
     {

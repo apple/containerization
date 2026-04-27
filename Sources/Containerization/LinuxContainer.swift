@@ -976,6 +976,19 @@ extension LinuxContainer {
         }
     }
 
+    // Perform filesystem operations in the container.
+    public func filesystemOperation(operation: FilesystemOperation, path: String) async throws {
+        try await self.state.withLock {
+            let state = try $0.startedState("filesystemOperation")
+            try await state.vm.withAgent { agent in
+                guard let vminitd = agent as? Vminitd else {
+                    throw ContainerizationError(.unsupported, message: "filesystemOperation requires Vminitd agent")
+                }
+                try await vminitd.filesystemOperation(operation: operation, path: path)
+            }
+        }
+    }
+
     private func relayUnixSocket(
         socket: UnixSocketConfiguration,
         relayManager: UnixSocketRelayManager,
