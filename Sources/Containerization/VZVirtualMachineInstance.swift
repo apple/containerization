@@ -74,7 +74,6 @@ struct VZVirtualMachineInstance: Sendable {
     private let lock: AsyncLock
     private let group: EventLoopGroup
     private let ownsGroup: Bool
-    private let timeSyncer: TimeSyncer
     private let logger: Logger?
 
     public init(
@@ -101,7 +100,6 @@ struct VZVirtualMachineInstance: Sendable {
         self.queue = DispatchQueue(label: "com.apple.containerization.vzvm.\(UUID().uuidString)")
         self.mounts = try config.mountAttachments()
         self.logger = logger
-        self.timeSyncer = .init(logger: logger)
 
         self.vm = VZVirtualMachine(
             configuration: try config.toVZ(),
@@ -125,23 +123,19 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
 
             try await self.vm.start(queue: self.queue)
 
-            let agent = try Vminitd(
-                connection: try await self.vm.waitForAgent(queue: self.queue),
-                group: self.group
-            )
+            try await self.vm.waitForAgent(queue: self.queue).close()
 
-            do {
-                if self.config.rosetta {
+            if self.config.rosetta {
+                try await self.withAgent { agent in
+                    guard let agent = agent as? Vminitd else {
+                        throw ContainerizationError(
+                            .internalError,
+                            message: "expected Vminitd agent for rosetta setup"
+                        )
+                    }
                     try await agent.enableRosetta()
                 }
-            } catch {
-                try await agent.close()
-                throw error
             }
-
-            // Don't close our remote context as we are providing
-            // it to our time sync routine.
-            await self.timeSyncer.start(context: agent)
         }
     }
 
@@ -154,8 +148,6 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
             guard self.state == .running else {
                 throw ContainerizationError(.invalidState, message: "vm is not running")
             }
-
-            try await self.timeSyncer.close()
 
             if self.ownsGroup {
                 try await self.group.shutdownGracefully()
@@ -170,7 +162,6 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
 
     func pause() async throws {
         try await lock.withLock { _ in
-            await self.timeSyncer.pause()
             try await self.vm.pause(queue: self.queue)
         }
     }
@@ -178,7 +169,6 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
     func resume() async throws {
         try await lock.withLock { _ in
             try await self.vm.resume(queue: self.queue)
-            await self.timeSyncer.resume()
         }
     }
 
