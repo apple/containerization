@@ -25,8 +25,8 @@ import NIOPosix
 import Synchronization
 import Virtualization
 
-struct VZVirtualMachineInstance: Sendable {
-    typealias Agent = Vminitd
+public final class VZVirtualMachineInstance: Sendable {
+    public typealias Agent = Vminitd
 
     /// Attached mounts on the virtual machine, organized by metadata ID.
     public let mounts: [String: [AttachedFilesystem]]
@@ -58,7 +58,7 @@ struct VZVirtualMachineInstance: Sendable {
         /// Destination for the virtual machine's boot logs.
         public var bootLog: BootLog?
 
-        init() {
+        public init() {
             self.cpus = 4
             self.memoryInBytes = 1024.mib()
             self.rosetta = false
@@ -77,7 +77,7 @@ struct VZVirtualMachineInstance: Sendable {
     private let timeSyncer: TimeSyncer
     private let logger: Logger?
 
-    public init(
+    public convenience init(
         group: EventLoopGroup? = nil,
         logger: Logger? = nil,
         with: (inout Configuration) throws -> Void
@@ -111,7 +111,7 @@ struct VZVirtualMachineInstance: Sendable {
 }
 
 extension VZVirtualMachineInstance: VirtualMachineInstance {
-    func start() async throws {
+    public func start() async throws {
         try await lock.withLock { _ in
             guard self.state == .stopped else {
                 throw ContainerizationError(
@@ -145,7 +145,7 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
         }
     }
 
-    func stop() async throws {
+    public func stop() async throws {
         try await lock.withLock { connections in
             // NOTE: We should record HOW the vm stopped eventually. If the vm exited
             // unexpectedly virtualization framework offers you a way to store
@@ -168,14 +168,14 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
     // NOTE: Investigate what is the "right" way to handle already vended vsock
     // connections for pause and resume.
 
-    func pause() async throws {
+    public func pause() async throws {
         try await lock.withLock { _ in
             await self.timeSyncer.pause()
             try await self.vm.pause(queue: self.queue)
         }
     }
 
-    func resume() async throws {
+    public func resume() async throws {
         try await lock.withLock { _ in
             try await self.vm.resume(queue: self.queue)
             await self.timeSyncer.resume()
@@ -185,8 +185,8 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
     public func dialAgent() async throws -> Vminitd {
         try await lock.withLock { _ in
             do {
-                let conn = try await vm.connect(
-                    queue: queue,
+                let conn = try await self.vm.connect(
+                    queue: self.queue,
                     port: Vminitd.port
                 )
                 let handle = try conn.dupHandle()
@@ -204,11 +204,11 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
         }
     }
 
-    func dial(_ port: UInt32) async throws -> FileHandle {
+    public func dial(_ port: UInt32) async throws -> FileHandle {
         try await lock.withLock { _ in
             do {
-                let conn = try await vm.connect(
-                    queue: queue,
+                let conn = try await self.vm.connect(
+                    queue: self.queue,
                     port: port
                 )
                 return try conn.dupHandle()
@@ -225,7 +225,7 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
         }
     }
 
-    func listen(_ port: UInt32) throws -> VsockListener {
+    public func listen(_ port: UInt32) throws -> VsockListener {
         let stream = VsockListener(port: port, stopListen: self.stopListen)
         let listener = VZVirtioSocketListener()
         listener.delegate = stream
