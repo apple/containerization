@@ -861,6 +861,20 @@ extension LinuxPod {
         }
     }
 
+    /// Provides scoped access to the underlying virtual machine instance.
+    ///
+    /// Most users should prefer the higher level APIs on ``LinuxPod``
+    /// directly. This is intended for advanced use cases that need to interact
+    /// with the virtual machine outside of the pod abstraction.
+    public func withVirtualMachineInstance<T: Sendable>(
+        _ fn: @Sendable (any VirtualMachineInstance) async throws -> T
+    ) async throws -> T {
+        let vm = try await self.state.withLock { state in
+            try state.phase.createdState("withVirtualMachineInstance").vm
+        }
+        return try await fn(vm)
+    }
+
     /// Close a container's standard input to signal no more input is arriving.
     public func closeContainerStdin(_ containerID: String) async throws {
         try await self.state.withLock { state in

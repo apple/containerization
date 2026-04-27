@@ -246,6 +246,24 @@ public final class LinuxContainer: Container, Sendable {
         mutating func setErrored(error: Swift.Error) {
             self = .errored(error)
         }
+
+        func vm(_ operation: String) throws -> any VirtualMachineInstance {
+            switch self {
+            case .created(let state):
+                return state.vm
+            case .started(let state):
+                return state.vm
+            case .paused(let state):
+                return state.vm
+            case .errored(let err):
+                throw err
+            default:
+                throw ContainerizationError(
+                    .invalidState,
+                    message: "failed to \(operation): container must be created, running, or paused"
+                )
+            }
+        }
     }
 
     private let vmm: VirtualMachineManager
@@ -934,6 +952,20 @@ extension LinuxContainer {
             let state = try $0.startedState("dialVsock")
             return try await state.vm.dial(port)
         }
+    }
+
+    /// Provides scoped access to the underlying virtual machine instance.
+    ///
+    /// Most users should prefer the higher level APIs on ``LinuxContainer``
+    /// directly. This is intended for advanced use cases that need to interact
+    /// with the virtual machine outside of the container abstraction.
+    public func withVirtualMachineInstance<T: Sendable>(
+        _ fn: @Sendable (any VirtualMachineInstance) async throws -> T
+    ) async throws -> T {
+        let vm = try await self.state.withLock { state in
+            try state.vm("withVirtualMachineInstance")
+        }
+        return try await fn(vm)
     }
 
     /// Close the containers standard input to signal no more input is
