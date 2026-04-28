@@ -70,7 +70,7 @@ final class BidirectionalRelayTests {
                 totalRead += n
             } else if n == -1 && (errno == EAGAIN || errno == EWOULDBLOCK) {
                 // Not ready yet, brief sleep before retry.
-                usleep(1000) // 1ms
+                usleep(1000)  // 1ms
             } else {
                 break
             }
@@ -137,8 +137,10 @@ final class BidirectionalRelayTests {
         let (d0, d1) = try makeSocketPair()
 
         defer {
-            close(a0); close(b1)
-            close(c0); close(d1)
+            close(a0)
+            close(b1)
+            close(c0)
+            close(d1)
         }
 
         // Shrink send buffers to make them fill quickly.
@@ -159,10 +161,10 @@ final class BidirectionalRelayTests {
         _ = largeData.withUnsafeBufferPointer { buf in
             write(a0, buf.baseAddress!, buf.count)
         }
-        _ = fcntl(a0, F_SETFL, a0flags) // restore
+        _ = fcntl(a0, F_SETFL, a0flags)  // restore
 
         // Give relay1 time to process and get blocked.
-        usleep(100_000) // 100ms
+        usleep(100_000)  // 100ms
 
         // Now test relay2: it should still work despite relay1 being backpressured.
         let testData: [UInt8] = Array("relay2 works!".utf8)
@@ -274,7 +276,7 @@ final class BidirectionalRelayTests {
                 return true
             }
             group.addTask {
-                try? await Task.sleep(nanoseconds: 3_000_000_000) // 3 seconds
+                try? await Task.sleep(nanoseconds: 3_000_000_000)  // 3 seconds
                 return false
             }
             let result = await group.next()!
@@ -310,7 +312,7 @@ final class BidirectionalRelayTests {
         }
 
         // Give relay time to enter backpressure state (readSource suspended).
-        usleep(100_000) // 100ms
+        usleep(100_000)  // 100ms
 
         // Stop the relay while it's backpressured. This should not hang or leak.
         relay.stop()
@@ -326,7 +328,7 @@ final class BidirectionalRelayTests {
                 return true
             }
             group.addTask {
-                try? await Task.sleep(nanoseconds: 3_000_000_000) // 3 seconds
+                try? await Task.sleep(nanoseconds: 3_000_000_000)  // 3 seconds
                 return false
             }
             let result = await group.next()!
