@@ -724,7 +724,7 @@ extension LinuxContainer {
                     // For every interface asked for:
                     // 1. Add the address requested
                     // 2. Online the adapter
-                    // 3. For the first interface, add the default route
+                    // 3. For the first interface with a static address, add the default route
                     var defaultRouteSet = false
                     for (index, i) in self.interfaces.enumerated() {
                         let name = "eth\(index)"

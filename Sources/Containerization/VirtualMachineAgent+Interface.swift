@@ -26,19 +26,22 @@ extension VirtualMachineAgent {
         setDefaultRoute: Bool,
         logger: Logger?
     ) async throws {
-        logger?.debug("setting up interface \(name) with v4 \(interface.ipv4Address) v6 \(interface.ipv6Address?.description ?? "<none>")")
-        try await addressAdd(
-            name: name,
-            address: .init(ipv4Address: interface.ipv4Address, ipv6Address: interface.ipv6Address)
-        )
-        try await up(name: name, mtu: interface.mtu)
-
-        guard setDefaultRoute else { return }
-
         let ipv4Address = interface.ipv4Address
         let ipv4Gateway = interface.ipv4Gateway
         let ipv6Gateway = interface.ipv6Gateway
         let ipv6Address = interface.ipv6Address
+
+        if let ipv4Address {
+            logger?.debug("setting up interface \(name) with v4 \(ipv4Address) v6 \(interface.ipv6Address?.description ?? "<none>")")
+            try await addressAdd(
+                name: name,
+                address: .init(ipv4Address: ipv4Address, ipv6Address: interface.ipv6Address)
+            )
+        }
+        try await up(name: name, mtu: interface.mtu)
+
+        guard setDefaultRoute else { return }
+        guard let ipv4Address else { return }
 
         let needsIPv4LinkRoute: Bool
         if let ipv4Gateway {
