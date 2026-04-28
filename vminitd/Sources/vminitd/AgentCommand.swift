@@ -122,8 +122,8 @@ struct AgentCommand: AsyncParsableCommand {
         try cgManager.create()
         try cgManager.toggleAllAvailableControllers(enable: true)
 
-        // Set memory.high threshold to 75 MiB
-        let high: UInt64 = 75 * 1024 * 1024
+        // Set memory.high threshold to 80 MiB
+        let high: UInt64 = 80 * 1024 * 1024
         // Set memory.low to 50 MiB to avoid reclaiming vminitd's memory
         let low: UInt64 = 50 * 1024 * 1024
 

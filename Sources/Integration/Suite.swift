@@ -380,6 +380,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container workingDir created", testWorkingDirCreated),
                 Test("container workingDir exec created", testWorkingDirExecCreated),
                 Test("container mount sort by depth", testMountsSortedByDepth),
+                Test("container VM resource overhead", testVMResourceOverhead),
                 Test("container NBD mount", testContainerNBDMount),
                 Test("container NBD read-only", testContainerNBDReadOnly),
                 Test("container NBD raw block", testContainerNBDRawBlock),
