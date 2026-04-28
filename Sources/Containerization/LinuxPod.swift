@@ -655,7 +655,7 @@ extension LinuxPod {
                     return
                 }
 
-                try await process.kill(SIGKILL)
+                try await process.kill(.kill)
                 try await process.wait(timeoutInSeconds: 3)
 
                 try await createdState.vm.withAgent { agent in
@@ -705,7 +705,7 @@ extension LinuxPod {
 
                     if let process = container.process, container.state == .started {
                         if createdState.vm.state != .stopped {
-                            try? await process.kill(SIGKILL)
+                            try? await process.kill(.kill)
                             _ = try? await process.wait(timeoutInSeconds: 3)
 
                             try? await createdState.vm.withAgent { agent in
@@ -735,7 +735,7 @@ extension LinuxPod {
     }
 
     /// Send a signal to a container.
-    public func killContainer(_ containerID: String, signal: Int32) async throws {
+    public func killContainer(_ containerID: String, signal: Signal) async throws {
         try await self.state.withLock { state in
             guard let container = state.containers[containerID], let process = container.process else {
                 throw ContainerizationError(

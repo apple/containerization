@@ -841,7 +841,7 @@ extension LinuxContainer {
     }
 
     /// Send a signal to the container.
-    public func kill(_ signal: Int32) async throws {
+    public func kill(_ signal: Signal) async throws {
         try await self.state.withLock {
             let state = try $0.startedState("kill")
             try await state.process.kill(signal)

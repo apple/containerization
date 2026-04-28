@@ -304,12 +304,12 @@ extension LinuxProcess {
     }
 
     /// Kill the process with the specified signal.
-    public func kill(_ signal: Int32) async throws {
+    public func kill(_ signal: Signal) async throws {
         do {
             try await agent.signalProcess(
                 id: self.id,
                 containerID: self.owningContainer,
-                signal: signal
+                signal: signal.rawValue
             )
         } catch {
             throw ContainerizationError(
