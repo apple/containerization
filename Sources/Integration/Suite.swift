@@ -382,6 +382,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container mount sort by depth", testMountsSortedByDepth),
                 Test("container NBD mount", testContainerNBDMount),
                 Test("container NBD read-only", testContainerNBDReadOnly),
+                Test("container NBD raw block", testContainerNBDRawBlock),
                 Test("container NBD volume identity", testContainerNBDVolumeIdentity),
 
                 // Pods

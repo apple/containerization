@@ -177,6 +177,58 @@ extension IntegrationSuite {
         }
     }
 
+    func testContainerNBDRawBlock() async throws {
+        let id = "test-container-nbd-raw-block"
+        let bs = try await bootstrap(id)
+
+        // Create an unformatted disk image, no filesystem.
+        let diskURL = Self.testDir.appending(component: "\(id)-raw.img")
+        try? FileManager.default.removeItem(at: diskURL)
+        FileManager.default.createFile(atPath: diskURL.path, contents: nil)
+        let fh = try FileHandle(forWritingTo: diskURL)
+        try fh.truncate(atOffset: 64.mib())
+        try fh.close()
+
+        let shortID = String(id.hashValue, radix: 36, uppercase: false)
+        let socketPath = "/tmp/nbd-\(shortID)-raw.sock"
+        let server = try NBDServer(filePath: diskURL.path, socketPath: socketPath)
+        defer { server.stop() }
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            // Attach as raw block, bind mount the device into the container.
+            config.mounts.append(
+                Mount.block(
+                    format: "none",
+                    source: server.url,
+                    destination: "/dev/my-disk",
+                    options: ["bind"]
+                ))
+            // Verify it's a block device, write known data, read it back.
+            config.process.arguments = [
+                "/bin/sh", "-c",
+                "test -b /dev/my-disk && printf 'raw-block-works' | dd of=/dev/my-disk bs=512 count=1 conv=sync 2>/dev/null && dd if=/dev/my-disk bs=1 count=15 2>/dev/null",
+            ]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container exited with status \(status)")
+        }
+
+        let output = String(data: buffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard output == "raw-block-works" else {
+            throw IntegrationError.assert(msg: "expected 'raw-block-works', got '\(output)'")
+        }
+    }
+
     func testContainerNBDVolumeIdentity() async throws {
         let id = "test-container-nbd-volume-identity"
         let bs = try await bootstrap(id)
