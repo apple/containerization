@@ -26,7 +26,7 @@ import Synchronization
 /// container/virtual machine.
 @available(macOS 26, *)
 public final class NATNetworkInterface: Interface, Sendable {
-    public let ipv4Address: CIDRv4
+    public let ipv4Address: CIDRv4?
     public let ipv4Gateway: IPv4Address?
     public let macAddress: MACAddress?
     public let mtu: UInt32

@@ -71,7 +71,7 @@ public struct VmnetNetwork: Network {
 
     /// A network interface supporting the vmnet_network_ref.
     public struct Interface: Containerization.Interface, VZInterface, Sendable {
-        public let ipv4Address: CIDRv4
+        public let ipv4Address: CIDRv4?
         public let ipv4Gateway: IPv4Address?
         public let macAddress: MACAddress?
         public let mtu: UInt32

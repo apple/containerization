@@ -542,21 +542,25 @@ extension LinuxPod {
                     }
 
                     // For every interface asked for:
-                    // 1. Add the address requested
+                    // 1. Add the address requested (skipped for bridge/DHCP interfaces)
                     // 2. Online the adapter
-                    // 3. For the first interface, add the default route
+                    // 3. For the first interface with a static address, add the default route
                     var defaultRouteSet = false
                     for (index, i) in self.interfaces.enumerated() {
                         let name = "eth\(index)"
-                        self.logger?.debug("setting up interface \(name) with address \(i.ipv4Address)")
-                        try await agent.addressAdd(name: name, ipv4Address: i.ipv4Address)
+                        if let addr = i.ipv4Address {
+                            self.logger?.debug("setting up interface \(name) with address \(addr)")
+                            try await agent.addressAdd(name: name, ipv4Address: addr)
+                        } else {
+                            self.logger?.debug("bringing up interface \(name) (got address via DHCP)")
+                        }
                         try await agent.up(name: name, mtu: i.mtu)
-                        if defaultRouteSet {
+                        guard !defaultRouteSet, let addr = i.ipv4Address else {
                             continue
                         }
                         if let ipv4Gateway = i.ipv4Gateway {
-                            if !i.ipv4Address.contains(ipv4Gateway) {
-                                self.logger?.debug("gateway \(ipv4Gateway) is outside subnet \(i.ipv4Address), adding a route first")
+                            if !addr.contains(ipv4Gateway) {
+                                self.logger?.debug("gateway \(ipv4Gateway) is outside subnet \(addr), adding a route first")
                                 try await agent.routeAddLink(name: name, dstIPv4Addr: ipv4Gateway, srcIPv4Addr: nil)
                             }
                             try await agent.routeAddDefault(name: name, ipv4Gateway: ipv4Gateway)
