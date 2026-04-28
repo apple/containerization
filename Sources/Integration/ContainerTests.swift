@@ -296,7 +296,7 @@ extension IntegrationSuite {
             }
             try await exec.delete()
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         }
@@ -979,7 +979,7 @@ extension IntegrationSuite {
 
             try await sleepExec.delete()
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -1035,7 +1035,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "expected oomKill > 0, got \(events.oomKill)")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -1111,7 +1111,7 @@ extension IntegrationSuite {
                     msg: "expected socket file (starting with 's'), got: \(output)")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -1209,7 +1209,7 @@ extension IntegrationSuite {
                     msg: "expected socket file (starting with 's'), got: \(output)")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -1319,7 +1319,7 @@ extension IntegrationSuite {
                     msg: "stderr size \(stderrBuffer.count) != expected \(expectedSize)")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -1357,7 +1357,7 @@ extension IntegrationSuite {
             try await exec.delete()
             try await exec.delete()  // Should be a no-op
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -1408,7 +1408,7 @@ extension IntegrationSuite {
             }
 
             // Stop should handle cleanup of all exec processes gracefully
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -1716,7 +1716,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "FIFO: expected S_IFIFO, got mode 0x\(String(fifoStat.mode, radix: 16))")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -1775,7 +1775,7 @@ extension IntegrationSuite {
                     msg: "copied file content mismatch: expected '\(testContent)', got '\(output)'")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -1829,7 +1829,7 @@ extension IntegrationSuite {
                     msg: "copied file content mismatch: expected '\(testContent)', got '\(copiedContent)'")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -1893,7 +1893,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "file content mismatch after round-trip copy")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -1971,7 +1971,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "subdir/file2.txt content mismatch")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -2035,7 +2035,7 @@ extension IntegrationSuite {
                     msg: "subdir/file2.txt content mismatch: expected 'guest file2', got '\(file2Content)'")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -2100,7 +2100,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "round-tripped empty file should be empty, got \(copiedData.count) bytes")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -2153,7 +2153,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "empty dir should have 2 entries (. and ..), got '\(countStr ?? "nil")'")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -2208,7 +2208,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "binary file content mismatch after round-trip")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -2286,7 +2286,7 @@ extension IntegrationSuite {
                 }
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -2387,7 +2387,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "special.txt mismatch")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -2439,7 +2439,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "content mismatch after copy with createParents")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -2491,7 +2491,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "script output mismatch: '\(output ?? "nil")'")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -2580,7 +2580,7 @@ extension IntegrationSuite {
                     msg: "expected \(fileCount) files on host after copyOut, got \(outFiles.count)")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -2761,7 +2761,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "output data mismatch")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -2818,7 +2818,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "expected CUSTOM_PATH_OK, got: \(output)")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -2861,7 +2861,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "output mismatch")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -3029,7 +3029,7 @@ extension IntegrationSuite {
                     msg: "expected MTU \(customMTU) in output, got: \(output)")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -3136,7 +3136,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "write should have failed on read-only mount")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -3180,7 +3180,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "write status \(status) != 0")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
 
@@ -3251,7 +3251,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "write status \(status) != 0")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
 
@@ -3393,7 +3393,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "expected soft limit '256', got '\(output)'")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -3458,7 +3458,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "unexpected content from /mnt2")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -3528,7 +3528,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "unexpected content from /mnt2")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -4104,7 +4104,7 @@ extension IntegrationSuite {
 
             try await Task.sleep(for: .milliseconds(100))
 
-            try await container.kill(SIGTERM)
+            try await container.kill(.term)
 
             let status = try await container.wait(timeoutInSeconds: 5)
             try await container.stop()
@@ -4553,7 +4553,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "expected cwd '/a/b/c/d', got '\(output)'")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -4599,7 +4599,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "expected NoNewPrivs to be 1 in exec, got: \(output)")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {

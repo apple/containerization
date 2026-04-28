@@ -196,7 +196,7 @@ extension IntegrationSuite {
         let status = try await exec.wait()
         try await exec.delete()
 
-        try await pod.killContainer("container1", signal: SIGKILL)
+        try await pod.killContainer("container1", signal: .kill)
         try await pod.waitContainer("container1")
         try await pod.stop()
 
@@ -238,7 +238,7 @@ extension IntegrationSuite {
         let status = try await exec.wait()
         try await exec.delete()
 
-        try await pod.killContainer("container1", signal: SIGKILL)
+        try await pod.killContainer("container1", signal: .kill)
         try await pod.waitContainer("container1")
         try await pod.stop()
 
@@ -480,7 +480,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "expected oomKill > 0, got \(events.oomKill)")
             }
 
-            try await pod.killContainer("container1", signal: SIGKILL)
+            try await pod.killContainer("container1", signal: .kill)
             try await pod.waitContainer("container1")
             try await pod.stop()
         } catch {
@@ -551,7 +551,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "cpu.max '\(cpuLimit)' != expected '\(expectedCpu)'")
             }
 
-            try await pod.killContainer("container1", signal: SIGKILL)
+            try await pod.killContainer("container1", signal: .kill)
             try await pod.waitContainer("container1")
             try await pod.stop()
         } catch {
@@ -866,7 +866,7 @@ extension IntegrationSuite {
         try await pod.startContainer("container2")
         let status = try await pod.waitContainer("container2")
 
-        try await pod.killContainer("container1", signal: SIGKILL)
+        try await pod.killContainer("container1", signal: .kill)
         _ = try await pod.waitContainer("container1")
         try await pod.stop()
 
@@ -1611,7 +1611,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "expected soft limit '256', got '\(output)'")
             }
 
-            try await pod.killContainer("container1", signal: SIGKILL)
+            try await pod.killContainer("container1", signal: .kill)
             try await pod.waitContainer("container1")
             try await pod.stop()
         } catch {
@@ -1744,7 +1744,7 @@ extension IntegrationSuite {
             try await Task.sleep(for: .milliseconds(100))
 
             // Send SIGTERM, should be forwarded to the child and cause exit
-            try await pod.killContainer("container1", signal: SIGTERM)
+            try await pod.killContainer("container1", signal: .term)
 
             let status = try await pod.waitContainer("container1", timeoutInSeconds: 5)
             try await pod.stop()
@@ -1845,7 +1845,7 @@ extension IntegrationSuite {
         try await pod.startContainer("container2")
         let status = try await pod.waitContainer("container2")
 
-        try await pod.killContainer("container1", signal: SIGKILL)
+        try await pod.killContainer("container1", signal: .kill)
         _ = try await pod.waitContainer("container1")
         try await pod.stop()
 
@@ -1911,7 +1911,7 @@ extension IntegrationSuite {
                     msg: "expected socket file (starting with 's'), got: \(lsOutput)")
             }
 
-            try await pod.killContainer("container1", signal: SIGKILL)
+            try await pod.killContainer("container1", signal: .kill)
             _ = try await pod.waitContainer("container1")
             try await pod.stop()
         } catch {
