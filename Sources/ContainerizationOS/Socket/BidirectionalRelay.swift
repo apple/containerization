@@ -46,14 +46,13 @@ public final class BidirectionalRelay: Sendable {
     private let queue: DispatchQueue
 
     /// Per-direction write state, only accessed from the serial dispatch queue.
-    private class DirectionState: @unchecked Sendable {
+    private class DirectionState {
         var writeSource: DispatchSourceWrite?
         var pendingData: [UInt8] = []
         var pendingOffset: Int = 0
         var readSourceSuspended: Bool = false
     }
 
-    // `DispatchSourceRead` is thread-safe.
     private struct ConnectionSources: @unchecked Sendable {
         let source1: DispatchSourceRead
         let source2: DispatchSourceRead
@@ -68,11 +67,10 @@ public final class BidirectionalRelay: Sendable {
     private let state: Mutex<ConnectionSources?>
     private let completionState: Mutex<CompletionState>
 
-    // The buffers and direction states aren't used concurrently (accessed only from the queue).
     private nonisolated(unsafe) let buffer1: UnsafeMutableBufferPointer<UInt8>
     private nonisolated(unsafe) let buffer2: UnsafeMutableBufferPointer<UInt8>
-    private let directionState1 = DirectionState()
-    private let directionState2 = DirectionState()
+    private nonisolated(unsafe) let directionState1 = DirectionState()
+    private nonisolated(unsafe) let directionState2 = DirectionState()
 
     /// Creates a new bidirectional relay between two file descriptors.
     ///
