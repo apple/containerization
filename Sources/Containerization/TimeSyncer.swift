@@ -19,7 +19,7 @@ import Logging
 
 actor TimeSyncer {
     private var task: Task<Void, Never>?
-    private var context: Vminitd?
+    private var context: (any VirtualMachineAgent)?
     private var paused: Bool
     private let logger: Logger?
 
@@ -28,7 +28,7 @@ actor TimeSyncer {
         self.logger = logger
     }
 
-    func start(context: Vminitd, interval: Duration = .seconds(30)) {
+    func start(context: some VirtualMachineAgent, interval: Duration = .seconds(20)) {
         guard self.task == nil else {
             return
         }

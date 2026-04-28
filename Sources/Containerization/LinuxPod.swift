@@ -59,6 +59,9 @@ public final class LinuxPod: Sendable {
         /// The default hosts file configuration for all containers in the pod.
         /// Individual containers can override this by setting their own `hosts` configuration.
         public var hosts: Hosts?
+        /// Interval for syncing the guest clock with the host. Set to nil
+        /// to disable time synchronization.
+        public var timeSyncInterval: Duration? = .seconds(20)
 
         public init() {}
     }
@@ -134,6 +137,7 @@ public final class LinuxPod: Sendable {
         struct CreatedState: Sendable {
             let vm: any VirtualMachineInstance
             let relayManager: UnixSocketRelayManager
+            let timeSyncer: TimeSyncer?
         }
 
         func createdState(_ operation: String) throws -> CreatedState {
@@ -498,7 +502,15 @@ extension LinuxPod {
                     state.containers[id]?.state = .created
                 }
 
-                state.phase = .created(.init(vm: vm, relayManager: relayManager))
+                var timeSyncer: TimeSyncer?
+                if let interval = self.config.timeSyncInterval {
+                    let ts = TimeSyncer(logger: self.logger)
+                    let tsAgent = try await vm.dialAgent()
+                    await ts.start(context: tsAgent, interval: interval)
+                    timeSyncer = ts
+                }
+
+                state.phase = .created(.init(vm: vm, relayManager: relayManager, timeSyncer: timeSyncer))
             } catch {
                 try? await relayManager.stopAll()
                 try? await vm.stop()
@@ -688,6 +700,7 @@ extension LinuxPod {
             let createdState = try state.phase.createdState("stop")
 
             do {
+                try? await createdState.timeSyncer?.close()
                 try await createdState.relayManager.stopAll()
 
                 // Stop all containers

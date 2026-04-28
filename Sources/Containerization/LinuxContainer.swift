@@ -78,6 +78,9 @@ public final class LinuxContainer: Container, Sendable {
         /// Run the container with a minimal init process that handles signal
         /// forwarding and zombie reaping.
         public var useInit: Bool = false
+        /// Interval for syncing the guest clock with the host. Set to nil
+        /// to disable time synchronization.
+        public var timeSyncInterval: Duration? = .seconds(20)
 
         public init() {}
 
@@ -95,7 +98,8 @@ public final class LinuxContainer: Container, Sendable {
             virtualization: Bool = false,
             bootLog: BootLog? = nil,
             ociRuntimePath: String? = nil,
-            useInit: Bool = false
+            useInit: Bool = false,
+            timeSyncInterval: Duration? = .seconds(20)
         ) {
             self.process = process
             self.cpus = cpus
@@ -111,6 +115,7 @@ public final class LinuxContainer: Container, Sendable {
             self.bootLog = bootLog
             self.ociRuntimePath = ociRuntimePath
             self.useInit = useInit
+            self.timeSyncInterval = timeSyncInterval
         }
     }
 
@@ -145,6 +150,7 @@ public final class LinuxContainer: Container, Sendable {
             let vm: any VirtualMachineInstance
             let relayManager: UnixSocketRelayManager
             var fileMountContext: FileMountContext
+            let timeSyncer: TimeSyncer?
         }
 
         struct StartedState: Sendable {
@@ -153,6 +159,7 @@ public final class LinuxContainer: Container, Sendable {
             let relayManager: UnixSocketRelayManager
             var vendedProcesses: [String: LinuxProcess]
             let fileMountContext: FileMountContext
+            let timeSyncer: TimeSyncer?
 
             init(_ state: CreatedState, process: LinuxProcess) {
                 self.vm = state.vm
@@ -160,6 +167,7 @@ public final class LinuxContainer: Container, Sendable {
                 self.process = process
                 self.vendedProcesses = [:]
                 self.fileMountContext = state.fileMountContext
+                self.timeSyncer = state.timeSyncer
             }
 
             init(_ state: PausedState) {
@@ -168,6 +176,7 @@ public final class LinuxContainer: Container, Sendable {
                 self.process = state.process
                 self.vendedProcesses = state.vendedProcesses
                 self.fileMountContext = state.fileMountContext
+                self.timeSyncer = state.timeSyncer
             }
         }
 
@@ -177,6 +186,7 @@ public final class LinuxContainer: Container, Sendable {
             let process: LinuxProcess
             var vendedProcesses: [String: LinuxProcess]
             let fileMountContext: FileMountContext
+            let timeSyncer: TimeSyncer?
 
             init(_ state: StartedState) {
                 self.vm = state.vm
@@ -184,6 +194,7 @@ public final class LinuxContainer: Container, Sendable {
                 self.process = state.process
                 self.vendedProcesses = state.vendedProcesses
                 self.fileMountContext = state.fileMountContext
+                self.timeSyncer = state.timeSyncer
             }
         }
 
@@ -640,7 +651,16 @@ extension LinuxContainer {
                     }
 
                 }
-                state = .created(.init(vm: vm, relayManager: relayManager, fileMountContext: fileMountContextHolder.withLock { $0 }))
+
+                var timeSyncer: TimeSyncer?
+                if let interval = self.config.timeSyncInterval {
+                    let ts = TimeSyncer(logger: self.logger)
+                    let tsAgent = try await vm.dialAgent()
+                    await ts.start(context: tsAgent, interval: interval)
+                    timeSyncer = ts
+                }
+
+                state = .created(.init(vm: vm, relayManager: relayManager, fileMountContext: fileMountContextHolder.withLock { $0 }, timeSyncer: timeSyncer))
             } catch {
                 try? await relayManager.stopAll()
                 try? await vm.stop()
@@ -737,18 +757,28 @@ extension LinuxContainer {
 
             let vm: any VirtualMachineInstance
             let relayManager: UnixSocketRelayManager
+            let timeSyncer: TimeSyncer?
 
             let startedState = try? state.startedState("stop")
             if let startedState {
                 vm = startedState.vm
                 relayManager = startedState.relayManager
+                timeSyncer = startedState.timeSyncer
             } else {
                 let createdState = try state.createdState("stop")
                 vm = createdState.vm
                 relayManager = createdState.relayManager
+                timeSyncer = createdState.timeSyncer
             }
 
             var firstError: Error?
+            do {
+                try await timeSyncer?.close()
+            } catch {
+                self.logger?.error("failed to close time syncer: \(error)")
+                firstError = firstError ?? error
+            }
+
             do {
                 try await relayManager.stopAll()
             } catch {
