@@ -59,6 +59,8 @@ public final class LinuxPod: Sendable {
         /// The default hosts file configuration for all containers in the pod.
         /// Individual containers can override this by setting their own `hosts` configuration.
         public var hosts: Hosts?
+        /// Volumes attached to the pod. Can be shared with multiple containers.
+        public var volumes: [PodVolume] = []
 
         public init() {}
     }
@@ -88,6 +90,46 @@ public final class LinuxPod: Sendable {
         public var useInit: Bool = false
 
         public init() {}
+    }
+
+    /// A volume that is attached at the pod level and can be shared by multiple containers.
+    public struct PodVolume: Sendable {
+        /// Describes the backing storage for the volume.
+        public enum Source: Sendable {
+            /// A network block device (NBD) volume.
+            case nbd(url: URL, timeout: TimeInterval? = nil, readOnly: Bool = false)
+        }
+
+        /// The logical name of this volume. Containers reference this name
+        /// via `Mount.sharedMount(name:destination:)` in their mounts.
+        public var name: String
+        /// The backing storage source for this volume.
+        public var source: Source
+        /// The filesystem format on the volume.
+        public var format: String
+
+        public init(name: String, source: Source, format: String) {
+            self.name = name
+            self.source = source
+            self.format = format
+        }
+
+        func toMount() -> Mount {
+            switch source {
+            case .nbd(let url, let timeout, let readOnly):
+                var runtimeOptions: [String] = []
+                if let timeout {
+                    runtimeOptions.append("vzTimeout=\(timeout)")
+                }
+                return Mount.block(
+                    format: self.format,
+                    source: url.absoluteString,
+                    destination: LinuxPod.guestVolumePath(name),
+                    options: readOnly ? ["ro"] : [],
+                    runtimeOptions: runtimeOptions
+                )
+            }
+        }
     }
 
     private struct PodContainer: Sendable {
@@ -257,6 +299,10 @@ public final class LinuxPod: Sendable {
     private static func guestSocketStagingPath(_ containerID: String, socketID: String) -> String {
         "/run/container/\(containerID)/sockets/\(socketID).sock"
     }
+
+    private static func guestVolumePath(_ volumeName: String) -> String {
+        "/run/volumes/\(volumeName)"
+    }
 }
 
 extension LinuxPod {
@@ -329,7 +375,41 @@ extension LinuxPod {
             for (id, container) in state.containers {
                 var modifiedRootfs = container.rootfs
                 modifiedRootfs.options.removeAll(where: { $0 == "ro" })
-                mountsByID[id] = [modifiedRootfs] + container.fileMountContext.transformedMounts
+                // Filter out shared mounts — those are handled separately as pod volume bind mounts.
+                let containerMounts = container.fileMountContext.transformedMounts.filter {
+                    if case .shared = $0.runtimeOptions { return false }
+                    return true
+                }
+                mountsByID[id] = [modifiedRootfs] + containerMounts
+            }
+
+            // Validate pod volume names are unique.
+            var volumeNames = Set<String>()
+            for volume in self.config.volumes {
+                guard volumeNames.insert(volume.name).inserted else {
+                    throw ContainerizationError(
+                        .invalidArgument,
+                        message: "duplicate pod volume name \"\(volume.name)\""
+                    )
+                }
+            }
+
+            // Validate that all shared mounts reference valid pod volume names.
+            for (id, container) in state.containers {
+                for mount in container.config.mounts {
+                    if case .shared = mount.runtimeOptions {
+                        guard volumeNames.contains(mount.source) else {
+                            throw ContainerizationError(
+                                .invalidArgument,
+                                message: "container \(id) references unknown pod volume \"\(mount.source)\""
+                            )
+                        }
+                    }
+                }
+            }
+            let podVolumeMounts = self.config.volumes.map { $0.toMount() }
+            if !podVolumeMounts.isEmpty {
+                mountsByID[self.id] = podVolumeMounts
             }
 
             let vmConfig = VMConfiguration(
@@ -427,6 +507,26 @@ extension LinuxPod {
                             )
                             fileMountContextUpdates.withLock { $0[id] = ctx }
                         }
+                    }
+
+                    // Mount pod-level volumes.
+                    let podVolumeAttachments = vm.mounts[self.id] ?? []
+                    for (index, volume) in self.config.volumes.enumerated() {
+                        guard index < podVolumeAttachments.count else {
+                            throw ContainerizationError(
+                                .notFound,
+                                message: "attached filesystem not found for pod volume \"\(volume.name)\""
+                            )
+                        }
+                        let attachment = podVolumeAttachments[index]
+                        let guestPath = Self.guestVolumePath(volume.name)
+                        try await agent.mount(
+                            ContainerizationOCI.Mount(
+                                type: volume.format,
+                                source: attachment.source,
+                                destination: guestPath,
+                                options: []
+                            ))
                     }
 
                     // Start up unix socket relays for each container
@@ -563,6 +663,19 @@ extension LinuxPod {
                             destination: socket.destination.path,
                             options: ["bind"]
                         ))
+                }
+
+                // Bind mount pod volumes into the container.
+                for mount in container.config.mounts {
+                    if case .shared = mount.runtimeOptions {
+                        mounts.append(
+                            ContainerizationOCI.Mount(
+                                type: "none",
+                                source: Self.guestVolumePath(mount.source),
+                                destination: mount.destination,
+                                options: ["bind"] + mount.options
+                            ))
+                    }
                 }
 
                 spec.mounts = cleanAndSortMounts(mounts)
@@ -721,6 +834,18 @@ extension LinuxPod {
                         container.state = .stopped
 
                         state.containers[containerID] = container
+                    }
+                }
+
+                // Unmount pod-level volumes.
+                if createdState.vm.state != .stopped && !self.config.volumes.isEmpty {
+                    try? await createdState.vm.withAgent { agent in
+                        for volume in self.config.volumes {
+                            try? await agent.umount(
+                                path: Self.guestVolumePath(volume.name),
+                                flags: 0
+                            )
+                        }
                     }
                 }
 
