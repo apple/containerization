@@ -78,6 +78,13 @@ public final class LinuxContainer: Container, Sendable {
         /// Run the container with a minimal init process that handles signal
         /// forwarding and zombie reaping.
         public var useInit: Bool = false
+        /// Additional CPU cores to allocate for the virtual machine on top
+        /// of the container's configured `cpus` value.
+        public var cpuOverhead: Int = 1
+        /// Additional memory in bytes to allocate for the virtual machine
+        /// on top of the container's configured `memoryInBytes` value.
+        /// The total is aligned to a 1 MiB boundary.
+        public var memoryOverhead: UInt64 = 128.mib()
 
         public init() {}
 
@@ -95,7 +102,9 @@ public final class LinuxContainer: Container, Sendable {
             virtualization: Bool = false,
             bootLog: BootLog? = nil,
             ociRuntimePath: String? = nil,
-            useInit: Bool = false
+            useInit: Bool = false,
+            cpuOverhead: Int = 1,
+            memoryOverhead: UInt64 = 128.mib()
         ) {
             self.process = process
             self.cpus = cpus
@@ -111,6 +120,8 @@ public final class LinuxContainer: Container, Sendable {
             self.bootLog = bootLog
             self.ociRuntimePath = ociRuntimePath
             self.useInit = useInit
+            self.cpuOverhead = cpuOverhead
+            self.memoryOverhead = memoryOverhead
         }
     }
 
@@ -540,16 +551,10 @@ extension LinuxContainer {
             var modifiedRootfs = self.rootfs
             modifiedRootfs.options.removeAll(where: { $0 == "ro" })
 
-            // Calculate VM memory with overhead for the guest agent.
-            // The container cgroup limit stays at the requested memory, but the VM
-            // gets an additional 75MiB for the guest agent (could be higher, could
-            // be lower but this is a decent baseline for now).
-            let guestAgentOverhead: UInt64 = 75.mib()
             let mib: UInt64 = 1.mib()
-            let vmMemory = (self.memoryInBytes + guestAgentOverhead + mib - 1) & ~(mib - 1)
+            let vmMemory = (self.memoryInBytes + self.config.memoryOverhead + mib - 1) & ~(mib - 1)
 
-            // Give the guest agent a core to play with outside of the container.
-            let vmCpus = self.cpus + 1
+            let vmCpus = self.cpus + self.config.cpuOverhead
 
             // Prepare file mounts. This transforms single-file mounts into directory shares.
             let fileMountContext = try FileMountContext.prepare(mounts: self.config.mounts)

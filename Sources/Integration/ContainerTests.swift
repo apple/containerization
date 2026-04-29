@@ -4608,6 +4608,78 @@ extension IntegrationSuite {
         }
     }
 
+    func testVMResourceOverhead() async throws {
+        let id = "test-vm-resource-overhead"
+
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "infinity"]
+            config.cpus = 2
+            config.memoryInBytes = 256.mib()
+            config.cpuOverhead = 2
+            config.memoryOverhead = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let cpuBuffer = BufferWriter()
+            let cpuExec = try await container.exec("check-nproc") { config in
+                config.arguments = ["nproc"]
+                config.stdout = cpuBuffer
+            }
+            try await cpuExec.start()
+            var status = try await cpuExec.wait()
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "nproc status \(status) != 0")
+            }
+            try await cpuExec.delete()
+
+            guard let cpuStr = String(data: cpuBuffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                let cpuCount = Int(cpuStr)
+            else {
+                throw IntegrationError.assert(msg: "failed to parse nproc output")
+            }
+            let expectedCpus = 4
+            guard cpuCount == expectedCpus else {
+                throw IntegrationError.assert(msg: "nproc \(cpuCount) != expected \(expectedCpus)")
+            }
+
+            let memBuffer = BufferWriter()
+            let memExec = try await container.exec("check-meminfo") { config in
+                config.arguments = ["sh", "-c", "grep MemTotal /proc/meminfo | awk '{print $2}'"]
+                config.stdout = memBuffer
+            }
+            try await memExec.start()
+            status = try await memExec.wait()
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "meminfo status \(status) != 0")
+            }
+            try await memExec.delete()
+
+            guard let memStr = String(data: memBuffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                let memTotalKiB = UInt64(memStr)
+            else {
+                throw IntegrationError.assert(msg: "failed to parse MemTotal")
+            }
+            let memTotalBytes = memTotalKiB * 1024
+            let expectedMin: UInt64 = 1024.mib()
+            guard memTotalBytes > expectedMin else {
+                throw IntegrationError.assert(
+                    msg: "MemTotal \(memTotalBytes) should exceed \(expectedMin)")
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
     // Verify that mounts are sorted by destination path depth so that a
     // higher-level mount (e.g. /mnt) doesn't shadow a deeper mount
     // (e.g. /mnt/deep/nested). Both directories are separate virtiofs
