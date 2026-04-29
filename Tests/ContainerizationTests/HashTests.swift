@@ -22,17 +22,17 @@ import Testing
 struct HashTests {
 
     @Test func hashMountSourceWithValidString() throws {
-        let result = try hashMountSource(source: "/valid/path")
+        let result = try hashFilePath(path: "/valid/path")
 
         // Should produce a non-empty hash
         #expect(!result.isEmpty)
 
         // Same input should produce same hash (deterministic)
-        let result2 = try hashMountSource(source: "/valid/path")
+        let result2 = try hashFilePath(path: "/valid/path")
         #expect(result == result2)
 
         // Different inputs should produce different hashes
-        let result3 = try hashMountSource(source: "/different/path")
+        let result3 = try hashFilePath(path: "/different/path")
         #expect(result != result3)
     }
 }

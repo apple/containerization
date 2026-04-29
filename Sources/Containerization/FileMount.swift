@@ -133,7 +133,7 @@ extension FileMountContext {
         let resolvedSource = URL(fileURLWithPath: mount.source).resolvingSymlinksInPath()
         let filename = resolvedSource.lastPathComponent
         let parentDirectory = resolvedSource.deletingLastPathComponent()
-        let tag = try hashMountSource(source: parentDirectory.path)
+        let tag = try hashFilePath(path: parentDirectory.path)
 
         let prepared = PreparedMount(
             hostFilePath: mount.source,
@@ -151,48 +151,33 @@ extension FileMountContext {
 }
 
 extension FileMountContext {
-    /// Mount the holding directories in the guest for all file mounts.
+    /// Set up the holding directory paths for all file mounts.
+    /// Since virtiofs shares are now mounted once at /run/virtiofs, the holding
+    /// directories appear as subdirectories there automatically.
     /// - Parameters:
     ///   - vmMounts: The AttachedFilesystem array from the VM for this container
-    ///   - agent: The VM agent for RPCs
+    ///   - agent: The VM agent for RPCs (unused, kept for API compatibility)
     mutating func mountHoldingDirectories(
         vmMounts: [AttachedFilesystem],
         agent: any VirtualMachineAgent
     ) async throws {
-        // Track which tags we've already mounted to avoid duplicate mounts
-        // when multiple files share the same parent directory.
-        var mountedTags: Set<String> = []
-
         for i in preparedMounts.indices {
             let prepared = preparedMounts[i]
 
-            let guestPath = "/run/file-mounts/\(prepared.tag)"
-
-            if !mountedTags.contains(prepared.tag) {
-                // Find the attached filesystem by matching the virtiofs tag
-                guard
-                    let attached = vmMounts.first(where: {
-                        $0.type == "virtiofs" && $0.source == prepared.tag
-                    })
-                else {
-                    throw ContainerizationError(
-                        .notFound,
-                        message: "could not find attached filesystem for file mount \(prepared.hostFilePath)"
-                    )
-                }
-
-                try await agent.mkdir(path: guestPath, all: true, perms: 0o755)
-                try await agent.mount(
-                    ContainerizationOCI.Mount(
-                        type: "virtiofs",
-                        source: attached.source,
-                        destination: guestPath,
-                        options: []
-                    ))
-
-                mountedTags.insert(prepared.tag)
+            // Verify the attached filesystem exists
+            guard
+                vmMounts.first(where: {
+                    $0.type == "virtiofs" && $0.source == prepared.tag
+                }) != nil
+            else {
+                throw ContainerizationError(
+                    .notFound,
+                    message: "could not find attached filesystem for file mount \(prepared.hostFilePath)"
+                )
             }
 
+            // With unified virtiofs, holding directories are subdirectories under /run/virtiofs
+            let guestPath = "/run/virtiofs/\(prepared.tag)"
             preparedMounts[i].guestHoldingPath = guestPath
         }
     }

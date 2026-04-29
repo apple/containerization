@@ -80,6 +80,10 @@ public struct VMConfiguration: Sendable {
     /// Enable nested virtualization support. If the VirtualMachineManager
     /// does not support this feature, it MUST return an .unsupported ContainerizationError.
     public var nestedVirtualization: Bool
+    /// Extension objects that participate in the VM instance lifecycle.
+    /// Extension packages append their types here; VZ-aware extensions
+    /// should conform to ``VZInstanceExtension``.
+    public var extensions: [any Sendable] = []
 
     public init(
         cpus: Int = 4,

@@ -23,13 +23,39 @@ import Logging
 import NIOCore
 import NIOPosix
 import Synchronization
-import Virtualization
+@preconcurrency import Virtualization
 
 public final class VZVirtualMachineInstance: Sendable {
     public typealias Agent = Vminitd
 
     /// Attached mounts on the virtual machine, organized by metadata ID.
-    public let mounts: [String: [AttachedFilesystem]]
+    private let _mounts: Mutex<[String: [AttachedFilesystem]]>
+    public var mounts: [String: [AttachedFilesystem]] {
+        _mounts.withLock { $0 }
+    }
+
+    /// The underlying Virtualization framework virtual machine.
+    public var vzVirtualMachine: VZVirtualMachine { vm }
+
+    /// The dispatch queue used for VZ operations.
+    public var vmQueue: DispatchQueue { queue }
+
+    /// Mutate the mount registry.
+    public func withMountRegistry<T: Sendable>(_ body: (inout sending [String: [AttachedFilesystem]]) throws -> sending T) rethrows -> T {
+        try _mounts.withLock(body)
+    }
+
+    /// Serialize VM operations with the instance lock.
+    public func withInstanceLock<T: Sendable>(_ body: @Sendable @escaping () async throws -> T) async throws -> T {
+        try await lock.withLock { _ in try await body() }
+    }
+
+    /// The hotplug provider, if hotplug is enabled for this instance.
+    public var hotplugProvider: (any HotplugProvider)? {
+        get { _hotplugProvider.withLock { $0 } }
+        set { _hotplugProvider.withLock { $0 = newValue } }
+    }
+    private let _hotplugProvider = Mutex<(any HotplugProvider)?>(nil)
 
     /// Returns the runtime state of the vm.
     public var state: VirtualMachineInstanceState {
@@ -57,6 +83,8 @@ public final class VZVirtualMachineInstance: Sendable {
         public var initialFilesystem: Mount?
         /// Destination for the virtual machine's boot logs.
         public var bootLog: BootLog?
+        /// Extension objects that participate in the VM instance lifecycle.
+        public var extensions: [any Sendable] = []
 
         public init() {
             self.cpus = 4
@@ -99,15 +127,53 @@ public final class VZVirtualMachineInstance: Sendable {
         self.config = config
         self.lock = .init()
         self.queue = DispatchQueue(label: "com.apple.containerization.vzvm.\(UUID().uuidString)")
-        self.mounts = try config.mountAttachments()
         self.logger = logger
         self.timeSyncer = .init(logger: logger)
 
+        let allocator = Character.blockDeviceTagAllocator()
+        let (mountAttachments, _) = try config.mountAttachments(allocator: allocator)
+        self._mounts = Mutex(mountAttachments)
+
         self.vm = VZVirtualMachine(
-            configuration: try config.toVZ(),
+            configuration: try config.toVZ(allocator: allocator),
             queue: self.queue
         )
+
+        for ext in config.extensions.compactMap({ $0 as? any VZInstanceExtension }) {
+            try ext.didCreate(self)
+        }
     }
+}
+
+/// Protocol for extensions that participate in VZVirtualMachineInstance lifecycle.
+/// Append conforming types to `Configuration.extensions` to hook into VM setup and teardown.
+public protocol VZInstanceExtension: Sendable {
+    /// Modify the VZ configuration before the VM is created.
+    func configureVZ(
+        _ config: inout VZVirtualMachineConfiguration,
+        allocator: any AddressAllocator<Character>,
+        storageDeviceCount: Int,
+        mountsByID: [String: [Mount]]
+    ) throws
+
+    /// Called after the VZVirtualMachine is created but before start.
+    func didCreate(_ instance: VZVirtualMachineInstance) throws
+
+    /// Called during stop before the VM is shut down.
+    func willStop(_ instance: VZVirtualMachineInstance) async throws
+}
+
+extension VZInstanceExtension {
+    public func configureVZ(
+        _ config: inout VZVirtualMachineConfiguration,
+        allocator: any AddressAllocator<Character>,
+        storageDeviceCount: Int,
+        mountsByID: [String: [Mount]]
+    ) throws {}
+
+    public func didCreate(_ instance: VZVirtualMachineInstance) throws {}
+
+    public func willStop(_ instance: VZVirtualMachineInstance) async throws {}
 }
 
 extension VZVirtualMachineInstance: VirtualMachineInstance {
@@ -159,6 +225,10 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
 
             if self.ownsGroup {
                 try await self.group.shutdownGracefully()
+            }
+
+            for ext in self.config.extensions.compactMap({ $0 as? any VZInstanceExtension }) {
+                try? await ext.willStop(self)
             }
 
             try await self.vm.stop(queue: self.queue)
@@ -244,6 +314,35 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
             port: port
         )
     }
+
+    // MARK: - Hotplug
+
+    public func hotplug(_ block: Mount, id: String) async throws -> AttachedFilesystem {
+        guard let hotplugProvider else {
+            throw ContainerizationError(.unsupported, message: "hotplug not supported")
+        }
+        return try await hotplugProvider.hotplug(block, id: id)
+    }
+
+    public func registerMounts(id: String, rootfs: AttachedFilesystem, additionalMounts: [Mount]) throws {
+        guard let hotplugProvider else { return }
+        try hotplugProvider.registerMounts(id: id, rootfs: rootfs, additionalMounts: additionalMounts)
+    }
+
+    public func releaseHotplug(id: String) async throws {
+        guard let hotplugProvider else { return }
+        try await hotplugProvider.releaseHotplug(id: id)
+    }
+
+    public func hotplugVirtioFS(_ mounts: [Mount], id: String) async throws {
+        guard let hotplugProvider else { return }
+        try await hotplugProvider.hotplugVirtioFS(mounts, id: id)
+    }
+
+    public func releaseVirtioFS(id: String) async throws {
+        guard let hotplugProvider else { return }
+        try await hotplugProvider.releaseVirtioFS(id: id)
+    }
 }
 
 extension VZVirtualMachineInstance {
@@ -311,7 +410,7 @@ extension VZVirtualMachineInstance.Configuration {
         return [c]
     }
 
-    func toVZ() throws -> VZVirtualMachineConfiguration {
+    func toVZ(allocator: any AddressAllocator<Character>) throws -> VZVirtualMachineConfiguration {
         var config = VZVirtualMachineConfiguration()
 
         config.cpuCount = self.cpus
@@ -382,7 +481,7 @@ extension VZVirtualMachineInstance.Configuration {
         for (_, mounts) in self.mountsByID {
             for mount in mounts {
                 if case .virtiofs = mount.runtimeOptions {
-                    let tag = try hashMountSource(source: mount.source)
+                    let tag = try hashFilePath(path: mount.source)
                     if usedVirtioFSTags.contains(tag) {
                         continue
                     }
@@ -391,6 +490,29 @@ extension VZVirtualMachineInstance.Configuration {
                 try mount.configure(config: &config)
             }
         }
+
+        // Create the unified virtiofs device with VZMultipleDirectoryShare
+        // This device hosts all virtiofs shares and supports runtime updates
+        var directories: [String: VZSharedDirectory] = [:]
+        for (_, mounts) in self.mountsByID {
+            for mount in mounts {
+                guard case .virtiofs(_) = mount.runtimeOptions else { continue }
+                guard FileManager.default.fileExists(atPath: mount.source) else {
+                    throw ContainerizationError(.notFound, message: "directory \(mount.source) does not exist")
+                }
+                let name = try hashFilePath(path: mount.source)
+                directories[name] = VZSharedDirectory(
+                    url: URL(fileURLWithPath: mount.source),
+                    readOnly: mount.options.contains("ro")
+                )
+            }
+        }
+        let multiShare = VZMultipleDirectoryShare(directories: directories)
+        let virtiofsDevice = VZVirtioFileSystemDeviceConfiguration(tag: "virtiofs")
+        virtiofsDevice.share = multiShare
+        config.directorySharingDevices.append(virtiofsDevice)
+
+        let storageDeviceCount = config.storageDevices.count
 
         let platform = VZGenericPlatformConfiguration()
         // We shouldn't silently succeed if the user asked for virt and their hardware does
@@ -404,29 +526,43 @@ extension VZVirtualMachineInstance.Configuration {
         platform.isNestedVirtualizationEnabled = self.nestedVirtualization
         config.platform = platform
 
+        for ext in self.extensions.compactMap({ $0 as? any VZInstanceExtension }) {
+            try ext.configureVZ(&config, allocator: allocator, storageDeviceCount: storageDeviceCount, mountsByID: self.mountsByID)
+        }
+
         try config.validate()
         return config
     }
 
-    func mountAttachments() throws -> [String: [AttachedFilesystem]] {
-        let allocator = Character.blockDeviceTagAllocator()
+    func mountAttachments(allocator: any AddressAllocator<Character>) throws -> (
+        attachments: [String: [AttachedFilesystem]], storageDeviceCount: Int
+    ) {
+        var storageDeviceCount = 0
+
         if let initialFilesystem {
             // When the initial filesystem is a blk, allocate the first letter "vd(a)"
             // as that is what this blk will be attached under.
             if initialFilesystem.isBlock {
                 _ = try allocator.allocate()
+                storageDeviceCount += 1
             }
         }
 
         var attachmentsByID: [String: [AttachedFilesystem]] = [:]
+
         for (id, mounts) in self.mountsByID {
             var attachments: [AttachedFilesystem] = []
             for mount in mounts {
-                attachments.append(try .init(mount: mount, allocator: allocator))
+                let attached = try AttachedFilesystem(mount: mount, allocator: allocator)
+                attachments.append(attached)
+                if mount.isBlock {
+                    storageDeviceCount += 1
+                }
             }
             attachmentsByID[id] = attachments
         }
-        return attachmentsByID
+
+        return (attachmentsByID, storageDeviceCount)
     }
 }
 
