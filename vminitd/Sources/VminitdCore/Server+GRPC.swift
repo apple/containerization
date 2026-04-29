@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
+// Copyright © 2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -82,7 +82,7 @@ extension ContainerizationError {
 }
 
 extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServiceProtocol {
-    func setTime(
+    public func setTime(
         request: Com_Apple_Containerization_Sandbox_V3_SetTimeRequest,
         context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_SetTimeResponse {
@@ -107,7 +107,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         return .init()
     }
 
-    func setupEmulator(
+    public func setupEmulator(
         request: Com_Apple_Containerization_Sandbox_V3_SetupEmulatorRequest,
         context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_SetupEmulatorResponse {
@@ -150,7 +150,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         return .init()
     }
 
-    func sysctl(
+    public func sysctl(
         request: Com_Apple_Containerization_Sandbox_V3_SysctlRequest,
         context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_SysctlResponse {
@@ -191,7 +191,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         return .init()
     }
 
-    func proxyVsock(
+    public func proxyVsock(
         request: Com_Apple_Containerization_Sandbox_V3_ProxyVsockRequest,
         context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_ProxyVsockResponse {
@@ -241,7 +241,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         return .init()
     }
 
-    func stopVsockProxy(
+    public func stopVsockProxy(
         request: Com_Apple_Containerization_Sandbox_V3_StopVsockProxyRequest,
         context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_StopVsockProxyResponse {
@@ -276,7 +276,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         return .init()
     }
 
-    func mkdir(request: Com_Apple_Containerization_Sandbox_V3_MkdirRequest, context: GRPCCore.ServerContext)
+    public func mkdir(request: Com_Apple_Containerization_Sandbox_V3_MkdirRequest, context: GRPCCore.ServerContext)
         async throws -> Com_Apple_Containerization_Sandbox_V3_MkdirResponse
     {
         log.debug(
@@ -303,7 +303,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         return .init()
     }
 
-    func writeFile(request: Com_Apple_Containerization_Sandbox_V3_WriteFileRequest, context: GRPCCore.ServerContext)
+    public func writeFile(request: Com_Apple_Containerization_Sandbox_V3_WriteFileRequest, context: GRPCCore.ServerContext)
         async throws -> Com_Apple_Containerization_Sandbox_V3_WriteFileResponse
     {
         log.debug(
@@ -364,7 +364,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         return .init()
     }
 
-    func stat(
+    public func stat(
         request: Com_Apple_Containerization_Sandbox_V3_StatRequest,
         context: GRPCCore.ServerContext,
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_StatResponse {
@@ -420,7 +420,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
     // Chunk size for streaming file transfers (1MB).
     private static let copyChunkSize = 1024 * 1024
 
-    func copy(
+    public func copy(
         request: Com_Apple_Containerization_Sandbox_V3_CopyRequest,
         response: GRPCCore.RPCWriter<Com_Apple_Containerization_Sandbox_V3_CopyResponse>,
         context: GRPCCore.ServerContext
@@ -635,7 +635,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         try await response.write(.with { $0.status = .complete })
     }
 
-    func mount(request: Com_Apple_Containerization_Sandbox_V3_MountRequest, context: GRPCCore.ServerContext)
+    public func mount(request: Com_Apple_Containerization_Sandbox_V3_MountRequest, context: GRPCCore.ServerContext)
         async throws -> Com_Apple_Containerization_Sandbox_V3_MountResponse
     {
         log.debug(
@@ -670,7 +670,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         }
     }
 
-    func umount(request: Com_Apple_Containerization_Sandbox_V3_UmountRequest, context: GRPCCore.ServerContext)
+    public func umount(request: Com_Apple_Containerization_Sandbox_V3_UmountRequest, context: GRPCCore.ServerContext)
         async throws -> Com_Apple_Containerization_Sandbox_V3_UmountResponse
     {
         log.debug(
@@ -706,7 +706,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         #endif
     }
 
-    func setenv(request: Com_Apple_Containerization_Sandbox_V3_SetenvRequest, context: GRPCCore.ServerContext)
+    public func setenv(request: Com_Apple_Containerization_Sandbox_V3_SetenvRequest, context: GRPCCore.ServerContext)
         async throws -> Com_Apple_Containerization_Sandbox_V3_SetenvResponse
     {
         log.debug(
@@ -730,7 +730,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         return .init()
     }
 
-    func getenv(request: Com_Apple_Containerization_Sandbox_V3_GetenvRequest, context: GRPCCore.ServerContext)
+    public func getenv(request: Com_Apple_Containerization_Sandbox_V3_GetenvRequest, context: GRPCCore.ServerContext)
         async throws -> Com_Apple_Containerization_Sandbox_V3_GetenvResponse
     {
         log.debug(
@@ -747,7 +747,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         }
     }
 
-    func createProcess(
+    public func createProcess(
         request: Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest, context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_CreateProcessResponse {
         log.debug(
@@ -851,7 +851,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         }
     }
 
-    func killProcess(
+    public func killProcess(
         request: Com_Apple_Containerization_Sandbox_V3_KillProcessRequest,
         context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_KillProcessResponse {
@@ -896,7 +896,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         }
     }
 
-    func deleteProcess(
+    public func deleteProcess(
         request: Com_Apple_Containerization_Sandbox_V3_DeleteProcessRequest, context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_DeleteProcessResponse {
         log.debug(
@@ -950,7 +950,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         }
     }
 
-    func startProcess(
+    public func startProcess(
         request: Com_Apple_Containerization_Sandbox_V3_StartProcessRequest, context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_StartProcessResponse {
         log.debug(
@@ -999,7 +999,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         }
     }
 
-    func resizeProcess(
+    public func resizeProcess(
         request: Com_Apple_Containerization_Sandbox_V3_ResizeProcessRequest, context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_ResizeProcessResponse {
         log.debug(
@@ -1050,7 +1050,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         return .init()
     }
 
-    func waitProcess(
+    public func waitProcess(
         request: Com_Apple_Containerization_Sandbox_V3_WaitProcessRequest, context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_WaitProcessResponse {
         log.debug(
@@ -1100,7 +1100,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         }
     }
 
-    func closeProcessStdin(
+    public func closeProcessStdin(
         request: Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRequest, context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse {
         log.debug(
@@ -1148,7 +1148,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         }
     }
 
-    func ipLinkSet(
+    public func ipLinkSet(
         request: Com_Apple_Containerization_Sandbox_V3_IpLinkSetRequest, context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_IpLinkSetResponse {
         log.debug(
@@ -1175,7 +1175,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         return .init()
     }
 
-    func ipAddrAdd(
+    public func ipAddrAdd(
         request: Com_Apple_Containerization_Sandbox_V3_IpAddrAddRequest, context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_IpAddrAddResponse {
         log.debug(
@@ -1202,7 +1202,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         return .init()
     }
 
-    func ipRouteAddLink(
+    public func ipRouteAddLink(
         request: Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest, context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkResponse {
         log.debug(
@@ -1235,7 +1235,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         return .init()
     }
 
-    func ipRouteAddDefault(
+    public func ipRouteAddDefault(
         request: Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRequest,
         context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultResponse {
@@ -1263,7 +1263,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         return .init()
     }
 
-    func configureDns(
+    public func configureDns(
         request: Com_Apple_Containerization_Sandbox_V3_ConfigureDnsRequest,
         context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_ConfigureDnsResponse {
@@ -1304,7 +1304,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         return .init()
     }
 
-    func configureHosts(
+    public func configureHosts(
         request: Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest,
         context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_ConfigureHostsResponse {
@@ -1336,7 +1336,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         return .init()
     }
 
-    func containerStatistics(
+    public func containerStatistics(
         request: Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest,
         context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsResponse {
@@ -1546,7 +1546,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         }
     }
 
-    func sync(
+    public func sync(
         request: Com_Apple_Containerization_Sandbox_V3_SyncRequest,
         context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_SyncResponse {
@@ -1556,7 +1556,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         return .init()
     }
 
-    func kill(
+    public func kill(
         request: Com_Apple_Containerization_Sandbox_V3_KillRequest,
         context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_KillResponse {

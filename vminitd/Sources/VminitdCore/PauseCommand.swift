@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
+// Copyright © 2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -26,15 +26,17 @@ import Glibc
 private let _exit = Glibc.exit
 #endif
 
-struct PauseCommand: ParsableCommand {
-    static let configuration = CommandConfiguration(
+public struct PauseCommand: ParsableCommand {
+    public static let configuration = CommandConfiguration(
         commandName: "pause",
         abstract: "Run the pause container"
     )
 
-    @OptionGroup var options: LogLevelOption
+    public init() {}
 
-    mutating func run() throws {
+    @OptionGroup public var options: LogLevelOption
+
+    public mutating func run() throws {
         let log = makeLogger(label: "pause", level: options.resolvedLogLevel())
 
         if getpid() != 1 {

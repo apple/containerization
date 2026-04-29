@@ -31,7 +31,7 @@ public struct Vminitd: Sendable {
     public static let port: UInt32 = 1024
 
     let client: Com_Apple_Containerization_Sandbox_V3_SandboxContext.Client<HTTP2ClientTransport.WrappedChannel>
-    private let grpcClient: GRPCClient<HTTP2ClientTransport.WrappedChannel>
+    public let grpcClient: GRPCClient<HTTP2ClientTransport.WrappedChannel>
     private let connectionTask: Task<Void, Error>
 
     public init(connection: FileHandle, group: any EventLoopGroup) throws {
