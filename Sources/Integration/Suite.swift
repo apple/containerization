@@ -165,8 +165,9 @@ struct IntegrationSuite: AsyncParsableCommand {
 
     static let eventLoop = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
 
-    func bootstrap(_ testID: String) async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image, bootLog: BootLog) {
-        let reference = "ghcr.io/linuxcontainers/alpine:3.20"
+    func bootstrap(_ testID: String, reference: String = "ghcr.io/linuxcontainers/alpine:3.20") async throws -> (
+        rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image, bootLog: BootLog
+    ) {
         let store = Self.imageStore
 
         let initImage = try await store.getInitImage(reference: Self.initImage)
@@ -385,6 +386,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container NBD read-only", testContainerNBDReadOnly),
                 Test("container NBD raw block", testContainerNBDRawBlock),
                 Test("container NBD volume identity", testContainerNBDVolumeIdentity),
+                Test("container fsnotify events", testFSNotifyEvents),
 
                 // Pods
                 Test("pod single container", testPodSingleContainer),

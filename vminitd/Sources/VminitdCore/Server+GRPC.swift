@@ -1572,6 +1572,37 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             $0.result = r
         }
     }
+
+    public func notifyFileSystemEvent(
+        request: GRPCCore.RPCAsyncSequence<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest, any Swift.Error>,
+        response: GRPCCore.RPCWriter<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse>,
+        context: GRPCCore.ServerContext
+    ) async throws {
+        for try await req in request {
+            do {
+                let container = try await self.state.get(container: req.containerID)
+                try await container.executeFileSystemEvent(
+                    path: req.path,
+                    eventType: req.eventType
+                )
+                try await response.write(.with { $0.success = true })
+            } catch {
+                log.error(
+                    "notifyFileSystemEvent",
+                    metadata: [
+                        "containerID": "\(req.containerID)",
+                        "path": "\(req.path)",
+                        "eventType": "\(req.eventType)",
+                        "error": "\(error)",
+                    ])
+                try await response.write(
+                    .with {
+                        $0.success = false
+                        $0.error = "\(error)"
+                    })
+            }
+        }
+    }
 }
 
 extension Com_Apple_Containerization_Sandbox_V3_ConfigureHostsRequest {
