@@ -1094,7 +1094,21 @@ extension LinuxContainer {
             }
             let isArchive = isDirectory.boolValue
 
-            let guestPath = URL(filePath: self.root).appending(path: destination.path)
+            let resolvedDestination: URL = try await state.vm.withAgent { agent in
+                guard let vminitd = agent as? Vminitd else {
+                    throw ContainerizationError(.unsupported, message: "copyIn requires Vminitd agent")
+                }
+                do {
+                    let stat = try await vminitd.stat(path: destination)
+                    let isDir = (stat.mode & 0o170000) == 0o040000
+                    if isDir {
+                        return destination.appendingPathComponent(source.lastPathComponent)
+                    }
+                } catch { }
+                return destination
+            }
+            
+            let guestPath = URL(filePath: self.root).appending(path: resolvedDestination.path)
             let port = self.hostVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
             let listener = try state.vm.listen(port)
 
