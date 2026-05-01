@@ -55,7 +55,7 @@ extension RegistryClient {
             }
 
             guard let digest = response.headers.first(name: "Docker-Content-Digest") else {
-                throw ContainerizationError(.invalidArgument, message: "missing required header Docker-Content-Digest")
+                return try await resolveByFetchingManifest(name: name, tag: tag, headers: headers)
             }
 
             guard let type = response.headers.first(name: "Content-Type") else {
@@ -71,6 +71,41 @@ extension RegistryClient {
             }
 
             return Descriptor(mediaType: type, digest: digest, size: size)
+        }
+    }
+
+    /// Resolve a root manifest descriptor by fetching the manifest when the registry does not
+    /// include a Docker-Content-Digest header in the HEAD response.
+    private func resolveByFetchingManifest(
+        name: String,
+        tag: String,
+        headers: [(String, String)]
+    ) async throws -> Descriptor {
+        var components = base
+        components.path = "/v2/\(name)/manifests/\(tag)"
+
+        return try await request(components: components, headers: headers) { response in
+            guard response.status == .ok else {
+                let url = components.url?.absoluteString ?? "unknown"
+                let reason = await ErrorResponse.fromResponseBody(response.body)?.jsonString
+                throw Error.invalidStatus(url: url, response.status, reason: reason)
+            }
+
+            guard let type = response.headers.first(name: "Content-Type") else {
+                throw ContainerizationError(.invalidArgument, message: "missing required header Content-Type")
+            }
+
+            let buffer = try await response.body.collect(upTo: .max)
+            let data = Data(buffer.readableBytesView)
+
+            let computedDigest = SHA256.hash(data: data)
+            let digestString = computedDigest.map { String(format: "%02x", $0) }.joined()
+
+            return Descriptor(
+                mediaType: type,
+                digest: "sha256:\(digestString)",
+                size: Int64(data.count)
+            )
         }
     }
 
