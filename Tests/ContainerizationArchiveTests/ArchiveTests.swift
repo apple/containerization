@@ -17,6 +17,7 @@
 //
 
 import Foundation
+import SystemPackage
 import Testing
 
 @testable import ContainerizationArchive
@@ -557,6 +558,240 @@ struct ArchiveTests {
 
         #expect(rejected.isEmpty)
         #expect(try String(contentsOf: extractDir.appendingPathComponent("only.txt"), encoding: .utf8) == "only file")
+    }
+
+    // MARK: - archive tests
+
+    @Test func archiveURLsBasic() throws {
+        let testDir = createTemporaryDirectory(baseName: "ArchiveTests.archiveURLsBasic")!
+        defer { try? FileManager.default.removeItem(at: testDir) }
+
+        try "alpha content".write(to: testDir.appendingPathComponent("alpha.txt"), atomically: true, encoding: .utf8)
+        try "beta content".write(to: testDir.appendingPathComponent("beta.txt"), atomically: true, encoding: .utf8)
+
+        let files: [FilePath] = [
+            FilePath(testDir.appendingPathComponent("alpha.txt").path),
+            FilePath(testDir.appendingPathComponent("beta.txt").path),
+        ]
+        let archiveURL = testDir.appendingPathComponent("test.tar.gz")
+        let writer = try ArchiveWriter(format: .pax, filter: .gzip, file: archiveURL)
+        try writer.archive(files, base: FilePath(testDir.path))
+        try writer.finishEncoding()
+
+        var entries: [String: String] = [:]
+        let reader = try ArchiveReader(file: archiveURL)
+        for (entry, data) in reader {
+            if let path = entry.path, let content = String(data: data, encoding: .utf8) {
+                entries[path] = content
+            }
+        }
+        #expect(entries["alpha.txt"] == "alpha content")
+        #expect(entries["beta.txt"] == "beta content")
+    }
+
+    @Test func archiveURLsEmpty() throws {
+        let testDir = createTemporaryDirectory(baseName: "ArchiveTests.archiveURLsEmpty")!
+        defer { try? FileManager.default.removeItem(at: testDir) }
+
+        let archiveURL = testDir.appendingPathComponent("test.tar.gz")
+        let writer = try ArchiveWriter(format: .pax, filter: .gzip, file: archiveURL)
+        #expect(throws: Never.self) {
+            try writer.archive([], base: FilePath(testDir.path))
+        }
+        try writer.finishEncoding()
+
+        var count = 0
+        let reader = try ArchiveReader(file: archiveURL)
+        for _ in reader { count += 1 }
+        #expect(count == 0)
+    }
+
+    @Test func archiveURLsSingle() throws {
+        let testDir = createTemporaryDirectory(baseName: "ArchiveTests.archiveURLsSingle")!
+        defer { try? FileManager.default.removeItem(at: testDir) }
+
+        try "only content".write(to: testDir.appendingPathComponent("only.txt"), atomically: true, encoding: .utf8)
+
+        let archiveURL = testDir.appendingPathComponent("test.tar.gz")
+        let writer = try ArchiveWriter(format: .pax, filter: .gzip, file: archiveURL)
+        try writer.archive([FilePath(testDir.appendingPathComponent("only.txt").path)], base: FilePath(testDir.path))
+        try writer.finishEncoding()
+
+        var entries: [String: String] = [:]
+        let reader = try ArchiveReader(file: archiveURL)
+        for (entry, data) in reader {
+            if let path = entry.path, let content = String(data: data, encoding: .utf8) {
+                entries[path] = content
+            }
+        }
+        #expect(entries.count == 1)
+        #expect(entries["only.txt"] == "only content")
+    }
+
+    @Test func archiveURLsPreservesPermissions() throws {
+        let testDir = createTemporaryDirectory(baseName: "ArchiveTests.archiveURLsPerms")!
+        defer { try? FileManager.default.removeItem(at: testDir) }
+
+        let execFile = testDir.appendingPathComponent("script.sh")
+        try "#!/bin/sh\necho hi".write(to: execFile, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: execFile.path)
+
+        let archiveURL = testDir.appendingPathComponent("test.tar.gz")
+        let writer = try ArchiveWriter(format: .pax, filter: .gzip, file: archiveURL)
+        try writer.archive([FilePath(execFile.path)], base: FilePath(testDir.path))
+        try writer.finishEncoding()
+
+        let extractDir = testDir.appendingPathComponent("extract")
+        let reader = try ArchiveReader(file: archiveURL)
+        let rejected = try reader.extractContents(to: extractDir)
+
+        #expect(rejected.isEmpty)
+        let attrs = try FileManager.default.attributesOfItem(atPath: extractDir.appendingPathComponent("script.sh").path)
+        let perms = (attrs[.posixPermissions] as? NSNumber)?.uint16Value ?? 0
+        #expect((perms & 0o777) == 0o755)
+    }
+
+    @Test func archiveURLsNestedDirectories() throws {
+        let testDir = createTemporaryDirectory(baseName: "ArchiveTests.archiveURLsNested")!
+        defer { try? FileManager.default.removeItem(at: testDir) }
+
+        let sourceDir = testDir.appendingPathComponent("source")
+        try FileManager.default.createDirectory(at: sourceDir.appendingPathComponent("a"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: sourceDir.appendingPathComponent("b/c"), withIntermediateDirectories: true)
+        try "top content".write(to: sourceDir.appendingPathComponent("top.txt"), atomically: true, encoding: .utf8)
+        try "a content".write(to: sourceDir.appendingPathComponent("a/deep.txt"), atomically: true, encoding: .utf8)
+        try "nested content".write(to: sourceDir.appendingPathComponent("b/c/nested.txt"), atomically: true, encoding: .utf8)
+
+        let files: [FilePath] = [
+            FilePath(sourceDir.appendingPathComponent("top.txt").path),
+            FilePath(sourceDir.appendingPathComponent("a/deep.txt").path),
+            FilePath(sourceDir.appendingPathComponent("b/c/nested.txt").path),
+        ]
+        let archiveURL = testDir.appendingPathComponent("test.tar.gz")
+        let writer = try ArchiveWriter(format: .pax, filter: .gzip, file: archiveURL)
+        try writer.archive(files, base: FilePath(sourceDir.path))
+        try writer.finishEncoding()
+
+        let extractDir = testDir.appendingPathComponent("extract")
+        let reader = try ArchiveReader(file: archiveURL)
+        let rejected = try reader.extractContents(to: extractDir)
+
+        #expect(rejected.isEmpty)
+        #expect(try String(contentsOf: extractDir.appendingPathComponent("top.txt"), encoding: .utf8) == "top content")
+        #expect(try String(contentsOf: extractDir.appendingPathComponent("a/deep.txt"), encoding: .utf8) == "a content")
+        #expect(try String(contentsOf: extractDir.appendingPathComponent("b/c/nested.txt"), encoding: .utf8) == "nested content")
+    }
+
+    @Test func archiveURLsWithDirectoryURL() throws {
+        let testDir = createTemporaryDirectory(baseName: "ArchiveTests.archiveURLsWithDir")!
+        defer { try? FileManager.default.removeItem(at: testDir) }
+
+        let sourceDir = testDir.appendingPathComponent("source")
+        try FileManager.default.createDirectory(at: sourceDir, withIntermediateDirectories: true)
+        try "top content".write(to: sourceDir.appendingPathComponent("top.txt"), atomically: true, encoding: .utf8)
+
+        let subDir = sourceDir.appendingPathComponent("subdir")
+        try FileManager.default.createDirectory(at: subDir.appendingPathComponent("nested"), withIntermediateDirectories: true)
+        try "sub content".write(to: subDir.appendingPathComponent("sub.txt"), atomically: true, encoding: .utf8)
+        try "deep content".write(to: subDir.appendingPathComponent("nested/deep.txt"), atomically: true, encoding: .utf8)
+
+        let urls: [FilePath] = [
+            FilePath(sourceDir.appendingPathComponent("top.txt").path),
+            FilePath(subDir.path),
+        ]
+        let archiveURL = testDir.appendingPathComponent("test.tar.gz")
+        let writer = try ArchiveWriter(format: .pax, filter: .gzip, file: archiveURL)
+        try writer.archive(urls, base: FilePath(sourceDir.path))
+        try writer.finishEncoding()
+
+        let extractDir = testDir.appendingPathComponent("extract")
+        let reader = try ArchiveReader(file: archiveURL)
+        let rejected = try reader.extractContents(to: extractDir)
+
+        #expect(rejected.isEmpty)
+        #expect(try String(contentsOf: extractDir.appendingPathComponent("top.txt"), encoding: .utf8) == "top content")
+        #expect(try String(contentsOf: extractDir.appendingPathComponent("subdir/sub.txt"), encoding: .utf8) == "sub content")
+        #expect(try String(contentsOf: extractDir.appendingPathComponent("subdir/nested/deep.txt"), encoding: .utf8) == "deep content")
+    }
+
+    @Test func archiveURLsDirectoryPreservesPermissions() throws {
+        let testDir = createTemporaryDirectory(baseName: "ArchiveTests.archiveURLsDirPerms")!
+        defer { try? FileManager.default.removeItem(at: testDir) }
+
+        let sourceDir = testDir.appendingPathComponent("source")
+        let readonlyDir = sourceDir.appendingPathComponent("readonly")
+        try FileManager.default.createDirectory(at: readonlyDir, withIntermediateDirectories: true)
+        try "content".write(to: readonlyDir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o777], ofItemAtPath: readonlyDir.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: readonlyDir.path)
+        }
+
+        let archiveURL = testDir.appendingPathComponent("test.tar.gz")
+        let writer = try ArchiveWriter(format: .pax, filter: .gzip, file: archiveURL)
+        try writer.archive([FilePath(readonlyDir.path)], base: FilePath(sourceDir.path))
+        try writer.finishEncoding()
+
+        let extractDir = testDir.appendingPathComponent("extract")
+        let reader = try ArchiveReader(file: archiveURL)
+        let rejected = try reader.extractContents(to: extractDir)
+
+        #expect(rejected.isEmpty)
+        #expect(
+            try String(contentsOf: extractDir.appendingPathComponent("readonly/file.txt"), encoding: .utf8)
+                == "content")
+        let attrs = try FileManager.default.attributesOfItem(atPath: extractDir.appendingPathComponent("readonly").path)
+        let perms = (attrs[.posixPermissions] as? NSNumber)?.uint16Value ?? 0
+        #expect((perms & 0o777) == 0o777, "Read-only directory permissions should be preserved")
+    }
+
+    @Test func archiveURLsSymlinks() throws {
+        let testDir = createTemporaryDirectory(baseName: "ArchiveTests.archiveURLsSymlinks")!
+        defer { try? FileManager.default.removeItem(at: testDir) }
+
+        let sourceDir = testDir.appendingPathComponent("source")
+        try FileManager.default.createDirectory(at: sourceDir, withIntermediateDirectories: true)
+
+        let fileURL = sourceDir.appendingPathComponent("file.txt")
+        try "symlink content".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        try FileManager.default.createSymbolicLink(
+            atPath: sourceDir.appendingPathComponent("absolute").path,
+            withDestinationPath: fileURL.path
+        )
+        try FileManager.default.createSymbolicLink(
+            atPath: sourceDir.appendingPathComponent("relative").path,
+            withDestinationPath: "file.txt"
+        )
+
+        let archiveURL = testDir.appendingPathComponent("test.tar.gz")
+        let writer = try ArchiveWriter(format: .pax, filter: .gzip, file: archiveURL)
+        try writer.archive([FilePath(sourceDir.path)], base: FilePath(testDir.path))
+        try writer.finishEncoding()
+
+        let extractDir = testDir.appendingPathComponent("extract")
+        let reader = try ArchiveReader(file: archiveURL)
+        let rejected = try reader.extractContents(to: extractDir)
+
+        #expect(rejected.isEmpty)
+
+        let extractedSource = extractDir.appendingPathComponent("source")
+        #expect(
+            try String(contentsOf: extractedSource.appendingPathComponent("file.txt"), encoding: .utf8)
+                == "symlink content")
+
+        let relTarget = try FileManager.default.destinationOfSymbolicLink(
+            atPath: extractedSource.appendingPathComponent("relative").path)
+        #expect(relTarget == "file.txt")
+        #expect(
+            try String(contentsOf: extractedSource.appendingPathComponent("relative"), encoding: .utf8)
+                == "symlink content")
+
+        let absTarget = try FileManager.default.destinationOfSymbolicLink(
+            atPath: extractedSource.appendingPathComponent("absolute").path)
+
+        print("absTarget: \(absTarget), fileURL: \(fileURL.path)")
+        #expect(absTarget == fileURL.path)
     }
 
     @Test func archiveDirectorySymlinkRelativeSubdir() throws {
