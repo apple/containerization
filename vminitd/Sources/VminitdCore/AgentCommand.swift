@@ -212,5 +212,11 @@ public struct AgentCommand: AsyncParsableCommand {
         guard CZ_setrlimit(CZ_RLIMIT_NOFILE, max, max) == 0 else {
             throw POSIXError(.init(rawValue: errno)!)
         }
+
+        // Protect vminitd from the OOM killer. If PID 1 is killed the kernel
+        // panics, so we make ourselves a last-resort target. Workload processes
+        // retain the default score (0) and will be selected first.
+        log.debug("setting oom_score_adj to -999")
+        try "-999\n".write(toFile: "/proc/self/oom_score_adj", atomically: false, encoding: .utf8)
     }
 }
