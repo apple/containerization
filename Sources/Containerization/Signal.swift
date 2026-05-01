@@ -254,6 +254,35 @@ extension Signal {
 
 #endif
 
+extension Signal {
+    private static let platformToName: [Int32: String] =
+        Dictionary(Signal.platform.map { ($0.value, $0.key) }, uniquingKeysWith: { first, _ in first })
+
+    /// Returns the canonical name for this signal on the current platform.
+    public func platformName() -> String? {
+        Self.platformName(self.rawValue)
+    }
+
+    /// Returns the canonical name for a signal number on the current platform.
+    public static func platformName(_ signal: Int32) -> String? {
+        platformToName[signal]
+    }
+}
+
+#if os(macOS)
+extension Signal {
+    /// Converts a macOS signal to the equivalent Linux signal.
+    public func linuxSignal() -> Signal? {
+        guard let name = Self.platformToName[self.rawValue],
+            let linuxNumber = Signal.linux[name]
+        else {
+            return nil
+        }
+        return Signal(rawValue: linuxNumber)
+    }
+}
+#endif
+
 extension Signal: ExpressibleByIntegerLiteral {
     public init(integerLiteral value: Int32) {
         self.rawValue = value
