@@ -98,7 +98,7 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
             if let stdinSocket = $0.stdinSocket {
                 let pair = IOPair(
                     readFrom: stdinSocket,
-                    writeTo: term,
+                    writeTo: UnownedIOCloser(term),
                     reason: "TerminalIO stdin",
                     logger: log
                 )
@@ -121,14 +121,32 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
 
     func close() throws {
         self.state.withLock {
-            if let stdin = $0.stdin {
-                stdin.close()
-                $0.stdin = nil
-            }
+            // stdout must close before stdin because both IOPairs share the
+            // Terminal fd. stdout registered that fd with epoll (as its read
+            // source) and needs to unregister it while the fd is still valid.
+            // stdin closes the Terminal as its write destination, which would
+            // invalidate the fd before stdout can unregister.
             if let stdout = $0.stdout {
                 stdout.close()
                 $0.stdout = nil
             }
+            if let stdin = $0.stdin {
+                stdin.close()
+                $0.stdin = nil
+            }
+
+            // If IOPairs were never created (process exited before attach),
+            // close the raw sockets directly since they have closeOnDeinit
+            // disabled.
+            if let stdinSocket = $0.stdinSocket {
+                try? stdinSocket.close()
+                $0.stdinSocket = nil
+            }
+            if let stdoutSocket = $0.stdoutSocket {
+                try? stdoutSocket.close()
+                $0.stdoutSocket = nil
+            }
+
             $0.parent = nil
         }
     }
