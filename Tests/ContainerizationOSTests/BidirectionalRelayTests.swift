@@ -33,7 +33,11 @@ final class BidirectionalRelayTests {
     /// Creates a Unix domain socket pair and returns (fd0, fd1).
     private func makeSocketPair() throws -> (Int32, Int32) {
         var fds: [Int32] = [0, 0]
+        #if os(macOS)
         let result = socketpair(AF_UNIX, SOCK_STREAM, 0, &fds)
+        #else
+        let result = socketpair(AF_UNIX, Int32(SOCK_STREAM.rawValue), 0, &fds)
+        #endif
         try #require(result == 0, "socketpair should succeed, errno: \(errno)")
         return (fds[0], fds[1])
     }
