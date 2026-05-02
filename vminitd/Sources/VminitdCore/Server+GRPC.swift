@@ -676,7 +676,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         log.debug(
             "filesystemOperation",
             metadata: [
-                "operation": "\(request.operation)",
+                "operation": "\(String(describing: request.operation))",
                 "path": "\(request.path)",
             ])
 
@@ -684,7 +684,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             throw RPCError(code: .invalidArgument, message: "path must be absolute")
         }
 
-        var finfo: stat = stat()
+        var finfo = sys_stat.stat()
         let rc = lstat(request.path, &finfo)
         if rc != 0 {
             let error = swiftErrno("lstat")
@@ -724,9 +724,8 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         return .init()
     }
 
-    private static let FIFREEZE: UInt = 0xC004_5877
-
     private func freezeFilesystem(fd: Int32) throws {
+        let FIFREEZE: UInt = 0xC004_5877
         let rc: CInt = ioctl(fd, FIFREEZE, 0)
         if rc != 0 {
             let error = swiftErrno("ioctl(FIFREEZE)")
@@ -734,9 +733,8 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         }
     }
 
-    private static let FITHAW: UInt = 0xC004_5878
-
     private func thawFilesystem(fd: Int32) throws {
+        let FITHAW: UInt = 0xC004_5878
         let rc: CInt = ioctl(fd, FITHAW, 0)
         if rc != 0 {
             let error = swiftErrno("ioctl(FITHAW)")

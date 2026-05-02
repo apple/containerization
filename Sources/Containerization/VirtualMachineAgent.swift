@@ -25,7 +25,7 @@ public struct WriteFileFlags {
     public var create = false
 }
 
-public enum FilesystemOperation : Sendable {
+public enum FilesystemOperation: Sendable {
     case freeze
     case thaw
 }
