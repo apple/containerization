@@ -744,13 +744,16 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         }
     }
 
-    private static let FITRIM: UInt = 0xC004_5879
+    private struct fitrim_range {
+        var start: UInt64
+        var len: UInt64
+        var minimumLen: UInt64
+    }
 
     private func trimFilesystem(fd: Int32, params: Com_Apple_Containerization_Sandbox_V3_FiTrimParams) throws {
-
-        // TODO logic for trim filesystem
-
-        let rc: CInt = ioctl(fd, FITRIM, 0)
+        let FITRIM: UInt = 0xC004_5879
+        var trange = fitrim_range(start: UInt64(params.start), len: UInt64(params.len), minimumLen: UInt64(params.minimumLen))
+        let rc: CInt = ioctl(fd, FITRIM, &trange)
         if rc != 0 {
             let error = swiftErrno("ioctl(FITRIM)")
             throw RPCError(code: .internalError, message: "trim failed", cause: error)
