@@ -614,6 +614,8 @@ extension FilesystemOperation {
             return .freeze(.init())
         case .thaw:
             return .thaw(.init())
+        case .trim:
+            return .trim(.init())
         }
     }
 }
