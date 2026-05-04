@@ -171,14 +171,24 @@ extension ManagedContainer {
             id: id,
             process: process
         )
-        let process = try ManagedProcess(
-            id: id,
-            stdio: stdio,
-            bundle: self.bundle,
-            owningPid: self.initProcess.pid,
-            log: self.log
-        )
-        self.execs[id] = process
+        let exec: ContainerProcess
+        if native {
+            exec = try NativeProcess(
+                id: id,
+                stdio: stdio,
+                process: process,
+                log: self.log
+            )
+        } else {
+            exec = try ManagedProcess(
+                id: id,
+                stdio: stdio,
+                bundle: self.bundle,
+                owningPid: self.initProcess.pid,
+                log: self.log
+            )
+        }
+        self.execs[id] = exec
     }
 
     func start(execID: String) async throws -> Int32 {
