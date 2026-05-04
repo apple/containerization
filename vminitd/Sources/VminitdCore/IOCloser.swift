@@ -19,3 +19,15 @@ protocol IOCloser: Sendable {
 
     func close() throws
 }
+
+struct UnownedIOCloser: IOCloser {
+    private let inner: IOCloser
+
+    var fileDescriptor: Int32 { inner.fileDescriptor }
+
+    init(_ inner: IOCloser) {
+        self.inner = inner
+    }
+
+    func close() throws {}
+}

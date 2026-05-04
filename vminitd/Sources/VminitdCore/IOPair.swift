@@ -30,6 +30,7 @@ final class IOPair: Sendable {
         let to: IOCloser
         let buffer: UnsafeMutableBufferPointer<UInt8>
         var closed: Bool
+        var registeredFd: Int32?
 
         func drain() {
             let readFrom = OSFile(fd: from.fileDescriptor)
@@ -67,11 +68,13 @@ final class IOPair: Sendable {
             self.drain()
 
             // Remove the fd from our global epoll instance first.
-            let readFromFd = self.from.fileDescriptor
-            do {
-                try ProcessSupervisor.default.unregisterFd(readFromFd)
-            } catch {
-                logger?.error("failed to delete fd from epoll \(readFromFd): \(error)")
+            if let fd = self.registeredFd {
+                do {
+                    try ProcessSupervisor.default.unregisterFd(fd)
+                } catch {
+                    logger?.error("failed to delete fd from epoll \(fd): \(error)")
+                }
+                self.registeredFd = nil
             }
 
             do {
@@ -102,7 +105,8 @@ final class IOPair: Sendable {
                 from: readFrom,
                 to: writeTo,
                 buffer: buffer,
-                closed: false
+                closed: false,
+                registeredFd: nil
             ))
         self.reason = reason
         self.logger = logger
@@ -112,7 +116,8 @@ final class IOPair: Sendable {
         self.logger?.info("setting up relay for \(reason)")
 
         let (readFromFd, writeToFd) = self.io.withLock { io in
-            (io.from.fileDescriptor, io.to.fileDescriptor)
+            io.registeredFd = io.from.fileDescriptor
+            return (io.from.fileDescriptor, io.to.fileDescriptor)
         }
 
         let readFrom = OSFile(fd: readFromFd)
