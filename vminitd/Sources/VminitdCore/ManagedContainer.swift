@@ -160,7 +160,8 @@ extension ManagedContainer {
     func createExec(
         id: String,
         stdio: HostStdio,
-        process: ContainerizationOCI.Process
+        process: ContainerizationOCI.Process,
+        native: Bool
     ) throws {
         log.debug("creating exec process with \(process)")
 

@@ -916,7 +916,7 @@ extension LinuxContainer {
 
     /// Execute a new process in the container. The process is not started after this call, and must be manually started
     /// via the `start` method.
-    public func exec(_ id: String, configuration: LinuxProcessConfiguration) async throws -> LinuxProcess {
+    public func exec(_ id: String, configuration: LinuxProcessConfiguration, native: Bool = false) async throws -> LinuxProcess {
         try await self.state.withLock {
             var state = try $0.startedState("exec")
 
@@ -935,6 +935,7 @@ extension LinuxContainer {
                 containerID: self.id,
                 spec: spec,
                 io: stdio,
+                native: native,
                 ociRuntimePath: self.config.ociRuntimePath,
                 agent: agent,
                 vm: state.vm,

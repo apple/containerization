@@ -231,6 +231,9 @@ extension Vminitd: VirtualMachineAgent {
                 if let ociRuntimePath {
                     $0.ociRuntimePath = ociRuntimePath
                 }
+                if let options {
+                    $0.options = options
+                }
                 $0.configuration = try enc.encode(configuration)
             })
     }
