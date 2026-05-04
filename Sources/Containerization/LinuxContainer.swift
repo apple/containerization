@@ -849,6 +849,11 @@ extension LinuxContainer {
     public func kill(_ signal: Signal) async throws {
         try await self.state.withLock {
             let state = try $0.startedState("kill")
+
+            for process in state.vendedProcesses.values where process.native {
+                try await process.kill(signal)
+            }
+
             try await state.process.kill(signal)
         }
     }
@@ -915,8 +920,8 @@ extension LinuxContainer {
     }
 
     /// Execute a new process in the container. The process is not started after this call, and must be manually started
-    /// via the `start` method.
-    public func exec(_ id: String, configuration: LinuxProcessConfiguration) async throws -> LinuxProcess {
+    /// via the `start` method. When `native` is true, the process is created outside of container, running in the root of VM.
+    public func exec(_ id: String, configuration: LinuxProcessConfiguration, native: Bool = false) async throws -> LinuxProcess {
         try await self.state.withLock {
             var state = try $0.startedState("exec")
 
@@ -935,6 +940,7 @@ extension LinuxContainer {
                 containerID: self.id,
                 spec: spec,
                 io: stdio,
+                native: native,
                 ociRuntimePath: self.config.ociRuntimePath,
                 agent: agent,
                 vm: state.vm,

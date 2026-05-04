@@ -789,12 +789,18 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                 terminal: process.terminal
             )
 
+            let options = try JSONDecoder().decode(
+                CreateProcessOptions.self,
+                from: request.options
+            )
+
             // This is an exec.
             if let container = await self.state.containers[request.containerID] {
                 try await container.createExec(
                     id: request.id,
                     stdio: stdioPorts,
-                    process: process
+                    process: process,
+                    native: options.native
                 )
             } else {
                 // We need to make our new fangled container.
