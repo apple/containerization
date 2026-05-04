@@ -202,6 +202,15 @@ extension Vminitd: VirtualMachineAgent {
             })
     }
 
+    /// Perform a filesystem operation on a path inside the sandbox's environment.
+    public func filesystemOperation(operation: FilesystemOperation, path: String) async throws {
+        _ = try await client.filesystemOperation(
+            .with {
+                $0.operation = operation.toProtoOperation()
+                $0.path = path
+            })
+    }
+
     public func createProcess(
         id: String,
         containerID: String?,
@@ -584,5 +593,17 @@ extension StatCategory {
             categories.append(.memoryEvents)
         }
         return categories
+    }
+}
+
+extension FilesystemOperation {
+    /// Convert FilesystemOperation to proto oneof value.
+    func toProtoOperation() -> Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest.OneOf_Operation {
+        switch self {
+        case .freeze:
+            return .freeze(.init())
+        case .thaw:
+            return .thaw(.init())
+        }
     }
 }
