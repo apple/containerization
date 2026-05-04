@@ -284,6 +284,7 @@ extension ArchiveReader {
         // Iterate and extract archive entries, collecting rejected paths.
         var foundEntry = false
         var rejectedPaths = [String]()
+        var deferredDirAttrs: [(path: FilePath, entry: WriteEntry)] = []
         for (entry, dataReader) in self.makeStreamingIterator() {
             guard let memberPath = (entry.path.map { FilePath($0) }) else {
                 continue
@@ -298,12 +299,25 @@ extension ArchiveReader {
                 rootFileDescriptor: rootFileDescriptor
             )
 
+            if extracted, entry.fileType == .directory {
+                deferredDirAttrs.append((memberPath, entry))
+            }
+
             if !extracted {
                 rejectedPaths.append(memberPath.string)
             }
         }
         guard foundEntry else {
             throw ArchiveError.failedToExtractArchive("no entries found in archive")
+        }
+
+        // Apply directory permissions after all children are extracted, deepest first,
+        // so a read-only parent doesn't block applying permissions to its children.
+        for deferred in deferredDirAttrs.sorted(by: { $0.path.string.count > $1.path.string.count }) {
+            let fd = openat(rootFileDescriptor.rawValue, deferred.path.string, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+            guard fd >= 0 else { continue }
+            setFileAttributes(fd: fd, entry: deferred.entry)
+            close(fd)
         }
 
         return rejectedPaths
@@ -362,9 +376,7 @@ extension ArchiveReader {
                     setFileAttributes(fd: fileFd, entry: entry)
                 }
             case .directory:
-                try rootFileDescriptor.mkdirSecure(memberPath, makeIntermediates: true) { fd in
-                    setFileAttributes(fd: fd.rawValue, entry: entry)
-                }
+                try rootFileDescriptor.mkdirSecure(memberPath, makeIntermediates: true) { _ in }
             case .symbolicLink:
                 guard let targetPath = (entry.symlinkTarget.map { FilePath($0) }) else {
                     return false
