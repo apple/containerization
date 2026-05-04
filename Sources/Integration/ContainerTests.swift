@@ -4724,4 +4724,78 @@ extension IntegrationSuite {
                 msg: "expected 'deep-content' but got '\(value ?? "<nil>")'")
         }
     }
+
+    func testFSNotifyEvents() async throws {
+        let id = "test-fsnotify-events"
+
+        let bs = try await bootstrap(id, reference: "docker.io/library/node:18-alpine")
+        let buffer = BufferWriter()
+        let mountDir = try createMountDirectory()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = [
+                "node", "-e",
+                "fs=require('fs');fs.watch(process.argv[1],(t,f)=>console.log(t,f))",
+                "/mnt",
+            ]
+            config.mounts.append(.share(source: mountDir.path, destination: "/mnt"))
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+        defer { Task { try? await container.stop() } }
+
+        // Give fs.watch time to initialize
+        try await Task.sleep(for: .seconds(2))
+
+        // Dial the guest agent directly via vsock
+        let conn = try await container.dialVsock(port: Vminitd.port)
+        let agent = try Vminitd(connection: conn, group: IntegrationSuite.eventLoop)
+        defer { Task { try? await agent.close() } }
+
+        // Test CREATE event
+        try await agent.notifyFileSystemEvent(
+            path: "/mnt/hi.txt",
+            eventType: .create,
+            containerID: id
+        )
+        try await Task.sleep(for: .seconds(1))
+
+        var output = String(data: buffer.data, encoding: .utf8) ?? ""
+        var lines = output.split(separator: "\n").map(String.init)
+        guard lines == ["change hi.txt"] else {
+            throw IntegrationError.assert(
+                msg: "expected ['change hi.txt'] after CREATE, got \(lines)"
+            )
+        }
+
+        // Test MODIFY event
+        try await agent.notifyFileSystemEvent(
+            path: "/mnt/hi.txt",
+            eventType: .modify,
+            containerID: id
+        )
+        try await Task.sleep(for: .seconds(1))
+
+        output = String(data: buffer.data, encoding: .utf8) ?? ""
+        lines = output.split(separator: "\n").map(String.init)
+        guard lines == ["change hi.txt", "change hi.txt"] else {
+            throw IntegrationError.assert(
+                msg: "expected two 'change hi.txt' lines after MODIFY, got \(lines)"
+            )
+        }
+
+        // Test DELETE on non-existent file — should not crash
+        try await agent.notifyFileSystemEvent(
+            path: "/mnt/nonexistent.txt",
+            eventType: .delete,
+            containerID: id
+        )
+        try await Task.sleep(for: .milliseconds(500))
+
+        // Clean shutdown
+        try await agent.close()
+        try await container.stop()
+    }
 }

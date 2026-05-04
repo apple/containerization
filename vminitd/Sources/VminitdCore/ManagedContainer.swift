@@ -15,6 +15,7 @@
 //===----------------------------------------------------------------------===//
 
 import Cgroup
+import Containerization
 import ContainerizationError
 import ContainerizationOCI
 import ContainerizationOS
@@ -30,6 +31,7 @@ public actor ManagedContainer {
     private let bundle: ContainerizationOCI.Bundle
     private let needsCgroupCleanup: Bool
     private var execs: [String: any ContainerProcess] = [:]
+    private var filesystemEventWorker: FilesystemEventWorker?
 
     public var pid: Int32? {
         self.initProcess.pid
@@ -182,7 +184,20 @@ extension ManagedContainer {
 
     func start(execID: String) async throws -> Int32 {
         let proc = try self.getExecOrInit(execID: execID)
-        return try await ProcessSupervisor.default.start(process: proc)
+        let pid = try await ProcessSupervisor.default.start(process: proc)
+
+        // Start fsnotify worker when the init process starts
+        if execID == self.id {
+            let worker = FilesystemEventWorker(containerID: id, log: log)
+            do {
+                try worker.start(containerPID: pid)
+                self.filesystemEventWorker = worker
+            } catch {
+                log.warning("fsnotify: failed to start worker", metadata: ["containerID": "\(id)", "error": "\(error)"])
+            }
+        }
+
+        return pid
     }
 
     func wait(execID: String) async throws -> ContainerExitStatus {
@@ -216,6 +231,10 @@ extension ManagedContainer {
     }
 
     func delete() async throws {
+        // Stop fsnotify worker before other cleanup
+        await filesystemEventWorker?.stop()
+        filesystemEventWorker = nil
+
         // Delete the init process if it's a RuncProcess
         try await self.initProcess.delete()
 
@@ -232,6 +251,18 @@ extension ManagedContainer {
 
     func getMemoryEvents() throws -> MemoryEvents {
         try self.cgroupManager.getMemoryEvents()
+    }
+
+    func executeFileSystemEvent(
+        path: String,
+        eventType: Com_Apple_Containerization_Sandbox_V3_FileSystemEventType
+    ) throws {
+        guard let worker = filesystemEventWorker else {
+            throw ContainerizationError(
+                .invalidState, message: "fsnotify worker not available for container \(self.id)"
+            )
+        }
+        try worker.enqueueEvent(path: path, eventType: eventType)
     }
 
     func getExecOrInit(execID: String) throws -> any ContainerProcess {

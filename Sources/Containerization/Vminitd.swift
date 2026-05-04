@@ -360,6 +360,10 @@ extension Vminitd: VirtualMachineAgent {
 
 /// Vminitd specific rpcs.
 extension Vminitd {
+    public typealias FileSystemEventRequest = Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest
+    public typealias FileSystemEventResponse = Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse
+    public typealias FileSystemEventType = Com_Apple_Containerization_Sandbox_V3_FileSystemEventType
+
     /// Sets up an emulator in the guest.
     public func setupEmulator(binaryPath: String, configuration: Binfmt.Entry) async throws {
         let request = Com_Apple_Containerization_Sandbox_V3_SetupEmulatorRequest.with {
@@ -537,6 +541,54 @@ extension Vminitd {
                     }
                 }
             })
+    }
+
+    /// Send filesystem event notifications to the guest.
+    public func notifyFileSystemEvents(
+        _ events: [FileSystemEventRequest]
+    ) async throws -> [FileSystemEventResponse] {
+        try await client.notifyFileSystemEvent(
+            requestProducer: { writer in
+                for event in events {
+                    try await writer.write(event)
+                }
+            },
+            onResponse: { response in
+                var results: [FileSystemEventResponse] = []
+                for try await msg in response.messages {
+                    results.append(msg)
+                }
+
+                guard results.count == events.count else {
+                    throw ContainerizationError(
+                        .internalError,
+                        message: "fsnotify: expected \(events.count) responses, got \(results.count)"
+                    )
+                }
+                return results
+            }
+        )
+    }
+
+    /// Send a single filesystem event notification to the guest.
+    public func notifyFileSystemEvent(
+        path: String,
+        eventType: FileSystemEventType,
+        containerID: String
+    ) async throws {
+        let request = FileSystemEventRequest.with {
+            $0.path = path
+            $0.eventType = eventType
+            $0.containerID = containerID
+        }
+
+        let responses = try await notifyFileSystemEvents([request])
+        if let resp = responses.first, !resp.success {
+            throw ContainerizationError(
+                .internalError,
+                message: "fsnotify event failed: \(resp.error)"
+            )
+        }
     }
 }
 

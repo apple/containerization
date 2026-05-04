@@ -72,6 +72,9 @@ service SandboxContext {
   rpc Sync(SyncRequest) returns (SyncResponse);
   // Send a signal to a process via the PID.
   rpc Kill(KillRequest) returns (KillResponse);
+  // Notify the guest of filesystem events on mounted volumes.
+  // Used to trigger synthetic inotify events for virtio-fs mounts.
+  rpc NotifyFileSystemEvent(stream NotifyFileSystemEventRequest) returns (stream NotifyFileSystemEventResponse);
 }
 
 message Stdio {
@@ -450,4 +453,24 @@ message MemoryEventStats {
   uint64 oom_kill = 5;
   // Number of times charge for memory failed because of limit.
   uint64 oom_group_kill = 6;
+}
+
+// Types of filesystem events that can be notified.
+enum FileSystemEventType {
+  CREATE = 0;
+  DELETE = 1;
+  LINK = 2;
+  UNLINK = 3;
+  MODIFY = 4;
+}
+
+message NotifyFileSystemEventRequest {
+  string path = 1;
+  FileSystemEventType event_type = 2;
+  string container_id = 3;
+}
+
+message NotifyFileSystemEventResponse {
+  bool success = 1;
+  optional string error = 2;
 }
