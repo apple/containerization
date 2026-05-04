@@ -1267,13 +1267,12 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         request: Com_Apple_Containerization_Sandbox_V3_ConfigureDnsRequest,
         context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_ConfigureDnsResponse {
-        let domain = request.hasDomain ? request.domain : nil
         log.debug(
             "configureDns",
             metadata: [
                 "location": "\(request.location)",
                 "nameservers": "\(request.nameservers)",
-                "domain": "\(domain ?? "")",
+                "domain": "\(request.hasDomain ? request.domain : "")",
                 "searchDomains": "\(request.searchDomains)",
                 "options": "\(request.options)",
             ])
@@ -1282,8 +1281,27 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             let etc = URL(fileURLWithPath: request.location).appendingPathComponent("etc")
             try FileManager.default.createDirectory(atPath: etc.path, withIntermediateDirectories: true)
             let resolvConf = etc.appendingPathComponent("resolv.conf")
+            var nameservers = request.nameservers
+            var domain = request.hasDomain ? request.domain : nil
+            if nameservers.isEmpty || domain == nil,
+                let pnp = try? String(contentsOfFile: "/proc/net/pnp", encoding: .utf8)
+            {
+                let lines = pnp.split(separator: "\n")
+                if nameservers.isEmpty {
+                    nameservers =
+                        lines
+                        .filter { $0.hasPrefix("nameserver") }
+                        .compactMap { $0.split(separator: " ").dropFirst().first.map(String.init) }
+                }
+                if domain == nil {
+                    domain =
+                        lines
+                        .first { $0.hasPrefix("domain") }
+                        .flatMap { $0.split(separator: " ").dropFirst().first.map(String.init) }
+                }
+            }
             let config = DNS(
-                nameservers: request.nameservers,
+                nameservers: nameservers,
                 domain: domain,
                 searchDomains: request.searchDomains,
                 options: request.options

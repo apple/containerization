@@ -19,8 +19,8 @@ import ContainerizationExtras
 /// A network interface.
 public protocol Interface: Sendable {
     /// The interface IPv4 address and subnet prefix length, as a CIDR address.
-    /// Example: `192.168.64.3/24`
-    var ipv4Address: CIDRv4 { get }
+    /// Example: `192.168.64.3/24`. nil when the address is assigned dynamically (e.g. DHCP).
+    var ipv4Address: CIDRv4? { get }
 
     /// The IP address for the default route, or nil for no default route.
     var ipv4Gateway: IPv4Address? { get }
