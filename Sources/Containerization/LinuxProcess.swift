@@ -94,7 +94,7 @@ public final class LinuxProcess: Sendable {
 
     private let state: Mutex<State>
     private let ioSetup: Stdio
-    private let native: Bool
+    let native: Bool
     private let agent: any VirtualMachineAgent
     private let vm: any VirtualMachineInstance
     private let ociRuntimePath: String?
