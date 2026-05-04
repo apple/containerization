@@ -4006,6 +4006,138 @@ extension IntegrationSuite {
         }
     }
 
+    func testFrozenExt4Clone() async throws {
+        let id = "test-frozen-ext4-clone"
+        let bs = try await bootstrap(id)
+
+        let diskImageURL = Self.testDir.appending(component: "\(id)-data.ext4")
+        try? FileManager.default.removeItem(at: diskImageURL)
+
+        let filesystem = try EXT4.Formatter(FilePath(diskImageURL.absolutePath()), minDiskSize: 64.mib())
+        try filesystem.close()
+
+        let cloneImageURL = Self.testDir.appending(component: "\(id)-data-clone.ext4")
+        try? FileManager.default.removeItem(at: cloneImageURL)
+
+        let writerContainer = try LinuxContainer("\(id)-writer", rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/sleep", "1000"]
+            config.mounts.append(
+                Mount.block(
+                    format: "ext4",
+                    source: diskImageURL.absolutePath(),
+                    destination: "/data"
+                ))
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await writerContainer.create()
+            try await writerContainer.start()
+
+            try await writerContainer.filesystemOperation(operation: .freeze, path: "/data")
+
+            let writeExec = try await writerContainer.exec("write-hello") { config in
+                config.arguments = ["/bin/sh", "-c", "echo hello > /data/hello.txt"]
+            }
+            try await writeExec.start()
+            let writeStatus = try await writeExec.wait()
+            try await writeExec.delete()
+            guard writeStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "write exec failed with status \(writeStatus)")
+            }
+
+            try FileManager.default.copyItem(at: diskImageURL, to: cloneImageURL)
+            defer {
+                try? FileManager.default.removeItem(at: diskImageURL)
+                try? FileManager.default.removeItem(at: cloneImageURL)
+            }
+
+            try await writerContainer.filesystemOperation(operation: .thaw, path: "/data")
+
+            try await writerContainer.kill(.kill)
+            _ = try await writerContainer.wait()
+            try await writerContainer.stop()
+        } catch {
+            try? await writerContainer.filesystemOperation(operation: .thaw, path: "/data")
+            try? await writerContainer.stop()
+            throw error
+        }
+
+        let verifyContainer = try LinuxContainer("\(id)-reader", rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.mounts.append(
+                Mount.block(
+                    format: "ext4",
+                    source: cloneImageURL.absolutePath(),
+                    destination: "/data"
+                ))
+            config.process.arguments = ["/bin/sleep", "1000"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await verifyContainer.create()
+            try await verifyContainer.start()
+
+            let mountBuffer = BufferWriter()
+            let mountExec = try await verifyContainer.exec("verify-mount") { config in
+                config.arguments = ["/bin/sh", "-c", "grep ' /data ' /proc/mounts"]
+                config.stdout = mountBuffer
+            }
+            try await mountExec.start()
+            var status = try await mountExec.wait()
+            try await mountExec.delete()
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "failed to verify /data mount, status \(status)")
+            }
+
+            let mountOutput = String(data: mountBuffer.data, encoding: .utf8) ?? ""
+            guard mountOutput.contains(" /data ") && mountOutput.contains(" ext4 ") else {
+                throw IntegrationError.assert(msg: "expected ext4 mount at /data, got: \(mountOutput)")
+            }
+
+            let dmesgBuffer = BufferWriter()
+            let dmesgExec = try await verifyContainer.exec("verify-dmesg-clean") { config in
+                config.arguments = [
+                    "/bin/sh", "-c",
+                    "if dmesg | grep -Eiq 'fsck|recovering journal|recovery complete'; then dmesg | grep -Ei 'fsck|recovering journal|recovery complete'; exit 1; fi",
+                ]
+                config.stdout = dmesgBuffer
+            }
+            try await dmesgExec.start()
+            status = try await dmesgExec.wait()
+            try await dmesgExec.delete()
+            guard status.exitCode == 0 else {
+                let dmesgOutput = String(data: dmesgBuffer.data, encoding: .utf8) ?? ""
+                throw IntegrationError.assert(msg: "dmesg indicates filesystem recovery on cloned image: \(dmesgOutput)")
+            }
+
+            let lsBuffer = BufferWriter()
+            let lsExec = try await verifyContainer.exec("verify-no-hello") { config in
+                config.arguments = ["ls", "-1", "/data"]
+                config.stdout = lsBuffer
+            }
+            try await lsExec.start()
+            status = try await lsExec.wait()
+            try await lsExec.delete()
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ls /data failed with status \(status)")
+            }
+
+            let lsOutput = String(data: lsBuffer.data, encoding: .utf8) ?? ""
+            let listedFiles = Set(lsOutput.split(whereSeparator: \.isNewline).map(String.init))
+            guard !listedFiles.contains("hello.txt") else {
+                throw IntegrationError.assert(msg: "expected cloned /data to not contain hello.txt, got: \(lsOutput)")
+            }
+
+            try await verifyContainer.kill(.kill)
+            _ = try await verifyContainer.wait()
+            try await verifyContainer.stop()
+        } catch {
+            try? await verifyContainer.stop()
+            throw error
+        }
+    }
+
     func testUseInitBasic() async throws {
         let id = "test-use-init-basic"
 

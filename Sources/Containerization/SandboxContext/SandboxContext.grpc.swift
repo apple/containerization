@@ -179,6 +179,19 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
                 type: .unary
             )
         }
+        /// Namespace for "FilesystemOperation" metadata.
+        public enum FilesystemOperation: Sendable {
+            /// Request type for "FilesystemOperation".
+            public typealias Input = Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest
+            /// Response type for "FilesystemOperation".
+            public typealias Output = Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse
+            /// Descriptor for "FilesystemOperation".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
+                method: "FilesystemOperation",
+                type: .unary
+            )
+        }
         /// Namespace for "CreateProcess" metadata.
         public enum CreateProcess: Sendable {
             /// Request type for "CreateProcess".
@@ -426,6 +439,7 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             WriteFile.descriptor,
             Copy.descriptor,
             Stat.descriptor,
+            FilesystemOperation.descriptor,
             CreateProcess.descriptor,
             DeleteProcess.descriptor,
             StartProcess.descriptor,
@@ -672,6 +686,24 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext {
             request: GRPCCore.StreamingServerRequest<Com_Apple_Containerization_Sandbox_V3_StatRequest>,
             context: GRPCCore.ServerContext
         ) async throws -> GRPCCore.StreamingServerResponse<Com_Apple_Containerization_Sandbox_V3_StatResponse>
+
+        /// Handle the "FilesystemOperation" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Perform a filesystem operation on a mounted filesystem.
+        ///
+        /// - Parameters:
+        ///   - request: A streaming request of `Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest` messages.
+        ///   - context: Context providing information about the RPC.
+        /// - Throws: Any error which occurred during the processing of the request. Thrown errors
+        ///     of type `RPCError` are mapped to appropriate statuses. All other errors are converted
+        ///     to an internal error.
+        /// - Returns: A streaming response of `Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse` messages.
+        func filesystemOperation(
+            request: GRPCCore.StreamingServerRequest<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest>,
+            context: GRPCCore.ServerContext
+        ) async throws -> GRPCCore.StreamingServerResponse<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse>
 
         /// Handle the "CreateProcess" method.
         ///
@@ -1211,6 +1243,24 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext {
             context: GRPCCore.ServerContext
         ) async throws -> GRPCCore.ServerResponse<Com_Apple_Containerization_Sandbox_V3_StatResponse>
 
+        /// Handle the "FilesystemOperation" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Perform a filesystem operation on a mounted filesystem.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest` message.
+        ///   - context: Context providing information about the RPC.
+        /// - Throws: Any error which occurred during the processing of the request. Thrown errors
+        ///     of type `RPCError` are mapped to appropriate statuses. All other errors are converted
+        ///     to an internal error.
+        /// - Returns: A response containing a single `Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse` message.
+        func filesystemOperation(
+            request: GRPCCore.ServerRequest<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest>,
+            context: GRPCCore.ServerContext
+        ) async throws -> GRPCCore.ServerResponse<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse>
+
         /// Handle the "CreateProcess" method.
         ///
         /// > Source IDL Documentation:
@@ -1748,6 +1798,24 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext {
             context: GRPCCore.ServerContext
         ) async throws -> Com_Apple_Containerization_Sandbox_V3_StatResponse
 
+        /// Handle the "FilesystemOperation" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Perform a filesystem operation on a mounted filesystem.
+        ///
+        /// - Parameters:
+        ///   - request: A `Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest` message.
+        ///   - context: Context providing information about the RPC.
+        /// - Throws: Any error which occurred during the processing of the request. Thrown errors
+        ///     of type `RPCError` are mapped to appropriate statuses. All other errors are converted
+        ///     to an internal error.
+        /// - Returns: A `Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse` to respond with.
+        func filesystemOperation(
+            request: Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest,
+            context: GRPCCore.ServerContext
+        ) async throws -> Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse
+
         /// Handle the "CreateProcess" method.
         ///
         /// > Source IDL Documentation:
@@ -2201,6 +2269,17 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext.StreamingServiceP
             }
         )
         router.registerHandler(
+            forMethod: Com_Apple_Containerization_Sandbox_V3_SandboxContext.Method.FilesystemOperation.descriptor,
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest>(),
+            serializer: GRPCProtobuf.ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse>(),
+            handler: { request, context in
+                try await self.filesystemOperation(
+                    request: request,
+                    context: context
+                )
+            }
+        )
+        router.registerHandler(
             forMethod: Com_Apple_Containerization_Sandbox_V3_SandboxContext.Method.CreateProcess.descriptor,
             deserializer: GRPCProtobuf.ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest>(),
             serializer: GRPCProtobuf.ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_CreateProcessResponse>(),
@@ -2519,6 +2598,17 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext.ServiceProtocol {
         context: GRPCCore.ServerContext
     ) async throws -> GRPCCore.StreamingServerResponse<Com_Apple_Containerization_Sandbox_V3_StatResponse> {
         let response = try await self.stat(
+            request: GRPCCore.ServerRequest(stream: request),
+            context: context
+        )
+        return GRPCCore.StreamingServerResponse(single: response)
+    }
+
+    public func filesystemOperation(
+        request: GRPCCore.StreamingServerRequest<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest>,
+        context: GRPCCore.ServerContext
+    ) async throws -> GRPCCore.StreamingServerResponse<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse> {
+        let response = try await self.filesystemOperation(
             request: GRPCCore.ServerRequest(stream: request),
             context: context
         )
@@ -2867,6 +2957,19 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServiceProt
     ) async throws -> GRPCCore.ServerResponse<Com_Apple_Containerization_Sandbox_V3_StatResponse> {
         return GRPCCore.ServerResponse<Com_Apple_Containerization_Sandbox_V3_StatResponse>(
             message: try await self.stat(
+                request: request.message,
+                context: context
+            ),
+            metadata: [:]
+        )
+    }
+
+    public func filesystemOperation(
+        request: GRPCCore.ServerRequest<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest>,
+        context: GRPCCore.ServerContext
+    ) async throws -> GRPCCore.ServerResponse<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse> {
+        return GRPCCore.ServerResponse<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse>(
+            message: try await self.filesystemOperation(
                 request: request.message,
                 context: context
             ),
@@ -3375,6 +3478,29 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext {
             deserializer: some GRPCCore.MessageDeserializer<Com_Apple_Containerization_Sandbox_V3_StatResponse>,
             options: GRPCCore.CallOptions,
             onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Com_Apple_Containerization_Sandbox_V3_StatResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "FilesystemOperation" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Perform a filesystem operation on a mounted filesystem.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest` message.
+        ///   - serializer: A serializer for `Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest` messages.
+        ///   - deserializer: A deserializer for `Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func filesystemOperation<Result>(
+            request: GRPCCore.ClientRequest<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest>,
+            serializer: some GRPCCore.MessageSerializer<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse>) async throws -> Result
         ) async throws -> Result where Result: Sendable
 
         /// Call the "CreateProcess" method.
@@ -4180,6 +4306,40 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext {
             try await self.client.unary(
                 request: request,
                 descriptor: Com_Apple_Containerization_Sandbox_V3_SandboxContext.Method.Stat.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "FilesystemOperation" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Perform a filesystem operation on a mounted filesystem.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest` message.
+        ///   - serializer: A serializer for `Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest` messages.
+        ///   - deserializer: A deserializer for `Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func filesystemOperation<Result>(
+            request: GRPCCore.ClientRequest<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest>,
+            serializer: some GRPCCore.MessageSerializer<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Com_Apple_Containerization_Sandbox_V3_SandboxContext.Method.FilesystemOperation.descriptor,
                 serializer: serializer,
                 deserializer: deserializer,
                 options: options,
@@ -5124,6 +5284,35 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext.ClientProtocol {
         )
     }
 
+    /// Call the "FilesystemOperation" method.
+    ///
+    /// > Source IDL Documentation:
+    /// >
+    /// > Perform a filesystem operation on a mounted filesystem.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func filesystemOperation<Result>(
+        request: GRPCCore.ClientRequest<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.filesystemOperation(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
     /// Call the "CreateProcess" method.
     ///
     /// > Source IDL Documentation:
@@ -6008,6 +6197,39 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext.ClientProtocol {
             metadata: metadata
         )
         return try await self.stat(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "FilesystemOperation" method.
+    ///
+    /// > Source IDL Documentation:
+    /// >
+    /// > Perform a filesystem operation on a mounted filesystem.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func filesystemOperation<Result>(
+        _ message: Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.filesystemOperation(
             request: request,
             options: options,
             onResponse: handleResponse
