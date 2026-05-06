@@ -57,6 +57,8 @@ public final class LinuxContainer: Container, Sendable {
         public var cpus: Int = 4
         /// The memory in bytes to give to the container.
         public var memoryInBytes: UInt64 = 1024.mib()
+        /// Optional block I/O resource limits for the container cgroup.
+        public var blockIO: LinuxBlockIO?
         /// The hostname for the container.
         public var hostname: String?
         /// The system control options for the container.
@@ -105,6 +107,7 @@ public final class LinuxContainer: Container, Sendable {
             process: LinuxProcessConfiguration,
             cpus: Int = 4,
             memoryInBytes: UInt64 = 1024.mib(),
+            blockIO: LinuxBlockIO? = nil,
             hostname: String? = nil,
             sysctl: [String: String] = [:],
             interfaces: [any Interface] = [],
@@ -124,6 +127,7 @@ public final class LinuxContainer: Container, Sendable {
             self.process = process
             self.cpus = cpus
             self.memoryInBytes = memoryInBytes
+            self.blockIO = blockIO
             self.hostname = hostname
             self.sysctl = sysctl
             self.interfaces = interfaces
@@ -389,7 +393,7 @@ public final class LinuxContainer: Container, Sendable {
         )
     }
 
-    private func generateRuntimeSpec() -> Spec {
+    func generateRuntimeSpec() -> Spec {
         var spec = Self.createDefaultRuntimeSpec(id)
 
         // Process toggles.
@@ -426,7 +430,8 @@ public final class LinuxContainer: Container, Sendable {
             cpu: LinuxCPU(
                 quota: Int64(config.cpus * 100_000),
                 period: 100_000
-            )
+            ),
+            blockIO: config.blockIO
         )
 
         spec.linux?.namespaces = [
