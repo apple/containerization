@@ -315,7 +315,8 @@ extension VZVirtualMachineInstance.Configuration {
         var config = VZVirtualMachineConfiguration()
 
         config.cpuCount = self.cpus
-        config.memorySize = self.memoryInBytes
+        let mib: UInt64 = 1 << 20
+        config.memorySize = (self.memoryInBytes + mib - 1) & ~(mib - 1)
         config.entropyDevices = [VZVirtioEntropyDeviceConfiguration()]
         config.socketDevices = [VZVirtioSocketDeviceConfiguration()]
 
