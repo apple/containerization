@@ -384,6 +384,13 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         let result = _stat(request.path, &s)
         if result == -1 {
             let error = swiftErrno("stat")
+            if error.code == .ENOENT {
+                throw RPCError(
+                    code: .notFound,
+                    message: "stat: path not found '\(request.path)'",
+                    cause: error
+                )
+            }
             return .with { $0.error = "\(error)" }
         }
         return .with {

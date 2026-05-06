@@ -472,7 +472,12 @@ extension Vminitd {
             $0.path = path.path
         }
 
-        let response = try await client.stat(request)
+        let response: Com_Apple_Containerization_Sandbox_V3_StatResponse
+        do {
+            response = try await client.stat(request)
+        } catch let error as RPCError where error.code == .notFound {
+            throw ContainerizationError(.notFound, message: "stat: path not found '\(path.path)'", cause: error)
+        }
         guard response.error.isEmpty else {
             throw ContainerizationError(.internalError, message: "stat: \(response.error)")
         }
