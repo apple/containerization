@@ -495,7 +495,7 @@ extension IntegrationSuite {
         let bs = try await bootstrap(id)
         let pod = try LinuxPod(id, vmm: bs.vmm) { config in
             config.cpus = 4
-            config.memoryInBytes = 1024.mib()
+            config.memoryInBytes = 1_000_000_000
             config.bootLog = bs.bootLog
         }
 

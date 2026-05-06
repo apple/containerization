@@ -551,8 +551,7 @@ extension LinuxContainer {
             var modifiedRootfs = self.rootfs
             modifiedRootfs.options.removeAll(where: { $0 == "ro" })
 
-            let mib: UInt64 = 1.mib()
-            let vmMemory = (self.memoryInBytes + self.config.memoryOverhead + mib - 1) & ~(mib - 1)
+            let vmMemory = self.memoryInBytes + self.config.memoryOverhead
 
             let vmCpus = self.cpus + self.config.cpuOverhead
 

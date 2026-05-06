@@ -33,6 +33,7 @@ extension IntegrationSuite {
         let bs = try await bootstrap(id)
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["/bin/true"]
+            config.memoryInBytes = 250_000_000
             config.bootLog = bs.bootLog
         }
 
