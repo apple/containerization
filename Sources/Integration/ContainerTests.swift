@@ -1843,6 +1843,156 @@ extension IntegrationSuite {
         }
     }
 
+    func testCopyInFileToExistingDirectory() async throws {
+        let id = "test-copy-in-file-to-dir"
+
+        let bs = try await bootstrap(id)
+
+        let testContent = "copy into an existing guest directory"
+        let hostFile = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("host-file.txt")
+        try testContent.write(to: hostFile, atomically: true, encoding: .utf8)
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let mkdir = try await container.exec("create-copy-target") { config in
+                config.arguments = ["mkdir", "-p", "/tmp/copy-target"]
+            }
+            try await mkdir.start()
+            let mkdirStatus = try await mkdir.wait()
+            try await mkdir.delete()
+
+            guard mkdirStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "mkdir failed with status \(mkdirStatus)")
+            }
+
+            try await container.copyIn(
+                from: hostFile,
+                to: URL(filePath: "/tmp/copy-target")
+            )
+
+            let buffer = BufferWriter()
+            let verify = try await container.exec("verify-copy-target") { config in
+                config.arguments = ["cat", "/tmp/copy-target/host-file.txt"]
+                config.stdout = buffer
+            }
+            try await verify.start()
+            let verifyStatus = try await verify.wait()
+            try await verify.delete()
+
+            guard verifyStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "cat copied file failed with status \(verifyStatus)")
+            }
+            guard String(data: buffer.data, encoding: .utf8) == testContent else {
+                throw IntegrationError.assert(msg: "copied file should land under the existing destination directory")
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testCopyInFileToMissingDirectoryFails() async throws {
+        let id = "test-copy-in-file-missing-dir"
+
+        let bs = try await bootstrap(id)
+
+        let hostFile = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("host-file.txt")
+        try "missing destination directory".write(to: hostFile, atomically: true, encoding: .utf8)
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            do {
+                try await container.copyIn(
+                    from: hostFile,
+                    to: URL(filePath: "/tmp/missing-copy-target/")
+                )
+                throw IntegrationError.assert(msg: "copyIn should fail when copying a file to a missing destination directory")
+            } catch let error as ContainerizationError where error.code == .invalidArgument {
+                guard error.description.contains("destination directory does not exist") else {
+                    throw IntegrationError.assert(msg: "unexpected copyIn error: \(error)")
+                }
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testCopyInDirectoryOverExistingFileFails() async throws {
+        let id = "test-copy-in-dir-over-file"
+
+        let bs = try await bootstrap(id)
+
+        let hostDir = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("host-dir")
+        try FileManager.default.createDirectory(at: hostDir, withIntermediateDirectories: true)
+        try "directory content".write(to: hostDir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let createFile = try await container.exec("create-existing-file") { config in
+                config.arguments = ["sh", "-c", "echo -n existing > /tmp/existing-file"]
+            }
+            try await createFile.start()
+            let createStatus = try await createFile.wait()
+            try await createFile.delete()
+
+            guard createStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "failed to create existing file, status \(createStatus)")
+            }
+
+            do {
+                try await container.copyIn(
+                    from: hostDir,
+                    to: URL(filePath: "/tmp/existing-file")
+                )
+                throw IntegrationError.assert(msg: "copyIn should fail when copying a directory over an existing file")
+            } catch let error as ContainerizationError where error.code == .invalidArgument {
+                guard error.description.contains("cannot copy directory over existing file") else {
+                    throw IntegrationError.assert(msg: "unexpected copyIn error: \(error)")
+                }
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
     func testCopyOut() async throws {
         let id = "test-copy-out"
 
