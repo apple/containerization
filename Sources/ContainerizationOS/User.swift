@@ -115,10 +115,14 @@ extension User {
         let content = try String(contentsOf: file, encoding: .ascii)
         let lines = content.components(separatedBy: .newlines)
         for line in lines {
-            guard !line.isEmpty else {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else {
                 continue
             }
-            try handler(line.trimmingCharacters(in: .whitespaces))
+            guard !trimmed.hasPrefix("#") else {
+                continue
+            }
+            try handler(trimmed)
         }
     }
 
