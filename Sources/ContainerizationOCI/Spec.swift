@@ -20,7 +20,7 @@
 
 public struct Spec: Codable, Sendable {
     public var version: String
-    public var hooks: Hook?
+    public var hooks: Hooks?
     public var process: Process?
     public var hostname, domainname: String
     public var mounts: [Mount]
@@ -30,7 +30,7 @@ public struct Spec: Codable, Sendable {
 
     public init(
         version: String = "",
-        hooks: Hook? = nil,
+        hooks: Hooks? = nil,
         process: Process? = nil,
         hostname: String = "",
         domainname: String = "",
@@ -67,7 +67,7 @@ public struct Spec: Codable, Sendable {
 
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.version = try container.decode(String.self, forKey: .version)
-        self.hooks = try container.decodeIfPresent(Hook.self, forKey: .hooks)
+        self.hooks = try container.decodeIfPresent(Hooks.self, forKey: .hooks)
         self.process = try container.decodeIfPresent(Process.self, forKey: .process)
         if let hostname = try container.decodeIfPresent(String.self, forKey: .hostname) {
             self.hostname = hostname

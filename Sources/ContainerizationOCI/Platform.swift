@@ -21,6 +21,20 @@ import Foundation
 
 /// Platform describes the platform which the image in the manifest runs on.
 public struct Platform: Sendable, Equatable {
+    /// Normalizes a raw architecture string (e.g. from uname) to its OCI equivalent.
+    static func normalizeArch(_ raw: String) -> (arch: String, variant: String?) {
+        switch raw {
+        case "aarch64", "arm64":
+            return ("arm64", "v8")
+        case "x86_64", "x86-64", "amd64":
+            return ("amd64", nil)
+        case "arm", "armhf", "armel":
+            return ("arm", "v7")
+        default:
+            return (raw, nil)
+        }
+    }
+
     public static var current: Self {
         var systemInfo = utsname()
         uname(&systemInfo)
@@ -29,14 +43,8 @@ public struct Platform: Sendable, Equatable {
                 String(cString: $0)
             }
         }
-        switch arch {
-        case "arm64":
-            return .init(arch: "arm64", os: "linux", variant: "v8")
-        case "x86_64":
-            return .init(arch: "amd64", os: "linux")
-        default:
-            fatalError("unsupported arch \(arch)")
-        }
+        let normalized = normalizeArch(arch)
+        return .init(arch: normalized.arch, os: "linux", variant: normalized.variant)
     }
 
     /// The computed description, for example, `linux/arm64/v8`.
@@ -48,18 +56,9 @@ public struct Platform: Sendable, Equatable {
         return "\(os)/\(architecture)"
     }
 
-    /// The CPU architecture, for example, `amd64` or `ppc64`.
+    /// The CPU architecture, for example, `amd64` or `arm64`.
     public var architecture: String {
-        switch _rawArch {
-        case "arm64", "aarch64":
-            return "arm64"
-        case "x86_64", "x86-64", "amd64":
-            return "amd64"
-        case "386", "ppc64le", "i386", "s390x", "riscv64":
-            return _rawArch
-        default:
-            return _rawArch
-        }
+        Self.normalizeArch(_rawArch).arch
     }
 
     /// The operating system, for example, `linux` or `windows`.
@@ -108,11 +107,7 @@ public struct Platform: Sendable, Equatable {
             throw ContainerizationError(.invalidArgument, message: "missing OS in \(platform)")
         }
         switch osValue {
-        case "linux":
-            _rawOS = osValue.description
-        case "darwin":
-            _rawOS = osValue.description
-        case "windows":
+        case "linux", "windows", "darwin":
             _rawOS = osValue.description
         default:
             throw ContainerizationError(.invalidArgument, message: "unknown OS in \(osValue)")

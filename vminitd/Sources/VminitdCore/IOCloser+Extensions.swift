@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
+// Copyright © 2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,8 +14,15 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-protocol IOCloser: Sendable {
-    var fileDescriptor: Int32 { get }
+import ContainerizationOS
+import Foundation
 
-    func close() throws
+extension Socket: IOCloser {}
+
+extension Terminal: IOCloser {
+    var fileDescriptor: Int32 {
+        self.handle.fileDescriptor
+    }
 }
+
+extension FileHandle: IOCloser {}

@@ -132,8 +132,8 @@ struct FileDescriptorPathSecureTests {
                 let attrs = try FileManager.default.attributesOfItem(atPath: dirPath.string)
                 let posixPerms = attrs[.posixPermissions] as? NSNumber
                 // Mask to permission bits only (not file type bits)
-                let permMask: UInt16 = 0o777
-                let actualPerms = (posixPerms?.uint16Value ?? 0) & permMask
+                let permMask: CModeT = 0o777
+                let actualPerms = CModeT(posixPerms?.uint16Value ?? 0) & permMask
                 let expectedPerms = permissions.rawValue & permMask
                 #expect(
                     actualPerms == expectedPerms,
@@ -396,7 +396,7 @@ struct FileDescriptorPathSecureTests {
 
         // Create a regular file
         let filePath = tempPath.appending("testfile.txt")
-        FileManager.default.createFile(atPath: filePath.string, contents: Data("test".utf8))
+        _ = FileManager.default.createFile(atPath: filePath.string, contents: Data("test".utf8))
 
         // Verify file exists
         #expect(FileManager.default.fileExists(atPath: filePath.string))
@@ -452,9 +452,9 @@ struct FileDescriptorPathSecureTests {
         let deepdirPath = subdirPath.appending("deepdir")
 
         try FileManager.default.createDirectory(atPath: deepdirPath.string, withIntermediateDirectories: true)
-        FileManager.default.createFile(atPath: nestedPath.appending("file1.txt").string, contents: Data("1".utf8))
-        FileManager.default.createFile(atPath: subdirPath.appending("file2.txt").string, contents: Data("2".utf8))
-        FileManager.default.createFile(atPath: deepdirPath.appending("file3.txt").string, contents: Data("3".utf8))
+        _ = FileManager.default.createFile(atPath: nestedPath.appending("file1.txt").string, contents: Data("1".utf8))
+        _ = FileManager.default.createFile(atPath: subdirPath.appending("file2.txt").string, contents: Data("2".utf8))
+        _ = FileManager.default.createFile(atPath: deepdirPath.appending("file3.txt").string, contents: Data("3".utf8))
 
         // Verify structure exists
         #expect(FileManager.default.fileExists(atPath: nestedPath.string))
@@ -491,7 +491,7 @@ struct FileDescriptorPathSecureTests {
         // Create target file and symlink
         let targetPath = tempPath.appending("target.txt")
         let linkPath = tempPath.appending("link")
-        FileManager.default.createFile(atPath: targetPath.string, contents: Data("target".utf8))
+        _ = FileManager.default.createFile(atPath: targetPath.string, contents: Data("target".utf8))
         try FileManager.default.createSymbolicLink(atPath: linkPath.string, withDestinationPath: "target.txt")
 
         // Verify both exist
@@ -523,7 +523,7 @@ struct FileDescriptorPathSecureTests {
         let subdirPath = mixedPath.appending("subdir")
 
         try FileManager.default.createDirectory(atPath: subdirPath.string, withIntermediateDirectories: true)
-        FileManager.default.createFile(atPath: mixedPath.appending("file.txt").string, contents: Data("test".utf8))
+        _ = FileManager.default.createFile(atPath: mixedPath.appending("file.txt").string, contents: Data("test".utf8))
         try FileManager.default.createSymbolicLink(
             atPath: mixedPath.appending("link").string,
             withDestinationPath: "file.txt"
@@ -643,7 +643,7 @@ struct FileDescriptorPathSecureTests {
                         attributes: permissions.map { [.posixPermissions: $0.rawValue] }
                     )
                 }
-                FileManager.default.createFile(
+                _ = FileManager.default.createFile(
                     atPath: fullPath.string,
                     contents: Data("test".utf8)
                 )

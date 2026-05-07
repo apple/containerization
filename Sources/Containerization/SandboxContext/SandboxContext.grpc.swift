@@ -166,6 +166,19 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
                 type: .serverStreaming
             )
         }
+        /// Namespace for "Stat" metadata.
+        public enum Stat: Sendable {
+            /// Request type for "Stat".
+            public typealias Input = Com_Apple_Containerization_Sandbox_V3_StatRequest
+            /// Response type for "Stat".
+            public typealias Output = Com_Apple_Containerization_Sandbox_V3_StatResponse
+            /// Descriptor for "Stat".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
+                method: "Stat",
+                type: .unary
+            )
+        }
         /// Namespace for "CreateProcess" metadata.
         public enum CreateProcess: Sendable {
             /// Request type for "CreateProcess".
@@ -412,6 +425,7 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             SetupEmulator.descriptor,
             WriteFile.descriptor,
             Copy.descriptor,
+            Stat.descriptor,
             CreateProcess.descriptor,
             DeleteProcess.descriptor,
             StartProcess.descriptor,
@@ -640,6 +654,24 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext {
             request: GRPCCore.StreamingServerRequest<Com_Apple_Containerization_Sandbox_V3_CopyRequest>,
             context: GRPCCore.ServerContext
         ) async throws -> GRPCCore.StreamingServerResponse<Com_Apple_Containerization_Sandbox_V3_CopyResponse>
+
+        /// Handle the "Stat" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Stat a path in the guest filesystem.
+        ///
+        /// - Parameters:
+        ///   - request: A streaming request of `Com_Apple_Containerization_Sandbox_V3_StatRequest` messages.
+        ///   - context: Context providing information about the RPC.
+        /// - Throws: Any error which occurred during the processing of the request. Thrown errors
+        ///     of type `RPCError` are mapped to appropriate statuses. All other errors are converted
+        ///     to an internal error.
+        /// - Returns: A streaming response of `Com_Apple_Containerization_Sandbox_V3_StatResponse` messages.
+        func stat(
+            request: GRPCCore.StreamingServerRequest<Com_Apple_Containerization_Sandbox_V3_StatRequest>,
+            context: GRPCCore.ServerContext
+        ) async throws -> GRPCCore.StreamingServerResponse<Com_Apple_Containerization_Sandbox_V3_StatResponse>
 
         /// Handle the "CreateProcess" method.
         ///
@@ -1161,6 +1193,24 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext {
             context: GRPCCore.ServerContext
         ) async throws -> GRPCCore.StreamingServerResponse<Com_Apple_Containerization_Sandbox_V3_CopyResponse>
 
+        /// Handle the "Stat" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Stat a path in the guest filesystem.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Com_Apple_Containerization_Sandbox_V3_StatRequest` message.
+        ///   - context: Context providing information about the RPC.
+        /// - Throws: Any error which occurred during the processing of the request. Thrown errors
+        ///     of type `RPCError` are mapped to appropriate statuses. All other errors are converted
+        ///     to an internal error.
+        /// - Returns: A response containing a single `Com_Apple_Containerization_Sandbox_V3_StatResponse` message.
+        func stat(
+            request: GRPCCore.ServerRequest<Com_Apple_Containerization_Sandbox_V3_StatRequest>,
+            context: GRPCCore.ServerContext
+        ) async throws -> GRPCCore.ServerResponse<Com_Apple_Containerization_Sandbox_V3_StatResponse>
+
         /// Handle the "CreateProcess" method.
         ///
         /// > Source IDL Documentation:
@@ -1680,6 +1730,24 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext {
             context: GRPCCore.ServerContext
         ) async throws
 
+        /// Handle the "Stat" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Stat a path in the guest filesystem.
+        ///
+        /// - Parameters:
+        ///   - request: A `Com_Apple_Containerization_Sandbox_V3_StatRequest` message.
+        ///   - context: Context providing information about the RPC.
+        /// - Throws: Any error which occurred during the processing of the request. Thrown errors
+        ///     of type `RPCError` are mapped to appropriate statuses. All other errors are converted
+        ///     to an internal error.
+        /// - Returns: A `Com_Apple_Containerization_Sandbox_V3_StatResponse` to respond with.
+        func stat(
+            request: Com_Apple_Containerization_Sandbox_V3_StatRequest,
+            context: GRPCCore.ServerContext
+        ) async throws -> Com_Apple_Containerization_Sandbox_V3_StatResponse
+
         /// Handle the "CreateProcess" method.
         ///
         /// > Source IDL Documentation:
@@ -2122,6 +2190,17 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext.StreamingServiceP
             }
         )
         router.registerHandler(
+            forMethod: Com_Apple_Containerization_Sandbox_V3_SandboxContext.Method.Stat.descriptor,
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_StatRequest>(),
+            serializer: GRPCProtobuf.ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_StatResponse>(),
+            handler: { request, context in
+                try await self.stat(
+                    request: request,
+                    context: context
+                )
+            }
+        )
+        router.registerHandler(
             forMethod: Com_Apple_Containerization_Sandbox_V3_SandboxContext.Method.CreateProcess.descriptor,
             deserializer: GRPCProtobuf.ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest>(),
             serializer: GRPCProtobuf.ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_CreateProcessResponse>(),
@@ -2433,6 +2512,17 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext.ServiceProtocol {
             context: context
         )
         return response
+    }
+
+    public func stat(
+        request: GRPCCore.StreamingServerRequest<Com_Apple_Containerization_Sandbox_V3_StatRequest>,
+        context: GRPCCore.ServerContext
+    ) async throws -> GRPCCore.StreamingServerResponse<Com_Apple_Containerization_Sandbox_V3_StatResponse> {
+        let response = try await self.stat(
+            request: GRPCCore.ServerRequest(stream: request),
+            context: context
+        )
+        return GRPCCore.StreamingServerResponse(single: response)
     }
 
     public func createProcess(
@@ -2768,6 +2858,19 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServiceProt
                 )
                 return [:]
             }
+        )
+    }
+
+    public func stat(
+        request: GRPCCore.ServerRequest<Com_Apple_Containerization_Sandbox_V3_StatRequest>,
+        context: GRPCCore.ServerContext
+    ) async throws -> GRPCCore.ServerResponse<Com_Apple_Containerization_Sandbox_V3_StatResponse> {
+        return GRPCCore.ServerResponse<Com_Apple_Containerization_Sandbox_V3_StatResponse>(
+            message: try await self.stat(
+                request: request.message,
+                context: context
+            ),
+            metadata: [:]
         )
     }
 
@@ -3249,6 +3352,29 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext {
             deserializer: some GRPCCore.MessageDeserializer<Com_Apple_Containerization_Sandbox_V3_CopyResponse>,
             options: GRPCCore.CallOptions,
             onResponse handleResponse: @Sendable @escaping (GRPCCore.StreamingClientResponse<Com_Apple_Containerization_Sandbox_V3_CopyResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "Stat" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Stat a path in the guest filesystem.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Com_Apple_Containerization_Sandbox_V3_StatRequest` message.
+        ///   - serializer: A serializer for `Com_Apple_Containerization_Sandbox_V3_StatRequest` messages.
+        ///   - deserializer: A deserializer for `Com_Apple_Containerization_Sandbox_V3_StatResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func stat<Result>(
+            request: GRPCCore.ClientRequest<Com_Apple_Containerization_Sandbox_V3_StatRequest>,
+            serializer: some GRPCCore.MessageSerializer<Com_Apple_Containerization_Sandbox_V3_StatRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Com_Apple_Containerization_Sandbox_V3_StatResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Com_Apple_Containerization_Sandbox_V3_StatResponse>) async throws -> Result
         ) async throws -> Result where Result: Sendable
 
         /// Call the "CreateProcess" method.
@@ -4020,6 +4146,40 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext {
             try await self.client.serverStreaming(
                 request: request,
                 descriptor: Com_Apple_Containerization_Sandbox_V3_SandboxContext.Method.Copy.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "Stat" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Stat a path in the guest filesystem.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Com_Apple_Containerization_Sandbox_V3_StatRequest` message.
+        ///   - serializer: A serializer for `Com_Apple_Containerization_Sandbox_V3_StatRequest` messages.
+        ///   - deserializer: A deserializer for `Com_Apple_Containerization_Sandbox_V3_StatResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func stat<Result>(
+            request: GRPCCore.ClientRequest<Com_Apple_Containerization_Sandbox_V3_StatRequest>,
+            serializer: some GRPCCore.MessageSerializer<Com_Apple_Containerization_Sandbox_V3_StatRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Com_Apple_Containerization_Sandbox_V3_StatResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Com_Apple_Containerization_Sandbox_V3_StatResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Com_Apple_Containerization_Sandbox_V3_SandboxContext.Method.Stat.descriptor,
                 serializer: serializer,
                 deserializer: deserializer,
                 options: options,
@@ -4935,6 +5095,35 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext.ClientProtocol {
         )
     }
 
+    /// Call the "Stat" method.
+    ///
+    /// > Source IDL Documentation:
+    /// >
+    /// > Stat a path in the guest filesystem.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Com_Apple_Containerization_Sandbox_V3_StatRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func stat<Result>(
+        request: GRPCCore.ClientRequest<Com_Apple_Containerization_Sandbox_V3_StatRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Com_Apple_Containerization_Sandbox_V3_StatResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.stat(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_StatRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_StatResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
     /// Call the "CreateProcess" method.
     ///
     /// > Source IDL Documentation:
@@ -5786,6 +5975,39 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext.ClientProtocol {
             metadata: metadata
         )
         return try await self.copy(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "Stat" method.
+    ///
+    /// > Source IDL Documentation:
+    /// >
+    /// > Stat a path in the guest filesystem.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func stat<Result>(
+        _ message: Com_Apple_Containerization_Sandbox_V3_StatRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Com_Apple_Containerization_Sandbox_V3_StatResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Com_Apple_Containerization_Sandbox_V3_StatRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.stat(
             request: request,
             options: options,
             onResponse: handleResponse

@@ -211,6 +211,11 @@ public final class RegistryClient: ContentClient {
                     }
 
                     continue
+                } else if _response.status == .badRequest && request.headers.contains(name: "Authorization") {
+                    // Retry without basic auth
+                    request.headers.remove(name: "Authorization")
+                    retryCount += 1
+                    continue
                 }
                 guard let retryOptions = self.retryOptions else {
                     break

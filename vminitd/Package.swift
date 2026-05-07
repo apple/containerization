@@ -28,6 +28,7 @@ let package = Package(
     name: "swift-vminitd",
     platforms: [.macOS("15")],
     products: [
+        .library(name: "VminitdCore", targets: ["VminitdCore"]),
         .executable(name: "vminitd", targets: ["vminitd"]),
         .executable(name: "vmexec", targets: ["vmexec"]),
     ],
@@ -63,8 +64,8 @@ let package = Package(
                 "LCShim",
             ]
         ),
-        .executableTarget(
-            name: "vminitd",
+        .target(
+            name: "VminitdCore",
             dependencies: [
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Logging", package: "swift-log"),
@@ -80,6 +81,15 @@ let package = Package(
                 "LCShim",
                 "CVersion",
                 "Cgroup",
+            ]
+        ),
+        .executableTarget(
+            name: "vminitd",
+            dependencies: [
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "ContainerizationOS", package: "containerization"),
+                .product(name: "Logging", package: "swift-log"),
+                "VminitdCore",
             ]
         ),
         .executableTarget(

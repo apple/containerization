@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
+// Copyright © 2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -23,12 +23,19 @@ import Logging
 import NIOCore
 import NIOPosix
 
-final class Initd: Sendable {
-    actor State {
-        var containers: [String: ManagedContainer] = [:]
+public final class Initd: Sendable {
+    public actor State {
+        public private(set) var containers: [String: ManagedContainer] = [:]
         var proxies: [String: VsockProxy] = [:]
 
-        func get(container id: String) throws -> ManagedContainer {
+        public typealias ContainerDeletedHandler = @Sendable (String) async -> Void
+        private var onContainerDeleted: [ContainerDeletedHandler] = []
+
+        public func onDelete(_ handler: @escaping ContainerDeletedHandler) {
+            onContainerDeleted.append(handler)
+        }
+
+        public func get(container id: String) throws -> ManagedContainer {
             guard let ctr = self.containers[id] else {
                 throw ContainerizationError(
                     .notFound,
@@ -75,22 +82,28 @@ final class Initd: Sendable {
                     message: "container \(id) does not exist"
                 )
             }
+            let handlers = onContainerDeleted
+            Task {
+                for handler in handlers {
+                    await handler(id)
+                }
+            }
         }
     }
 
-    let log: Logger
-    let state: State
+    public let log: Logger
+    public let state: State
     let group: MultiThreadedEventLoopGroup
     let blockingPool: NIOThreadPool
 
-    init(log: Logger, group: MultiThreadedEventLoopGroup, blockingPool: NIOThreadPool) {
+    public init(log: Logger, group: MultiThreadedEventLoopGroup, blockingPool: NIOThreadPool) {
         self.log = log
         self.group = group
         self.blockingPool = blockingPool
         self.state = State()
     }
 
-    func serve(port: Int) async throws {
+    public func serve(port: Int, additionalServices: [any RegistrableRPCService] = []) async throws {
         try await withThrowingTaskGroup(of: Void.self) { group in
             log.debug("starting process supervisor")
 
@@ -109,7 +122,7 @@ final class Initd: Sendable {
                     transportSecurity: .plaintext,
                     eventLoopGroup: self.group
                 ),
-                services: [self]
+                services: [self] + additionalServices
             )
 
             log.info(

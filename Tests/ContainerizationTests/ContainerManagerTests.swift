@@ -14,6 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(macOS)
+
 import Containerization
 import ContainerizationArchive
 import ContainerizationError
@@ -151,3 +153,5 @@ struct ContainerManagerTests {
         #expect(closureWasCalled, "configuration closure must be invoked to validate interfaces")
     }
 }
+
+#endif

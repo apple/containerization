@@ -196,7 +196,7 @@ extension IntegrationSuite {
         let status = try await exec.wait()
         try await exec.delete()
 
-        try await pod.killContainer("container1", signal: SIGKILL)
+        try await pod.killContainer("container1", signal: .kill)
         try await pod.waitContainer("container1")
         try await pod.stop()
 
@@ -238,7 +238,7 @@ extension IntegrationSuite {
         let status = try await exec.wait()
         try await exec.delete()
 
-        try await pod.killContainer("container1", signal: SIGKILL)
+        try await pod.killContainer("container1", signal: .kill)
         try await pod.waitContainer("container1")
         try await pod.stop()
 
@@ -480,7 +480,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "expected oomKill > 0, got \(events.oomKill)")
             }
 
-            try await pod.killContainer("container1", signal: SIGKILL)
+            try await pod.killContainer("container1", signal: .kill)
             try await pod.waitContainer("container1")
             try await pod.stop()
         } catch {
@@ -495,7 +495,7 @@ extension IntegrationSuite {
         let bs = try await bootstrap(id)
         let pod = try LinuxPod(id, vmm: bs.vmm) { config in
             config.cpus = 4
-            config.memoryInBytes = 1024.mib()
+            config.memoryInBytes = 1_000_000_000
             config.bootLog = bs.bootLog
         }
 
@@ -551,7 +551,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "cpu.max '\(cpuLimit)' != expected '\(expectedCpu)'")
             }
 
-            try await pod.killContainer("container1", signal: SIGKILL)
+            try await pod.killContainer("container1", signal: .kill)
             try await pod.waitContainer("container1")
             try await pod.stop()
         } catch {
@@ -866,7 +866,7 @@ extension IntegrationSuite {
         try await pod.startContainer("container2")
         let status = try await pod.waitContainer("container2")
 
-        try await pod.killContainer("container1", signal: SIGKILL)
+        try await pod.killContainer("container1", signal: .kill)
         _ = try await pod.waitContainer("container1")
         try await pod.stop()
 
@@ -1611,7 +1611,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "expected soft limit '256', got '\(output)'")
             }
 
-            try await pod.killContainer("container1", signal: SIGKILL)
+            try await pod.killContainer("container1", signal: .kill)
             try await pod.waitContainer("container1")
             try await pod.stop()
         } catch {
@@ -1744,7 +1744,7 @@ extension IntegrationSuite {
             try await Task.sleep(for: .milliseconds(100))
 
             // Send SIGTERM, should be forwarded to the child and cause exit
-            try await pod.killContainer("container1", signal: SIGTERM)
+            try await pod.killContainer("container1", signal: .term)
 
             let status = try await pod.waitContainer("container1", timeoutInSeconds: 5)
             try await pod.stop()
@@ -1845,7 +1845,7 @@ extension IntegrationSuite {
         try await pod.startContainer("container2")
         let status = try await pod.waitContainer("container2")
 
-        try await pod.killContainer("container1", signal: SIGKILL)
+        try await pod.killContainer("container1", signal: .kill)
         _ = try await pod.waitContainer("container1")
         try await pod.stop()
 
@@ -1911,7 +1911,7 @@ extension IntegrationSuite {
                     msg: "expected socket file (starting with 's'), got: \(lsOutput)")
             }
 
-            try await pod.killContainer("container1", signal: SIGKILL)
+            try await pod.killContainer("container1", signal: .kill)
             _ = try await pod.waitContainer("container1")
             try await pod.stop()
         } catch {
@@ -2030,6 +2030,61 @@ extension IntegrationSuite {
         } catch {
             try? await pod.stop()
             throw error
+        }
+    }
+
+    func testPodInvalidVolumeReference() async throws {
+        let id = "test-pod-invalid-volume-ref"
+        let bs = try await bootstrap(id)
+
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
+            config.process.arguments = ["/bin/true"]
+            config.mounts.append(.sharedMount(name: "nonexistent-volume", destination: "/data"))
+        }
+
+        do {
+            try await pod.create()
+            try? await pod.stop()
+            throw IntegrationError.assert(msg: "expected create() to fail for invalid volume reference")
+        } catch let error as ContainerizationError {
+            guard error.code == .invalidArgument else {
+                throw IntegrationError.assert(msg: "expected invalidArgument error, got: \(error)")
+            }
+        }
+    }
+
+    func testPodDuplicateVolumeName() async throws {
+        let id = "test-pod-duplicate-volume-name"
+        let bs = try await bootstrap(id)
+
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+            config.volumes = [
+                .init(name: "data", source: .nbd(url: URL(string: "nbd://localhost:10809")!), format: "ext4"),
+                .init(name: "data", source: .nbd(url: URL(string: "nbd://localhost:10809")!), format: "ext4"),
+            ]
+        }
+
+        try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
+            config.process.arguments = ["/bin/true"]
+        }
+
+        do {
+            try await pod.create()
+            try? await pod.stop()
+            throw IntegrationError.assert(msg: "expected create() to fail for duplicate volume name")
+        } catch let error as ContainerizationError {
+            guard error.code == .invalidArgument else {
+                throw IntegrationError.assert(msg: "expected invalidArgument error, got: \(error)")
+            }
         }
     }
 }

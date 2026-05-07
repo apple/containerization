@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
+// Copyright © 2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -33,20 +33,22 @@ private let _kill = Glibc.kill
 /// - Forwards signals to the child
 /// - Reaps zombie processes
 /// - Exits with the child's exit code
-struct InitCommand: ParsableCommand {
-    static let configuration = CommandConfiguration(
+public struct InitCommand: ParsableCommand {
+    public static let configuration = CommandConfiguration(
         commandName: "init",
         abstract: "Run as a minimal init process"
     )
 
+    public init() {}
+
     @Flag(name: .shortAndLong, help: "Send signals to the child's process group instead of just the child")
-    var processGroup: Bool = false
+    public var processGroup: Bool = false
 
     @Argument(help: "The command to run")
-    var command: String
+    public var command: String
 
     @Argument(parsing: .captureForPassthrough, help: "Arguments for the command")
-    var arguments: [String] = []
+    public var arguments: [String] = []
 
     /// Signals that should NOT be forwarded to the child.
     private static let ignoredSignals: Set<Int32> = [
@@ -54,7 +56,7 @@ struct InitCommand: ParsableCommand {
         SIGFPE, SIGILL, SIGSEGV, SIGBUS, SIGABRT, SIGTRAP, SIGSYS,  // Synchronous signals
     ]
 
-    mutating func run() throws {
+    public mutating func run() throws {
         // If we're not PID 1, register as a child subreaper so orphaned
         // processes get reparented to us and we can reap them.
         if getpid() != 1 {

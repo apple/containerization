@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025-2026 Apple Inc. and the Containerization project authors.
+// Copyright © 2026 Apple Inc. and the Containerization project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,8 +21,8 @@ import ContainerizationOS
 import Foundation
 import Logging
 
-actor ManagedContainer {
-    let id: String
+public actor ManagedContainer {
+    public let id: String
     let initProcess: any ContainerProcess
 
     private let cgroupManager: Cgroup2Manager
@@ -31,7 +31,7 @@ actor ManagedContainer {
     private let needsCgroupCleanup: Bool
     private var execs: [String: any ContainerProcess] = [:]
 
-    var pid: Int32? {
+    public var pid: Int32? {
         self.initProcess.pid
     }
 

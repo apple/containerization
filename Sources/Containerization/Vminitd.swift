@@ -24,70 +24,6 @@ import GRPCNIOTransportCore
 import NIOCore
 import NIOPosix
 
-/// Buffers incoming bytes until the full gRPC HTTP/2 pipeline is configured, then replays them.
-///
-/// This prevents the race condition where the vminitd server's initial HTTP/2 SETTINGS frame
-/// arrives and is discarded before `configureGRPCClientPipeline` has finished installing
-/// `ClientConnectionHandler`.
-///
-/// The handler is added via `ClientBootstrap.channelInitializer`, which runs before
-/// `registerAlreadyConfigured0` adds the fd to epoll/kqueue — guaranteeing it is in place
-/// before any bytes can arrive on the socket.
-///
-/// When `NIOHTTP2Handler` is added to the pipeline (inside `configureGRPCClientPipeline`), its
-/// `handlerAdded` fires an outbound flush (the HTTP/2 client preface). We intercept that flush
-/// and schedule a deferred removal via the event loop. Because `configureGRPCClientPipeline` runs
-/// as a single synchronous event loop task, the deferred removal is guaranteed to run after that
-/// entire task completes — i.e., after `ClientConnectionHandler` is also in the pipeline.
-/// Buffered bytes are replayed atomically as part of the pipeline removal.
-private final class HTTP2ConnectBufferingHandler: ChannelDuplexHandler, RemovableChannelHandler {
-    typealias InboundIn = ByteBuffer
-    typealias InboundOut = ByteBuffer
-    typealias OutboundIn = ByteBuffer
-    typealias OutboundOut = ByteBuffer
-
-    private var removalScheduled = false
-    private var bufferedReads: [NIOAny] = []
-
-    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-        bufferedReads.append(data)
-    }
-
-    func channelReadComplete(context: ChannelHandlerContext) {
-        // Suppress while buffering; a single readComplete is emitted after replay.
-    }
-
-    func flush(context: ChannelHandlerContext) {
-        if !removalScheduled {
-            removalScheduled = true
-            // Defer removal to the next event loop task. configureGRPCClientPipeline runs as a
-            // single synchronous event loop task, so this deferred task is guaranteed to run
-            // after that whole task completes (including ClientConnectionHandler being added).
-            context.eventLoop.assumeIsolatedUnsafeUnchecked().execute {
-                context.pipeline.syncOperations.removeHandler(self, promise: nil)
-            }
-        }
-        context.flush()
-    }
-
-    func removeHandler(context: ChannelHandlerContext, removalToken: ChannelHandlerContext.RemovalToken) {
-        var didRead = false
-        while !bufferedReads.isEmpty {
-            context.fireChannelRead(bufferedReads.removeFirst())
-            didRead = true
-        }
-        if didRead {
-            context.fireChannelReadComplete()
-        }
-        context.leavePipeline(removalToken: removalToken)
-    }
-
-    func channelInactive(context: ChannelHandlerContext) {
-        bufferedReads.removeAll()
-        context.fireChannelInactive()
-    }
-}
-
 /// A remote connection into the vminitd Linux guest agent via a port (vsock).
 /// Used to modify the runtime environment of the Linux sandbox.
 public struct Vminitd: Sendable {
@@ -95,7 +31,7 @@ public struct Vminitd: Sendable {
     public static let port: UInt32 = 1024
 
     let client: Com_Apple_Containerization_Sandbox_V3_SandboxContext.Client<HTTP2ClientTransport.WrappedChannel>
-    private let grpcClient: GRPCClient<HTTP2ClientTransport.WrappedChannel>
+    public let grpcClient: GRPCClient<HTTP2ClientTransport.WrappedChannel>
     private let connectionTask: Task<Void, Error>
 
     public init(connection: FileHandle, group: any EventLoopGroup) throws {
@@ -526,6 +462,37 @@ extension Vminitd {
         public let isArchive: Bool
         /// Total size in bytes (0 if unknown, e.g. for archives).
         public let totalSize: UInt64
+    }
+
+    /// Stat a path in the guest filesystem and return its metadata.
+    public func stat(
+        path: URL
+    ) async throws -> ContainerizationOS.Stat {
+        let request = Com_Apple_Containerization_Sandbox_V3_StatRequest.with {
+            $0.path = path.path
+        }
+
+        let response = try await client.stat(request)
+        guard response.error.isEmpty else {
+            throw ContainerizationError(.internalError, message: "stat: \(response.error)")
+        }
+
+        let s = response.stat
+        return ContainerizationOS.Stat(
+            dev: s.dev,
+            ino: s.ino,
+            mode: s.mode,
+            nlink: s.nlink,
+            uid: s.uid,
+            gid: s.gid,
+            rdev: s.rdev,
+            size: s.size,
+            blksize: s.blksize,
+            blocks: s.blocks,
+            atime: TimeSpec(seconds: s.atime.seconds, nanoseconds: s.atime.nanos),
+            mtime: TimeSpec(seconds: s.mtime.seconds, nanoseconds: s.mtime.nanos),
+            ctime: TimeSpec(seconds: s.ctime.seconds, nanoseconds: s.ctime.nanos)
+        )
     }
 
     /// Unified copy control plane. Sends a CopyRequest over gRPC and processes

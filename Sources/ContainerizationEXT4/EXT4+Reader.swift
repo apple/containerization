@@ -89,7 +89,6 @@ extension EXT4 {
                     }
 
                     let blocks = try self.getExtents(inode: itemInodeNum)
-                    let itemTreeNodePtr = Ptr<FileTree.FileTreeNode>.allocate(capacity: 1)
                     let itemTreeNode = FileTree.FileTreeNode(
                         inode: itemInodeNum,
                         name: itemName,
@@ -102,9 +101,9 @@ extension EXT4 {
                         }
                         itemTreeNode.blocks = blocks.first
                     }
-                    itemTreeNodePtr.initialize(to: itemTreeNode)
+                    let itemTreeNodePtr = Ptr(itemTreeNode)
                     root.children.append(itemTreeNodePtr)
-                    itemPtr.initialize(to: root)
+                    itemPtr.pointee = root
                     let itemInode = try self.getInode(number: itemInodeNum)
                     if itemInode.mode.isDir() {
                         items.append((itemTreeNodePtr, itemInodeNum))

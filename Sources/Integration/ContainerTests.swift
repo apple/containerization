@@ -33,6 +33,7 @@ extension IntegrationSuite {
         let bs = try await bootstrap(id)
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["/bin/true"]
+            config.memoryInBytes = 250_000_000
             config.bootLog = bs.bootLog
         }
 
@@ -296,7 +297,7 @@ extension IntegrationSuite {
             }
             try await exec.delete()
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         }
@@ -979,7 +980,7 @@ extension IntegrationSuite {
 
             try await sleepExec.delete()
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -1035,7 +1036,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "expected oomKill > 0, got \(events.oomKill)")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -1111,7 +1112,7 @@ extension IntegrationSuite {
                     msg: "expected socket file (starting with 's'), got: \(output)")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -1209,7 +1210,7 @@ extension IntegrationSuite {
                     msg: "expected socket file (starting with 's'), got: \(output)")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -1319,7 +1320,7 @@ extension IntegrationSuite {
                     msg: "stderr size \(stderrBuffer.count) != expected \(expectedSize)")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -1357,7 +1358,7 @@ extension IntegrationSuite {
             try await exec.delete()
             try await exec.delete()  // Should be a no-op
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -1408,7 +1409,7 @@ extension IntegrationSuite {
             }
 
             // Stop should handle cleanup of all exec processes gracefully
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -1635,6 +1636,96 @@ extension IntegrationSuite {
         }
     }
 
+    func testStat() async throws {
+        let id = "test-stat"
+
+        let bs = try await bootstrap(id)
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        func assertExec(_ container: LinuxContainer, id: String, cmd: String) async throws {
+            let exec = try await container.exec(id) { config in
+                config.arguments = ["sh", "-c", cmd]
+            }
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "\(id) failed with exit code \(status.exitCode)")
+            }
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // regular file: "regular file" is exactly 12 bytes
+            try await assertExec(container, id: "create-regular-file", cmd: "echo -n 'regular file' > /tmp/regular-file.txt")
+            // directory
+            try await assertExec(container, id: "create-dir", cmd: "mkdir /tmp/test-dir")
+            // relative symlink so stat() resolves the target within the same directory
+            try await assertExec(container, id: "create-symlink", cmd: "ln -s regular-file.txt /tmp/test-link")
+            // FIFO
+            try await assertExec(container, id: "create-fifo", cmd: "mkfifo /tmp/test-fifo")
+
+            let vsock = try await container.dialVsock(port: 1024)
+            let vminitd = try Vminitd(connection: vsock, group: Self.eventLoop)
+
+            let root = URL(filePath: container.root)
+
+            // --- regular file ---
+            let regularStat = try await vminitd.stat(path: root.appending(path: "tmp/regular-file.txt"))
+            guard (regularStat.mode & UInt32(S_IFMT)) == S_IFREG else {
+                throw IntegrationError.assert(msg: "regular file: expected S_IFREG, got mode 0x\(String(regularStat.mode, radix: 16))")
+            }
+            guard regularStat.size == 12 else {
+                throw IntegrationError.assert(msg: "regular file: expected size 12, got \(regularStat.size)")
+            }
+            guard regularStat.ino > 0 else {
+                throw IntegrationError.assert(msg: "regular file: expected non-zero inode, got \(regularStat.ino)")
+            }
+            guard regularStat.nlink >= 1 else {
+                throw IntegrationError.assert(msg: "regular file: expected nlink >= 1, got \(regularStat.nlink)")
+            }
+
+            // --- directory ---
+            let dirStat = try await vminitd.stat(path: root.appending(path: "tmp/test-dir"))
+            guard (dirStat.mode & UInt32(S_IFMT)) == S_IFDIR else {
+                throw IntegrationError.assert(msg: "directory: expected S_IFDIR, got mode 0x\(String(dirStat.mode, radix: 16))")
+            }
+            // A directory always has at least 2 hard links (. and its entry in the parent)
+            guard dirStat.nlink >= 2 else {
+                throw IntegrationError.assert(msg: "directory: expected nlink >= 2, got \(dirStat.nlink)")
+            }
+
+            // --- symlink ---
+            // stat(2) follows symlinks, so the result reflects the target regular file
+            let symlinkStat = try await vminitd.stat(path: root.appending(path: "tmp/test-link"))
+            guard (symlinkStat.mode & UInt32(S_IFMT)) == S_IFREG else {
+                throw IntegrationError.assert(msg: "symlink (followed): expected S_IFREG, got mode 0x\(String(symlinkStat.mode, radix: 16))")
+            }
+            guard symlinkStat.size == regularStat.size else {
+                throw IntegrationError.assert(msg: "symlink (followed): expected size \(regularStat.size), got \(symlinkStat.size)")
+            }
+
+            // --- FIFO ---
+            let fifoStat = try await vminitd.stat(path: root.appending(path: "tmp/test-fifo"))
+            guard (fifoStat.mode & UInt32(S_IFMT)) == S_IFIFO else {
+                throw IntegrationError.assert(msg: "FIFO: expected S_IFIFO, got mode 0x\(String(fifoStat.mode, radix: 16))")
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
     func testCopyIn() async throws {
         let id = "test-copy-in"
 
@@ -1685,7 +1776,7 @@ extension IntegrationSuite {
                     msg: "copied file content mismatch: expected '\(testContent)', got '\(output)'")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -1739,7 +1830,7 @@ extension IntegrationSuite {
                     msg: "copied file content mismatch: expected '\(testContent)', got '\(copiedContent)'")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -1803,7 +1894,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "file content mismatch after round-trip copy")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -1881,7 +1972,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "subdir/file2.txt content mismatch")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -1945,7 +2036,7 @@ extension IntegrationSuite {
                     msg: "subdir/file2.txt content mismatch: expected 'guest file2', got '\(file2Content)'")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -2010,7 +2101,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "round-tripped empty file should be empty, got \(copiedData.count) bytes")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -2063,7 +2154,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "empty dir should have 2 entries (. and ..), got '\(countStr ?? "nil")'")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -2118,7 +2209,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "binary file content mismatch after round-trip")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -2196,7 +2287,7 @@ extension IntegrationSuite {
                 }
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -2297,7 +2388,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "special.txt mismatch")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -2349,7 +2440,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "content mismatch after copy with createParents")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -2401,7 +2492,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "script output mismatch: '\(output ?? "nil")'")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -2490,7 +2581,7 @@ extension IntegrationSuite {
                     msg: "expected \(fileCount) files on host after copyOut, got \(outFiles.count)")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -2671,7 +2762,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "output data mismatch")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -2728,7 +2819,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "expected CUSTOM_PATH_OK, got: \(output)")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -2771,7 +2862,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "output mismatch")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -2939,7 +3030,7 @@ extension IntegrationSuite {
                     msg: "expected MTU \(customMTU) in output, got: \(output)")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -3046,7 +3137,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "write should have failed on read-only mount")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -3090,7 +3181,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "write status \(status) != 0")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
 
@@ -3161,7 +3252,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "write status \(status) != 0")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
 
@@ -3303,7 +3394,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "expected soft limit '256', got '\(output)'")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -3368,7 +3459,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "unexpected content from /mnt2")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -3438,7 +3529,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "unexpected content from /mnt2")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -3486,6 +3577,179 @@ extension IntegrationSuite {
         }
 
         guard output.trimmingCharacters(in: .whitespacesAndNewlines) == "writable layer test" else {
+            throw IntegrationError.assert(msg: "unexpected output: \(output)")
+        }
+    }
+
+    // Validates the on-disk structure of a journaled EXT4 image on the host before
+    // attempting a container mount. This catches geometry mismatches (superblock block
+    // count vs. physical file size) and missing journal metadata without requiring
+    // e2fsck to be present in the container image.
+    //
+    // Uses raw values for internal constants because integration tests cannot use
+    // @testable import: CompatFeature.hasJournal = 0x4, EXT4.JournalInode = 8.
+    private func verifyJournalFilesystem(
+        at path: URL,
+        minDiskSize: UInt64,
+        expectedMountOpts: UInt32
+    ) throws {
+        let attrs = try FileManager.default.attributesOfItem(atPath: path.absolutePath())
+        guard let fileSize = attrs[.size] as? UInt64 else {
+            throw IntegrationError.assert(msg: "could not read file size for \(path.lastPathComponent)")
+        }
+        let reader = try EXT4.EXT4Reader(blockDevice: FilePath(path.absolutePath()))
+        let sb = reader.superBlock
+        let blocksCount = UInt64(sb.blocksCountLow) | (UInt64(sb.blocksCountHigh) << 32)
+        let blockSize = UInt64(sb.blockSize)
+        guard fileSize == blocksCount * blockSize else {
+            throw IntegrationError.assert(
+                msg: "geometry mismatch: fileSize=\(fileSize), blocksCount=\(blocksCount), blockSize=\(blockSize)")
+        }
+        guard fileSize > minDiskSize else {
+            throw IntegrationError.assert(
+                msg: "journal did not grow the image: fileSize=\(fileSize), minDiskSize=\(minDiskSize)")
+        }
+        guard sb.featureCompat & 0x4 != 0 else {
+            throw IntegrationError.assert(
+                msg: "COMPAT_HAS_JOURNAL not set in featureCompat (0x\(String(sb.featureCompat, radix: 16)))")
+        }
+        guard sb.journalInum == 8 else {
+            throw IntegrationError.assert(msg: "journalInum=\(sb.journalInum), expected 8")
+        }
+        guard sb.defaultMountOpts == expectedMountOpts else {
+            throw IntegrationError.assert(
+                msg: "defaultMountOpts=0x\(String(sb.defaultMountOpts, radix: 16)), expected 0x\(String(expectedMountOpts, radix: 16)))")
+        }
+    }
+
+    func testWritableLayerJournalWriteback() async throws {
+        let id = "test-writable-layer-journal-writeback"
+        let bs = try await bootstrap(id)
+
+        let writableLayerPath = Self.testDir.appending(component: "\(id)-writable.ext4")
+        try? FileManager.default.removeItem(at: writableLayerPath)
+        let filesystem = try EXT4.Formatter(
+            FilePath(writableLayerPath.absolutePath()),
+            minDiskSize: 512.mib(),
+            journal: .init(defaultMode: .writeback)
+        )
+        try filesystem.close()
+        // 0x0060 = data=writeback | barrier
+        try verifyJournalFilesystem(at: writableLayerPath, minDiskSize: 512.mib(), expectedMountOpts: 0x0060)
+        let writableLayer = Mount.block(
+            format: "ext4",
+            source: writableLayerPath.absolutePath(),
+            destination: "/",
+            options: []
+        )
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, writableLayer: writableLayer, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/sh", "-c", "echo 'journal writeback' > /tmp/testfile && cat /tmp/testfile"]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process failed with status \(status)")
+        }
+        guard let output = String(data: buffer.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+        }
+        guard output.trimmingCharacters(in: .whitespacesAndNewlines) == "journal writeback" else {
+            throw IntegrationError.assert(msg: "unexpected output: \(output)")
+        }
+    }
+
+    func testWritableLayerJournalOrdered() async throws {
+        let id = "test-writable-layer-journal-ordered"
+        let bs = try await bootstrap(id)
+
+        let writableLayerPath = Self.testDir.appending(component: "\(id)-writable.ext4")
+        try? FileManager.default.removeItem(at: writableLayerPath)
+        let filesystem = try EXT4.Formatter(
+            FilePath(writableLayerPath.absolutePath()),
+            minDiskSize: 512.mib(),
+            journal: .init(defaultMode: .ordered)
+        )
+        try filesystem.close()
+        // 0x0040 = data=ordered | barrier
+        try verifyJournalFilesystem(at: writableLayerPath, minDiskSize: 512.mib(), expectedMountOpts: 0x0040)
+        let writableLayer = Mount.block(
+            format: "ext4",
+            source: writableLayerPath.absolutePath(),
+            destination: "/",
+            options: []
+        )
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, writableLayer: writableLayer, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/sh", "-c", "echo 'journal ordered' > /tmp/testfile && cat /tmp/testfile"]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process failed with status \(status)")
+        }
+        guard let output = String(data: buffer.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+        }
+        guard output.trimmingCharacters(in: .whitespacesAndNewlines) == "journal ordered" else {
+            throw IntegrationError.assert(msg: "unexpected output: \(output)")
+        }
+    }
+
+    func testWritableLayerJournalData() async throws {
+        let id = "test-writable-layer-journal-data"
+        let bs = try await bootstrap(id)
+
+        let writableLayerPath = Self.testDir.appending(component: "\(id)-writable.ext4")
+        try? FileManager.default.removeItem(at: writableLayerPath)
+        let filesystem = try EXT4.Formatter(
+            FilePath(writableLayerPath.absolutePath()),
+            minDiskSize: 512.mib(),
+            journal: .init(defaultMode: .journal)
+        )
+        try filesystem.close()
+        // 0x0020 = data=journal | barrier
+        try verifyJournalFilesystem(at: writableLayerPath, minDiskSize: 512.mib(), expectedMountOpts: 0x0020)
+        let writableLayer = Mount.block(
+            format: "ext4",
+            source: writableLayerPath.absolutePath(),
+            destination: "/",
+            options: []
+        )
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, writableLayer: writableLayer, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/sh", "-c", "echo 'journal data' > /tmp/testfile && cat /tmp/testfile"]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "process failed with status \(status)")
+        }
+        guard let output = String(data: buffer.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert stdout to UTF8")
+        }
+        guard output.trimmingCharacters(in: .whitespacesAndNewlines) == "journal data" else {
             throw IntegrationError.assert(msg: "unexpected output: \(output)")
         }
     }
@@ -3841,7 +4105,7 @@ extension IntegrationSuite {
 
             try await Task.sleep(for: .milliseconds(100))
 
-            try await container.kill(SIGTERM)
+            try await container.kill(.term)
 
             let status = try await container.wait(timeoutInSeconds: 5)
             try await container.stop()
@@ -4290,7 +4554,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "expected cwd '/a/b/c/d', got '\(output)'")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {
@@ -4336,7 +4600,79 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "expected NoNewPrivs to be 1 in exec, got: \(output)")
             }
 
-            try await container.kill(SIGKILL)
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testVMResourceOverhead() async throws {
+        let id = "test-vm-resource-overhead"
+
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "infinity"]
+            config.cpus = 2
+            config.memoryInBytes = 256.mib()
+            config.cpuOverhead = 2
+            config.memoryOverhead = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let cpuBuffer = BufferWriter()
+            let cpuExec = try await container.exec("check-nproc") { config in
+                config.arguments = ["nproc"]
+                config.stdout = cpuBuffer
+            }
+            try await cpuExec.start()
+            var status = try await cpuExec.wait()
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "nproc status \(status) != 0")
+            }
+            try await cpuExec.delete()
+
+            guard let cpuStr = String(data: cpuBuffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                let cpuCount = Int(cpuStr)
+            else {
+                throw IntegrationError.assert(msg: "failed to parse nproc output")
+            }
+            let expectedCpus = 4
+            guard cpuCount == expectedCpus else {
+                throw IntegrationError.assert(msg: "nproc \(cpuCount) != expected \(expectedCpus)")
+            }
+
+            let memBuffer = BufferWriter()
+            let memExec = try await container.exec("check-meminfo") { config in
+                config.arguments = ["sh", "-c", "grep MemTotal /proc/meminfo | awk '{print $2}'"]
+                config.stdout = memBuffer
+            }
+            try await memExec.start()
+            status = try await memExec.wait()
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "meminfo status \(status) != 0")
+            }
+            try await memExec.delete()
+
+            guard let memStr = String(data: memBuffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                let memTotalKiB = UInt64(memStr)
+            else {
+                throw IntegrationError.assert(msg: "failed to parse MemTotal")
+            }
+            let memTotalBytes = memTotalKiB * 1024
+            let expectedMin: UInt64 = 1024.mib()
+            guard memTotalBytes > expectedMin else {
+                throw IntegrationError.assert(
+                    msg: "MemTotal \(memTotalBytes) should exceed \(expectedMin)")
+            }
+
+            try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
         } catch {

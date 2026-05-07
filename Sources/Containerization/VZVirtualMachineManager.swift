@@ -55,11 +55,14 @@ public struct VZVirtualMachineManager: VirtualMachineManager {
         // Clamp to system RAM as Virtualization.framework bounds us to this.
         let memoryInBytes = min(vmConfig.memoryInBytes, ProcessInfo.processInfo.physicalMemory)
 
+        // Clamp to system CPU count as Virtualization.framework bounds us to this.
+        let cpus = min(vmConfig.cpus, ProcessInfo.processInfo.activeProcessorCount)
+
         return try VZVirtualMachineInstance(
             group: self.group,
             logger: self.logger,
             with: { instanceConfig in
-                instanceConfig.cpus = vmConfig.cpus
+                instanceConfig.cpus = cpus
                 instanceConfig.memoryInBytes = memoryInBytes
 
                 instanceConfig.kernel = self.kernel

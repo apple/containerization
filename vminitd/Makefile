@@ -34,7 +34,7 @@ endif
 
 SWIFT_CONFIGURATION := $(SWIFT_SDK_FLAGS) $(SWIFT_WARNING_CONFIG) -Xlinker -s --disable-automatic-resolution
 
-SWIFT_VERSION := 6.3
+SWIFT_VERSION := 6.3.0
 SWIFT_SDK_URL := https://download.swift.org/swift-6.3-release/static-sdk/swift-6.3-RELEASE/swift-6.3-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz
 SWIFT_SDK_CHECKSUM := d2078b69bdeb5c31202c10e9d8a11d6f66f82938b51a4b75f032ccb35c4c286c
 SWIFT_SDK_PATH := /tmp/$(notdir $(SWIFT_SDK_URL))

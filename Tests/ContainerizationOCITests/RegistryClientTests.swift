@@ -199,7 +199,7 @@ struct OCIClientTests: ~Copyable {
                     buffer.withUnsafeReadableBytes { pointer in
                         let unsafeBufferPointer = pointer.bindMemory(to: UInt8.self)
                         if let addr = unsafeBufferPointer.baseAddress {
-                            outputStream!.write(addr, maxLength: buffer.readableBytes)
+                            _ = outputStream!.write(addr, maxLength: buffer.readableBytes)
                         }
                     }
                 }

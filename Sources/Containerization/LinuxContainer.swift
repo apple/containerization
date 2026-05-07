@@ -78,6 +78,13 @@ public final class LinuxContainer: Container, Sendable {
         /// Run the container with a minimal init process that handles signal
         /// forwarding and zombie reaping.
         public var useInit: Bool = false
+        /// Additional CPU cores to allocate for the virtual machine on top
+        /// of the container's configured `cpus` value.
+        public var cpuOverhead: Int = 1
+        /// Additional memory in bytes to allocate for the virtual machine
+        /// on top of the container's configured `memoryInBytes` value.
+        /// The total is aligned to a 1 MiB boundary.
+        public var memoryOverhead: UInt64 = 128.mib()
 
         public init() {}
 
@@ -95,7 +102,9 @@ public final class LinuxContainer: Container, Sendable {
             virtualization: Bool = false,
             bootLog: BootLog? = nil,
             ociRuntimePath: String? = nil,
-            useInit: Bool = false
+            useInit: Bool = false,
+            cpuOverhead: Int = 1,
+            memoryOverhead: UInt64 = 128.mib()
         ) {
             self.process = process
             self.cpus = cpus
@@ -111,6 +120,8 @@ public final class LinuxContainer: Container, Sendable {
             self.bootLog = bootLog
             self.ociRuntimePath = ociRuntimePath
             self.useInit = useInit
+            self.cpuOverhead = cpuOverhead
+            self.memoryOverhead = memoryOverhead
         }
     }
 
@@ -245,6 +256,24 @@ public final class LinuxContainer: Container, Sendable {
 
         mutating func setErrored(error: Swift.Error) {
             self = .errored(error)
+        }
+
+        func vm(_ operation: String) throws -> any VirtualMachineInstance {
+            switch self {
+            case .created(let state):
+                return state.vm
+            case .started(let state):
+                return state.vm
+            case .paused(let state):
+                return state.vm
+            case .errored(let err):
+                throw err
+            default:
+                throw ContainerizationError(
+                    .invalidState,
+                    message: "failed to \(operation): container must be created, running, or paused"
+                )
+            }
         }
     }
 
@@ -522,13 +551,9 @@ extension LinuxContainer {
             var modifiedRootfs = self.rootfs
             modifiedRootfs.options.removeAll(where: { $0 == "ro" })
 
-            // Calculate VM memory with overhead for the guest agent.
-            // The container cgroup limit stays at the requested memory, but the VM
-            // gets an additional 75MiB for the guest agent (could be higher, could
-            // be lower but this is a decent baseline for now).
-            let guestAgentOverhead: UInt64 = 75.mib()
-            let mib: UInt64 = 1.mib()
-            let vmMemory = (self.memoryInBytes + guestAgentOverhead + mib - 1) & ~(mib - 1)
+            let vmMemory = self.memoryInBytes + self.config.memoryOverhead
+
+            let vmCpus = self.cpus + self.config.cpuOverhead
 
             // Prepare file mounts. This transforms single-file mounts into directory shares.
             let fileMountContext = try FileMountContext.prepare(mounts: self.config.mounts)
@@ -542,7 +567,7 @@ extension LinuxContainer {
             }
 
             let vmConfig = VMConfiguration(
-                cpus: self.cpus,
+                cpus: vmCpus,
                 memoryInBytes: vmMemory,
                 interfaces: self.interfaces,
                 mountsByID: [self.id: containerMounts],
@@ -587,12 +612,16 @@ extension LinuxContainer {
                     // For every interface asked for:
                     // 1. Add the address requested
                     // 2. Online the adapter
-                    // 3. If a gateway IP address is present, add the default route.
+                    // 3. For the first interface, add the default route
+                    var defaultRouteSet = false
                     for (index, i) in self.interfaces.enumerated() {
                         let name = "eth\(index)"
                         self.logger?.debug("setting up interface \(name) with address \(i.ipv4Address)")
                         try await agent.addressAdd(name: name, ipv4Address: i.ipv4Address)
                         try await agent.up(name: name, mtu: i.mtu)
+                        if defaultRouteSet {
+                            continue
+                        }
                         if let ipv4Gateway = i.ipv4Gateway {
                             if !i.ipv4Address.contains(ipv4Gateway) {
                                 self.logger?.debug("gateway \(ipv4Gateway) is outside subnet \(i.ipv4Address), adding a route first")
@@ -603,6 +632,7 @@ extension LinuxContainer {
                             self.logger?.debug("no gateway for \(name)")
                             try await agent.routeAddDefault(name: name, ipv4Gateway: nil)
                         }
+                        defaultRouteSet = true
                     }
 
                     // Setup /etc/resolv.conf and /etc/hosts if asked for.
@@ -815,7 +845,7 @@ extension LinuxContainer {
     }
 
     /// Send a signal to the container.
-    public func kill(_ signal: Int32) async throws {
+    public func kill(_ signal: Signal) async throws {
         try await self.state.withLock {
             let state = try $0.startedState("kill")
             try await state.process.kill(signal)
@@ -871,7 +901,7 @@ extension LinuxContainer {
                 agent: agent,
                 vm: startedState.vm,
                 logger: self.logger,
-                onDelete: { [weak self] in
+                onDelete: { [weak self = self] in
                     await self?.removeProcess(id: id)
                 }
             )
@@ -908,7 +938,7 @@ extension LinuxContainer {
                 agent: agent,
                 vm: state.vm,
                 logger: self.logger,
-                onDelete: { [weak self] in
+                onDelete: { [weak self = self] in
                     await self?.removeProcess(id: id)
                 }
             )
@@ -926,6 +956,20 @@ extension LinuxContainer {
             let state = try $0.startedState("dialVsock")
             return try await state.vm.dial(port)
         }
+    }
+
+    /// Provides scoped access to the underlying virtual machine instance.
+    ///
+    /// Most users should prefer the higher level APIs on ``LinuxContainer``
+    /// directly. This is intended for advanced use cases that need to interact
+    /// with the virtual machine outside of the container abstraction.
+    public func withVirtualMachineInstance<T: Sendable>(
+        _ fn: @Sendable (any VirtualMachineInstance) async throws -> T
+    ) async throws -> T {
+        let vm = try await self.state.withLock { state in
+            try state.vm("withVirtualMachineInstance")
+        }
+        return try await fn(vm)
     }
 
     /// Close the containers standard input to signal no more input is

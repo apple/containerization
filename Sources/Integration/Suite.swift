@@ -324,6 +324,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container capabilities OCI default", testCapabilitiesOCIDefault),
                 Test("container capabilities all capabilities", testCapabilitiesAllCapabilities),
                 Test("container capabilities file ownership", testCapabilitiesFileOwnership),
+                Test("container stat", testStat),
                 Test("container copy in", testCopyIn),
                 Test("container copy out", testCopyOut),
                 Test("container copy large file", testCopyLargeFile),
@@ -341,6 +342,9 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container read-only rootfs hosts file", testReadOnlyRootfsHostsFileWritten),
                 Test("container read-only rootfs DNS", testReadOnlyRootfsDNSConfigured),
                 Test("container writable layer", testWritableLayer),
+                Test("container writable layer journal writeback", testWritableLayerJournalWriteback),
+                Test("container writable layer journal ordered", testWritableLayerJournalOrdered),
+                Test("container writable layer journal data", testWritableLayerJournalData),
                 Test("container writable layer preserves lower", testWritableLayerPreservesLowerLayer),
                 Test("container writable layer reads from lower", testWritableLayerReadsFromLower),
                 Test("container writable layer with ro lower", testWritableLayerWithReadOnlyLower),
@@ -376,6 +380,11 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container workingDir created", testWorkingDirCreated),
                 Test("container workingDir exec created", testWorkingDirExecCreated),
                 Test("container mount sort by depth", testMountsSortedByDepth),
+                Test("container VM resource overhead", testVMResourceOverhead),
+                Test("container NBD mount", testContainerNBDMount),
+                Test("container NBD read-only", testContainerNBDReadOnly),
+                Test("container NBD raw block", testContainerNBDRawBlock),
+                Test("container NBD volume identity", testContainerNBDVolumeIdentity),
 
                 // Pods
                 Test("pod single container", testPodSingleContainer),
@@ -417,6 +426,14 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("pod unix socket into guest symlink", testPodUnixSocketIntoGuestSymlink),
                 Test("pod sysctl", testPodSysctl),
                 Test("pod sysctl multiple containers", testPodSysctlMultipleContainers),
+                Test("pod shared NBD volume", testPodSharedNBDVolume),
+                Test("pod multiple NBD volumes", testPodMultipleNBDVolumes),
+                Test("pod unreferenced NBD volume", testPodUnreferencedVolume),
+                Test("pod NBD volume persistence", testPodNBDVolumePersistence),
+                Test("pod NBD concurrent writes", testPodNBDConcurrentWrites),
+                Test("pod NBD volume identity", testPodNBDVolumeIdentity),
+                Test("pod invalid volume reference", testPodInvalidVolumeReference),
+                Test("pod duplicate volume name", testPodDuplicateVolumeName),
             ] + macOS26Tests()
 
         let filteredTests: [Test]

@@ -78,6 +78,16 @@ public final class AsyncSignalHandler: Sendable {
 
     private let state: Mutex<State> = .init(State())
 
+    /// Create a new `AsyncSignalHandler` that catches all signals.
+    public static func catchAll() -> AsyncSignalHandler {
+        #if os(macOS)
+        let range = 1...31
+        #else
+        let range = 1...64
+        #endif
+        return create(notify: range.map { Int32($0) })
+    }
+
     /// Create a new `AsyncSignalHandler` for the list of given signals `notify`.
     /// The default signal handlers for these signals are removed and async handlers
     /// added in their place. The async signal handlers that are installed simply

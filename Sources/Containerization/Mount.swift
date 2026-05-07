@@ -44,6 +44,7 @@ public struct Mount: Sendable {
     public enum RuntimeOptions: Sendable {
         case virtioblk([String])
         case virtiofs([String])
+        case shared
         case any([String])
     }
 
@@ -111,6 +112,21 @@ public struct Mount: Sendable {
         )
     }
 
+    /// A mount referencing a shared pod volume by name.
+    public static func sharedMount(
+        name: String,
+        destination: String,
+        options: [String] = []
+    ) -> Self {
+        .init(
+            type: "none",
+            source: name,
+            destination: destination,
+            options: options,
+            runtimeOptions: .shared
+        )
+    }
+
     #if os(macOS)
     /// Clone the Mount to the provided path.
     ///
@@ -134,10 +150,29 @@ public struct Mount: Sendable {
 #if os(macOS)
 
 extension Mount {
+    private enum StorageAttachmentType {
+        case diskImage
+        case networkBlockDevice
+    }
+
+    private var storageAttachmentType: StorageAttachmentType {
+        let nbdSchemes = ["nbd://", "nbds://", "nbd+unix://", "nbds+unix://"]
+        if nbdSchemes.contains(where: { self.source.hasPrefix($0) }) {
+            return .networkBlockDevice
+        }
+        return .diskImage
+    }
+
     func configure(config: inout VZVirtualMachineConfiguration) throws {
         switch self.runtimeOptions {
         case .virtioblk(let options):
-            let device = try VZDiskImageStorageDeviceAttachment.mountToVZAttachment(mount: self, options: options)
+            let device: VZStorageDeviceAttachment
+            switch self.storageAttachmentType {
+            case .networkBlockDevice:
+                device = try VZNetworkBlockDeviceStorageDeviceAttachment.mountToVZAttachment(mount: self, options: options)
+            case .diskImage:
+                device = try VZDiskImageStorageDeviceAttachment.mountToVZAttachment(mount: self, options: options)
+            }
             let attachment = VZVirtioBlockDeviceConfiguration(attachment: device)
             config.storageDevices.append(attachment)
         case .virtiofs(_):
@@ -156,7 +191,7 @@ extension Mount {
                 )
             )
             config.directorySharingDevices.append(device)
-        case .any:
+        case .shared, .any:
             break
         }
     }
@@ -216,6 +251,65 @@ extension VZDiskImageStorageDeviceAttachment {
             url: URL(filePath: mount.source),
             readOnly: mount.readonly,
             cachingMode: cachingMode,
+            synchronizationMode: synchronizationMode
+        )
+    }
+}
+
+extension VZNetworkBlockDeviceStorageDeviceAttachment {
+    static func mountToVZAttachment(mount: Mount, options: [String]) throws -> VZNetworkBlockDeviceStorageDeviceAttachment {
+        guard let url = URL(string: mount.source) else {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "invalid NBD URL: \(mount.source)"
+            )
+        }
+
+        var timeout: TimeInterval = 5
+        var synchronizationMode: VZDiskSynchronizationMode = .full
+
+        for option in options {
+            let split = option.split(separator: "=")
+            if split.count != 2 {
+                continue
+            }
+
+            let key = String(split[0])
+            let value = String(split[1])
+
+            switch key {
+            case "vzTimeout":
+                guard let t = TimeInterval(value) else {
+                    throw ContainerizationError(
+                        .invalidArgument,
+                        message: "invalid vzTimeout value for NBD device: \(value)"
+                    )
+                }
+                timeout = t
+            case "vzSynchronizationMode":
+                switch value {
+                case "full":
+                    synchronizationMode = .full
+                case "none":
+                    synchronizationMode = .none
+                default:
+                    throw ContainerizationError(
+                        .invalidArgument,
+                        message: "unknown vzSynchronizationMode value for NBD device: \(value)"
+                    )
+                }
+            default:
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "unknown vmm option encountered: \(key)"
+                )
+            }
+        }
+
+        return try VZNetworkBlockDeviceStorageDeviceAttachment(
+            url: url,
+            timeout: timeout,
+            isForcedReadOnly: mount.readonly,
             synchronizationMode: synchronizationMode
         )
     }
