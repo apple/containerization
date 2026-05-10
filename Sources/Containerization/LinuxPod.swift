@@ -29,6 +29,8 @@ import struct ContainerizationOS.Terminal
 /// virtual machine. Each container has its own rootfs and process, but
 /// shares the VM's resources (CPU, memory, network).
 public final class LinuxPod: Sendable {
+    static let maxIDLength = 64
+
     /// The identifier of the pod.
     public let id: String
 
@@ -223,6 +225,12 @@ public final class LinuxPod: Sendable {
         logger: Logger? = nil,
         configuration: (inout Configuration) throws -> Void
     ) throws {
+        guard id.count <= Self.maxIDLength else {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "pod id length \(id.count) exceeds maximum of \(Self.maxIDLength) characters"
+            )
+        }
         self.id = id
         self.vmm = vmm
         self.hostVsockPorts = Atomic<UInt32>(0x1000_0000)
@@ -328,6 +336,12 @@ extension LinuxPod {
         rootfs: Mount,
         configuration: @Sendable @escaping (inout ContainerConfiguration) throws -> Void
     ) async throws {
+        guard id.count <= Self.maxIDLength else {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "container id length \(id.count) exceeds maximum of \(Self.maxIDLength) characters"
+            )
+        }
         try await self.state.withLock { state in
             guard case .initialized = state.phase else {
                 throw ContainerizationError(

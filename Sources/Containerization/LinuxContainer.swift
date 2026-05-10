@@ -28,6 +28,8 @@ import struct ContainerizationOS.Terminal
 /// `LinuxContainer` is an easy to use type for launching and managing the
 /// full lifecycle of a Linux container ran inside of a virtual machine.
 public final class LinuxContainer: Container, Sendable {
+    static let maxIDLength = 64
+
     /// The identifier of the container.
     public let id: String
 
@@ -332,6 +334,12 @@ public final class LinuxContainer: Container, Sendable {
         configuration: LinuxContainer.Configuration,
         logger: Logger? = nil
     ) throws {
+        guard id.count <= Self.maxIDLength else {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "container id length \(id.count) exceeds maximum of \(Self.maxIDLength) characters"
+            )
+        }
         if let writableLayer {
             guard writableLayer.isBlock else {
                 throw ContainerizationError(
