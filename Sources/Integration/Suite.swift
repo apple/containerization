@@ -313,6 +313,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container memory events OOM kill", testMemoryEventsOOMKill),
                 Test("container no serial console", testNoSerialConsole),
                 Test("unix socket into guest", testUnixSocketIntoGuest),
+                Test("unix socket into guest long container id", testUnixSocketIntoGuestLongContainerID),
                 Test("unix socket into guest symlink", testUnixSocketIntoGuestSymlink),
                 Test("container non-closure constructor", testNonClosureConstructor),
                 Test("container test large stdio ingest", testLargeStdioOutput),

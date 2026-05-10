@@ -1121,6 +1121,64 @@ extension IntegrationSuite {
         }
     }
 
+    // NOTE: Once upon a time our guest agent created any proxied unix sockets at
+    // a path that contained the container ID in it. The problem here is if the container
+    // ID is comically long we exceed the max length of a unix domain socket path.
+    func testUnixSocketIntoGuestLongContainerID() async throws {
+        let id = "test-unixsocket-long-id-" + String(repeating: "a", count: 40)
+
+        let bs = try await bootstrap(id)
+
+        let hostSocketPath = try createHostUnixSocket()
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.sockets = [
+                UnixSocketConfiguration(
+                    source: URL(filePath: hostSocketPath),
+                    destination: URL(filePath: "/tmp/test.sock"),
+                    direction: .into
+                )
+            ]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let lsExec = try await container.exec("ls-socket") { config in
+                config.arguments = ["ls", "-l", "/tmp/test.sock"]
+                config.stdout = buffer
+            }
+
+            try await lsExec.start()
+            let status = try await lsExec.wait()
+            try await lsExec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ls command failed with status \(status)")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert ls output to UTF8")
+            }
+
+            guard output.hasPrefix("s") else {
+                throw IntegrationError.assert(
+                    msg: "expected socket file (starting with 's'), got: \(output)")
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
     func testNonClosureConstructor() async throws {
         let id = "test-container-non-closure-constructor"
 
