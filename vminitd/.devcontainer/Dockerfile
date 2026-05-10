@@ -1,4 +1,4 @@
-ARG SWIFT_VERSION=6.3
+ARG SWIFT_VERSION=6.3.0
 FROM swift:${SWIFT_VERSION}-noble
 
 RUN apt-get update \
