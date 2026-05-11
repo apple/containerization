@@ -28,7 +28,7 @@ import struct ContainerizationOS.Terminal
 /// `LinuxContainer` is an easy to use type for launching and managing the
 /// full lifecycle of a Linux container ran inside of a virtual machine.
 public final class LinuxContainer: Container, Sendable {
-    static let maxIDLength = 64
+    public static let maxIDLength = 64
 
     /// The identifier of the container.
     public let id: String
