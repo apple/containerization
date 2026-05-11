@@ -304,8 +304,8 @@ public final class LinuxPod: Sendable {
         "/run/container/\(containerID)/rootfs"
     }
 
-    private static func guestSocketStagingPath(_ containerID: String, socketID: String) -> String {
-        "/run/container/\(containerID)/sockets/\(socketID).sock"
+    private static func guestSocketStagingPath(_ socketID: String) -> String {
+        "/run/sockets/\(socketID).sock"
     }
 
     private static func guestVolumePath(_ volumeName: String) -> String {
@@ -673,7 +673,7 @@ extension LinuxPod {
                     mounts.append(
                         ContainerizationOCI.Mount(
                             type: "bind",
-                            source: Self.guestSocketStagingPath(containerID, socketID: socket.id),
+                            source: Self.guestSocketStagingPath(socket.id),
                             destination: socket.destination.path,
                             options: ["bind"]
                         ))
@@ -1071,7 +1071,7 @@ extension LinuxPod {
         let port: UInt32
         if socket.direction == .into {
             port = self.hostVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
-            socket.destination = URL(filePath: Self.guestSocketStagingPath(containerID, socketID: socket.id))
+            socket.destination = URL(filePath: Self.guestSocketStagingPath(socket.id))
         } else {
             port = self.guestVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
             socket.source = rootInGuest.appending(path: socket.source.path)

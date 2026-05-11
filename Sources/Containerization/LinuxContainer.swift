@@ -455,8 +455,8 @@ public final class LinuxContainer: Container, Sendable {
         "/run/container/\(id)/rootfs"
     }
 
-    private static func guestSocketStagingPath(_ containerID: String, socketID: String) -> String {
-        "/run/container/\(containerID)/sockets/\(socketID).sock"
+    private static func guestSocketStagingPath(_ socketID: String) -> String {
+        "/run/sockets/\(socketID).sock"
     }
 }
 
@@ -701,7 +701,7 @@ extension LinuxContainer {
                     mounts.append(
                         ContainerizationOCI.Mount(
                             type: "bind",
-                            source: Self.guestSocketStagingPath(self.id, socketID: socket.id),
+                            source: Self.guestSocketStagingPath(socket.id),
                             destination: socket.destination.path,
                             options: ["bind"]
                         ))
@@ -1038,7 +1038,7 @@ extension LinuxContainer {
         let port: UInt32
         if socket.direction == .into {
             port = self.hostVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
-            socket.destination = URL(filePath: Self.guestSocketStagingPath(self.id, socketID: socket.id))
+            socket.destination = URL(filePath: Self.guestSocketStagingPath(socket.id))
         } else {
             port = self.guestVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
             socket.source = rootInGuest.appending(path: socket.source.path)
