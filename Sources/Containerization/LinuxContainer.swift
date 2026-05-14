@@ -415,7 +415,7 @@ public final class LinuxContainer: Container, Sendable {
                 quota: Int64(config.cpus * 100_000),
                 period: 100_000
             ),
-            blockIO: config.blockIO
+            blockIO: config.blockIO?.toOCI()
         )
 
         spec.linux?.namespaces = [

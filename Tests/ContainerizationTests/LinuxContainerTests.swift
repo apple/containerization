@@ -14,11 +14,12 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-import ContainerizationOCI
 import Foundation
 import Testing
 
 @testable import Containerization
+
+import struct ContainerizationOCI.ImageConfig
 
 struct LinuxContainerTests {
 
