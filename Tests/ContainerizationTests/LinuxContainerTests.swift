@@ -21,6 +21,8 @@ import Testing
 
 @testable import Containerization
 
+import struct ContainerizationOCI.ImageConfig
+
 struct LinuxContainerTests {
 
     @Test func processInitFromImageConfigWithAllFields() {
