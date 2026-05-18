@@ -23,7 +23,7 @@ import PackageDescription
 
 let package = Package(
     name: "containerization",
-    platforms: [.macOS("15")],
+    platforms: [.macOS("15.0")],
     products: [
         .library(name: "Containerization", targets: ["Containerization", "ContainerizationError"]),
         .library(name: "ContainerizationEXT4", targets: ["ContainerizationEXT4"]),

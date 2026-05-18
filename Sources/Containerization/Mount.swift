@@ -176,21 +176,9 @@ extension Mount {
             let attachment = VZVirtioBlockDeviceConfiguration(attachment: device)
             config.storageDevices.append(attachment)
         case .virtiofs(_):
-            guard FileManager.default.fileExists(atPath: self.source) else {
-                throw ContainerizationError(.notFound, message: "directory \(source) does not exist")
-            }
-
-            let name = try hashMountSource(source: self.source)
-            let urlSource = URL(fileURLWithPath: source)
-
-            let device = VZVirtioFileSystemDeviceConfiguration(tag: name)
-            device.share = VZSingleDirectoryShare(
-                directory: VZSharedDirectory(
-                    url: urlSource,
-                    readOnly: readonly
-                )
-            )
-            config.directorySharingDevices.append(device)
+            // VirtioFS mounts are handled centrally via VZMultipleDirectoryShare in VZVirtualMachineInstance
+            // No per-mount device configuration needed
+            break
         case .shared, .any:
             break
         }

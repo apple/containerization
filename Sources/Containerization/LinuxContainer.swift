@@ -591,6 +591,16 @@ extension LinuxContainer {
                 try await vm.withAgent { agent in
                     try await agent.standardSetup()
 
+                    // Mount the unified virtiofs share at /run/virtiofs
+                    // All virtiofs directories appear as subdirectories here
+                    try await agent.mount(
+                        ContainerizationOCI.Mount(
+                            type: "virtiofs",
+                            source: "virtiofs",
+                            destination: "/run/virtiofs",
+                            options: []
+                        ))
+
                     guard let attachments = vm.mounts[self.id] else {
                         throw ContainerizationError(.notFound, message: "rootfs mount not found")
                     }
@@ -672,6 +682,7 @@ extension LinuxContainer {
                 var spec = self.generateRuntimeSpec()
                 // We don't need the rootfs (or writable layer), nor do OCI runtimes want it included.
                 // Also filter out file mount holding directories. We'll mount those separately under /run.
+                // Transform virtiofs mounts to bind mounts from /run/virtiofs/{tag}
                 let containerMounts = createdState.vm.mounts[self.id] ?? []
                 let holdingTags = createdState.fileMountContext.holdingDirectoryTags
                 // Drop rootfs, and writable layer if present.
@@ -679,7 +690,18 @@ extension LinuxContainer {
                 var mounts: [ContainerizationOCI.Mount] =
                     containerMounts.dropFirst(mountsToSkip)
                     .filter { !holdingTags.contains($0.source) }
-                    .map { $0.to }
+                    .map { attached -> ContainerizationOCI.Mount in
+                        if attached.type == "virtiofs" {
+                            // Transform to bind mount from holding directory
+                            return ContainerizationOCI.Mount(
+                                type: "none",
+                                source: "/run/virtiofs/\(attached.source)",
+                                destination: attached.destination,
+                                options: ["bind"] + attached.options
+                            )
+                        }
+                        return attached.to
+                    }
                     + createdState.fileMountContext.ociBindMounts()
 
                 // When useInit is enabled, bind mount vminitd from the VM's filesystem

@@ -77,6 +77,7 @@ public struct VZVirtualMachineManager: VirtualMachineManager {
                 instanceConfig.nestedVirtualization = useNestedVirtualization
 
                 instanceConfig.mountsByID = vmConfig.mountsByID
+                instanceConfig.extensions = vmConfig.extensions
             })
     }
 }

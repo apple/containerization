@@ -31,7 +31,7 @@ public struct AttachedFilesystem: Sendable {
     public init(mount: Mount, allocator: any AddressAllocator<Character>) throws {
         switch mount.runtimeOptions {
         case .virtiofs:
-            let name = try hashMountSource(source: mount.source)
+            let name = try hashFilePath(path: mount.source)
             self.source = name
         case .virtioblk:
             let char = try allocator.allocate()
