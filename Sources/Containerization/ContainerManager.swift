@@ -302,15 +302,17 @@ public struct ContainerManager: Sendable {
             if let imageConfig {
                 config.process = .init(from: imageConfig)
             }
-            if networking, let interface = try self.network?.createInterface(id) {
-                config.interfaces = [interface]
-                guard let gateway = interface.ipv4Gateway else {
-                    throw ContainerizationError(
-                        .invalidState,
-                        message: "missing ipv4 gateway for container \(id)"
-                    )
+            if networking {
+                if let interface = try self.network?.createInterface(id) {
+                    config.interfaces = [interface]
+                    guard let gateway = interface.ipv4Gateway else {
+                        throw ContainerizationError(
+                            .invalidState,
+                            message: "missing ipv4 gateway for container \(id)"
+                        )
+                    }
+                    config.dns = .init(nameservers: [gateway.description])
                 }
-                config.dns = .init(nameservers: [gateway.description])
             }
             config.bootLog = BootLog.file(path: self.containerRoot.appendingPathComponent(id).appendingPathComponent("bootlog.log"))
             try configuration(&config)

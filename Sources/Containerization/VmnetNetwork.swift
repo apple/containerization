@@ -73,6 +73,8 @@ public struct VmnetNetwork: Network {
     public struct Interface: Containerization.Interface, VZInterface, Sendable {
         public let ipv4Address: CIDRv4
         public let ipv4Gateway: IPv4Address?
+        public let ipv6Address: CIDRv6?
+        public let ipv6Gateway: IPv6Address?
         public let macAddress: MACAddress?
         public let mtu: UInt32
 
@@ -83,11 +85,15 @@ public struct VmnetNetwork: Network {
             reference: vmnet_network_ref,
             ipv4Address: CIDRv4,
             ipv4Gateway: IPv4Address? = nil,
+            ipv6Address: CIDRv6? = nil,
+            ipv6Gateway: IPv6Address? = nil,
             macAddress: MACAddress? = nil,
             mtu: UInt32 = 1500
         ) {
             self.ipv4Address = ipv4Address
             self.ipv4Gateway = ipv4Gateway
+            self.ipv6Address = ipv6Address
+            self.ipv6Gateway = ipv6Gateway
             self.macAddress = macAddress
             self.mtu = mtu
             self.reference = reference
@@ -141,7 +147,23 @@ public struct VmnetNetwork: Network {
         return Self.Interface(
             reference: self.reference,
             ipv4Address: ipv4Address,
+            ipv4Gateway: self.ipv4Gateway
+        )
+    }
+
+    /// Returns a new interface for use with a container, with an optional IPv6 address.
+    /// - Parameters:
+    ///   - id: The container ID.
+    ///   - ipv6Address: The IPv6 CIDR address to assign to the interface.
+    ///   - ipv6Gateway: The IPv6 gateway address for the default route.
+    public mutating func createInterface(_ id: String, ipv6Address: CIDRv6, ipv6Gateway: IPv6Address? = nil) throws -> Containerization.Interface? {
+        let ipv4Address = try allocator.allocate(id)
+        return Self.Interface(
+            reference: self.reference,
+            ipv4Address: ipv4Address,
             ipv4Gateway: self.ipv4Gateway,
+            ipv6Address: ipv6Address,
+            ipv6Gateway: ipv6Gateway
         )
     }
 
@@ -152,7 +174,7 @@ public struct VmnetNetwork: Network {
         let ipv4Address = try allocator.allocate(id)
         return Self.Interface(
             reference: self.reference,
-            ipv4Address: ipv4Address,
+            ipv4Address: ipv4Address
         )
     }
 

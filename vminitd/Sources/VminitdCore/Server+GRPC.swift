@@ -1192,6 +1192,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             metadata: [
                 "interface": "\(request.interface)",
                 "ipv4Address": "\(request.ipv4Address)",
+                "ipv6Address": "\(request.hasIpv6Address ? request.ipv6Address : "<none>")",
             ])
 
         do {
@@ -1199,6 +1200,10 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             let session = NetlinkSession(socket: socket, log: log)
             let ipv4Address = try CIDRv4(request.ipv4Address)
             try session.addressAdd(interface: request.interface, ipv4Address: ipv4Address)
+            if request.hasIpv6Address {
+                let ipv6Address = try CIDRv6(request.ipv6Address)
+                try session.addressAdd(interface: request.interface, ipv6Address: ipv6Address)
+            }
         } catch {
             log.error(
                 "ipAddrAdd",
@@ -1220,18 +1225,38 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                 "interface": "\(request.interface)",
                 "dstIpv4Addr": "\(request.dstIpv4Addr)",
                 "srcIpv4Addr": "\(request.srcIpv4Addr)",
+                "dstIpv6Addr": "\(request.hasDstIpv6Addr ? request.dstIpv6Addr : "<none>")",
+                "srcIpv6Addr": "\(request.hasSrcIpv6Addr ? request.srcIpv6Addr : "<none>")",
             ])
+
+        guard !request.dstIpv4Addr.isEmpty || request.hasDstIpv6Addr else {
+            throw RPCError(
+                code: .invalidArgument,
+                message: "ipRouteAddLink requires at least one of dstIpv4Addr or dstIpv6Addr"
+            )
+        }
 
         do {
             let socket = try DefaultNetlinkSocket()
             let session = NetlinkSession(socket: socket, log: log)
-            let dstIpv4Addr = try CIDRv4(request.dstIpv4Addr)
-            let srcIpv4Addr = request.srcIpv4Addr.isEmpty ? nil : try IPv4Address(request.srcIpv4Addr)
-            try session.routeAdd(
-                interface: request.interface,
-                dstIpv4Addr: dstIpv4Addr,
-                srcIpv4Addr: srcIpv4Addr
-            )
+            if !request.dstIpv4Addr.isEmpty {
+                let dstIpv4Addr = try CIDRv4(request.dstIpv4Addr)
+                let srcIpv4Addr = request.srcIpv4Addr.isEmpty ? nil : try IPv4Address(request.srcIpv4Addr)
+                try session.routeAdd(
+                    interface: request.interface,
+                    dstIpv4Addr: dstIpv4Addr,
+                    srcIpv4Addr: srcIpv4Addr
+                )
+            }
+            if request.hasDstIpv6Addr {
+                let dstIpv6Addr = try CIDRv6(request.dstIpv6Addr)
+                let srcIpv6Addr = request.hasSrcIpv6Addr ? try IPv6Address(request.srcIpv6Addr) : nil
+                try session.routeAdd(
+                    interface: request.interface,
+                    dstIpv6Addr: dstIpv6Addr,
+                    srcIpv6Addr: srcIpv6Addr
+                )
+            }
         } catch {
             log.error(
                 "ipRouteAddLink",
@@ -1253,13 +1278,24 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             metadata: [
                 "interface": "\(request.interface)",
                 "ipv4Gateway": "\(request.ipv4Gateway)",
+                "ipv6Gateway": "\(request.hasIpv6Gateway ? request.ipv6Gateway : "<none>")",
             ])
 
         do {
             let socket = try DefaultNetlinkSocket()
             let session = NetlinkSession(socket: socket, log: log)
-            let ipv4Gateway = !request.ipv4Gateway.isEmpty ? try IPv4Address(request.ipv4Gateway) : nil
-            try session.routeAddDefault(interface: request.interface, ipv4Gateway: ipv4Gateway)
+            if !request.ipv4Gateway.isEmpty {
+                let ipv4Gateway = try IPv4Address(request.ipv4Gateway)
+                try session.routeAddDefault(interface: request.interface, ipv4Gateway: ipv4Gateway)
+            } else if !request.hasIpv6Gateway {
+                // No v4 gateway and no v6 either: install a v4 default route
+                // with no gateway (preserves pre-IPv6 behavior).
+                try session.routeAddDefault(interface: request.interface, ipv4Gateway: nil)
+            }
+            if request.hasIpv6Gateway {
+                let ipv6Gateway = try IPv6Address(request.ipv6Gateway)
+                try session.routeAddDefault(interface: request.interface, ipv6Gateway: ipv6Gateway)
+            }
         } catch {
             log.error(
                 "ipRouteAddDefault",

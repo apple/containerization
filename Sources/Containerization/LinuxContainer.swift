@@ -635,22 +635,12 @@ extension LinuxContainer {
                     var defaultRouteSet = false
                     for (index, i) in self.interfaces.enumerated() {
                         let name = "eth\(index)"
-                        self.logger?.debug("setting up interface \(name) with address \(i.ipv4Address)")
-                        try await agent.addressAdd(name: name, ipv4Address: i.ipv4Address)
-                        try await agent.up(name: name, mtu: i.mtu)
-                        if defaultRouteSet {
-                            continue
-                        }
-                        if let ipv4Gateway = i.ipv4Gateway {
-                            if !i.ipv4Address.contains(ipv4Gateway) {
-                                self.logger?.debug("gateway \(ipv4Gateway) is outside subnet \(i.ipv4Address), adding a route first")
-                                try await agent.routeAddLink(name: name, dstIPv4Addr: ipv4Gateway, srcIPv4Addr: i.ipv4Address.address)
-                            }
-                            try await agent.routeAddDefault(name: name, ipv4Gateway: ipv4Gateway)
-                        } else {
-                            self.logger?.debug("no gateway for \(name)")
-                            try await agent.routeAddDefault(name: name, ipv4Gateway: nil)
-                        }
+                        try await agent.setupInterface(
+                            i,
+                            name: name,
+                            setDefaultRoute: !defaultRouteSet,
+                            logger: self.logger
+                        )
                         defaultRouteSet = true
                     }
 

@@ -303,6 +303,7 @@ message IpLinkSetResponse {}
 message IpAddrAddRequest {
   string interface = 1;
   string ipv4Address = 2;
+  optional string ipv6Address = 3;
 }
 
 message IpAddrAddResponse {}
@@ -311,6 +312,8 @@ message IpRouteAddLinkRequest {
   string interface = 1;
   string dstIpv4Addr = 2;
   string srcIpv4Addr = 3;
+  optional string dstIpv6Addr = 4;
+  optional string srcIpv6Addr = 5;
 }
 
 message IpRouteAddLinkResponse {}
@@ -318,6 +321,7 @@ message IpRouteAddLinkResponse {}
 message IpRouteAddDefaultRequest {
   string interface = 1;
   string ipv4Gateway = 2;
+  optional string ipv6Gateway = 3;
 }
 
 message IpRouteAddDefaultResponse {}

@@ -290,6 +290,46 @@ struct NetlinkSessionTest {
         #expect(expectedAddRequest == mockSocket.requests[1].hexEncodedString())
     }
 
+    @Test func testNetworkAddressAddIPv6() throws {
+        let mockSocket = try MockNetlinkSocket()
+        mockSocket.pid = 0xc00c_c00c
+
+        // Lookup interface by name, truncated response with no attributes (not needed at present).
+        let expectedLookupRequest =
+            "3400000012000100000000000cc00cc0"  // Netlink header (16 B)
+            + "110000000000000001000000ffffffff"  // struct ifinfomsg (16 B)
+            + "08001d00090000000c0003006574683000000000"  // RT attrs: IFLA_EXT_MASK + IFLA_IFNAME ("eth0")
+        mockSocket.responses.append(
+            [UInt8](
+                hex:
+                    "2000000010000000000000000cc00cc0"  // Netlink header (16 B)
+                    + "00000100020000004310010000000000"  // struct ifinfomsg (16 B) – no attributes
+            )
+        )
+
+        // Add IPv6 address to interface.
+        let expectedAddRequest =
+            "2c00000014000506000000000cc00cc0"  // Netlink header (16 B): len=44
+            + "0a40820002000000"  // ifaddrmsg (8 B): AF_INET6, /64, flags=PERMANENT|NODAD, ifindex 2
+            + "14000100fd000000000000000000000000000001"  // RT attr: IFA_ADDRESS  fd00::1
+        mockSocket.responses.append(
+            [UInt8](
+                hex:
+                    "2400000002000001000000000cc00cc0"  // Netlink header (16 B)
+                    + "0000000040000000140005060000000000000000"  // nlmsg_err payload (20 B)
+            )
+        )
+
+        let session = NetlinkSession(socket: mockSocket)
+        try session.addressAdd(interface: "eth0", ipv6Address: try CIDRv6("fd00::1/64"))
+
+        #expect(mockSocket.requests.count == 2)
+        #expect(mockSocket.responseIndex == 2)
+        mockSocket.requests[0][8..<12] = [0, 0, 0, 0]
+        #expect(expectedLookupRequest == mockSocket.requests[0].hexEncodedString())
+        #expect(expectedAddRequest == mockSocket.requests[1].hexEncodedString())
+    }
+
     @Test func testNetworkRouteAddIpLink() throws {
         let mockSocket = try MockNetlinkSocket()
         mockSocket.pid = 0xc00c_c00c
@@ -379,6 +419,149 @@ struct NetlinkSessionTest {
             interface: "eth0",
             dstIpv4Addr: try CIDRv4("192.168.64.0/24"),
             srcIpv4Addr: nil
+        )
+
+        #expect(mockSocket.requests.count == 2)
+        #expect(mockSocket.responseIndex == 2)
+        mockSocket.requests[0][8..<12] = [0, 0, 0, 0]
+        #expect(expectedLookupRequest == mockSocket.requests[0].hexEncodedString())
+        mockSocket.requests[1][8..<12] = [0, 0, 0, 0]
+        #expect(expectedAddRequest == mockSocket.requests[1].hexEncodedString())
+    }
+
+    @Test func testNetworkRouteAddIpv6Link() throws {
+        let mockSocket = try MockNetlinkSocket()
+        mockSocket.pid = 0xc00c_c00c
+
+        // Lookup interface by name.
+        let expectedLookupRequest =
+            "3400000012000100000000000cc00cc0"  // Netlink header (16 B)
+            + "110000000000000001000000ffffffff"  // struct ifinfomsg (16 B)
+            + "08001d00090000000c0003006574683000000000"  // RT attrs: IFLA_EXT_MASK + IFLA_IFNAME ("eth0")
+        mockSocket.responses.append(
+            [UInt8](
+                hex:
+                    "2000000010000000000000000cc00cc0"  // Netlink header (16 B)
+                    + "00000100020000004310010000000000"  // struct ifinfomsg (16 B) – no attributes
+            )
+        )
+
+        // Add IPv6 link route with source.
+        let expectedAddRequest =
+            "4c00000018000506000000000cc00cc0"  // Netlink header (16 B): len=76
+            + "0a400000fe04fd0100000000"  // struct rtmsg (12 B): AF_INET6, dst/64,
+            //   table=MAIN(0xfe), proto=STATIC(0x04), scope=LINK(0xfd), type=UNICAST(0x01)
+            + "14000100fd000000000000000000000000000000"  // RTA_DST     fd00::
+            + "14000700fd000000000000000000000000000001"  // RTA_PREFSRC fd00::1
+            + "0800040002000000"  // RTA_OIF     ifindex 2 (eth0)
+        mockSocket.responses.append(
+            [UInt8](
+                hex:
+                    "2400000002000001000000000cc00cc0"  // Netlink header (16 B)
+                    + "00000000280000001400050600000000"  // nlmsg_err payload (16 B)
+                    + "1f000000"
+            )
+        )
+
+        let session = NetlinkSession(socket: mockSocket)
+        try session.routeAdd(
+            interface: "eth0",
+            dstIpv6Addr: try CIDRv6("fd00::/64"),
+            srcIpv6Addr: try IPv6Address("fd00::1")
+        )
+
+        #expect(mockSocket.requests.count == 2)
+        #expect(mockSocket.responseIndex == 2)
+        mockSocket.requests[0][8..<12] = [0, 0, 0, 0]
+        #expect(expectedLookupRequest == mockSocket.requests[0].hexEncodedString())
+        mockSocket.requests[1][8..<12] = [0, 0, 0, 0]
+        #expect(expectedAddRequest == mockSocket.requests[1].hexEncodedString())
+    }
+
+    @Test func testNetworkRouteAddIpv6LinkWithoutSrc() throws {
+        let mockSocket = try MockNetlinkSocket()
+        mockSocket.pid = 0xc00c_c00c
+
+        // Lookup interface by name.
+        let expectedLookupRequest =
+            "3400000012000100000000000cc00cc0"  // Netlink header (16 B)
+            + "110000000000000001000000ffffffff"  // struct ifinfomsg (16 B)
+            + "08001d00090000000c0003006574683000000000"  // RT attrs: IFLA_EXT_MASK + IFLA_IFNAME ("eth0")
+        mockSocket.responses.append(
+            [UInt8](
+                hex:
+                    "2000000010000000000000000cc00cc0"  // Netlink header (16 B)
+                    + "00000100020000004310010000000000"  // struct ifinfomsg (16 B) – no attributes
+            )
+        )
+
+        // Add IPv6 link route without source.
+        let expectedAddRequest =
+            "3800000018000506000000000cc00cc0"  // Netlink header (16 B): len=56
+            + "0a400000fe04fd0100000000"  // struct rtmsg (12 B): AF_INET6, dst/64
+            + "14000100fd000000000000000000000000000000"  // RTA_DST     fd00::
+            + "0800040002000000"  // RTA_OIF     ifindex 2 (eth0)
+        mockSocket.responses.append(
+            [UInt8](
+                hex:
+                    "2400000002000001000000000cc00cc0"  // Netlink header (16 B)
+                    + "00000000280000001400050600000000"  // nlmsg_err payload (16 B)
+                    + "1f000000"
+            )
+        )
+
+        let session = NetlinkSession(socket: mockSocket)
+        try session.routeAdd(
+            interface: "eth0",
+            dstIpv6Addr: try CIDRv6("fd00::/64"),
+            srcIpv6Addr: nil
+        )
+
+        #expect(mockSocket.requests.count == 2)
+        #expect(mockSocket.responseIndex == 2)
+        mockSocket.requests[0][8..<12] = [0, 0, 0, 0]
+        #expect(expectedLookupRequest == mockSocket.requests[0].hexEncodedString())
+        mockSocket.requests[1][8..<12] = [0, 0, 0, 0]
+        #expect(expectedAddRequest == mockSocket.requests[1].hexEncodedString())
+    }
+
+    @Test func testNetworkRouteAddDefaultIpv6() throws {
+        let mockSocket = try MockNetlinkSocket()
+        mockSocket.pid = 0xc00c_c00c
+
+        // Lookup interface by name.
+        let expectedLookupRequest =
+            "3400000012000100000000000cc00cc0"  // Netlink header (16 B)
+            + "110000000000000001000000ffffffff"  // struct ifinfomsg (16 B)
+            + "08001d00090000000c0003006574683000000000"  // RT attrs: IFLA_EXT_MASK + IFLA_IFNAME ("eth0")
+        mockSocket.responses.append(
+            [UInt8](
+                hex:
+                    "2000000010000000000000000cc00cc0"  // Netlink header (16 B)
+                    + "00000100020000004310010000000000"  // struct ifinfomsg (16 B) – no attributes
+            )
+        )
+
+        // Add default IPv6 route via gateway.
+        let expectedAddRequest =
+            "3800000018000506000000000cc00cc0"  // Netlink header (16 B): len=56
+            + "0a000000fe03000100000000"  // struct rtmsg (12 B): AF_INET6, dst/0,
+            //   table=MAIN(0xfe), proto=BOOT(0x03), scope=UNIVERSE(0x00), type=UNICAST(0x01)
+            + "14000500fd000000000000000000000000000001"  // RTA_GATEWAY fd00::1
+            + "0800040002000000"  // RTA_OIF     ifindex 2 (eth0)
+        mockSocket.responses.append(
+            [UInt8](
+                hex:
+                    "2400000002000001000000000cc00cc0"  // Netlink header (16 B)
+                    + "00000000280000001400050600000000"  // nlmsg_err payload (16 B)
+                    + "1f000000"
+            )
+        )
+
+        let session = NetlinkSession(socket: mockSocket)
+        try session.routeAddDefault(
+            interface: "eth0",
+            ipv6Gateway: try IPv6Address("fd00::1")
         )
 
         #expect(mockSocket.requests.count == 2)

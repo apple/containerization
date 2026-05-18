@@ -259,6 +259,53 @@ public struct NetlinkSession {
         }
     }
 
+    /// Adds an IPv6 address to an interface.
+    /// - Parameters:
+    ///   - interface: The name of the interface.
+    ///   - ipv6Address: The CIDRv6 address describing the interface IP and subnet prefix length.
+    public func addressAdd(interface: String, ipv6Address: CIDRv6) throws {
+        let interfaceIndex = try getInterfaceIndex(interface)
+
+        let ipAddressBytes = ipv6Address.address.bytes
+        let addressAttrSize = RTAttribute.size + MemoryLayout<UInt8>.size * ipAddressBytes.count
+        let requestSize = NetlinkMessageHeader.size + AddressInfo.size + addressAttrSize
+        var requestBuffer = [UInt8](repeating: 0, count: requestSize)
+        var requestOffset = 0
+
+        let header = NetlinkMessageHeader(
+            len: UInt32(requestBuffer.count),
+            type: NetlinkType.RTM_NEWADDR,
+            flags: NetlinkFlags.NLM_F_REQUEST | NetlinkFlags.NLM_F_ACK | NetlinkFlags.NLM_F_EXCL
+                | NetlinkFlags.NLM_F_CREATE,
+            seq: 0,
+            pid: socket.pid)
+        requestOffset = try header.appendBuffer(&requestBuffer, offset: requestOffset)
+
+        let requestInfo = AddressInfo(
+            family: UInt8(AddressFamily.AF_INET6),
+            prefixLength: ipv6Address.prefix.length,
+            flags: AddressFlags.IFA_F_PERMANENT | AddressFlags.IFA_F_NODAD,
+            scope: NetlinkScope.RT_SCOPE_UNIVERSE,
+            index: UInt32(interfaceIndex))
+        requestOffset = try requestInfo.appendBuffer(&requestBuffer, offset: requestOffset)
+
+        let ipAddressAttr = RTAttribute(len: UInt16(addressAttrSize), type: AddressAttributeType.IFA_ADDRESS)
+        requestOffset = try ipAddressAttr.appendBuffer(&requestBuffer, offset: requestOffset)
+        guard let requestOffset = requestBuffer.copyIn(buffer: ipAddressBytes, offset: requestOffset) else {
+            throw BindError.sendMarshalFailure(type: "RTAttribute", field: "IFA_ADDRESS")
+        }
+
+        guard requestOffset == requestSize else {
+            throw Error.unexpectedOffset(offset: requestOffset, size: requestSize)
+        }
+
+        try sendRequest(buffer: &requestBuffer)
+        let (infos, _) = try parseResponse(infoType: NetlinkType.RTM_NEWADDR) { AddressInfo() }
+        guard infos.count == 0 else {
+            throw Error.unexpectedResultSet(count: infos.count, expected: 0)
+        }
+    }
+
     /// Adds an IPv4 route to an interface.
     /// - Parameters:
     ///   - interface: The name of the interface.
@@ -416,6 +463,160 @@ public struct NetlinkSession {
 
         try sendRequest(buffer: &requestBuffer)
         let (infos, _) = try parseResponse(infoType: NetlinkType.RTM_NEWLINK) { AddressInfo() }
+        guard infos.count == 0 else {
+            throw Error.unexpectedResultSet(count: infos.count, expected: 0)
+        }
+    }
+
+    /// Adds an IPv6 route to an interface. Used to install an on-link host
+    /// route (typically a /128) to a gateway that lives outside the interface's
+    /// subnet, so the kernel will accept the v6 default route. The chosen
+    /// `proto STATIC, scope LINK` matches what `iproute2` emits for explicit
+    /// `ip -6 route add <addr>/128 dev <iface>`.
+    /// - Parameters:
+    ///   - interface: The name of the interface.
+    ///   - dstIpv6Addr: The CIDRv6 address describing the destination network and prefix length.
+    ///   - srcIpv6Addr: The source IPv6 address to route from.
+    public func routeAdd(
+        interface: String,
+        dstIpv6Addr: CIDRv6,
+        srcIpv6Addr: IPv6Address?
+    ) throws {
+        let interfaceIndex = try getInterfaceIndex(interface)
+
+        let dstAddrBytes = dstIpv6Addr.address.bytes
+        let dstAddrAttrSize = RTAttribute.size + dstAddrBytes.count
+        let srcAddrAttrSize: Int
+        if let srcIpv6Addr {
+            let srcAddrBytes = srcIpv6Addr.bytes
+            srcAddrAttrSize = RTAttribute.size + srcAddrBytes.count
+        } else {
+            srcAddrAttrSize = 0
+        }
+        let interfaceAttrSize = RTAttribute.size + MemoryLayout<UInt32>.size
+        let requestSize =
+            NetlinkMessageHeader.size + RouteInfo.size + dstAddrAttrSize + srcAddrAttrSize + interfaceAttrSize
+        var requestBuffer = [UInt8](repeating: 0, count: requestSize)
+        var requestOffset = 0
+
+        let header = NetlinkMessageHeader(
+            len: UInt32(requestBuffer.count),
+            type: NetlinkType.RTM_NEWROUTE,
+            flags: NetlinkFlags.NLM_F_REQUEST | NetlinkFlags.NLM_F_ACK | NetlinkFlags.NLM_F_EXCL
+                | NetlinkFlags.NLM_F_CREATE,
+            pid: socket.pid)
+        requestOffset = try header.appendBuffer(&requestBuffer, offset: requestOffset)
+
+        let requestInfo = RouteInfo(
+            family: UInt8(AddressFamily.AF_INET6),
+            dstLen: dstIpv6Addr.prefix.length,
+            srcLen: 0,
+            tos: 0,
+            table: RouteTable.MAIN,
+            proto: RouteProtocol.STATIC,
+            scope: RouteScope.LINK,
+            type: RouteType.UNICAST,
+            flags: 0)
+        requestOffset = try requestInfo.appendBuffer(&requestBuffer, offset: requestOffset)
+
+        let dstAddrAttr = RTAttribute(len: UInt16(dstAddrAttrSize), type: RouteAttributeType.DST)
+        requestOffset = try dstAddrAttr.appendBuffer(&requestBuffer, offset: requestOffset)
+        guard var requestOffset = requestBuffer.copyIn(buffer: dstAddrBytes, offset: requestOffset) else {
+            throw BindError.sendMarshalFailure(type: "RTAttribute", field: "RTA_DST")
+        }
+
+        if let srcIpv6Addr {
+            let srcAddrBytes = srcIpv6Addr.bytes
+            let srcAddrAttr = RTAttribute(len: UInt16(srcAddrAttrSize), type: RouteAttributeType.PREFSRC)
+            requestOffset = try srcAddrAttr.appendBuffer(&requestBuffer, offset: requestOffset)
+            guard let newOffset = requestBuffer.copyIn(buffer: srcAddrBytes, offset: requestOffset) else {
+                throw BindError.sendMarshalFailure(type: "RTAttribute", field: "RTA_PREFSRC")
+            }
+            requestOffset = newOffset
+        }
+
+        let interfaceAttr = RTAttribute(len: UInt16(interfaceAttrSize), type: RouteAttributeType.OIF)
+        requestOffset = try interfaceAttr.appendBuffer(&requestBuffer, offset: requestOffset)
+        guard
+            let requestOffset = requestBuffer.copyIn(
+                as: UInt32.self,
+                value: UInt32(interfaceIndex),
+                offset: requestOffset)
+        else {
+            throw BindError.sendMarshalFailure(type: "RTAttribute", field: "RTA_OIF")
+        }
+
+        guard requestOffset == requestSize else {
+            throw Error.unexpectedOffset(offset: requestOffset, size: requestSize)
+        }
+
+        try sendRequest(buffer: &requestBuffer)
+        let (infos, _) = try parseResponse(infoType: NetlinkType.RTM_NEWROUTE) { AddressInfo() }
+        guard infos.count == 0 else {
+            throw Error.unexpectedResultSet(count: infos.count, expected: 0)
+        }
+    }
+
+    /// Adds a default IPv6 route to an interface.
+    /// - Parameters:
+    ///   - interface: The name of the interface.
+    ///   - ipv6Gateway: The gateway address.
+    public func routeAddDefault(
+        interface: String,
+        ipv6Gateway: IPv6Address
+    ) throws {
+        let gatewayBytes = ipv6Gateway.bytes
+        let gatewaySize = RTAttribute.size + gatewayBytes.count
+
+        let interfaceAttrSize = RTAttribute.size + MemoryLayout<UInt32>.size
+        let interfaceIndex = try getInterfaceIndex(interface)
+        let requestSize = NetlinkMessageHeader.size + RouteInfo.size + gatewaySize + interfaceAttrSize
+
+        var requestBuffer = [UInt8](repeating: 0, count: requestSize)
+        var requestOffset = 0
+
+        let header = NetlinkMessageHeader(
+            len: UInt32(requestBuffer.count),
+            type: NetlinkType.RTM_NEWROUTE,
+            flags: NetlinkFlags.NLM_F_REQUEST | NetlinkFlags.NLM_F_ACK | NetlinkFlags.NLM_F_EXCL
+                | NetlinkFlags.NLM_F_CREATE,
+            pid: socket.pid)
+        requestOffset = try header.appendBuffer(&requestBuffer, offset: requestOffset)
+
+        let requestInfo = RouteInfo(
+            family: UInt8(AddressFamily.AF_INET6),
+            dstLen: 0,
+            srcLen: 0,
+            tos: 0,
+            table: RouteTable.MAIN,
+            proto: RouteProtocol.BOOT,
+            scope: RouteScope.UNIVERSE,
+            type: RouteType.UNICAST,
+            flags: 0)
+        requestOffset = try requestInfo.appendBuffer(&requestBuffer, offset: requestOffset)
+
+        let dstAddrAttr = RTAttribute(len: UInt16(gatewaySize), type: RouteAttributeType.GATEWAY)
+        requestOffset = try dstAddrAttr.appendBuffer(&requestBuffer, offset: requestOffset)
+        guard var requestOffset = requestBuffer.copyIn(buffer: gatewayBytes, offset: requestOffset) else {
+            throw BindError.sendMarshalFailure(type: "RTAttribute", field: "RTA_GATEWAY")
+        }
+        let interfaceAttr = RTAttribute(len: UInt16(interfaceAttrSize), type: RouteAttributeType.OIF)
+        requestOffset = try interfaceAttr.appendBuffer(&requestBuffer, offset: requestOffset)
+        guard
+            let requestOffset = requestBuffer.copyIn(
+                as: UInt32.self,
+                value: UInt32(interfaceIndex),
+                offset: requestOffset)
+        else {
+            throw BindError.sendMarshalFailure(type: "RTAttribute", field: "RTA_OIF")
+        }
+
+        guard requestOffset == requestSize else {
+            throw Error.unexpectedOffset(offset: requestOffset, size: requestSize)
+        }
+
+        try sendRequest(buffer: &requestBuffer)
+        let (infos, _) = try parseResponse(infoType: NetlinkType.RTM_NEWROUTE) { AddressInfo() }
         guard infos.count == 0 else {
             throw Error.unexpectedResultSet(count: infos.count, expected: 0)
         }
