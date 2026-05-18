@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#ifdef __linux__
 #include <sys/prctl.h>
 #include <sys/resource.h>
 #include <sys/syscall.h>
@@ -48,3 +49,4 @@ int CZ_setrlimit(int resource, unsigned long long soft,
   limit.rlim_max = (rlim_t)hard;
   return setrlimit(resource, &limit);
 }
+#endif

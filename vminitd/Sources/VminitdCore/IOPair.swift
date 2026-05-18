@@ -14,6 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 import ContainerizationError
 import ContainerizationOS
 import Foundation
@@ -183,3 +185,5 @@ final class IOPair: Sendable {
         }
     }
 }
+
+#endif

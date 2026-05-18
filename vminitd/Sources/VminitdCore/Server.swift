@@ -14,6 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 import ContainerizationError
 import Foundation
 import GRPCCore
@@ -139,3 +141,5 @@ public final class Initd: Sendable {
         }
     }
 }
+
+#endif

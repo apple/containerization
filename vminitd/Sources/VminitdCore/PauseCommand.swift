@@ -14,6 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 import ArgumentParser
 import Dispatch
 import Logging
@@ -76,3 +78,5 @@ public struct PauseCommand: ParsableCommand {
         _exit(42)
     }
 }
+
+#endif

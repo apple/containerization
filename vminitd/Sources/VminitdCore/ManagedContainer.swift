@@ -14,6 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 import Cgroup
 import ContainerizationError
 import ContainerizationOCI
@@ -280,3 +282,5 @@ extension ManagedContainer {
         URL(fileURLWithPath: "/run/container").appending(path: id)
     }
 }
+
+#endif

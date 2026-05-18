@@ -14,6 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 import ArgumentParser
 import ContainerizationOS
 import LCShim
@@ -107,3 +109,5 @@ public struct InitCommand: ParsableCommand {
         _exit(childExitStatus ?? 1)
     }
 }
+
+#endif

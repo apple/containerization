@@ -14,11 +14,11 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 // NOTE: Ideally this should live in ContainerizationOS/Linux, or just ContainerizationCgroups
 // or something similar, but it's not there yet. It does what we need, but it'd need a lot more
 // features and testing before it's ready to be public.
-
-#if os(Linux)
 
 #if canImport(Musl)
 import Musl

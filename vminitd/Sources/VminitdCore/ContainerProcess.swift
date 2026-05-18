@@ -14,6 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 import ContainerizationOS
 import Foundation
 
@@ -64,3 +66,5 @@ protocol ContainerProcess: Sendable {
     /// Set the exit status of the process.
     func setExit(_ status: Int32)
 }
+
+#endif

@@ -14,6 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 import ContainerizationIO
 import ContainerizationOS
 import Foundation
@@ -400,3 +402,5 @@ extension VsockProxy {
         }
     }
 }
+
+#endif

@@ -14,6 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 import ArgumentParser
 import Foundation
 import Logging
@@ -97,3 +99,5 @@ private struct StderrLogHandler: LogHandler {
         return String(format: "%@.%03dZ", buf, ms)
     }
 }
+
+#endif

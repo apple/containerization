@@ -561,4 +561,4 @@ final class RuncStandardIO: RuncProcess.IO & Sendable {
     }
 }
 
-#endif  // os(Linux)
+#endif

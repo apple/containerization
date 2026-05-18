@@ -14,10 +14,10 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 import ContainerizationOS
 import Foundation
-
-#if os(Linux)
 
 /// A Unix socket for receiving PTY master file descriptors from runc
 public final class ConsoleSocket: Sendable {
@@ -80,4 +80,4 @@ public final class ConsoleSocket: Sendable {
     }
 }
 
-#endif  // os(Linux)
+#endif

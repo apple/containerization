@@ -14,6 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 import ArgumentParser
 import CVersion
 import Cgroup
@@ -214,3 +216,5 @@ public struct AgentCommand: AsyncParsableCommand {
         }
     }
 }
+
+#endif

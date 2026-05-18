@@ -14,6 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 import ContainerizationOS
 import Foundation
 
@@ -26,3 +28,5 @@ extension Terminal: IOCloser {
 }
 
 extension FileHandle: IOCloser {}
+
+#endif

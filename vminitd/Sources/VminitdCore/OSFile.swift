@@ -14,6 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 import Foundation
 
 struct OSFile: Sendable {
@@ -126,3 +128,5 @@ struct OSFile: Sendable {
         return Self(fd: fd)
     }
 }
+
+#endif
