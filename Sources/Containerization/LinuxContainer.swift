@@ -18,6 +18,7 @@ import ContainerizationArchive
 import ContainerizationError
 import ContainerizationExtras
 import ContainerizationOCI
+import ContainerizationOS
 import Foundation
 import Logging
 import Synchronization
@@ -1094,7 +1095,19 @@ extension LinuxContainer {
             }
             let isArchive = isDirectory.boolValue
 
-            let guestPath = URL(filePath: self.root).appending(path: destination.path)
+            let guestPath: URL = try await state.vm.withAgent { agent in
+                guard let vminitd = agent as? Vminitd else {
+                    throw ContainerizationError(.unsupported, message: "copyIn requires Vminitd agent")
+                }
+
+                return try await self.resolveCopyInGuestPath(
+                    from: source,
+                    to: destination,
+                    sourceIsDirectory: isArchive,
+                    using: vminitd
+                )
+            }
+
             let port = self.hostVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
             let listener = try state.vm.listen(port)
 
@@ -1177,6 +1190,46 @@ extension LinuxContainer {
                 try await group.waitForAll()
             }
         }
+    }
+
+    private func resolveCopyInGuestPath(
+        from source: URL,
+        to destination: URL,
+        sourceIsDirectory: Bool,
+        using vminitd: Vminitd
+    ) async throws -> URL {
+        let guestDestination = URL(filePath: self.root).appending(path: destination.path)
+
+        let stat: ContainerizationOS.Stat?
+        do {
+            stat = try await vminitd.stat(path: guestDestination)
+        } catch let error as ContainerizationError where error.code == .notFound {
+            stat = nil
+        }
+        // Any other error propagates so transport and permission failures are visible.
+
+        guard let stat else {
+            if destination.hasDirectoryPath && !sourceIsDirectory {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "destination directory does not exist: \(destination.path)"
+                )
+            }
+            return guestDestination
+        }
+
+        let destinationIsDirectory = (stat.mode & UInt32(S_IFMT)) == UInt32(S_IFDIR)
+        guard destinationIsDirectory else {
+            if sourceIsDirectory {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "cannot copy directory over existing file: \(destination.path)"
+                )
+            }
+            return guestDestination
+        }
+
+        return guestDestination.appendingPathComponent(source.lastPathComponent)
     }
 
     /// Copy a file or directory from the container to the host.
