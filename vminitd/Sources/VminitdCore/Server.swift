@@ -27,7 +27,7 @@ import NIOPosix
 
 public final class Initd: Sendable {
     public actor State {
-        public private(set) var containers: [String: ManagedContainer] = [:]
+        private(set) var containers: [String: ManagedContainer] = [:]
         var proxies: [String: VsockProxy] = [:]
 
         public typealias ContainerDeletedHandler = @Sendable (String) async -> Void

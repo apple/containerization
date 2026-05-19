@@ -23,7 +23,7 @@ import Synchronization
 
 public struct LogLevelOption: ParsableArguments {
     @Option(name: .long, help: "Set the log level (trace, debug, info, notice, warning, error, critical)")
-    public var logLevel: String = "info"
+    var logLevel: String = "info"
 
     public init() {}
 
@@ -51,7 +51,7 @@ public struct LogLevelOption: ParsableArguments {
 
 private let _loggingBootstrapped = Mutex(false)
 
-public func makeLogger(label: String, level: Logger.Level) -> Logger {
+func makeLogger(label: String, level: Logger.Level) -> Logger {
     _loggingBootstrapped.withLock { bootstrapped in
         if !bootstrapped {
             LoggingSystem.bootstrap { label in StderrLogHandler(label: label) }

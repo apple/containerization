@@ -46,7 +46,7 @@ public struct AgentCommand: AsyncParsableCommand {
     private static let foregroundEnvVar = "FOREGROUND"
     public static let vsockPort = 1024
 
-    @OptionGroup public var options: LogLevelOption
+    @OptionGroup var options: LogLevelOption
 
     public init() {}
 

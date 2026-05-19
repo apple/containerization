@@ -36,7 +36,7 @@ public struct PauseCommand: ParsableCommand {
 
     public init() {}
 
-    @OptionGroup public var options: LogLevelOption
+    @OptionGroup var options: LogLevelOption
 
     public mutating func run() throws {
         let log = makeLogger(label: "pause", level: options.resolvedLogLevel())
