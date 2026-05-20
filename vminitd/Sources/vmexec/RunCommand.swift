@@ -15,6 +15,7 @@
 //===----------------------------------------------------------------------===//
 
 import ArgumentParser
+import Cgroup
 import ContainerizationOCI
 import ContainerizationOS
 import FoundationEssentials
@@ -267,6 +268,20 @@ struct RunCommand: ParsableCommand {
         if processID == 0 {  // child
             try childSetup(spec: spec, ackPipe: ackPipe, syncPipe: syncPipe)
         } else {  // parent process
+            // Setup cgroup before child enters cgroup namespace
+            if let linux = spec.linux {
+                let cgroupPath = linux.cgroupsPath
+                if !cgroupPath.isEmpty {
+                    let cgroupManager = try Cgroup2Manager.load(group: URL(filePath: cgroupPath))
+
+                    if let resources = linux.resources {
+                        try cgroupManager.applyResources(resources: resources)
+                    }
+
+                    try cgroupManager.addProcess(pid: processID)
+                }
+            }
+
             // Send our child's pid before we exit.
             var childPid = processID
             try withUnsafeBytes(of: &childPid) { bytes in

@@ -43,8 +43,8 @@ package enum Cgroup2Controller: String {
 
 // Extremely simple cgroup manager. Our needs are simple for now, and this is
 // reflected in the type.
-package struct Cgroup2Manager: Sendable {
-    package static let defaultMountPoint = URL(filePath: "/sys/fs/cgroup")
+public struct Cgroup2Manager: Sendable {
+    public static let defaultMountPoint = URL(filePath: "/sys/fs/cgroup")
 
     private static let killFile = "cgroup.kill"
     private static let procsFile = "cgroup.procs"
@@ -66,7 +66,7 @@ package struct Cgroup2Manager: Sendable {
         self.logger = logger
     }
 
-    package static func load(
+    public static func load(
         mountPoint: URL = Self.defaultMountPoint,
         group: URL,
         logger: Logger? = nil
@@ -85,6 +85,26 @@ package struct Cgroup2Manager: Sendable {
             group: group,
             logger: logger
         )
+    }
+
+    package static func loadFromPid(pid: Int32, logger: Logger? = nil) throws -> Cgroup2Manager {
+        let procCgPath = URL(filePath: "/proc/\(pid)/cgroup")
+        let fh = try FileHandle(forReadingFrom: procCgPath)
+        guard let data = try fh.readToEnd() else {
+            throw Error.errno(errno: errno, message: "failed to read \(procCgPath)")
+        }
+
+        // If this fails we have bigger problems.
+        let str = String(data: data, encoding: .utf8)!
+        let parts = str.split(separator: ":")
+        if parts[0] != "0" {
+            throw Error.cgroup1
+        }
+
+        // We should really read /proc/pid/mountinfo, but for now just assume
+        // it's always at /sys/fs/cgroup.
+        let path = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        return Cgroup2Manager(group: URL(filePath: String(path)), logger: logger)
     }
 
     package func create(perms: Int16 = 0o755) throws {
@@ -163,7 +183,7 @@ package struct Cgroup2Manager: Sendable {
         }
     }
 
-    package func addProcess(pid: Int32) throws {
+    public func addProcess(pid: Int32) throws {
         self.logger?.debug(
             "adding new proc to cgroup",
             metadata: [
@@ -179,7 +199,7 @@ package struct Cgroup2Manager: Sendable {
         )
     }
 
-    package func applyResources(resources: ContainerizationOCI.LinuxResources) throws {
+    public func applyResources(resources: ContainerizationOCI.LinuxResources) throws {
         self.logger?.debug(
             "applying cgroup resources",
             metadata: [
