@@ -14,6 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 import ArgumentParser
 import CVersion
 import Cgroup
@@ -44,7 +46,7 @@ public struct AgentCommand: AsyncParsableCommand {
     private static let foregroundEnvVar = "FOREGROUND"
     public static let vsockPort = 1024
 
-    @OptionGroup public var options: LogLevelOption
+    @OptionGroup var options: LogLevelOption
 
     public init() {}
 
@@ -214,3 +216,5 @@ public struct AgentCommand: AsyncParsableCommand {
         }
     }
 }
+
+#endif

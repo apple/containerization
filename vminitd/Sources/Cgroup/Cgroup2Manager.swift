@@ -14,11 +14,11 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 // NOTE: Ideally this should live in ContainerizationOS/Linux, or just ContainerizationCgroups
 // or something similar, but it's not there yet. It does what we need, but it'd need a lot more
 // features and testing before it's ready to be public.
-
-#if os(Linux)
 
 #if canImport(Musl)
 import Musl
@@ -43,8 +43,8 @@ package enum Cgroup2Controller: String {
 
 // Extremely simple cgroup manager. Our needs are simple for now, and this is
 // reflected in the type.
-package struct Cgroup2Manager: Sendable {
-    package static let defaultMountPoint = URL(filePath: "/sys/fs/cgroup")
+public struct Cgroup2Manager: Sendable {
+    public static let defaultMountPoint = URL(filePath: "/sys/fs/cgroup")
 
     private static let killFile = "cgroup.kill"
     private static let procsFile = "cgroup.procs"
@@ -66,7 +66,7 @@ package struct Cgroup2Manager: Sendable {
         self.logger = logger
     }
 
-    package static func load(
+    public static func load(
         mountPoint: URL = Self.defaultMountPoint,
         group: URL,
         logger: Logger? = nil
@@ -183,7 +183,7 @@ package struct Cgroup2Manager: Sendable {
         }
     }
 
-    package func addProcess(pid: Int32) throws {
+    public func addProcess(pid: Int32) throws {
         self.logger?.debug(
             "adding new proc to cgroup",
             metadata: [
@@ -199,7 +199,7 @@ package struct Cgroup2Manager: Sendable {
         )
     }
 
-    package func applyResources(resources: ContainerizationOCI.LinuxResources) throws {
+    public func applyResources(resources: ContainerizationOCI.LinuxResources) throws {
         self.logger?.debug(
             "applying cgroup resources",
             metadata: [

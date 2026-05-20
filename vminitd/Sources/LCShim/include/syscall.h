@@ -22,7 +22,9 @@
 #define __SYSCALL_H
 
 #include <sys/types.h>
+#ifdef __linux__
 #include <sys/vfs.h>
+#endif
 
 // CLONE_* flags
 #ifndef CLONE_NEWNS

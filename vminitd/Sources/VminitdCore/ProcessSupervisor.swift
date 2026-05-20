@@ -14,6 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 import ContainerizationOS
 import Foundation
 import Logging
@@ -162,3 +164,5 @@ final class ProcessSupervisor: Sendable {
         poller.shutdown()
     }
 }
+
+#endif

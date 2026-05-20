@@ -14,6 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 import ArgumentParser
 import ContainerizationOS
 import LCShim
@@ -42,13 +44,13 @@ public struct InitCommand: ParsableCommand {
     public init() {}
 
     @Flag(name: .shortAndLong, help: "Send signals to the child's process group instead of just the child")
-    public var processGroup: Bool = false
+    var processGroup: Bool = false
 
     @Argument(help: "The command to run")
-    public var command: String
+    var command: String
 
     @Argument(parsing: .captureForPassthrough, help: "Arguments for the command")
-    public var arguments: [String] = []
+    var arguments: [String] = []
 
     /// Signals that should NOT be forwarded to the child.
     private static let ignoredSignals: Set<Int32> = [
@@ -107,3 +109,5 @@ public struct InitCommand: ParsableCommand {
         _exit(childExitStatus ?? 1)
     }
 }
+
+#endif

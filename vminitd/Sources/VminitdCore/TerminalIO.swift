@@ -14,6 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 import ContainerizationOS
 import Foundation
 import LCShim
@@ -163,3 +165,5 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
         }
     }
 }
+
+#endif

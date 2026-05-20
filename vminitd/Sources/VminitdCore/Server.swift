@@ -14,6 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 import ContainerizationError
 import Foundation
 import GRPCCore
@@ -25,7 +27,7 @@ import NIOPosix
 
 public final class Initd: Sendable {
     public actor State {
-        public private(set) var containers: [String: ManagedContainer] = [:]
+        private(set) var containers: [String: ManagedContainer] = [:]
         var proxies: [String: VsockProxy] = [:]
 
         public typealias ContainerDeletedHandler = @Sendable (String) async -> Void
@@ -139,3 +141,5 @@ public final class Initd: Sendable {
         }
     }
 }
+
+#endif

@@ -14,6 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 protocol IOCloser: Sendable {
     var fileDescriptor: Int32 { get }
 
@@ -31,3 +33,5 @@ struct UnownedIOCloser: IOCloser {
 
     func close() throws {}
 }
+
+#endif

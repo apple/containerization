@@ -14,6 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
@@ -788,3 +790,5 @@ extension Runc {
         let limit: UInt64?
     }
 }
+
+#endif

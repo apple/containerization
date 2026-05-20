@@ -14,6 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 import Foundation
 import LCShim
 
@@ -100,3 +102,5 @@ extension OSFile {
         }
     }
 }
+
+#endif

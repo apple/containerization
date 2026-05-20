@@ -14,9 +14,13 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 struct HostStdio: Sendable {
     let stdin: UInt32?
     let stdout: UInt32?
     let stderr: UInt32?
     let terminal: Bool
 }
+
+#endif

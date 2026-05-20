@@ -14,21 +14,21 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 import ContainerizationOS
 import Foundation
 
-#if os(Linux)
-
 /// A Unix socket for receiving PTY master file descriptors from runc
-public final class ConsoleSocket: Sendable {
+final class ConsoleSocket: Sendable {
     private let socket: Socket
     private let socketPath: String
 
     /// The path to the console socket
-    public var path: String { socketPath }
+    var path: String { socketPath }
 
     /// Create a new console socket at the specified path
-    public init(path: String) throws {
+    init(path: String) throws {
         let absPath = path.starts(with: "/") ? path : FileManager.default.currentDirectoryPath + "/" + path
         self.socketPath = absPath
 
@@ -47,7 +47,7 @@ public final class ConsoleSocket: Sendable {
     }
 
     /// Create a temporary console socket in the runtime directory
-    public static func temporary() throws -> ConsoleSocket {
+    static func temporary() throws -> ConsoleSocket {
         let tmpDir = "/tmp"
         let socketDir = tmpDir + "/runc-console-\(UUID().uuidString)"
         let socketPath = socketDir + "/console.sock"
@@ -63,14 +63,14 @@ public final class ConsoleSocket: Sendable {
     }
 
     /// Receive the PTY master file descriptor from runc
-    public func receiveMaster() throws -> Int32 {
+    func receiveMaster() throws -> Int32 {
         let connection = try socket.accept()
         defer { try? connection.close() }
         return try connection.receiveFileDescriptor()
     }
 
     /// Close the socket and optionally remove the socket file
-    public func close() throws {
+    func close() throws {
         try socket.close()
         try FileManager.default.removeItem(atPath: socketPath)
     }
@@ -80,4 +80,4 @@ public final class ConsoleSocket: Sendable {
     }
 }
 
-#endif  // os(Linux)
+#endif

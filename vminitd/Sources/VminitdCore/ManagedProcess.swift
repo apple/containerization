@@ -14,6 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 import Cgroup
 import Containerization
 import ContainerizationError
@@ -342,3 +344,5 @@ extension ManagedProcess {
         // when it exits and IO is closed via setExit()
     }
 }
+
+#endif

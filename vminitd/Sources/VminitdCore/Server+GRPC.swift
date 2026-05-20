@@ -14,6 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 import Cgroup
 import Containerization
 import ContainerizationArchive
@@ -1659,3 +1661,5 @@ extension Initd {
         ociSpec.process = process
     }
 }
+
+#endif

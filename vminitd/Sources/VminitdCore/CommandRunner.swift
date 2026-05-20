@@ -14,6 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 import ContainerizationOS
 import Foundation
 import Synchronization
@@ -102,3 +104,5 @@ final class ReaperCommandRunner: CommandRunner, Sendable {
         }
     }
 }
+
+#endif

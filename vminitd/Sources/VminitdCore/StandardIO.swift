@@ -14,6 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if os(Linux)
+
 import ContainerizationError
 import ContainerizationOS
 import Foundation
@@ -169,3 +171,5 @@ final class StandardIO: ManagedProcess.IO & Sendable {
         }
     }
 }
+
+#endif

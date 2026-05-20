@@ -17,79 +17,29 @@
 
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
-import Foundation
 import PackageDescription
-
-let gitCommit = ProcessInfo.processInfo.environment["GIT_COMMIT"] ?? "unspecified"
-let gitTag = ProcessInfo.processInfo.environment["GIT_TAG"] ?? ""
-let buildTime = ProcessInfo.processInfo.environment["BUILD_TIME"] ?? "unspecified"
 
 let package = Package(
     name: "swift-vminitd",
     platforms: [.macOS("15")],
     products: [
-        .library(name: "VminitdCore", targets: ["VminitdCore"]),
         .executable(name: "vminitd", targets: ["vminitd"]),
         .executable(name: "vmexec", targets: ["vmexec"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.7.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.10.1"),
-        .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.36.0"),
         .package(url: "https://github.com/apple/swift-system.git", from: "1.6.4"),
-        .package(url: "https://github.com/grpc/grpc-swift-2.git", from: "2.3.0"),
-        .package(url: "https://github.com/grpc/grpc-swift-nio-transport.git", from: "2.4.4"),
-        .package(url: "https://github.com/grpc/grpc-swift-protobuf.git", from: "2.2.0"),
         .package(name: "containerization", path: "../"),
     ],
     targets: [
-        .target(
-            name: "CVersion",
-            cSettings: [
-                .define("GIT_COMMIT", to: "\"\(gitCommit)\""),
-                .define("GIT_TAG", to: "\"\(gitTag)\""),
-                .define("BUILD_TIME", to: "\"\(buildTime)\""),
-            ]
-        ),
-        .target(
-            name: "LCShim"
-        ),
-        .target(
-            name: "Cgroup",
-            dependencies: [
-                .product(name: "Logging", package: "swift-log"),
-                .product(name: "ContainerizationOCI", package: "containerization"),
-                .product(name: "ContainerizationOS", package: "containerization"),
-                .product(name: "SystemPackage", package: "swift-system"),
-                "LCShim",
-            ]
-        ),
-        .target(
-            name: "VminitdCore",
-            dependencies: [
-                .product(name: "ArgumentParser", package: "swift-argument-parser"),
-                .product(name: "Logging", package: "swift-log"),
-                .product(name: "Containerization", package: "containerization"),
-                .product(name: "ContainerizationArchive", package: "containerization"),
-                .product(name: "ContainerizationNetlink", package: "containerization"),
-                .product(name: "ContainerizationIO", package: "containerization"),
-                .product(name: "ContainerizationOS", package: "containerization"),
-                .product(name: "SystemPackage", package: "swift-system"),
-                .product(name: "GRPCCore", package: "grpc-swift-2"),
-                .product(name: "GRPCNIOTransportHTTP2", package: "grpc-swift-nio-transport"),
-                .product(name: "GRPCProtobuf", package: "grpc-swift-protobuf"),
-                "LCShim",
-                "CVersion",
-                "Cgroup",
-            ]
-        ),
         .executableTarget(
             name: "vminitd",
             dependencies: [
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "ContainerizationOS", package: "containerization"),
                 .product(name: "Logging", package: "swift-log"),
-                "VminitdCore",
+                .product(name: "VminitdCore", package: "containerization"),
             ]
         ),
         .executableTarget(
@@ -100,8 +50,7 @@ let package = Package(
                 .product(name: "SystemPackage", package: "swift-system"),
                 .product(name: "Containerization", package: "containerization"),
                 .product(name: "ContainerizationOS", package: "containerization"),
-                "LCShim",
-                "Cgroup",
+                .product(name: "VminitdCore", package: "containerization"),
             ]
         ),
     ]
