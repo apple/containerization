@@ -37,7 +37,7 @@ let package = Package(
         .library(name: "ContainerizationOS", targets: ["ContainerizationOS"]),
         .library(name: "ContainerizationExtras", targets: ["ContainerizationExtras"]),
         .library(name: "ContainerizationArchive", targets: ["ContainerizationArchive"]),
-        .library(name: "VminitdCore", targets: ["VminitdCore", "Cgroup", "LCShim"]),
+        .library(name: "VminitdCore", targets: ["VminitdCore", "LCShim"]),
         .executable(name: "cctl", targets: ["cctl"]),
     ],
     dependencies: [

@@ -91,6 +91,8 @@ public actor ManagedContainer {
                     id: id,
                     stdio: stdio,
                     bundle: bundle,
+                    cgroupManager: cgManager,
+                    resources: spec.linux?.resources,
                     owningPid: nil,
                     log: log
                 )
@@ -176,6 +178,7 @@ extension ManagedContainer {
             id: id,
             stdio: stdio,
             bundle: self.bundle,
+            cgroupManager: self.cgroupManager,
             owningPid: self.initProcess.pid,
             log: self.log
         )

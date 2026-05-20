@@ -57,6 +57,8 @@ final class ManagedProcess: ContainerProcess, Sendable {
     private let command: Command
     private let state: Mutex<State>
     private let owningPid: Int32?
+    private let cgroupManager: Cgroup2Manager?
+    private let resources: ContainerizationOCI.LinuxResources?
     private let ackPipe: Pipe
     private let syncPipe: Pipe
     private let errorPipe: Pipe
@@ -73,6 +75,8 @@ final class ManagedProcess: ContainerProcess, Sendable {
         id: String,
         stdio: HostStdio,
         bundle: ContainerizationOCI.Bundle,
+        cgroupManager: Cgroup2Manager? = nil,
+        resources: ContainerizationOCI.LinuxResources? = nil,
         owningPid: Int32? = nil,
         log: Logger
     ) throws {
@@ -81,6 +85,8 @@ final class ManagedProcess: ContainerProcess, Sendable {
         log[metadataKey: "id"] = "\(id)"
         self.log = log
         self.owningPid = owningPid
+        self.cgroupManager = cgroupManager
+        self.resources = resources
 
         let syncPipe = Pipe()
         try syncPipe.setCloexec()
@@ -193,11 +199,11 @@ extension ManagedProcess {
                     ])
                 $0.pid = pid
 
-                // This should probably happen in vmexec, but we don't need to set any cgroup
-                // toggles so the problem is much simpler to just do it here.
-                if let owningPid {
-                    let cgManager = try Cgroup2Manager.loadFromPid(pid: owningPid)
-                    try cgManager.addProcess(pid: pid)
+                if let cgroupManager {
+                    if let resources {
+                        try cgroupManager.applyResources(resources: resources)
+                    }
+                    try cgroupManager.addProcess(pid: pid)
                 }
 
                 log.info(
