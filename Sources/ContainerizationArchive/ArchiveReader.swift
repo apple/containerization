@@ -346,9 +346,9 @@ extension ArchiveReader {
         do {
             switch type {
             case .regular:
-                try rootFileDescriptor.mkdirSecure(relativePath, makeIntermediates: true) { fd in
+                try FileDescriptorOps.mkdir(rootFileDescriptor, relativePath, makeIntermediates: true) { fd in
                     // Remove existing entry if present (mimics containerd's "last entry wins" behavior)
-                    try? fd.unlinkRecursiveSecure(filename: lastComponent)
+                    try? FileDescriptorOps.unlinkRecursive(fd, filename: lastComponent)
 
                     // Open file for writing using openat with O_NOFOLLOW to prevent TOC-TOU attacks
                     let fileMode = entry.permissions & 0o777  // Mask to permission bits only
@@ -362,7 +362,7 @@ extension ArchiveReader {
                     setFileAttributes(fd: fileFd, entry: entry)
                 }
             case .directory:
-                try rootFileDescriptor.mkdirSecure(memberPath, makeIntermediates: true) { fd in
+                try FileDescriptorOps.mkdir(rootFileDescriptor, memberPath, makeIntermediates: true) { fd in
                     setFileAttributes(fd: fd.rawValue, entry: entry)
                 }
             case .symbolicLink:
@@ -370,9 +370,9 @@ extension ArchiveReader {
                     return false
                 }
                 var symlinkCreated = false
-                try rootFileDescriptor.mkdirSecure(relativePath, makeIntermediates: true) { fd in
+                try FileDescriptorOps.mkdir(rootFileDescriptor, relativePath, makeIntermediates: true) { fd in
                     // Remove existing entry if present (mimics containerd's "last entry wins" behavior)
-                    try? fd.unlinkRecursiveSecure(filename: lastComponent)
+                    try? FileDescriptorOps.unlinkRecursive(fd, filename: lastComponent)
 
                     guard symlinkat(targetPath.string, fd.rawValue, lastComponent.string) == 0 else {
                         throw ArchiveError.failedToExtractArchive("failed to create symlink: \(targetPath) <- \(memberPath)")
@@ -385,7 +385,7 @@ extension ArchiveReader {
             }
 
             return true
-        } catch let error as SecurePathError {
+        } catch let error as FileDescriptorOps.Error {
             // Just reject path validation errors, don't fail the extraction
             switch error {
             case .systemError:

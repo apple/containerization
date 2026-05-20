@@ -87,7 +87,7 @@ struct FileDescriptorPathSecureTests {
         let stubFileName = "stub.txt"
         let stubContent = Data("stub file content".utf8)
 
-        try rootFd.mkdirSecure(relativePath, permissions: permissions, makeIntermediates: makeIntermediates) { dirFd in
+        try FileDescriptorOps.mkdir(rootFd, relativePath, permissions: permissions, makeIntermediates: makeIntermediates) { dirFd in
             // Create a stub file in the directory using openat
             let fd = openat(
                 dirFd.rawValue,
@@ -143,22 +143,22 @@ struct FileDescriptorPathSecureTests {
     }
 
     @Test(
-        "Test mkdirSecure error cases",
+        "Test mkdir error cases",
         arguments: [
             // Case 1: Path starting with ".." should be rejected
-            (FilePath("../escape"), false, SecurePathError.invalidRelativePath),
+            (FilePath("../escape"), false, FileDescriptorOps.Error.invalidRelativePath),
 
             // Case 2: Path with ".." in middle that would escape
-            (FilePath("foo/../../escape"), false, SecurePathError.invalidRelativePath),
+            (FilePath("foo/../../escape"), false, FileDescriptorOps.Error.invalidRelativePath),
 
             // Case 3: Missing intermediate without makeIntermediates should fail
-            (FilePath("missing/intermediate/path"), false, SecurePathError.invalidPathComponent),
+            (FilePath("missing/intermediate/path"), false, FileDescriptorOps.Error.invalidPathComponent),
 
             // Case 4: Multiple .. that escape
-            (FilePath("a/b/../../../escape"), false, SecurePathError.invalidRelativePath),
+            (FilePath("a/b/../../../escape"), false, FileDescriptorOps.Error.invalidRelativePath),
         ]
     )
-    func testMkdirSecureInvalid(relativePath: FilePath, makeIntermediates: Bool, expectedError: SecurePathError) async throws {
+    func testMkdirSecureInvalid(relativePath: FilePath, makeIntermediates: Bool, expectedError: FileDescriptorOps.Error) async throws {
         let rootPath = try createTempDirectory()
         defer { try? FileManager.default.removeItem(atPath: rootPath.string) }
 
@@ -167,9 +167,9 @@ struct FileDescriptorPathSecureTests {
 
         // Attempt the operation and expect it to throw
         #expect {
-            try rootFd.mkdirSecure(relativePath, makeIntermediates: makeIntermediates) { _ in }
+            try FileDescriptorOps.mkdir(rootFd, relativePath, makeIntermediates: makeIntermediates) { _ in }
         } throws: { error in
-            guard let securePathError = error as? SecurePathError else {
+            guard let securePathError = error as? FileDescriptorOps.Error else {
                 return false
             }
             // Compare error cases
@@ -204,7 +204,7 @@ struct FileDescriptorPathSecureTests {
         let stubFileName = "stub.txt"
         let stubContent = Data("stub file content".utf8)
 
-        try rootFd.mkdirSecure(FilePath(path), makeIntermediates: true) { dirFd in
+        try FileDescriptorOps.mkdir(rootFd, FilePath(path), makeIntermediates: true) { dirFd in
             // Create a stub file to verify we're in the right place
             let fd = openat(
                 dirFd.rawValue,
@@ -252,8 +252,8 @@ struct FileDescriptorPathSecureTests {
         let rootFd = try FileDescriptor.open(rootPath, .readOnly, options: [.directory])
         defer { try? rootFd.close() }
 
-        #expect(throws: SecurePathError.invalidRelativePath.self) {
-            try rootFd.mkdirSecure(FilePath(path), makeIntermediates: true)
+        #expect(throws: FileDescriptorOps.Error.invalidRelativePath.self) {
+            try FileDescriptorOps.mkdir(rootFd, FilePath(path), makeIntermediates: true)
         }
     }
 
@@ -276,7 +276,7 @@ struct FileDescriptorPathSecureTests {
         let stubContent = Data("stub file content".utf8)
 
         // Should normalize and succeed (// becomes /)
-        try rootFd.mkdirSecure(FilePath(path), makeIntermediates: true) { dirFd in
+        try FileDescriptorOps.mkdir(rootFd, FilePath(path), makeIntermediates: true) { dirFd in
             let fd = openat(
                 dirFd.rawValue,
                 stubFileName,
@@ -324,7 +324,7 @@ struct FileDescriptorPathSecureTests {
         let stubFileName = "deep.txt"
         let stubContent = Data("deep file".utf8)
 
-        try rootFd.mkdirSecure(FilePath(deepPath), makeIntermediates: true) { dirFd in
+        try FileDescriptorOps.mkdir(rootFd, FilePath(deepPath), makeIntermediates: true) { dirFd in
             let fd = openat(
                 dirFd.rawValue,
                 stubFileName,
@@ -365,15 +365,15 @@ struct FileDescriptorPathSecureTests {
         // Try to create it - behavior depends on FilePath's null byte handling
         // We mainly want to ensure it doesn't bypass security checks
         do {
-            try rootFd.mkdirSecure(FilePath(pathWithNull), makeIntermediates: true) { _ in }
+            try FileDescriptorOps.mkdir(rootFd, FilePath(pathWithNull), makeIntermediates: true) { _ in }
 
             // If it succeeds, verify it stayed within root
             let entries = try FileManager.default.contentsOfDirectory(atPath: rootPath.string)
             for entry in entries {
                 let fullPath = rootPath.appending(entry)
-                let canonicalRoot = try rootFd.getCanonicalPath()
+                let canonicalRoot = try FileDescriptorOps.getCanonicalPath(rootFd)
                 let canonicalEntry = try FileDescriptor.open(fullPath, .readOnly)
-                let canonicalEntryPath = try canonicalEntry.getCanonicalPath()
+                let canonicalEntryPath = try FileDescriptorOps.getCanonicalPath(canonicalEntry)
                 try? canonicalEntry.close()
 
                 // Verify entry is under root
@@ -402,7 +402,7 @@ struct FileDescriptorPathSecureTests {
         #expect(FileManager.default.fileExists(atPath: filePath.string))
 
         // Remove it
-        try rootFd.unlinkRecursiveSecure(filename: FilePath.Component("testfile.txt"))
+        try FileDescriptorOps.unlinkRecursive(rootFd, filename: FilePath.Component("testfile.txt"))
 
         // Verify file is gone
         #expect(!FileManager.default.fileExists(atPath: filePath.string))
@@ -426,7 +426,7 @@ struct FileDescriptorPathSecureTests {
         #expect(isDir.boolValue)
 
         // Remove it
-        try rootFd.unlinkRecursiveSecure(filename: FilePath.Component("emptydir"))
+        try FileDescriptorOps.unlinkRecursive(rootFd, filename: FilePath.Component("emptydir"))
 
         // Verify directory is gone
         #expect(!FileManager.default.fileExists(atPath: dirPath.string))
@@ -462,7 +462,7 @@ struct FileDescriptorPathSecureTests {
         #expect(FileManager.default.fileExists(atPath: deepdirPath.string))
 
         // Remove entire tree
-        try rootFd.unlinkRecursiveSecure(filename: FilePath.Component("nested"))
+        try FileDescriptorOps.unlinkRecursive(rootFd, filename: FilePath.Component("nested"))
 
         // Verify everything is gone
         #expect(!FileManager.default.fileExists(atPath: nestedPath.string))
@@ -477,7 +477,7 @@ struct FileDescriptorPathSecureTests {
         defer { try? rootFd.close() }
 
         // Remove non-existent file should not throw
-        try rootFd.unlinkRecursiveSecure(filename: FilePath.Component("nonexistent.txt"))
+        try FileDescriptorOps.unlinkRecursive(rootFd, filename: FilePath.Component("nonexistent.txt"))
     }
 
     @Test("Remove symlink without following it")
@@ -499,7 +499,7 @@ struct FileDescriptorPathSecureTests {
         #expect(FileManager.default.fileExists(atPath: linkPath.string))
 
         // Remove symlink
-        try rootFd.unlinkRecursiveSecure(filename: FilePath.Component("link"))
+        try FileDescriptorOps.unlinkRecursive(rootFd, filename: FilePath.Component("link"))
 
         // Verify symlink is gone but target remains
         #expect(!FileManager.default.fileExists(atPath: linkPath.string))
@@ -533,7 +533,7 @@ struct FileDescriptorPathSecureTests {
         #expect(FileManager.default.fileExists(atPath: mixedPath.string))
 
         // Remove entire tree
-        try rootFd.unlinkRecursiveSecure(filename: FilePath.Component("mixed"))
+        try FileDescriptorOps.unlinkRecursive(rootFd, filename: FilePath.Component("mixed"))
 
         // Verify everything is gone
         #expect(!FileManager.default.fileExists(atPath: mixedPath.string))
@@ -548,7 +548,7 @@ struct FileDescriptorPathSecureTests {
         defer { try? rootFd.close() }
 
         // Should return without error and without removing anything
-        try rootFd.unlinkRecursiveSecure(filename: FilePath.Component("."))
+        try FileDescriptorOps.unlinkRecursive(rootFd, filename: FilePath.Component("."))
 
         // Verify directory still exists
         #expect(FileManager.default.fileExists(atPath: tempPath.string))
@@ -563,14 +563,14 @@ struct FileDescriptorPathSecureTests {
         defer { try? rootFd.close() }
 
         // Should return without error and without removing anything
-        try rootFd.unlinkRecursiveSecure(filename: FilePath.Component(".."))
+        try FileDescriptorOps.unlinkRecursive(rootFd, filename: FilePath.Component(".."))
 
         // Verify directory still exists
         #expect(FileManager.default.fileExists(atPath: tempPath.string))
     }
 
-    @Test("Test mkdirSecure with empty path calls completion with parent")
-    func testMkdirSecureEmptyPath() throws {
+    @Test("Test mkdir with empty path calls completion with parent")
+    func testMkdirEmptyPath() throws {
         let rootPath = try createTempDirectory()
         defer { try? FileManager.default.removeItem(atPath: rootPath.string) }
 
@@ -581,8 +581,8 @@ struct FileDescriptorPathSecureTests {
         let stubContent = Data("root level content".utf8)
         var completionCalled = false
 
-        // Call mkdirSecure with empty path
-        try rootFd.mkdirSecure(FilePath(""), makeIntermediates: false) { dirFd in
+        // Call mkdir with empty path
+        try FileDescriptorOps.mkdir(rootFd, FilePath(""), makeIntermediates: false) { dirFd in
             completionCalled = true
 
             // Verify dirFd is the same as rootFd
@@ -678,4 +678,221 @@ enum Entry {
     case regular(path: String)
     case directory(path: String)
     case symlink(target: String, source: String)
+}
+
+// MARK: - enumerate tests
+
+extension FileDescriptorPathSecureTests {
+
+    // Collect all entries reported by enumerate, keyed by path string.
+    private func collect(root: FilePath) throws -> [String: FileDescriptorOps.EntryType] {
+        let rootFd = try FileDescriptor.open(root, .readOnly, options: [.directory])
+        defer { try? rootFd.close() }
+        var found: [String: FileDescriptorOps.EntryType] = [:]
+        try FileDescriptorOps.enumerate(rootFd) { path, type, _ in
+            found[path.string] = type
+        }
+        return found
+    }
+
+    @Test func testEnumerateSecureEmptyDirectory() throws {
+        let root = try createTempDirectory()
+        defer { try? FileManager.default.removeItem(atPath: root.string) }
+
+        let found = try collect(root: root)
+        #expect(found.isEmpty)
+    }
+
+    @Test func testEnumerateSecureFlatRegularFiles() throws {
+        let root = try createTempDirectory()
+        defer { try? FileManager.default.removeItem(atPath: root.string) }
+        try createEntries(
+            rootPath: root,
+            entries: [
+                .regular(path: "a.txt"),
+                .regular(path: "b.txt"),
+                .regular(path: "c.txt"),
+            ])
+
+        let found = try collect(root: root)
+        #expect(found.count == 3)
+        #expect(found["a.txt"] == .regular)
+        #expect(found["b.txt"] == .regular)
+        #expect(found["c.txt"] == .regular)
+    }
+
+    @Test func testEnumerateSecureRecursesIntoRealDirectories() throws {
+        let root = try createTempDirectory()
+        defer { try? FileManager.default.removeItem(atPath: root.string) }
+        try createEntries(
+            rootPath: root,
+            entries: [
+                .directory(path: "subdir"),
+                .regular(path: "subdir/file.txt"),
+            ])
+
+        let found = try collect(root: root)
+        #expect(found.count == 2)
+        #expect(found["subdir"] == .directory)
+        #expect(found["subdir/file.txt"] == .regular)
+    }
+
+    @Test func testEnumerateSecureReportsFileSymlink() throws {
+        let root = try createTempDirectory()
+        defer { try? FileManager.default.removeItem(atPath: root.string) }
+        try createEntries(
+            rootPath: root,
+            entries: [
+                .regular(path: "target.txt"),
+                .symlink(target: "target.txt", source: "link.txt"),
+            ])
+
+        let found = try collect(root: root)
+        #expect(found["link.txt"] == .symlink)
+        #expect(found["target.txt"] == .regular)
+    }
+
+    @Test func testEnumerateSecureDoesNotFollowDirectorySymlink() throws {
+        let root = try createTempDirectory()
+        defer { try? FileManager.default.removeItem(atPath: root.string) }
+
+        // Create a real directory with content alongside a symlink to it.
+        try createEntries(
+            rootPath: root,
+            entries: [
+                .directory(path: "real"),
+                .regular(path: "real/inside.txt"),
+                .symlink(target: "real", source: "link"),
+            ])
+
+        let found = try collect(root: root)
+        // "link" is reported as a symlink, not followed — "link/inside.txt" absent.
+        #expect(found["link"] == .symlink)
+        #expect(found["link/inside.txt"] == nil)
+        // The real directory and its content are still traversed normally.
+        #expect(found["real"] == .directory)
+        #expect(found["real/inside.txt"] == .regular)
+    }
+
+    @Test func testEnumerateSecureDoesNotFollowAbsoluteDirectorySymlinkOutside() throws {
+        let root = try createTempDirectory()
+        defer { try? FileManager.default.removeItem(atPath: root.string) }
+
+        // Create a directory entirely outside the root.
+        let outside = try createTempDirectory()
+        defer { try? FileManager.default.removeItem(atPath: outside.string) }
+        #expect(FileManager.default.createFile(atPath: outside.appending("secret.txt").string, contents: Data("secret".utf8)))
+
+        // Symlink inside root → absolute path outside root.
+        try createEntries(
+            rootPath: root,
+            entries: [
+                .symlink(target: outside.string, source: "escape")
+            ])
+
+        let found = try collect(root: root)
+        // The symlink itself is reported…
+        #expect(found["escape"] == .symlink)
+        // …but nothing inside the outside directory is reachable.
+        #expect(found["escape/secret.txt"] == nil)
+        #expect(found.count == 1)
+    }
+
+    @Test func testEnumerateSecureDoesNotFollowRelativeDirectorySymlinkOutside() throws {
+        // Layout: base/root/ and base/outside/, symlink root/escape → ../outside
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).path
+        let rootStr = (base as NSString).appendingPathComponent("root")
+        let outsideStr = (base as NSString).appendingPathComponent("outside")
+        try FileManager.default.createDirectory(atPath: rootStr, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: outsideStr, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: base) }
+
+        #expect(FileManager.default.createFile(atPath: (outsideStr as NSString).appendingPathComponent("secret.txt"), contents: Data("secret".utf8)))
+        try FileManager.default.createSymbolicLink(
+            atPath: (rootStr as NSString).appendingPathComponent("escape"),
+            withDestinationPath: "../outside"
+        )
+
+        let rootFd = try FileDescriptor.open(FilePath(rootStr), .readOnly, options: [.directory])
+        defer { try? rootFd.close() }
+        var found: [String: FileDescriptorOps.EntryType] = [:]
+        try FileDescriptorOps.enumerate(rootFd) { path, type, _ in found[path.string] = type }
+
+        #expect(found["escape"] == .symlink)
+        #expect(found["escape/secret.txt"] == nil)
+        #expect(found.count == 1)
+    }
+
+    @Test func testEnumerateSecureMixedContent() throws {
+        let root = try createTempDirectory()
+        defer { try? FileManager.default.removeItem(atPath: root.string) }
+        try createEntries(
+            rootPath: root,
+            entries: [
+                .regular(path: "readme.txt"),
+                .directory(path: "src"),
+                .regular(path: "src/main.swift"),
+                .directory(path: "src/util"),
+                .regular(path: "src/util/helper.swift"),
+                .symlink(target: "readme.txt", source: "link.txt"),
+                .symlink(target: "src", source: "src-link"),
+            ])
+
+        let found = try collect(root: root)
+        #expect(found["readme.txt"] == .regular)
+        #expect(found["src"] == .directory)
+        #expect(found["src/main.swift"] == .regular)
+        #expect(found["src/util"] == .directory)
+        #expect(found["src/util/helper.swift"] == .regular)
+        #expect(found["link.txt"] == .symlink)
+        // Directory symlink: reported but not followed.
+        #expect(found["src-link"] == .symlink)
+        #expect(found["src-link/main.swift"] == nil)
+        #expect(found.count == 7)
+    }
+
+    @Test func testEnumerateSecurePreOrderDirectoryBeforeContents() throws {
+        let root = try createTempDirectory()
+        defer { try? FileManager.default.removeItem(atPath: root.string) }
+        try createEntries(
+            rootPath: root,
+            entries: [
+                .directory(path: "dir"),
+                .regular(path: "dir/child.txt"),
+            ])
+
+        let rootFd = try FileDescriptor.open(root, .readOnly, options: [.directory])
+        defer { try? rootFd.close() }
+        var order: [String] = []
+        try FileDescriptorOps.enumerate(rootFd) { path, _, _ in order.append(path.string) }
+
+        let dirIdx = try #require(order.firstIndex(of: "dir"))
+        let childIdx = try #require(order.firstIndex(of: "dir/child.txt"))
+        #expect(dirIdx < childIdx, "directory must be reported before its contents")
+    }
+
+    @Test func testEnumerateSecureParentFdCanOpenEntryWithoutFollowingSymlinks() throws {
+        let root = try createTempDirectory()
+        defer { try? FileManager.default.removeItem(atPath: root.string) }
+        let content = Data("hello".utf8)
+        try createEntries(rootPath: root, entries: [.regular(path: "file.txt")])
+        #expect(FileManager.default.createFile(atPath: root.appending("file.txt").string, contents: content))
+
+        let rootFd = try FileDescriptor.open(root, .readOnly, options: [.directory])
+        defer { try? rootFd.close() }
+
+        var readContent: Data?
+        try FileDescriptorOps.enumerate(rootFd) { path, type, parentFd in
+            guard type == .regular, let name = path.lastComponent?.string else { return }
+            // Open through the fd chain — no absolute path involved.
+            let fd = openat(parentFd.rawValue, name, O_RDONLY | O_NOFOLLOW)
+            guard fd >= 0 else { return }
+            defer { _ = os_close(fd) }
+            var buf = [UInt8](repeating: 0, count: 256)
+            let n = read(fd, &buf, buf.count)
+            if n > 0 { readContent = Data(buf.prefix(n)) }
+        }
+
+        #expect(readContent == content)
+    }
 }
