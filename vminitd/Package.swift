@@ -17,7 +17,12 @@
 
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
+import Foundation
 import PackageDescription
+
+let gitCommit = ProcessInfo.processInfo.environment["GIT_COMMIT"] ?? "unspecified"
+let gitTag = ProcessInfo.processInfo.environment["GIT_TAG"] ?? ""
+let buildTime = ProcessInfo.processInfo.environment["BUILD_TIME"] ?? "unspecified"
 
 let package = Package(
     name: "swift-vminitd",
@@ -33,6 +38,14 @@ let package = Package(
         .package(name: "containerization", path: "../"),
     ],
     targets: [
+        .target(
+            name: "CVersion",
+            cSettings: [
+                .define("GIT_COMMIT", to: "\"\(gitCommit)\""),
+                .define("GIT_TAG", to: "\"\(gitTag)\""),
+                .define("BUILD_TIME", to: "\"\(buildTime)\""),
+            ]
+        ),
         .executableTarget(
             name: "vminitd",
             dependencies: [
@@ -40,6 +53,7 @@ let package = Package(
                 .product(name: "ContainerizationOS", package: "containerization"),
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "VminitdCore", package: "containerization"),
+                "CVersion",
             ]
         ),
         .executableTarget(

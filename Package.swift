@@ -21,10 +21,6 @@ import CompilerPluginSupport
 import Foundation
 import PackageDescription
 
-let gitCommit = ProcessInfo.processInfo.environment["GIT_COMMIT"] ?? "unspecified"
-let gitTag = ProcessInfo.processInfo.environment["GIT_TAG"] ?? ""
-let buildTime = ProcessInfo.processInfo.environment["BUILD_TIME"] ?? "unspecified"
-
 let package = Package(
     name: "containerization",
     platforms: [.macOS("15.0")],
@@ -265,15 +261,6 @@ let package = Package(
             name: "CShim"
         ),
         .target(
-            name: "CVersion",
-            path: "vminitd/Sources/CVersion",
-            cSettings: [
-                .define("GIT_COMMIT", to: "\"\(gitCommit)\""),
-                .define("GIT_TAG", to: "\"\(gitTag)\""),
-                .define("BUILD_TIME", to: "\"\(buildTime)\""),
-            ]
-        ),
-        .target(
             name: "LCShim",
             path: "vminitd/Sources/LCShim"
         ),
@@ -303,7 +290,6 @@ let package = Package(
                 .product(name: "GRPCNIOTransportHTTP2", package: "grpc-swift-nio-transport"),
                 .product(name: "GRPCProtobuf", package: "grpc-swift-protobuf"),
                 "LCShim",
-                "CVersion",
                 "Cgroup",
             ],
             path: "vminitd/Sources/VminitdCore"

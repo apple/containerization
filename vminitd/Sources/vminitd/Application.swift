@@ -15,6 +15,7 @@
 //===----------------------------------------------------------------------===//
 
 import ArgumentParser
+import CVersion
 import ContainerizationOS
 import Foundation
 import Logging
@@ -35,6 +36,8 @@ struct Application: AsyncParsableCommand {
     )
 
     static func main() async throws {
+        setVersionMetadata(Self.versionMetadata())
+
         // Busybox-style: if invoked as .cz-init, run init mode directly.
         let invoked = CommandLine.arguments.first?.split(separator: "/").last.map(String.init) ?? ""
         if invoked == ".cz-init" {
@@ -55,6 +58,17 @@ struct Application: AsyncParsableCommand {
         } else {
             try command.run()
         }
+    }
+
+    private static func versionMetadata() -> Logger.Metadata {
+        let gitCommit = String(cString: CZ_get_git_commit())
+        let gitTag = String(cString: CZ_get_git_tag())
+        let buildTime = String(cString: CZ_get_build_time())
+        var metadata: Logger.Metadata = ["commit": "\(gitCommit)", "built": "\(buildTime)"]
+        if !gitTag.isEmpty {
+            metadata["tag"] = "\(gitTag)"
+        }
+        return metadata
     }
 
     private static func mountProc() throws {
