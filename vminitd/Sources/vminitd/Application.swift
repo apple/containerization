@@ -36,7 +36,7 @@ struct Application: AsyncParsableCommand {
     )
 
     static func main() async throws {
-        AgentCommand.versionMetadata.withLock { $0 = Self.versionMetadata() }
+        setVersionMetadata(Self.versionMetadata())
 
         // Busybox-style: if invoked as .cz-init, run init mode directly.
         let invoked = CommandLine.arguments.first?.split(separator: "/").last.map(String.init) ?? ""

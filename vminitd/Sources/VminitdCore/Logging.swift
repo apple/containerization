@@ -50,6 +50,16 @@ public struct LogLevelOption: ParsableArguments {
 }
 
 private let _loggingBootstrapped = Mutex(false)
+private let _versionMetadata = Mutex<Logger.Metadata>([:])
+
+/// Set the version metadata logged on boot.
+public func setVersionMetadata(_ metadata: Logger.Metadata) {
+    _versionMetadata.withLock { $0 = metadata }
+}
+
+func versionMetadata() -> Logger.Metadata {
+    _versionMetadata.withLock { $0 }
+}
 
 func makeLogger(label: String, level: Logger.Level) -> Logger {
     _loggingBootstrapped.withLock { bootstrapped in
