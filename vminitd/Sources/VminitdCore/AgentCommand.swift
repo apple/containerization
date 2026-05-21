@@ -17,7 +17,6 @@
 #if os(Linux)
 
 import ArgumentParser
-import CVersion
 import Cgroup
 import Containerization
 import ContainerizationError
@@ -27,6 +26,7 @@ import GRPCCore
 import Logging
 import NIOCore
 import NIOPosix
+import Synchronization
 
 #if os(Linux)
 #if canImport(Musl)
@@ -45,6 +45,8 @@ public struct AgentCommand: AsyncParsableCommand {
 
     private static let foregroundEnvVar = "FOREGROUND"
     public static let vsockPort = 1024
+
+    public static let versionMetadata = Mutex<Logger.Metadata>([:])
 
     @OptionGroup var options: LogLevelOption
 
@@ -79,14 +81,7 @@ public struct AgentCommand: AsyncParsableCommand {
 
         signal(SIGPIPE, SIG_IGN)
 
-        let gitCommit = String(cString: CZ_get_git_commit())
-        let gitTag = String(cString: CZ_get_git_tag())
-        let buildTime = String(cString: CZ_get_build_time())
-        var metadata: Logger.Metadata = ["commit": "\(gitCommit)", "built": "\(buildTime)"]
-        if !gitTag.isEmpty {
-            metadata["tag"] = "\(gitTag)"
-        }
-        log.info("vminitd booting", metadata: metadata)
+        log.info("vminitd booting", metadata: Self.versionMetadata.withLock { $0 })
 
         // Set of mounts necessary to be mounted prior to taking any RPCs.
         // 1. /proc as the sysctl rpc wouldn't make sense if it wasn't there (NOTE: This is done before this method
