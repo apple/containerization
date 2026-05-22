@@ -860,7 +860,14 @@ extension LinuxPod {
     }
 
     /// Stop a container from executing.
-    public func stopContainer(_ containerID: String) async throws {
+    ///
+    /// Returns the `ExitStatus` read from the container's process when this
+    /// call performed the kill+reap itself. Returns `nil` for idempotent
+    /// stops, never-started containers, and stops issued after the VM has
+    /// already shut down — there is no live exit status to read in those
+    /// cases.
+    @discardableResult
+    public func stopContainer(_ containerID: String) async throws -> ExitStatus? {
         try await self.state.withLock { state in
             let createdState = try state.phase.createdState("stopContainer")
 
@@ -873,7 +880,7 @@ extension LinuxPod {
 
             // Allow stop to be called multiple times
             if container.state == .stopped {
-                return
+                return nil
             }
 
             // Handle containers that were hotplugged but never started
@@ -884,7 +891,7 @@ extension LinuxPod {
 
                 container.state = .stopped
                 state.containers[containerID] = container
-                return
+                return nil
             }
 
             guard container.state == .started, let process = container.process else {
@@ -899,11 +906,11 @@ extension LinuxPod {
                 if createdState.vm.state == .stopped {
                     container.state = .stopped
                     state.containers[containerID] = container
-                    return
+                    return nil
                 }
 
                 try await process.kill(.kill)
-                try await process.wait(timeoutInSeconds: 3)
+                let exitStatus = try await process.wait(timeoutInSeconds: 3)
 
                 try await createdState.vm.withAgent { agent in
                     // Unmount the rootfs
@@ -923,6 +930,7 @@ extension LinuxPod {
                 container.process = nil
                 container.state = .stopped
                 state.containers[containerID] = container
+                return exitStatus
             } catch {
                 // Try to release the hotplug device and virtiofs shares even on error
                 try? await createdState.vm.releaseHotplug(id: containerID)
