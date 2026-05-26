@@ -85,6 +85,38 @@ struct IPv4AddressTests {
                 try IPv4Address(invalidAddress)
             }
         }
+
+        @Test(
+            "byte array initializer - valid addresses",
+            arguments: [
+                ([UInt8(127), 0, 0, 1], UInt32(0x7F00_0001)),  // localhost
+                ([UInt8(0), 0, 0, 0], UInt32(0x0000_0000)),  // zero address
+                ([UInt8(255), 255, 255, 255], UInt32(0xFFFF_FFFF)),  // broadcast
+                ([UInt8(192), 168, 1, 1], UInt32(0xC0A8_0101)),  // private network
+                ([UInt8(0x12), 0x34, 0x56, 0x78], UInt32(0x1234_5678)),  // byte order test
+            ]
+        )
+        func testByteArrayInitializerValid(bytes: [UInt8], expectedValue: UInt32) throws {
+            let address = try IPv4Address(bytes)
+            #expect(address.value == expectedValue)
+            // The byte array initializer must round-trip with the bytes property.
+            #expect(address.bytes == bytes)
+        }
+
+        @Test(
+            "byte array initializer - invalid lengths",
+            arguments: [
+                [],  // empty
+                [UInt8(1)],  // too short
+                [UInt8(1), 2, 3],  // too short
+                [UInt8(1), 2, 3, 4, 5],  // too long
+            ]
+        )
+        func testByteArrayInitializerInvalid(bytes: [UInt8]) {
+            #expect(throws: AddressError.self) {
+                try IPv4Address(bytes)
+            }
+        }
     }
 
     // MARK: - Property Tests
