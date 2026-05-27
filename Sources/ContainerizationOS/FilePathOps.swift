@@ -20,14 +20,12 @@ import SystemPackage
 /// Static utility functions for path operations.
 ///
 /// The type is never instantiated; it exists solely as a namespace.
-public struct FilePathOps {
-    private init() {}
-
+public enum FilePathOps {
     /// Returns an absolute version of `path`.
     ///
-    /// This is a purely lexical operation: it does not resolve symlinks
-    /// and does not access the file system. If `path` is already absolute,
-    /// this returns `path` unchanged.
+    /// This is a purely lexical operation: it does not resolve symlinks,
+    /// perform tilde expansion, and does not access the file system. If `path`
+    /// is already absolute, this returns `path` unchanged.
     public static func absolutePath(_ path: FilePath) -> FilePath {
         guard !path.isAbsolute else {
             return path
