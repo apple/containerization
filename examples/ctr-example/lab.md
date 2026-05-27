@@ -14,7 +14,7 @@ This'll install your kernel.
 
 After this start your first container. On first launch, this'll install another artifact for our guest init process:
 
-```
+```bash
 container run alpine uname
 ```
 
@@ -39,7 +39,7 @@ Read through the sources:
 
 ## Fetch the kernel
 
-Run 
+Run:
 
 ```bash
 cp "$(ls -t ~/Library/Application\ Support/com.apple.container/kernels/vmlinux-* | head -1)" ./vmlinux
