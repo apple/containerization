@@ -3,7 +3,7 @@
 This directory includes an optimized kernel configuration to produce a fast and lightweight kernel for container use.
 
 - `config-arm64` includes the kernel `CONFIG_` options.
-- `Makefile` includes the kernel version and source package url.
+- `Makefile` includes the kernel version and source package URL.
 - `build.sh` scripts the kernel build process.
 - `image/` includes the configuration for an image with build tooling.
 

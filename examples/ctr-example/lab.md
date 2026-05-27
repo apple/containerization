@@ -14,7 +14,7 @@ This'll install your kernel.
 
 After this start your first container. On first launch, this'll install another artifact for our guest init process:
 
-```
+```bash
 container run alpine uname
 ```
 
