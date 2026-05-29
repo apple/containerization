@@ -1,5 +1,5 @@
 {
-  "originHash" : "f2af83112ef9c25538d60f115c1d21ccfa89e850a8685333af1b3492ff8cda36",
+  "originHash" : "3eb53ed7f842d2bfb606d5acdfdb3db4278338a0a8ef9ca39548ea23c856f0a6",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -17,15 +17,6 @@
       "state" : {
         "revision" : "f28854bc760a116e053fdfc4a48a9428c34625c0",
         "version" : "2.3.0"
-      }
-    },
-    {
-      "identity" : "grpc-swift-nio-transport",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/grpc/grpc-swift-nio-transport.git",
-      "state" : {
-        "revision" : "f37e0c2d293cea668b11e10e1fb1c24cb40781ff",
-        "version" : "2.4.4"
       }
     },
     {
@@ -159,8 +150,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-nio.git",
       "state" : {
-        "revision" : "4e8f4b1c9adaa59315c523540c1ff2b38adc20a9",
-        "version" : "2.87.0"
+        "revision" : "f71c8d2a5e74a2c6d11a0fbe324774b5d6084237",
+        "version" : "2.99.0"
       }
     },
     {
@@ -177,8 +168,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-nio-http2.git",
       "state" : {
-        "revision" : "5e9e99ec96c53bc2c18ddd10c1e25a3cd97c55e5",
-        "version" : "1.38.0"
+        "revision" : "81cc18264f92cd307ff98430f89372711d4f6fe9",
+        "version" : "1.43.0"
       }
     },
     {
