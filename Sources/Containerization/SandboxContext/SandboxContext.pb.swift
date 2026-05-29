@@ -1445,6 +1445,16 @@ public struct Com_Apple_Containerization_Sandbox_V3_MemoryStats: Sendable {
 
   public var anon: UInt64 = 0
 
+  public var workingsetRefaultAnon: UInt64 = 0
+
+  public var workingsetRefaultFile: UInt64 = 0
+
+  public var pgstealKswapd: UInt64 = 0
+
+  public var pgstealDirect: UInt64 = 0
+
+  public var pgstealKhugepaged: UInt64 = 0
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -3855,7 +3865,7 @@ extension Com_Apple_Containerization_Sandbox_V3_ProcessStats: SwiftProtobuf.Mess
 
 extension Com_Apple_Containerization_Sandbox_V3_MemoryStats: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".MemoryStats"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}usage_bytes\0\u{3}limit_bytes\0\u{3}swap_usage_bytes\0\u{3}swap_limit_bytes\0\u{3}cache_bytes\0\u{3}kernel_stack_bytes\0\u{3}slab_bytes\0\u{3}page_faults\0\u{3}major_page_faults\0\u{3}inactive_file\0\u{1}anon\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}usage_bytes\0\u{3}limit_bytes\0\u{3}swap_usage_bytes\0\u{3}swap_limit_bytes\0\u{3}cache_bytes\0\u{3}kernel_stack_bytes\0\u{3}slab_bytes\0\u{3}page_faults\0\u{3}major_page_faults\0\u{3}inactive_file\0\u{1}anon\0\u{3}workingset_refault_anon\0\u{3}workingset_refault_file\0\u{3}pgsteal_kswapd\0\u{3}pgsteal_direct\0\u{3}pgsteal_khugepaged\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3874,6 +3884,11 @@ extension Com_Apple_Containerization_Sandbox_V3_MemoryStats: SwiftProtobuf.Messa
       case 9: try { try decoder.decodeSingularUInt64Field(value: &self.majorPageFaults) }()
       case 10: try { try decoder.decodeSingularUInt64Field(value: &self.inactiveFile) }()
       case 11: try { try decoder.decodeSingularUInt64Field(value: &self.anon) }()
+      case 12: try { try decoder.decodeSingularUInt64Field(value: &self.workingsetRefaultAnon) }()
+      case 13: try { try decoder.decodeSingularUInt64Field(value: &self.workingsetRefaultFile) }()
+      case 14: try { try decoder.decodeSingularUInt64Field(value: &self.pgstealKswapd) }()
+      case 15: try { try decoder.decodeSingularUInt64Field(value: &self.pgstealDirect) }()
+      case 16: try { try decoder.decodeSingularUInt64Field(value: &self.pgstealKhugepaged) }()
       default: break
       }
     }
@@ -3913,6 +3928,21 @@ extension Com_Apple_Containerization_Sandbox_V3_MemoryStats: SwiftProtobuf.Messa
     if self.anon != 0 {
       try visitor.visitSingularUInt64Field(value: self.anon, fieldNumber: 11)
     }
+    if self.workingsetRefaultAnon != 0 {
+      try visitor.visitSingularUInt64Field(value: self.workingsetRefaultAnon, fieldNumber: 12)
+    }
+    if self.workingsetRefaultFile != 0 {
+      try visitor.visitSingularUInt64Field(value: self.workingsetRefaultFile, fieldNumber: 13)
+    }
+    if self.pgstealKswapd != 0 {
+      try visitor.visitSingularUInt64Field(value: self.pgstealKswapd, fieldNumber: 14)
+    }
+    if self.pgstealDirect != 0 {
+      try visitor.visitSingularUInt64Field(value: self.pgstealDirect, fieldNumber: 15)
+    }
+    if self.pgstealKhugepaged != 0 {
+      try visitor.visitSingularUInt64Field(value: self.pgstealKhugepaged, fieldNumber: 16)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -3928,6 +3958,11 @@ extension Com_Apple_Containerization_Sandbox_V3_MemoryStats: SwiftProtobuf.Messa
     if lhs.majorPageFaults != rhs.majorPageFaults {return false}
     if lhs.inactiveFile != rhs.inactiveFile {return false}
     if lhs.anon != rhs.anon {return false}
+    if lhs.workingsetRefaultAnon != rhs.workingsetRefaultAnon {return false}
+    if lhs.workingsetRefaultFile != rhs.workingsetRefaultFile {return false}
+    if lhs.pgstealKswapd != rhs.pgstealKswapd {return false}
+    if lhs.pgstealDirect != rhs.pgstealDirect {return false}
+    if lhs.pgstealKhugepaged != rhs.pgstealKhugepaged {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

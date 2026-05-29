@@ -402,6 +402,11 @@ message MemoryStats {
   uint64 major_page_faults = 9;
   uint64 inactive_file = 10;
   uint64 anon = 11;
+  uint64 workingset_refault_anon = 12;
+  uint64 workingset_refault_file = 13;
+  uint64 pgsteal_kswapd = 14;
+  uint64 pgsteal_direct = 15;
+  uint64 pgsteal_khugepaged = 16;
 }
 
 message CPUStats {
