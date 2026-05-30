@@ -20,34 +20,27 @@ import ContainerizationError
 import ContainerizationExtras
 import Virtualization
 
-/// A network interface that bridges the container onto a host physical interface.
-/// The IP address is assigned by the upstream DHCP server; `ipv4Address` is always nil.
+/// A network interface that connects the container to an arbitrary FileHandle-backed
+/// network service. The IP address might be assigned by the upstream DHCP server or
+/// configured inside the container; `ipv4Address` is always nil.
 @available(macOS 26, *)
-public final class BridgedNetworkInterface: Interface, Sendable {
-    public let hostInterfaceName: String
+public final class FileHandleNetworkInterface: Interface, Sendable {
     public let macAddress: MACAddress?
     public let ipv4Address: CIDRv4? = nil
     public let ipv4Gateway: IPv4Address? = nil
+    public let fileHandle: FileHandle
 
-    public init(hostInterfaceName: String, macAddress: MACAddress? = nil) {
-        self.hostInterfaceName = hostInterfaceName
+    public init(fileHandle: FileHandle, macAddress: MACAddress? = nil) {
         self.macAddress = macAddress
+        self.fileHandle = fileHandle
     }
 }
 
 @available(macOS 26, *)
-extension BridgedNetworkInterface: VZInterface {
+extension FileHandleNetworkInterface: VZInterface {
     public func device() throws -> VZVirtioNetworkDeviceConfiguration {
-        guard
-            let vzIface = VZBridgedNetworkInterface.networkInterfaces
-                .first(where: { $0.identifier == hostInterfaceName })
-        else {
-            throw ContainerizationError(
-                .invalidArgument,
-                message: "no bridged interface named \(hostInterfaceName)")
-        }
         let config = VZVirtioNetworkDeviceConfiguration()
-        config.attachment = VZBridgedNetworkDeviceAttachment(interface: vzIface)
+        config.attachment = VZFileHandleNetworkDeviceAttachment(fileHandle: fileHandle)
         if let mac = macAddress, let vzMac = VZMACAddress(string: mac.description) {
             config.macAddress = vzMac
         }
