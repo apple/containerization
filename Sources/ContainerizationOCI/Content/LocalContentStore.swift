@@ -206,7 +206,7 @@ public actor LocalContentStore: ContentStore {
         guard
             let enumerator = fileManager.enumerator(
                 at: self._basePath,
-                includingPropertiesForKeys: [.totalFileAllocatedSizeKey],
+                includingPropertiesForKeys: [.totalFileAllocatedSizeKey, .isRegularFileKey],
                 options: [.skipsHiddenFiles]
             )
         else {
@@ -214,9 +214,13 @@ public actor LocalContentStore: ContentStore {
         }
         var size: UInt64 = 0
         for case let fileURL as URL in enumerator {
-            guard let values = try? fileURL.resourceValues(forKeys: [.totalFileAllocatedSizeKey]),
+            guard let values = try? fileURL.resourceValues(forKeys: [.totalFileAllocatedSizeKey, .isRegularFileKey]), values.isRegularFile == true,
                 let fileSize = values.totalFileAllocatedSize
             else {
+                // Skip directories and other non-regular entries. On Linux,
+                // `.totalFileAllocatedSizeKey` reports block allocation for
+                // directories, which would otherwise count empty-store
+                // inode overhead as content.
                 continue
             }
             size += UInt64(fileSize)
