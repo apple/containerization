@@ -343,17 +343,12 @@ public struct Cgroup2Manager: Sendable {
         }
     }
 
-    package func stats() throws -> Cgroup2Stats {
-        let pidsStats = try self.readPidsStats()
-        let memoryStats = try self.readMemoryStats()
-        let cpuStats = try self.readCPUStats()
-        let ioStats = try self.readIOStats()
-
-        return Cgroup2Stats(
-            pids: pidsStats,
-            memory: memoryStats,
-            cpu: cpuStats,
-            io: ioStats
+    package func stats(_ categories: Cgroup2StatsCategory = .all) throws -> Cgroup2Stats {
+        Cgroup2Stats(
+            pids: categories.contains(.pids) ? try self.readPidsStats() : nil,
+            memory: categories.contains(.memory) ? try self.readMemoryStats() : nil,
+            cpu: categories.contains(.cpu) ? try self.readCPUStats() : nil,
+            io: categories.contains(.io) ? try self.readIOStats() : nil
         )
     }
 
@@ -523,6 +518,22 @@ public struct Cgroup2Manager: Sendable {
 
         return IOStats(entries: entries)
     }
+}
+
+// Selects which cgroup stat groups to read.
+package struct Cgroup2StatsCategory: OptionSet, Sendable {
+    package let rawValue: UInt8
+
+    package init(rawValue: UInt8) {
+        self.rawValue = rawValue
+    }
+
+    package static let pids = Cgroup2StatsCategory(rawValue: 1 << 0)
+    package static let memory = Cgroup2StatsCategory(rawValue: 1 << 1)
+    package static let cpu = Cgroup2StatsCategory(rawValue: 1 << 2)
+    package static let io = Cgroup2StatsCategory(rawValue: 1 << 3)
+
+    package static let all: Cgroup2StatsCategory = [.pids, .memory, .cpu, .io]
 }
 
 package struct Cgroup2Stats: Sendable {

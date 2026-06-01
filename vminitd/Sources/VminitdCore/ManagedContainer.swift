@@ -228,8 +228,8 @@ extension ManagedContainer {
         }
     }
 
-    func stats() throws -> Cgroup2Stats {
-        try self.cgroupManager.stats()
+    func stats(_ categories: Cgroup2StatsCategory = .all) throws -> Cgroup2Stats {
+        try self.cgroupManager.stats(categories)
     }
 
     func getMemoryEvents() throws -> MemoryEvents {

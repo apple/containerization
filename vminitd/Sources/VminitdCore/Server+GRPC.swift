@@ -1383,13 +1383,14 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             for containerID in containerIDs {
                 let container = try await state.get(container: containerID)
 
-                // Only fetch cgroup stats if needed
-                let cgStats: Cgroup2Stats?
-                if wantProcess || wantMemory || wantCPU || wantBlockIO {
-                    cgStats = try await container.stats()
-                } else {
-                    cgStats = nil
-                }
+                // Only read the cgroup stat groups that were requested.
+                var cgCategories: Cgroup2StatsCategory = []
+                if wantProcess { cgCategories.insert(.pids) }
+                if wantMemory { cgCategories.insert(.memory) }
+                if wantCPU { cgCategories.insert(.cpu) }
+                if wantBlockIO { cgCategories.insert(.io) }
+
+                let cgStats: Cgroup2Stats? = cgCategories.isEmpty ? nil : try await container.stats(cgCategories)
 
                 // Get network stats only if requested
                 var networkStats: [Com_Apple_Containerization_Sandbox_V3_NetworkStats] = []
