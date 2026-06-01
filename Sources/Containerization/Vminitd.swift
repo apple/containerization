@@ -124,7 +124,12 @@ extension Vminitd: VirtualMachineAgent {
                         pageFaults: protoStats.memory.pageFaults,
                         majorPageFaults: protoStats.memory.majorPageFaults,
                         inactiveFile: protoStats.memory.inactiveFile,
-                        anon: protoStats.memory.anon
+                        anon: protoStats.memory.anon,
+                        workingsetRefaultAnon: protoStats.memory.workingsetRefaultAnon,
+                        workingsetRefaultFile: protoStats.memory.workingsetRefaultFile,
+                        pgstealKswapd: protoStats.memory.pgstealKswapd,
+                        pgstealDirect: protoStats.memory.pgstealDirect,
+                        pgstealKhugepaged: protoStats.memory.pgstealKhugepaged
                     ) : nil,
                 cpu: categories.contains(.cpu) && protoStats.hasCpu
                     ? .init(

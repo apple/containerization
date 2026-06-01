@@ -425,9 +425,13 @@ public struct Cgroup2Manager: Sendable {
             fileWriteback: statValues["file_writeback"] ?? 0,
             pgfault: statValues["pgfault"] ?? 0,
             pgmajfault: statValues["pgmajfault"] ?? 0,
-            workingsetRefault: statValues["workingset_refault"] ?? 0,
+            workingsetRefaultAnon: statValues["workingset_refault_anon"] ?? 0,
+            workingsetRefaultFile: statValues["workingset_refault_file"] ?? 0,
             workingsetActivate: statValues["workingset_activate"] ?? 0,
             workingsetNodereclaim: statValues["workingset_nodereclaim"] ?? 0,
+            pgstealKswapd: statValues["pgsteal_kswapd"] ?? 0,
+            pgstealDirect: statValues["pgsteal_direct"] ?? 0,
+            pgstealKhugepaged: statValues["pgsteal_khugepaged"] ?? 0,
             inactiveAnon: statValues["inactive_anon"] ?? 0,
             activeAnon: statValues["active_anon"] ?? 0,
             inactiveFile: statValues["inactive_file"] ?? 0,
@@ -584,9 +588,14 @@ package struct MemoryStats: Sendable {
     package var pgfault: UInt64
     package var pgmajfault: UInt64
 
-    package var workingsetRefault: UInt64
+    package var workingsetRefaultAnon: UInt64
+    package var workingsetRefaultFile: UInt64
     package var workingsetActivate: UInt64
     package var workingsetNodereclaim: UInt64
+
+    package var pgstealKswapd: UInt64
+    package var pgstealDirect: UInt64
+    package var pgstealKhugepaged: UInt64
 
     package var inactiveAnon: UInt64
     package var activeAnon: UInt64
@@ -609,9 +618,13 @@ package struct MemoryStats: Sendable {
         fileWriteback: UInt64 = 0,
         pgfault: UInt64 = 0,
         pgmajfault: UInt64 = 0,
-        workingsetRefault: UInt64 = 0,
+        workingsetRefaultAnon: UInt64 = 0,
+        workingsetRefaultFile: UInt64 = 0,
         workingsetActivate: UInt64 = 0,
         workingsetNodereclaim: UInt64 = 0,
+        pgstealKswapd: UInt64 = 0,
+        pgstealDirect: UInt64 = 0,
+        pgstealKhugepaged: UInt64 = 0,
         inactiveAnon: UInt64 = 0,
         activeAnon: UInt64 = 0,
         inactiveFile: UInt64 = 0,
@@ -632,9 +645,13 @@ package struct MemoryStats: Sendable {
         self.fileWriteback = fileWriteback
         self.pgfault = pgfault
         self.pgmajfault = pgmajfault
-        self.workingsetRefault = workingsetRefault
+        self.workingsetRefaultAnon = workingsetRefaultAnon
+        self.workingsetRefaultFile = workingsetRefaultFile
         self.workingsetActivate = workingsetActivate
         self.workingsetNodereclaim = workingsetNodereclaim
+        self.pgstealKswapd = pgstealKswapd
+        self.pgstealDirect = pgstealDirect
+        self.pgstealKhugepaged = pgstealKhugepaged
         self.inactiveAnon = inactiveAnon
         self.activeAnon = activeAnon
         self.inactiveFile = inactiveFile

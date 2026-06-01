@@ -1511,6 +1511,11 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                     $0.majorPageFaults = memory.pgmajfault
                     $0.inactiveFile = memory.inactiveFile
                     $0.anon = memory.anon
+                    $0.workingsetRefaultAnon = memory.workingsetRefaultAnon
+                    $0.workingsetRefaultFile = memory.workingsetRefaultFile
+                    $0.pgstealKswapd = memory.pgstealKswapd
+                    $0.pgstealDirect = memory.pgstealDirect
+                    $0.pgstealKhugepaged = memory.pgstealKhugepaged
                 }
             }
 
