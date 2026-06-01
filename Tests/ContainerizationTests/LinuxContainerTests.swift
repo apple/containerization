@@ -17,9 +17,9 @@
 import Foundation
 import Testing
 
-@testable import Containerization
-
 import struct ContainerizationOCI.ImageConfig
+
+@testable import Containerization
 
 struct LinuxContainerTests {
 
