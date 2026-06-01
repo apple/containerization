@@ -19,9 +19,9 @@ import ContainerizationOS
 import Foundation
 import Testing
 
-@testable import Containerization
-
 import struct ContainerizationOCI.ImageConfig
+
+@testable import Containerization
 
 struct LinuxContainerTests {
 
@@ -123,23 +123,23 @@ struct LinuxContainerTests {
     }
 
     @Test func runtimeSpecIncludesConfiguredBlockIO() throws {
-        let blockIO = LinuxBlockIO(
+        let blockIO = Containerization.LinuxBlockIO(
             weight: 500,
             leafWeight: 300,
             weightDevice: [
-                LinuxWeightDevice(major: 8, minor: 0, weight: 700, leafWeight: 400)
+                Containerization.LinuxWeightDevice(major: 8, minor: 0, weight: 700, leafWeight: 400)
             ],
             throttleReadBpsDevice: [
-                LinuxThrottleDevice(major: 8, minor: 16, rate: 1_048_576)
+                Containerization.LinuxThrottleDevice(major: 8, minor: 16, rate: 1_048_576)
             ],
             throttleWriteBpsDevice: [
-                LinuxThrottleDevice(major: 8, minor: 32, rate: 2_097_152)
+                Containerization.LinuxThrottleDevice(major: 8, minor: 32, rate: 2_097_152)
             ],
             throttleReadIOPSDevice: [
-                LinuxThrottleDevice(major: 8, minor: 48, rate: 1_000)
+                Containerization.LinuxThrottleDevice(major: 8, minor: 48, rate: 1_000)
             ],
             throttleWriteIOPSDevice: [
-                LinuxThrottleDevice(major: 8, minor: 64, rate: 2_000)
+                Containerization.LinuxThrottleDevice(major: 8, minor: 64, rate: 2_000)
             ]
         )
 
