@@ -198,4 +198,29 @@ public actor LocalContentStore: ContentStore {
         let fileManager = FileManager.default
         try? fileManager.removeItem(at: temporaryPath)
     }
+
+    /// Total bytes allocated on disk for the content store, covering
+    /// committed blobs and any active ingest sessions.
+    public func totalAllocatedSize() throws -> UInt64 {
+        let fileManager = FileManager.default
+        guard
+            let enumerator = fileManager.enumerator(
+                at: self._basePath,
+                includingPropertiesForKeys: [.totalFileAllocatedSizeKey],
+                options: [.skipsHiddenFiles]
+            )
+        else {
+            throw ContainerizationError(.internalError, message: "failed to enumerate content store at \(self._basePath.path)")
+        }
+        var size: UInt64 = 0
+        for case let fileURL as URL in enumerator {
+            guard let values = try? fileURL.resourceValues(forKeys: [.totalFileAllocatedSizeKey]),
+                let fileSize = values.totalFileAllocatedSize
+            else {
+                continue
+            }
+            size += UInt64(fileSize)
+        }
+        return size
+    }
 }

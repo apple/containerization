@@ -60,4 +60,8 @@ public protocol ContentStore: Sendable {
     /// Cancels a previously started ingest session corresponding to `id`.
     /// The contents from the ingest directory corresponding to the session are removed.
     func cancelIngestSession(_ id: String) async throws
+
+    /// Total bytes allocated on disk for the content store, covering
+    /// committed blobs and any active ingest sessions.
+    func totalAllocatedSize() async throws -> UInt64
 }
