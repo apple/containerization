@@ -380,4 +380,11 @@ extension CIDRv4 {
     }
 }
 
+extension CIDRv6 {
+    /// The gateway address of the network.
+    public var gateway: IPv6Address {
+        IPv6Address(self.lower.value + 1)
+    }
+}
+
 #endif

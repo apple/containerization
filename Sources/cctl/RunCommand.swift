@@ -54,12 +54,6 @@ extension Application {
         @Option(name: .customLong("ns"), help: "Nameserver addresses")
         var nameservers: [String] = []
 
-        @Option(name: .customLong("ipv6-address"), help: "IPv6 CIDR address for the container (e.g. fd00::2/64)")
-        var ipv6Address: String?
-
-        @Option(name: .customLong("ipv6-gateway"), help: "IPv6 gateway address (e.g. fd00::1)")
-        var ipv6Gateway: String?
-
         @Option(name: .long, help: "Path to OCI runtime to use for spawning the container")
         var ociRuntimePath: String?
 
@@ -108,53 +102,13 @@ extension Application {
             try current.setraw()
             defer { current.tryReset() }
 
-            let parsedIPv6Address = try ipv6Address.map { try CIDRv6($0) }
-            let parsedIPv6Gateway = try ipv6Gateway.map { try IPv6Address($0) }
-            if parsedIPv6Gateway != nil && parsedIPv6Address == nil {
-                throw ContainerizationError(
-                    .invalidArgument,
-                    message: "--ipv6-gateway requires --ipv6-address; pass both or neither"
-                )
-            }
-
-            // When IPv6 is requested, build the interface ourselves so we can
-            // pass it via `config.interfaces`.
-            let preBuiltInterface: (any Interface)?
-            if let parsedIPv6Address {
-                guard #available(macOS 26, *) else {
-                    throw ContainerizationError(
-                        .unsupported,
-                        message: "IPv6 requires macOS 26 or later"
-                    )
-                }
-                guard var vmnetNetwork = network as? VmnetNetwork else {
-                    throw ContainerizationError(
-                        .invalidState,
-                        message: "IPv6 requires a VmnetNetwork-backed network"
-                    )
-                }
-                preBuiltInterface = try vmnetNetwork.createInterface(
-                    id,
-                    ipv6Address: parsedIPv6Address,
-                    ipv6Gateway: parsedIPv6Gateway
-                )
-            } else {
-                preBuiltInterface = nil
-            }
-
             let container = try await manager.create(
                 id,
                 reference: imageReference,
                 rootfsSizeInBytes: fsSizeInMB.mib(),
                 readOnly: readOnly,
-                networking: preBuiltInterface == nil
+                networking: true
             ) { config in
-                if let preBuiltInterface {
-                    config.interfaces = [preBuiltInterface]
-                    if let gateway = preBuiltInterface.ipv4Gateway {
-                        config.dns = .init(nameservers: [gateway.description])
-                    }
-                }
                 config.cpus = cpus
                 config.memoryInBytes = memory.mib()
                 config.process.setTerminalIO(terminal: current)

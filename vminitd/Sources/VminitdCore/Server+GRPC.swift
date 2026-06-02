@@ -1201,6 +1201,26 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             let ipv4Address = try CIDRv4(request.ipv4Address)
             try session.addressAdd(interface: request.interface, ipv4Address: ipv4Address)
             if request.hasIpv6Address {
+                // Suppress SLAAC on this interface before adding the static
+                // address: the host would provide a static IPv6 config, this
+                // auto-derived IPv6 config would compete with the static one.
+                let confPath = URL(fileURLWithPath: "/proc/sys/net/ipv6/conf/\(request.interface)")
+                for key in ["accept_ra", "autoconf"] {
+                    let setting = confPath.appendingPathComponent(key)
+                    do {
+                        let fh = try FileHandle(forWritingTo: setting)
+                        defer { try? fh.close() }
+                        try fh.write(contentsOf: Data("0".utf8))
+                    } catch {
+                        log.warning(
+                            "ipAddrAdd: failed to disable IPv6 auto-configuration",
+                            metadata: [
+                                "path": "\(setting.path)",
+                                "error": "\(error)",
+                            ])
+                    }
+                }
+
                 let ipv6Address = try CIDRv6(request.ipv6Address)
                 try session.addressAdd(interface: request.interface, ipv6Address: ipv6Address)
             }

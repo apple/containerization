@@ -2094,17 +2094,12 @@ extension IntegrationSuite {
         let id = "test-pod-ipv6-address"
         let bs = try await bootstrap(id)
 
-        var network = try VmnetNetwork()
+        var network = try VmnetNetwork(prefixV6: try CIDRv6("fd00::/64"))
         defer {
             try? network.releaseInterface(id)
         }
 
-        guard
-            let interface = try network.createInterface(
-                id,
-                ipv6Address: try CIDRv6("fd00::2/64"),
-                ipv6Gateway: try IPv6Address("fd00::1"))
-        else {
+        guard let interface = try network.createInterface(id) else {
             throw IntegrationError.assert(msg: "failed to create network interface")
         }
 

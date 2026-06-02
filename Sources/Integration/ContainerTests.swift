@@ -4550,16 +4550,64 @@ extension IntegrationSuite {
     }
 
     @available(macOS 26.0, *)
+    func testNetworkingEnabledIPv6() async throws {
+        let id = "test-networking-enabled-ipv6"
+        let bs = try await bootstrap(id)
+
+        let network = try VmnetNetwork()
+        var manager = try ContainerManager(vmm: bs.vmm, network: network)
+        defer {
+            try? manager.delete(id)
+        }
+
+        let buffer = BufferWriter()
+        let container = try await manager.create(
+            id,
+            image: bs.image,
+            rootfs: bs.rootfs
+        ) { config in
+            config.process.arguments = ["ip", "-6", "addr", "show", "eth0", "scope", "global"]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let status = try await container.wait()
+            try await container.stop()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ip -6 addr show failed with status \(status)")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert output to UTF8")
+            }
+
+            guard output.contains("inet6 fd") else {
+                throw IntegrationError.assert(
+                    msg: "expected a global-scope IPv6 address on eth0, got: \(output)")
+            }
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    @available(macOS 26.0, *)
     func testIPv6AddressAdd() async throws {
         let id = "test-ipv6-address"
         let bs = try await bootstrap(id)
 
-        var network = try VmnetNetwork()
+        // Pin the v6 prefix so the allocator's first allocation yields fd00::2.
+        var network = try VmnetNetwork(prefixV6: try CIDRv6("fd00::/64"))
         defer {
             try? network.releaseInterface(id)
         }
 
-        guard let interface = try network.createInterface(id, ipv6Address: try CIDRv6("fd00::1/64")) else {
+        guard let interface = try network.createInterface(id) else {
             throw IntegrationError.assert(msg: "failed to create network interface")
         }
 
@@ -4592,9 +4640,9 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "failed to convert output to UTF8")
             }
 
-            guard output.contains("fd00::1") else {
+            guard output.contains("fd00::2") else {
                 throw IntegrationError.assert(
-                    msg: "expected fd00::1 in output, got: \(output)")
+                    msg: "expected fd00::2 in output, got: \(output)")
             }
 
             try await container.kill(.kill)
@@ -4611,17 +4659,14 @@ extension IntegrationSuite {
         let id = "test-ipv6-default-route"
         let bs = try await bootstrap(id)
 
-        var network = try VmnetNetwork()
+        // Pin the network's v6 prefix so the gateway is deterministically fd00::1
+        // and the allocator's first allocation yields fd00::2.
+        var network = try VmnetNetwork(prefixV6: try CIDRv6("fd00::/64"))
         defer {
             try? network.releaseInterface(id)
         }
 
-        guard
-            let interface = try network.createInterface(
-                id,
-                ipv6Address: try CIDRv6("fd00::2/64"),
-                ipv6Gateway: try IPv6Address("fd00::1"))
-        else {
+        guard let interface = try network.createInterface(id) else {
             throw IntegrationError.assert(msg: "failed to create network interface")
         }
 
@@ -4674,22 +4719,16 @@ extension IntegrationSuite {
         let id = "test-ipv6-gateway-outside-subnet"
         let bs = try await bootstrap(id)
 
-        var network = try VmnetNetwork()
-        defer {
-            try? network.releaseInterface(id)
-        }
-
         // Address in fd00::/120, gateway in fd01::/120 — subnets don't overlap, so the
         // LinuxContainer wiring must add a /128 link route to the gateway before the
-        // default route.
-        guard
-            let interface = try network.createInterface(
-                id,
-                ipv6Address: try CIDRv6("fd00::2/120"),
-                ipv6Gateway: try IPv6Address("fd01::1"))
-        else {
-            throw IntegrationError.assert(msg: "failed to create network interface")
-        }
+        // default route. The two prefixes are independent so we drive this directly
+        // via NATInterface rather than the VmnetNetwork allocator (which always
+        // derives the gateway from the network's own prefix).
+        let interface = NATInterface(
+            ipv4Address: try CIDRv4("192.0.2.2/24"),
+            ipv4Gateway: try IPv4Address("192.0.2.1"),
+            ipv6Address: try CIDRv6("fd00::2/120"),
+            ipv6Gateway: try IPv6Address("fd01::1"))
 
         let buffer = BufferWriter()
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
@@ -4868,17 +4907,14 @@ extension IntegrationSuite {
         let id = "test-ipv6-dual-stack"
         let bs = try await bootstrap(id)
 
-        var network = try VmnetNetwork()
+        // Pin the network's v6 prefix so the gateway is deterministically fd00::1
+        // and the allocator's first allocation yields fd00::2.
+        var network = try VmnetNetwork(prefixV6: try CIDRv6("fd00::/64"))
         defer {
             try? network.releaseInterface(id)
         }
 
-        guard
-            let interface = try network.createInterface(
-                id,
-                ipv6Address: try CIDRv6("fd00::2/64"),
-                ipv6Gateway: try IPv6Address("fd00::1"))
-        else {
+        guard let interface = try network.createInterface(id) else {
             throw IntegrationError.assert(msg: "failed to create network interface")
         }
 

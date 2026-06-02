@@ -264,6 +264,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container interface custom MTU", testInterfaceMTU),
                 Test("container networking disabled", testNetworkingDisabled),
                 Test("container networking enabled", testNetworkingEnabled),
+                Test("container networking enabled ipv6", testNetworkingEnabledIPv6),
                 Test("container IPv6 address", testIPv6AddressAdd),
                 Test("container IPv6 default route", testIPv6DefaultRoute),
                 Test("container IPv6 gateway outside subnet", testIPv6GatewayOutsideSubnet),
