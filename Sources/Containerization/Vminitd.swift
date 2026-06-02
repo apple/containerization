@@ -208,12 +208,19 @@ extension Vminitd: VirtualMachineAgent {
     }
 
     /// Perform a filesystem operation on a path inside the sandbox's environment.
-    public func filesystemOperation(operation: FilesystemOperation, path: String) async throws {
-        _ = try await client.filesystemOperation(
+    public func filesystemOperation(operation: FilesystemOperation, path: String) async throws -> UInt64? {
+        let response = try await client.filesystemOperation(
             .with {
                 $0.operation = operation.toProtoOperation()
                 $0.path = path
             })
+
+        switch operation {
+        case .trim:
+            return response.trim.trimmedBytes
+        case .freeze, .thaw:
+            return nil
+        }
     }
 
     public func createProcess(
