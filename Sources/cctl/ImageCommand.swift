@@ -105,7 +105,8 @@ extension Application {
                 })
             var unpackPath: String?
 
-            @Flag(help: "Pull via plain text http") var http: Bool = false
+            @Flag(help: "Pull anonymously via plain-text HTTP.")
+            var http: Bool = false
 
             func run() async throws {
                 let imageStore = Application.imageStore
@@ -124,7 +125,7 @@ extension Application {
                 }
 
                 var startTime = ContinuousClock.now
-                let image = try await Images.withAuthentication(ref: normalizedReference) { auth in
+                let image = try await Images.withAuthentication(ref: normalizedReference, insecure: http) { auth in
                     try await imageStore.pull(reference: normalizedReference, platform: platform, insecure: http, auth: auth)
                 }
 
@@ -177,7 +178,8 @@ extension Application {
 
             @Option(help: "Platform string in the form 'os/arch/variant'. Example 'linux/arm64/v8', 'linux/amd64'") var platformString: String?
 
-            @Flag(help: "Push via plain text http") var http: Bool = false
+            @Flag(help: "Push anonymously via plain-text HTTP.")
+            var http: Bool = false
 
             @Argument var ref: String
 
@@ -197,7 +199,7 @@ extension Application {
                     print("Reference resolved to \(reference.description)")
                 }
 
-                try await Images.withAuthentication(ref: normalizedReference) { auth in
+                try await Images.withAuthentication(ref: normalizedReference, insecure: http) { auth in
                     try await imageStore.push(reference: normalizedReference, platform: platform, insecure: http, auth: auth)
                 }
                 print("image pushed")
@@ -264,22 +266,26 @@ extension Application {
         }
 
         private static func withAuthentication<T>(
-            ref: String, _ body: @Sendable @escaping (_ auth: Authentication?) async throws -> T?
+            ref: String, insecure: Bool,
+            _ body: @Sendable @escaping (_ auth: Authentication?) async throws -> T?
         ) async throws -> T? {
-            var authentication: Authentication?
-            let ref = try Reference.parse(ref)
-            guard let host = ref.resolvedDomain else {
+            let parsed = try Reference.parse(ref)
+            guard let host = parsed.resolvedDomain else {
                 throw ContainerizationError(.invalidArgument, message: "no host specified in image reference")
             }
-            authentication = Self.authenticationFromEnv(host: host)
-            if let authentication {
-                return try await body(authentication)
+            if insecure {
+                return try await body(nil)
+            }
+            if let auth = Self.authenticationFromEnv(host: host) {
+                return try await body(auth)
             }
             #if os(macOS)
             let keychain = KeychainHelper(securityDomain: Application.keychainID)
-            authentication = try? keychain.lookup(hostname: host)
-            #endif
+            let authentication = try? keychain.lookup(hostname: host)
             return try await body(authentication)
+            #else
+            return try await body(nil)
+            #endif
         }
 
         private static func authenticationFromEnv(host: String) -> Authentication? {
