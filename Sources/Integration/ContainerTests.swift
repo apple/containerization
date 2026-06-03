@@ -4549,6 +4549,447 @@ extension IntegrationSuite {
         }
     }
 
+    @available(macOS 26.0, *)
+    func testNetworkingEnabledIPv6() async throws {
+        let id = "test-networking-enabled-ipv6"
+        let bs = try await bootstrap(id)
+
+        let network = try VmnetNetwork()
+        var manager = try ContainerManager(vmm: bs.vmm, network: network)
+        defer {
+            try? manager.delete(id)
+        }
+
+        let buffer = BufferWriter()
+        let container = try await manager.create(
+            id,
+            image: bs.image,
+            rootfs: bs.rootfs
+        ) { config in
+            config.process.arguments = ["ip", "-6", "addr", "show", "eth0", "scope", "global"]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let status = try await container.wait()
+            try await container.stop()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ip -6 addr show failed with status \(status)")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert output to UTF8")
+            }
+
+            guard output.contains("inet6 fd") else {
+                throw IntegrationError.assert(
+                    msg: "expected a global-scope IPv6 address on eth0, got: \(output)")
+            }
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    @available(macOS 26.0, *)
+    func testIPv6AddressAdd() async throws {
+        let id = "test-ipv6-address"
+        let bs = try await bootstrap(id)
+
+        // Pin the v6 prefix so the allocator's first allocation yields fd00::2.
+        var network = try VmnetNetwork(prefixV6: try CIDRv6("fd00::/64"))
+        defer {
+            try? network.releaseInterface(id)
+        }
+
+        guard let interface = try network.createInterface(id) else {
+            throw IntegrationError.assert(msg: "failed to create network interface")
+        }
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.interfaces = [interface]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Check that the IPv6 address was assigned to eth0.
+            let exec = try await container.exec("check-ipv6") { config in
+                config.arguments = ["ip", "-6", "addr", "show", "eth0"]
+                config.stdout = buffer
+            }
+
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ip -6 addr show failed with status \(status)")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert output to UTF8")
+            }
+
+            guard output.contains("fd00::2") else {
+                throw IntegrationError.assert(
+                    msg: "expected fd00::2 in output, got: \(output)")
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    @available(macOS 26.0, *)
+    func testIPv6DefaultRoute() async throws {
+        let id = "test-ipv6-default-route"
+        let bs = try await bootstrap(id)
+
+        // Pin the network's v6 prefix so the gateway is deterministically fd00::1
+        // and the allocator's first allocation yields fd00::2.
+        var network = try VmnetNetwork(prefixV6: try CIDRv6("fd00::/64"))
+        defer {
+            try? network.releaseInterface(id)
+        }
+
+        guard let interface = try network.createInterface(id) else {
+            throw IntegrationError.assert(msg: "failed to create network interface")
+        }
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.interfaces = [interface]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Inspect IPv6 routes inside the container.
+            let exec = try await container.exec("check-v6-route") { config in
+                config.arguments = ["ip", "-6", "route", "show"]
+                config.stdout = buffer
+            }
+
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ip -6 route show failed with status \(status)")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert output to UTF8")
+            }
+
+            // The default v6 route must point at the gateway we configured, on eth0.
+            guard output.contains("default via fd00::1 dev eth0") else {
+                throw IntegrationError.assert(
+                    msg: "expected 'default via fd00::1 dev eth0' in v6 routes, got: \(output)")
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    @available(macOS 26.0, *)
+    func testIPv6GatewayOutsideSubnet() async throws {
+        let id = "test-ipv6-gateway-outside-subnet"
+        let bs = try await bootstrap(id)
+
+        // Address in fd00::/120, gateway in fd01::/120 — subnets don't overlap, so the
+        // LinuxContainer wiring must add a /128 link route to the gateway before the
+        // default route. The two prefixes are independent so we drive this directly
+        // via NATInterface rather than the VmnetNetwork allocator (which always
+        // derives the gateway from the network's own prefix).
+        let interface = NATInterface(
+            ipv4Address: try CIDRv4("192.0.2.2/24"),
+            ipv4Gateway: try IPv4Address("192.0.2.1"),
+            ipv6Address: try CIDRv6("fd00::2/120"),
+            ipv6Gateway: try IPv6Address("fd01::1"))
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.interfaces = [interface]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let exec = try await container.exec("check-v6-routes") { config in
+                config.arguments = ["ip", "-6", "route", "show"]
+                config.stdout = buffer
+            }
+
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ip -6 route show failed with status \(status)")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert output to UTF8")
+            }
+
+            // Both the link-scoped route to the gateway AND the default via that gateway
+            // must be present. Without the link route, the kernel would refuse the default.
+            // Match the link route on a line that starts with the gateway address (no "via")
+            // so it can't be satisfied by a substring of the default-via line.
+            let lines = output.split(separator: "\n").map(String.init)
+            let hasLinkRoute = lines.contains { $0.hasPrefix("fd01::1 ") && $0.contains("dev eth0") && !$0.contains("via") }
+            guard hasLinkRoute else {
+                throw IntegrationError.assert(
+                    msg: "expected an on-link route 'fd01::1 ... dev eth0' (no 'via') in v6 routes, got: \(output)")
+            }
+            guard output.contains("default via fd01::1 dev eth0") else {
+                throw IntegrationError.assert(
+                    msg: "expected 'default via fd01::1 dev eth0' in v6 routes, got: \(output)")
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    @available(macOS 26.0, *)
+    func testIPv6OnlyDefaultRoute() async throws {
+        let id = "test-ipv6-only-default-route"
+        let bs = try await bootstrap(id)
+
+        // Construct a NATInterface with a nil IPv4 gateway and a v6 gateway, so
+        // LinuxContainer takes the no-v4-gateway branch in setupInterface. The v4
+        // address comes from TEST-NET-1; nothing in the test traffics over v4.
+        let interface = NATInterface(
+            ipv4Address: try CIDRv4("192.0.2.2/24"),
+            ipv4Gateway: nil,
+            ipv6Address: try CIDRv6("fd00::2/64"),
+            ipv6Gateway: try IPv6Address("fd00::1"))
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.interfaces = [interface]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let exec = try await container.exec("check-v6-route") { config in
+                config.arguments = ["ip", "-6", "route", "show"]
+                config.stdout = buffer
+            }
+
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ip -6 route show failed with status \(status)")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert output to UTF8")
+            }
+
+            guard output.contains("default via fd00::1 dev eth0") else {
+                throw IntegrationError.assert(
+                    msg: "expected 'default via fd00::1 dev eth0' in v6 routes when ipv4Gateway is nil, got: \(output)")
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    @available(macOS 26.0, *)
+    func testIPv6OnlyGatewayOutsideSubnet() async throws {
+        let id = "test-ipv6-only-gateway-outside-subnet"
+        let bs = try await bootstrap(id)
+
+        // No v4 gateway AND v6 gateway is outside the v6 subnet. Exercises
+        // setupInterface's "no v4 gateway, but v6 link route required before
+        // v6 default route" branch — the exact bug the helper extraction fixed.
+        let interface = NATInterface(
+            ipv4Address: try CIDRv4("192.0.2.2/24"),
+            ipv4Gateway: nil,
+            ipv6Address: try CIDRv6("fd00::2/120"),
+            ipv6Gateway: try IPv6Address("fd01::1"))
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.interfaces = [interface]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let exec = try await container.exec("check-v6-routes") { config in
+                config.arguments = ["ip", "-6", "route", "show"]
+                config.stdout = buffer
+            }
+
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ip -6 route show failed with status \(status)")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert output to UTF8")
+            }
+
+            // Both the on-link route to the gateway AND the default via it must be present.
+            // Without the link route the kernel rejects the default — that was the bug.
+            let lines = output.split(separator: "\n").map(String.init)
+            let hasLinkRoute = lines.contains { $0.hasPrefix("fd01::1 ") && $0.contains("dev eth0") && !$0.contains("via") }
+            guard hasLinkRoute else {
+                throw IntegrationError.assert(
+                    msg: "expected an on-link route 'fd01::1 ... dev eth0' (no 'via') in v6 routes, got: \(output)")
+            }
+            guard output.contains("default via fd01::1 dev eth0") else {
+                throw IntegrationError.assert(
+                    msg: "expected 'default via fd01::1 dev eth0' in v6 routes, got: \(output)")
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    @available(macOS 26.0, *)
+    func testIPv6DualStack() async throws {
+        let id = "test-ipv6-dual-stack"
+        let bs = try await bootstrap(id)
+
+        // Pin the network's v6 prefix so the gateway is deterministically fd00::1
+        // and the allocator's first allocation yields fd00::2.
+        var network = try VmnetNetwork(prefixV6: try CIDRv6("fd00::/64"))
+        defer {
+            try? network.releaseInterface(id)
+        }
+
+        guard let interface = try network.createInterface(id) else {
+            throw IntegrationError.assert(msg: "failed to create network interface")
+        }
+
+        // Capture the v4 address vmnet allocated so we can assert it ends up on eth0.
+        let expectedV4 = interface.ipv4Address.address.description
+
+        let addrBuffer = BufferWriter()
+        let routeBuffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.interfaces = [interface]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // `ip addr show` (no family flag) lists both v4 and v6.
+            let addrExec = try await container.exec("check-dual-stack-addr") { config in
+                config.arguments = ["ip", "addr", "show", "eth0"]
+                config.stdout = addrBuffer
+            }
+            try await addrExec.start()
+            let addrStatus = try await addrExec.wait()
+            try await addrExec.delete()
+
+            guard addrStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ip addr show failed with status \(addrStatus)")
+            }
+
+            guard let addrOutput = String(data: addrBuffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert addr output to UTF8")
+            }
+
+            guard addrOutput.contains(expectedV4) else {
+                throw IntegrationError.assert(
+                    msg: "expected v4 address \(expectedV4) on eth0, got: \(addrOutput)")
+            }
+            guard addrOutput.contains("fd00::2") else {
+                throw IntegrationError.assert(
+                    msg: "expected v6 address fd00::2 on eth0, got: \(addrOutput)")
+            }
+
+            // The dual-stack default routes must both be installed.
+            let routeExec = try await container.exec("check-dual-stack-route") { config in
+                config.arguments = ["ip", "-6", "route", "show"]
+                config.stdout = routeBuffer
+            }
+            try await routeExec.start()
+            let routeStatus = try await routeExec.wait()
+            try await routeExec.delete()
+
+            guard routeStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ip -6 route show failed with status \(routeStatus)")
+            }
+
+            guard let routeOutput = String(data: routeBuffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert route output to UTF8")
+            }
+
+            guard routeOutput.contains("default via fd00::1 dev eth0") else {
+                throw IntegrationError.assert(
+                    msg: "expected 'default via fd00::1 dev eth0' in v6 routes, got: \(routeOutput)")
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
     func testSysctl() async throws {
         let id = "test-container-sysctl"
 

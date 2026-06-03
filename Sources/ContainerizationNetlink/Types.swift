@@ -101,6 +101,11 @@ struct AddressAttributeType {
     static let IFA_LOCAL: UInt16 = 2
 }
 
+struct AddressFlags {
+    static let IFA_F_NODAD: UInt8 = 0x02
+    static let IFA_F_PERMANENT: UInt8 = 0x80
+}
+
 struct RouteTable {
     static let MAIN: UInt8 = 254
 }

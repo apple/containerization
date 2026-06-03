@@ -17,6 +17,7 @@
 import ArgumentParser
 import Containerization
 import ContainerizationError
+import ContainerizationExtras
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
@@ -2085,6 +2086,62 @@ extension IntegrationSuite {
             guard error.code == .invalidArgument else {
                 throw IntegrationError.assert(msg: "expected invalidArgument error, got: \(error)")
             }
+        }
+    }
+
+    @available(macOS 26.0, *)
+    func testPodIPv6AddressAdd() async throws {
+        let id = "test-pod-ipv6-address"
+        let bs = try await bootstrap(id)
+
+        var network = try VmnetNetwork(prefixV6: try CIDRv6("fd00::/64"))
+        defer {
+            try? network.releaseInterface(id)
+        }
+
+        guard let interface = try network.createInterface(id) else {
+            throw IntegrationError.assert(msg: "failed to create network interface")
+        }
+
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+            config.interfaces = [interface]
+        }
+
+        try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
+            config.process.arguments = ["/bin/sleep", "100"]
+        }
+
+        try await pod.create()
+        try await pod.startContainer("container1")
+
+        let buffer = BufferWriter()
+        let exec = try await pod.execInContainer("container1", processID: "check-v6") { config in
+            config.arguments = ["ip", "-6", "addr", "show", "eth0"]
+            config.stdout = buffer
+        }
+
+        try await exec.start()
+        let status = try await exec.wait()
+        try await exec.delete()
+
+        try await pod.killContainer("container1", signal: .kill)
+        try await pod.waitContainer("container1")
+        try await pod.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "ip -6 addr show failed with status \(status)")
+        }
+
+        guard let output = String(data: buffer.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert output to UTF8")
+        }
+
+        guard output.contains("fd00::2") else {
+            throw IntegrationError.assert(
+                msg: "expected fd00::2 on eth0 inside pod container, got: \(output)")
         }
     }
 }

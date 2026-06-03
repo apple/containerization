@@ -106,7 +106,8 @@ extension Application {
                 id,
                 reference: imageReference,
                 rootfsSizeInBytes: fsSizeInMB.mib(),
-                readOnly: readOnly
+                readOnly: readOnly,
+                networking: true
             ) { config in
                 config.cpus = cpus
                 config.memoryInBytes = memory.mib()

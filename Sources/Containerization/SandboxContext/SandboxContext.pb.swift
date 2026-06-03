@@ -1098,9 +1098,20 @@ public struct Com_Apple_Containerization_Sandbox_V3_IpAddrAddRequest: Sendable {
 
   public var ipv4Address: String = String()
 
+  public var ipv6Address: String {
+    get {_ipv6Address ?? String()}
+    set {_ipv6Address = newValue}
+  }
+  /// Returns true if `ipv6Address` has been explicitly set.
+  public var hasIpv6Address: Bool {self._ipv6Address != nil}
+  /// Clears the value of `ipv6Address`. Subsequent reads from it will return its default value.
+  public mutating func clearIpv6Address() {self._ipv6Address = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
+
+  fileprivate var _ipv6Address: String? = nil
 }
 
 public struct Com_Apple_Containerization_Sandbox_V3_IpAddrAddResponse: Sendable {
@@ -1124,9 +1135,30 @@ public struct Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest: Senda
 
   public var srcIpv4Addr: String = String()
 
+  public var dstIpv6Addr: String {
+    get {_dstIpv6Addr ?? String()}
+    set {_dstIpv6Addr = newValue}
+  }
+  /// Returns true if `dstIpv6Addr` has been explicitly set.
+  public var hasDstIpv6Addr: Bool {self._dstIpv6Addr != nil}
+  /// Clears the value of `dstIpv6Addr`. Subsequent reads from it will return its default value.
+  public mutating func clearDstIpv6Addr() {self._dstIpv6Addr = nil}
+
+  public var srcIpv6Addr: String {
+    get {_srcIpv6Addr ?? String()}
+    set {_srcIpv6Addr = newValue}
+  }
+  /// Returns true if `srcIpv6Addr` has been explicitly set.
+  public var hasSrcIpv6Addr: Bool {self._srcIpv6Addr != nil}
+  /// Clears the value of `srcIpv6Addr`. Subsequent reads from it will return its default value.
+  public mutating func clearSrcIpv6Addr() {self._srcIpv6Addr = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
+
+  fileprivate var _dstIpv6Addr: String? = nil
+  fileprivate var _srcIpv6Addr: String? = nil
 }
 
 public struct Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkResponse: Sendable {
@@ -1148,9 +1180,20 @@ public struct Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRequest: Se
 
   public var ipv4Gateway: String = String()
 
+  public var ipv6Gateway: String {
+    get {_ipv6Gateway ?? String()}
+    set {_ipv6Gateway = newValue}
+  }
+  /// Returns true if `ipv6Gateway` has been explicitly set.
+  public var hasIpv6Gateway: Bool {self._ipv6Gateway != nil}
+  /// Clears the value of `ipv6Gateway`. Subsequent reads from it will return its default value.
+  public mutating func clearIpv6Gateway() {self._ipv6Gateway = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
+
+  fileprivate var _ipv6Gateway: String? = nil
 }
 
 public struct Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultResponse: Sendable {
@@ -3203,7 +3246,7 @@ extension Com_Apple_Containerization_Sandbox_V3_IpLinkSetResponse: SwiftProtobuf
 
 extension Com_Apple_Containerization_Sandbox_V3_IpAddrAddRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".IpAddrAddRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}interface\0\u{1}ipv4Address\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}interface\0\u{1}ipv4Address\0\u{1}ipv6Address\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3213,24 +3256,33 @@ extension Com_Apple_Containerization_Sandbox_V3_IpAddrAddRequest: SwiftProtobuf.
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.interface) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.ipv4Address) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self._ipv6Address) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
     if !self.interface.isEmpty {
       try visitor.visitSingularStringField(value: self.interface, fieldNumber: 1)
     }
     if !self.ipv4Address.isEmpty {
       try visitor.visitSingularStringField(value: self.ipv4Address, fieldNumber: 2)
     }
+    try { if let v = self._ipv6Address {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 3)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_IpAddrAddRequest, rhs: Com_Apple_Containerization_Sandbox_V3_IpAddrAddRequest) -> Bool {
     if lhs.interface != rhs.interface {return false}
     if lhs.ipv4Address != rhs.ipv4Address {return false}
+    if lhs._ipv6Address != rhs._ipv6Address {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -3257,7 +3309,7 @@ extension Com_Apple_Containerization_Sandbox_V3_IpAddrAddResponse: SwiftProtobuf
 
 extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".IpRouteAddLinkRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}interface\0\u{1}dstIpv4Addr\0\u{1}srcIpv4Addr\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}interface\0\u{1}dstIpv4Addr\0\u{1}srcIpv4Addr\0\u{1}dstIpv6Addr\0\u{1}srcIpv6Addr\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3268,12 +3320,18 @@ extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest: SwiftProt
       case 1: try { try decoder.decodeSingularStringField(value: &self.interface) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.dstIpv4Addr) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.srcIpv4Addr) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self._dstIpv6Addr) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self._srcIpv6Addr) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
     if !self.interface.isEmpty {
       try visitor.visitSingularStringField(value: self.interface, fieldNumber: 1)
     }
@@ -3283,6 +3341,12 @@ extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest: SwiftProt
     if !self.srcIpv4Addr.isEmpty {
       try visitor.visitSingularStringField(value: self.srcIpv4Addr, fieldNumber: 3)
     }
+    try { if let v = self._dstIpv6Addr {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 4)
+    } }()
+    try { if let v = self._srcIpv6Addr {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 5)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -3290,6 +3354,8 @@ extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkRequest: SwiftProt
     if lhs.interface != rhs.interface {return false}
     if lhs.dstIpv4Addr != rhs.dstIpv4Addr {return false}
     if lhs.srcIpv4Addr != rhs.srcIpv4Addr {return false}
+    if lhs._dstIpv6Addr != rhs._dstIpv6Addr {return false}
+    if lhs._srcIpv6Addr != rhs._srcIpv6Addr {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -3316,7 +3382,7 @@ extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddLinkResponse: SwiftPro
 
 extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".IpRouteAddDefaultRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}interface\0\u{1}ipv4Gateway\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}interface\0\u{1}ipv4Gateway\0\u{1}ipv6Gateway\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3326,24 +3392,33 @@ extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRequest: SwiftP
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.interface) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.ipv4Gateway) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self._ipv6Gateway) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
     if !self.interface.isEmpty {
       try visitor.visitSingularStringField(value: self.interface, fieldNumber: 1)
     }
     if !self.ipv4Gateway.isEmpty {
       try visitor.visitSingularStringField(value: self.ipv4Gateway, fieldNumber: 2)
     }
+    try { if let v = self._ipv6Gateway {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 3)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRequest, rhs: Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRequest) -> Bool {
     if lhs.interface != rhs.interface {return false}
     if lhs.ipv4Gateway != rhs.ipv4Gateway {return false}
+    if lhs._ipv6Gateway != rhs._ipv6Gateway {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
