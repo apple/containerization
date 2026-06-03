@@ -50,9 +50,9 @@ jobs:
           make protos
           if ! git diff --quiet ; then echo the following files require formatting or license headers: ; git diff --name-only ; false ; fi
 
-      - name: Make containerization and docs
+      - name: Make containerization, examples, and docs
         run: |
-          make clean containerization docs
+          make clean containerization examples docs
           tar cfz _site.tgz _site
         env:
           BUILD_CONFIGURATION: ${{ inputs.release && 'release' || 'debug' }}
