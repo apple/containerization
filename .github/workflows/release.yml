@@ -34,7 +34,7 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e  # v4
 
   release: 
     if: startsWith(github.ref, 'refs/tags/')
@@ -47,7 +47,7 @@ jobs:
       packages: read
     steps:
       - name: Create release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2
         with:
           token: ${{ github.token }}
           name: ${{ github.ref_name }}-prerelease
