@@ -149,7 +149,23 @@ struct IntegrationSuite: AsyncParsableCommand {
     var bootlogDir: String = "./bin/integration-bootlogs"
 
     @Option(name: .shortAndLong, help: "Path to a kernel binary")
-    var kernel: String = "./bin/vmlinux"
+    var kernel: String = Self.defaultKernelPath
+
+    #if arch(arm64)
+    private static let kernelCandidates = ["./bin/vmlinux-arm64"]
+    #elseif arch(x86_64)
+    private static let kernelCandidates = ["./bin/vmlinuz-x86_64", "./bin/vmlinux-x86_64"]
+    #else
+    private static let kernelCandidates = ["./bin/vmlinux"]
+    #endif
+
+    private static let defaultKernelPath: String = {
+        let fm = FileManager.default
+        for candidate in kernelCandidates where fm.fileExists(atPath: candidate) {
+            return candidate
+        }
+        return kernelCandidates[0]
+    }()
 
     @Option(name: .shortAndLong, help: "Maximum number of concurrent tests")
     var maxConcurrency: Int = 4

@@ -29,7 +29,14 @@ struct CtrExample {
         defer { current.tryReset() }
 
         let initfsReference = "ghcr.io/apple/containerization/vminit:0.26.5"
-        let kernelPath = "./vmlinux"
+        #if arch(arm64)
+        let kernelCandidates = ["./vmlinux-arm64"]
+        #elseif arch(x86_64)
+        let kernelCandidates = ["./vmlinuz-x86_64", "./vmlinux-x86_64"]
+        #else
+        let kernelCandidates = ["./vmlinux"]
+        #endif
+        let kernelPath = kernelCandidates.first(where: { FileManager.default.fileExists(atPath: $0) }) ?? kernelCandidates[0]
         print("Fetching base container filesystem...")
         // Create container manager with file-based initfs
         var manager = try await ContainerManager(
