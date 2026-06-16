@@ -17,6 +17,7 @@
 //
 
 import Foundation
+import Logging
 import Testing
 
 @testable import Containerization
@@ -54,5 +55,39 @@ final class KernelTests {
         commandLine.addPanic(level: 10)
 
         #expect(commandLine.kernelArgs == ["console=hvc0", "debug", "panic=10"])
+    }
+
+    @Test func setAgentLogLevelAppendsFlagAndValue() {
+        var commandLine = Kernel.CommandLine(initArgs: [])
+        commandLine.setAgentLogLevel(level: .debug)
+        #expect(commandLine.initArgs == ["--log-level", "debug"])
+    }
+
+    @Test(arguments: [
+        (Logger.Level.trace, "trace"),
+        (.debug, "debug"),
+        (.info, "info"),
+        (.notice, "notice"),
+        (.warning, "warning"),
+        (.error, "error"),
+        (.critical, "critical"),
+    ])
+    func setAgentLogLevelForEachLevel(level: Logger.Level, expected: String) {
+        var commandLine = Kernel.CommandLine(initArgs: [])
+        commandLine.setAgentLogLevel(level: level)
+        #expect(commandLine.initArgs == ["--log-level", expected])
+    }
+
+    @Test func setAgentLogLevelPreservesExistingInitArgs() {
+        var commandLine = Kernel.CommandLine(initArgs: ["--verbose"])
+        commandLine.setAgentLogLevel(level: .info)
+        #expect(commandLine.initArgs == ["--verbose", "--log-level", "info"])
+    }
+
+    @Test func setAgentLogLevelDoesNotAffectKernelArgs() {
+        var commandLine = Kernel.CommandLine(debug: true, panic: 0, initArgs: [])
+        let kernelArgsBefore = commandLine.kernelArgs
+        commandLine.setAgentLogLevel(level: .warning)
+        #expect(commandLine.kernelArgs == kernelArgsBefore)
     }
 }

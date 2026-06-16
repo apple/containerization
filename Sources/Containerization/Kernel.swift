@@ -15,6 +15,7 @@
 //===----------------------------------------------------------------------===//
 
 import Foundation
+import Logging
 
 /// An object representing a Linux kernel used to boot a virtual machine.
 /// In addition to a path to the kernel itself, this type stores relevant
@@ -35,6 +36,11 @@ public struct Kernel: Sendable, Codable {
         /// Adds a panic level to the kernel commandline.
         mutating public func addPanic(level: Int) {
             self.kernelArgs.append("panic=\(level)")
+        }
+
+        // Sets the log level for the Agent
+        mutating public func setAgentLogLevel(level: Logger.Level) {
+            self.initArgs.append(contentsOf: ["--log-level", level.description])
         }
 
         /// Additional kernel arguments.
