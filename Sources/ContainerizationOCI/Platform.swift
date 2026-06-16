@@ -272,7 +272,14 @@ extension Platform: Hashable {
     }
 
     public func hash(into hasher: inout Swift.Hasher) {
-        hasher.combine(description)
+        hasher.combine(os)
+        hasher.combine(architecture)
+        // arm64 with no variant is equivalent to arm64/v8 per the == implementation
+        if architecture == "arm64" {
+            hasher.combine(variant ?? "v8")
+        } else {
+            hasher.combine(variant)
+        }
     }
 }
 
