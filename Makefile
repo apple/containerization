@@ -19,6 +19,14 @@ SWIFT_CONFIGURATION := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -
 
 # Commonly used locations
 UNAME_S := $(shell uname -s)
+UNAME_M := $(shell uname -m)
+KERNEL_ARCH := $(if $(filter $(UNAME_M),aarch64 arm64),arm64,$(UNAME_M))
+# Candidate kernel filenames in bin/ (compiled vmlinuz first, kata-fetched vmlinux fallback).
+ifeq ($(KERNEL_ARCH),x86_64)
+KERNEL_CANDIDATES := bin/vmlinuz-x86_64 bin/vmlinux-x86_64
+else
+KERNEL_CANDIDATES := bin/vmlinux-$(KERNEL_ARCH)
+endif
 ifeq ($(UNAME_S),Darwin)
 SWIFT ?= /usr/bin/swift
 else
@@ -169,12 +177,13 @@ coverage: test
 
 .PHONY: integration
 integration:
-ifeq (,$(wildcard bin/vmlinux))
-	@echo No bin/vmlinux kernel found. See fetch-default-kernel target.
-	@exit 1
-endif
-	@echo Running the integration tests...
-	@./bin/containerization-integration
+	@kernel="$$(for f in $(KERNEL_CANDIDATES); do [ -f $$f ] && echo $$f && break; done)"; \
+	if [ -z "$$kernel" ]; then \
+		echo "No kernel found. Looked for: $(KERNEL_CANDIDATES). See fetch-default-kernel target or build via kernel/Makefile."; \
+		exit 1; \
+	fi; \
+	echo "Running the integration tests with kernel $$kernel..."; \
+	./bin/containerization-integration --kernel "$$kernel"
 
 .PHONY: fetch-default-kernel
 fetch-default-kernel:
@@ -182,12 +191,12 @@ fetch-default-kernel:
 ifeq (,$(wildcard .local/kata.tar.gz))
 	@curl -SsL -o .local/kata.tar.gz ${KATA_BINARY_PACKAGE}
 endif
-ifeq (,$(wildcard .local/vmlinux))
+ifeq (,$(wildcard .local/vmlinux-$(KERNEL_ARCH)))
 	@tar -zxf .local/kata.tar.gz -C .local/ --strip-components=1
-	@cp -L .local/opt/kata/share/kata-containers/vmlinux.container .local/vmlinux
+	@cp -L .local/opt/kata/share/kata-containers/vmlinux.container .local/vmlinux-$(KERNEL_ARCH)
 endif
-ifeq (,$(wildcard bin/vmlinux))
-	@cp .local/vmlinux bin/vmlinux
+ifeq (,$(wildcard bin/vmlinux-$(KERNEL_ARCH)))
+	@cp .local/vmlinux-$(KERNEL_ARCH) bin/vmlinux-$(KERNEL_ARCH)
 endif
 
 .PHONY: check
