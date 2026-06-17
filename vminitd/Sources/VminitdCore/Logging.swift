@@ -23,9 +23,13 @@ import Synchronization
 
 public struct LogLevelOption: ParsableArguments {
     @Option(name: .long, help: "Set the log level (trace, debug, info, notice, warning, error, critical)")
-    var logLevel: String = "info"
+    public var logLevel: String = "info"
 
     public init() {}
+
+    public init(logLevel: String) {
+        self.logLevel = logLevel
+    }
 
     public func resolvedLogLevel() -> Logger.Level {
         switch logLevel.lowercased() {
