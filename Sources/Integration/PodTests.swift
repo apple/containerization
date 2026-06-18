@@ -16,12 +16,14 @@
 
 import ArgumentParser
 import Containerization
+import ContainerizationEXT4
 import ContainerizationError
 import ContainerizationExtras
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
 import Logging
+import SystemPackage
 
 extension IntegrationSuite {
     /// Clone a rootfs mount to a new location for use by a container in a pod
@@ -2142,6 +2144,79 @@ extension IntegrationSuite {
         guard output.contains("fd00::2") else {
             throw IntegrationError.assert(
                 msg: "expected fd00::2 on eth0 inside pod container, got: \(output)")
+        }
+    }
+
+    func testPodFilesystemOperation() async throws {
+        let id = "test-pod-filesystem-operation"
+
+        let bs = try await bootstrap(id)
+
+        let diskImageURL = Self.testDir.appending(component: "\(id)-data.ext4")
+        try? FileManager.default.removeItem(at: diskImageURL)
+        let filesystem = try EXT4.Formatter(FilePath(diskImageURL.absolutePath()), minDiskSize: 64.mib())
+        try filesystem.close()
+
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
+            config.process.arguments = ["/bin/sleep", "1000"]
+            config.mounts.append(
+                Mount.block(
+                    format: "ext4",
+                    source: diskImageURL.absolutePath(),
+                    destination: "/data"
+                ))
+        }
+
+        do {
+            try await pod.create()
+            try await pod.startContainer("container1")
+
+            try await pod.filesystemOperation("container1", operation: .freeze, path: "/data")
+
+            let writeExec = try await pod.execInContainer("container1", processID: "write-hello") { config in
+                config.arguments = ["/bin/sh", "-c", "echo hello > /data/hello.txt"]
+            }
+            try await writeExec.start()
+            let writeStatus = try await writeExec.wait()
+            guard writeStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "write exec failed with status \(writeStatus)")
+            }
+            try await writeExec.delete()
+
+            try await pod.filesystemOperation("container1", operation: .thaw, path: "/data")
+
+            let readBuffer = BufferWriter()
+            let readExec = try await pod.execInContainer("container1", processID: "read-hello") { config in
+                config.arguments = ["/bin/cat", "/data/hello.txt"]
+                config.stdout = readBuffer
+            }
+            try await readExec.start()
+            let readStatus = try await readExec.wait()
+            guard readStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "read exec failed with status \(readStatus)")
+            }
+            try await readExec.delete()
+
+            let readOutput = String(decoding: readBuffer.data, as: UTF8.self)
+            guard readOutput == "hello\n" else {
+                throw IntegrationError.assert(
+                    msg: "expected 'hello\\n' in /data/hello.txt, got: '\(readOutput)'"
+                )
+            }
+
+            try await pod.killContainer("container1", signal: .kill)
+            _ = try await pod.waitContainer("container1")
+            try await pod.stop()
+        } catch {
+            try? await pod.filesystemOperation("container1", operation: .thaw, path: "/data")
+            try? await pod.stop()
+            throw error
         }
     }
 }

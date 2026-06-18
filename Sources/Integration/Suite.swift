@@ -463,6 +463,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("pod NBD volume identity", testPodNBDVolumeIdentity),
                 Test("pod invalid volume reference", testPodInvalidVolumeReference),
                 Test("pod duplicate volume name", testPodDuplicateVolumeName),
+                Test("pod filesystem operation", testPodFilesystemOperation),
             ] + macOS26Tests()
 
         let filteredTests: [Test]

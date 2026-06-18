@@ -31,6 +31,7 @@ import Logging
 import NIOCore
 import NIOPosix
 import SwiftProtobuf
+import SystemPackage
 
 private let _setenv = Foundation.setenv
 
