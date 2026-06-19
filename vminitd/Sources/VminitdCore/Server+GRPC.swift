@@ -31,6 +31,7 @@ import Logging
 import NIOCore
 import NIOPosix
 import SwiftProtobuf
+import SystemPackage
 
 private let _setenv = Foundation.setenv
 
@@ -40,14 +41,16 @@ private let _mount = Musl.mount
 private let _umount = Musl.umount2
 private let _kill = Musl.kill
 private let _sync = Musl.sync
-private let _stat: @Sendable (UnsafePointer<CChar>, UnsafeMutablePointer<Musl.stat>) -> Int32 = stat
+typealias _stat_struct = Musl.stat
+private let _stat: @Sendable (UnsafePointer<CChar>, UnsafeMutablePointer<_stat_struct>) -> Int32 = stat
 #elseif canImport(Glibc)
 import Glibc
 private let _mount = Glibc.mount
 private let _umount = Glibc.umount2
 private let _kill = Glibc.kill
 private let _sync = Glibc.sync
-private let _stat: @Sendable (UnsafePointer<CChar>, UnsafeMutablePointer<Glibc.stat>) -> Int32 = stat
+typealias _stat_struct = Glibc.stat
+private let _stat: @Sendable (UnsafePointer<CChar>, UnsafeMutablePointer<_stat_struct>) -> Int32 = stat
 #endif
 
 extension ContainerizationError {
@@ -378,11 +381,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         )
 
         #if os(Linux)
-        #if canImport(Musl)
-        var s = Musl.stat()
-        #elseif canImport(Glibc)
-        var s = Glibc.stat()
-        #endif
+        var s = _stat_struct()
         let result = _stat(request.path, &s)
         if result == -1 {
             let error = swiftErrno("stat")
@@ -676,6 +675,79 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                     "error": "\(error)"
                 ])
             throw RPCError(code: .internalError, message: "mount", cause: error)
+        }
+    }
+
+    public func filesystemOperation(request: Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest, context: GRPCCore.ServerContext)
+        async throws -> Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse
+    {
+        let path = FilePath(request.path)
+
+        log.debug(
+            "filesystemOperation",
+            metadata: [
+                "operation": "\(String(describing: request.operation))",
+                "path": "\(path)",
+            ])
+
+        if !path.isAbsolute {
+            throw RPCError(code: .invalidArgument, message: "path must be absolute")
+        }
+
+        var finfo = _stat_struct()
+        let rc = _stat(path.string, &finfo)
+        if rc != 0 {
+            let error = swiftErrno("stat")
+            throw RPCError(code: .notFound, message: "failed to stat path", cause: error)
+        }
+
+        let fd = open(path.string, O_RDONLY | O_NOFOLLOW)
+        if fd < 0 {
+            if errno == ELOOP {
+                throw RPCError(code: .internalError, message: "path cannot be a symlink")
+            }
+            let error = swiftErrno("open")
+            throw RPCError(code: .internalError, message: "failed to open path", cause: error)
+        }
+
+        defer { close(fd) }
+
+        do {
+            switch request.operation {
+            case .freeze:
+                try freezeFilesystem(fd: fd)
+            case .thaw:
+                try thawFilesystem(fd: fd)
+            case .none:
+                throw RPCError(code: .invalidArgument, message: "invalid operation")
+            }
+        } catch {
+            log.error(
+                "filesystemOperation",
+                metadata: [
+                    "error": "\(error)"
+                ])
+            throw RPCError(code: .internalError, message: "filesystemOperation", cause: error)
+        }
+
+        return .init()
+    }
+
+    private func freezeFilesystem(fd: Int32) throws {
+        let FIFREEZE: UInt = 0xC004_5877
+        let rc: CInt = ioctl(fd, FIFREEZE, 0)
+        if rc != 0 {
+            let error = swiftErrno("ioctl(FIFREEZE)")
+            throw RPCError(code: .internalError, message: "freeze failed", cause: error)
+        }
+    }
+
+    private func thawFilesystem(fd: Int32) throws {
+        let FITHAW: UInt = 0xC004_5878
+        let rc: CInt = ioctl(fd, FITHAW, 0)
+        if rc != 0 {
+            let error = swiftErrno("ioctl(FITHAW)")
+            throw RPCError(code: .internalError, message: "thaw failed", cause: error)
         }
     }
 

@@ -1132,6 +1132,35 @@ extension LinuxPod {
         return try await fn(vm)
     }
 
+    // Perform filesystem operations in a container.
+    public func filesystemOperation(_ containerID: String, operation: FilesystemOperation, path: String) async throws {
+        try await self.state.withLock { state in
+            let createdState = try state.phase.createdState("filesystemOperation")
+
+            guard let container = state.containers[containerID] else {
+                throw ContainerizationError(
+                    .notFound,
+                    message: "container \(containerID) not found in pod"
+                )
+            }
+
+            guard container.state == .started else {
+                throw ContainerizationError(
+                    .invalidState,
+                    message: "container \(containerID) must be started to perform filesystem operations"
+                )
+            }
+
+            try await createdState.vm.withAgent { agent in
+                guard let vminitd = agent as? Vminitd else {
+                    throw ContainerizationError(.unsupported, message: "filesystemOperation requires Vminitd agent")
+                }
+                let guestPath = URL(filePath: Self.guestRootfsPath(containerID)).appending(path: path).path
+                try await vminitd.filesystemOperation(operation: operation, path: guestPath)
+            }
+        }
+    }
+
     /// Close a container's standard input to signal no more input is arriving.
     public func closeContainerStdin(_ containerID: String) async throws {
         try await self.state.withLock { state in

@@ -378,6 +378,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container writable layer with ro lower", testWritableLayerWithReadOnlyLower),
                 Test("container writable layer size", testWritableLayerSize),
                 Test("container writable layer DNS and hosts", testWritableLayerWithDNSAndHosts),
+                Test("container frozen ext4 clone", testFrozenExt4Clone),
                 Test("large stdin input", testLargeStdinInput),
                 Test("exec large stdin input", testExecLargeStdinInput),
                 Test("exec custom path resolution", testExecCustomPathResolution),
@@ -462,6 +463,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("pod NBD volume identity", testPodNBDVolumeIdentity),
                 Test("pod invalid volume reference", testPodInvalidVolumeReference),
                 Test("pod duplicate volume name", testPodDuplicateVolumeName),
+                Test("pod filesystem operation", testPodFilesystemOperation),
             ] + macOS26Tests()
 
         let filteredTests: [Test]
