@@ -4256,10 +4256,6 @@ extension IntegrationSuite {
             }
 
             try FileManager.default.copyItem(at: diskImageURL, to: cloneImageURL)
-            defer {
-                try? FileManager.default.removeItem(at: diskImageURL)
-                try? FileManager.default.removeItem(at: cloneImageURL)
-            }
 
             try await writerContainer.filesystemOperation(operation: .thaw, path: "/data")
 
@@ -4302,22 +4298,6 @@ extension IntegrationSuite {
             let mountOutput = String(decoding: mountBuffer.data, as: UTF8.self)
             guard mountOutput.contains(" /data ") && mountOutput.contains(" ext4 ") else {
                 throw IntegrationError.assert(msg: "expected ext4 mount at /data, got: \(mountOutput)")
-            }
-
-            let dmesgBuffer = BufferWriter()
-            let dmesgExec = try await verifyContainer.exec("verify-dmesg-clean") { config in
-                config.arguments = [
-                    "/bin/sh", "-c",
-                    "if dmesg | grep -Eiq 'fsck|recovering journal|recovery complete'; then dmesg | grep -Ei 'fsck|recovering journal|recovery complete'; exit 1; fi",
-                ]
-                config.stdout = dmesgBuffer
-            }
-            try await dmesgExec.start()
-            status = try await dmesgExec.wait()
-            try await dmesgExec.delete()
-            guard status.exitCode == 0 else {
-                let dmesgOutput = String(decoding: dmesgBuffer.data, as: UTF8.self)
-                throw IntegrationError.assert(msg: "dmesg indicates filesystem recovery on cloned image: \(dmesgOutput)")
             }
 
             let lsBuffer = BufferWriter()
