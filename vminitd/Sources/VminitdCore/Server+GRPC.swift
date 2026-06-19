@@ -41,14 +41,16 @@ private let _mount = Musl.mount
 private let _umount = Musl.umount2
 private let _kill = Musl.kill
 private let _sync = Musl.sync
-private let _stat: @Sendable (UnsafePointer<CChar>, UnsafeMutablePointer<Musl.stat>) -> Int32 = stat
+typealias _stat_struct = Musl.stat
+private let _stat: @Sendable (UnsafePointer<CChar>, UnsafeMutablePointer<_stat_struct>) -> Int32 = stat
 #elseif canImport(Glibc)
 import Glibc
 private let _mount = Glibc.mount
 private let _umount = Glibc.umount2
 private let _kill = Glibc.kill
 private let _sync = Glibc.sync
-private let _stat: @Sendable (UnsafePointer<CChar>, UnsafeMutablePointer<Glibc.stat>) -> Int32 = stat
+typealias _stat_struct = Glibc.stat
+private let _stat: @Sendable (UnsafePointer<CChar>, UnsafeMutablePointer<_stat_struct>) -> Int32 = stat
 #endif
 
 extension ContainerizationError {
@@ -379,11 +381,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         )
 
         #if os(Linux)
-        #if canImport(Musl)
-        var s = Musl.stat()
-        #elseif canImport(Glibc)
-        var s = Glibc.stat()
-        #endif
+        var s = _stat_struct()
         let result = _stat(request.path, &s)
         if result == -1 {
             let error = swiftErrno("stat")
@@ -696,19 +694,18 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             throw RPCError(code: .invalidArgument, message: "path must be absolute")
         }
 
-        var finfo = sys_stat.stat()
-        let rc = lstat(path.string, &finfo)
+        var finfo = _stat_struct()
+        let rc = _stat(path.string, &finfo)
         if rc != 0 {
-            let error = swiftErrno("lstat")
+            let error = swiftErrno("stat")
             throw RPCError(code: .notFound, message: "failed to stat path", cause: error)
         }
 
-        if (finfo.st_mode & S_IFMT) == S_IFLNK {
-            throw RPCError(code: .internalError, message: "path cannot be a symlink")
-        }
-
-        let fd = open(path.string, O_RDONLY)
+        let fd = open(path.string, O_RDONLY | O_NOFOLLOW)
         if fd < 0 {
+            if errno == ELOOP {
+                throw RPCError(code: .internalError, message: "path cannot be a symlink")
+            }
             let error = swiftErrno("open")
             throw RPCError(code: .internalError, message: "failed to open path", cause: error)
         }
