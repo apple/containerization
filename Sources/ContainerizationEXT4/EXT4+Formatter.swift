@@ -166,6 +166,8 @@ extension EXT4 {
             if self.tree.lookup(path: link) != nil {
                 try self.unlink(path: link)
             }
+            // create all predecessors recursively
+            try self.create(path: parentPath, mode: Inode.Mode(.S_IFDIR, 0o755), recursion: true)
             guard let parentTreeNodePtr = self.tree.lookup(path: parentPath) else {
                 throw Error.notFound(parentPath)
             }
