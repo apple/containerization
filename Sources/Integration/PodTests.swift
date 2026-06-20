@@ -2184,12 +2184,12 @@ extension IntegrationSuite {
             }
             try await writeExec.start()
             let writeStatus = try await writeExec.wait()
+            try await writeExec.delete()
             guard writeStatus.exitCode == 0 else {
                 throw IntegrationError.assert(msg: "write exec failed with status \(writeStatus)")
             }
-            try await writeExec.delete()
-
             try await pod.filesystemOperation("container1", operation: .thaw, path: "/data")
+            try await pod.filesystemOperation("container1", operation: .trim, path: "/data")
 
             let readBuffer = BufferWriter()
             let readExec = try await pod.execInContainer("container1", processID: "read-hello") { config in
@@ -2198,10 +2198,10 @@ extension IntegrationSuite {
             }
             try await readExec.start()
             let readStatus = try await readExec.wait()
+            try await readExec.delete()
             guard readStatus.exitCode == 0 else {
                 throw IntegrationError.assert(msg: "read exec failed with status \(readStatus)")
             }
-            try await readExec.delete()
 
             let readOutput = String(decoding: readBuffer.data, as: UTF8.self)
             guard readOutput == "hello\n" else {

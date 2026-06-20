@@ -28,6 +28,7 @@ public struct WriteFileFlags {
 public enum FilesystemOperation: Sendable {
     case freeze
     case thaw
+    case trim
 }
 
 /// A protocol for the agent running inside a virtual machine. If an operation isn't

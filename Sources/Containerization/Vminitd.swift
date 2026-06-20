@@ -631,6 +631,11 @@ extension FilesystemOperation {
             return .freeze(.init())
         case .thaw:
             return .thaw(.init())
+        case .trim:
+            return .trim(
+                .with {
+                    $0.oneShot = .init()
+                })
         }
     }
 }
