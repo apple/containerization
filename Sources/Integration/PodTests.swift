@@ -2177,7 +2177,7 @@ extension IntegrationSuite {
             try await pod.create()
             try await pod.startContainer("container1")
 
-            _ = try await pod.filesystemOperation("container1", operation: .freeze, path: "/data")
+            try await pod.filesystemOperation("container1", operation: .freeze, path: "/data")
 
             let writeExec = try await pod.execInContainer("container1", processID: "write-hello") { config in
                 config.arguments = ["/bin/sh", "-c", "echo hello > /data/hello.txt"]
@@ -2188,11 +2188,8 @@ extension IntegrationSuite {
             guard writeStatus.exitCode == 0 else {
                 throw IntegrationError.assert(msg: "write exec failed with status \(writeStatus)")
             }
-            _ = try await pod.filesystemOperation("container1", operation: .thaw, path: "/data")
-            let trimmedBytes = try await pod.filesystemOperation("container1", operation: .trim, path: "/data")
-            guard let trimmedBytes, trimmedBytes > 0 else {
-                throw IntegrationError.assert(msg: "expected trim to reclaim bytes")
-            }
+            try await pod.filesystemOperation("container1", operation: .thaw, path: "/data")
+            try await pod.filesystemOperation("container1", operation: .trim, path: "/data")
 
             let readBuffer = BufferWriter()
             let readExec = try await pod.execInContainer("container1", processID: "read-hello") { config in
@@ -2217,7 +2214,7 @@ extension IntegrationSuite {
             _ = try await pod.waitContainer("container1")
             try await pod.stop()
         } catch {
-            _ = try? await pod.filesystemOperation("container1", operation: .thaw, path: "/data")
+            try? await pod.filesystemOperation("container1", operation: .thaw, path: "/data")
             try? await pod.stop()
             throw error
         }

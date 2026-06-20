@@ -712,8 +712,6 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
 
         defer { close(fd) }
 
-        var response = Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse()
-
         do {
             switch request.operation {
             case .freeze:
@@ -723,10 +721,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             case .trim(let params):
                 switch params.schedule {
                 case .oneShot:
-                    let trimmedBytes = try trimFilesystem(fd: fd)
-                    response.trim = .with {
-                        $0.trimmedBytes = trimmedBytes
-                    }
+                    try trimFilesystem(fd: fd)
                 case .none:
                     throw RPCError(code: .invalidArgument, message: "trim schedule must be specified")
                 }
@@ -742,7 +737,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             throw RPCError(code: .internalError, message: "filesystemOperation", cause: error)
         }
 
-        return response
+        return .init()
     }
 
     private func freezeFilesystem(fd: Int32) throws {
@@ -769,7 +764,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         var min_len: UInt64
     }
 
-    private func trimFilesystem(fd: Int32) throws -> UInt64 {
+    private func trimFilesystem(fd: Int32) throws {
         let FITRIM: UInt = 0xC018_5879
         var trange = fitrim_range(start: 0, len: UInt64.max, min_len: 0)
         let rc: CInt = ioctl(fd, FITRIM, &trange)
@@ -777,8 +772,6 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             let error = swiftErrno("ioctl(FITRIM)")
             throw RPCError(code: .internalError, message: "trim failed", cause: error)
         }
-
-        return trange.len
     }
 
     public func umount(request: Com_Apple_Containerization_Sandbox_V3_UmountRequest, context: GRPCCore.ServerContext)

@@ -4243,7 +4243,7 @@ extension IntegrationSuite {
             try await writerContainer.create()
             try await writerContainer.start()
 
-            _ = try await writerContainer.filesystemOperation(operation: .freeze, path: "/data")
+            try await writerContainer.filesystemOperation(operation: .freeze, path: "/data")
 
             let writeExec = try await writerContainer.exec("write-hello") { config in
                 config.arguments = ["/bin/sh", "-c", "echo hello > /data/hello.txt"]
@@ -4257,13 +4257,13 @@ extension IntegrationSuite {
 
             try FileManager.default.copyItem(at: diskImageURL, to: cloneImageURL)
 
-            _ = try await writerContainer.filesystemOperation(operation: .thaw, path: "/data")
+            try await writerContainer.filesystemOperation(operation: .thaw, path: "/data")
 
             try await writerContainer.kill(.kill)
             _ = try await writerContainer.wait()
             try await writerContainer.stop()
         } catch {
-            _ = try? await writerContainer.filesystemOperation(operation: .thaw, path: "/data")
+            try? await writerContainer.filesystemOperation(operation: .thaw, path: "/data")
             try? await writerContainer.stop()
             throw error
         }
@@ -4369,10 +4369,7 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "trim setup exec failed with status \(writeStatus)")
             }
 
-            let trimmedBytes = try await writerContainer.filesystemOperation(operation: .trim, path: "/data")
-            guard let trimmedBytes, trimmedBytes > 0 else {
-                throw IntegrationError.assert(msg: "expected trim to reclaim bytes")
-            }
+            try await writerContainer.filesystemOperation(operation: .trim, path: "/data")
 
             try FileManager.default.copyItem(at: diskImageURL, to: cloneImageURL)
 

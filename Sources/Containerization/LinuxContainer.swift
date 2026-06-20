@@ -1034,15 +1034,15 @@ extension LinuxContainer {
     }
 
     // Perform filesystem operations in the container.
-    public func filesystemOperation(operation: FilesystemOperation, path: String) async throws -> UInt64? {
+    public func filesystemOperation(operation: FilesystemOperation, path: String) async throws {
         try await self.state.withLock {
             let state = try $0.startedState("filesystemOperation")
-            return try await state.vm.withAgent { agent in
+            try await state.vm.withAgent { agent in
                 guard let vminitd = agent as? Vminitd else {
                     throw ContainerizationError(.unsupported, message: "filesystemOperation requires Vminitd agent")
                 }
                 let guestPath = URL(filePath: Self.guestRootfsPath(self.id)).appending(path: path).path
-                return try await vminitd.filesystemOperation(operation: operation, path: guestPath)
+                try await vminitd.filesystemOperation(operation: operation, path: guestPath)
             }
         }
     }
