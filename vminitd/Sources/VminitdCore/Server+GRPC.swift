@@ -718,6 +718,13 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                 try freezeFilesystem(fd: fd)
             case .thaw:
                 try thawFilesystem(fd: fd)
+            case .trim(let params):
+                switch params.schedule {
+                case .oneShot:
+                    try trimFilesystem(fd: fd)
+                case .none:
+                    throw RPCError(code: .invalidArgument, message: "trim schedule must be specified")
+                }
             case .none:
                 throw RPCError(code: .invalidArgument, message: "invalid operation")
             }
@@ -748,6 +755,22 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         if rc != 0 {
             let error = swiftErrno("ioctl(FITHAW)")
             throw RPCError(code: .internalError, message: "thaw failed", cause: error)
+        }
+    }
+
+    private struct fitrim_range {
+        var start: UInt64
+        var len: UInt64
+        var min_len: UInt64
+    }
+
+    private func trimFilesystem(fd: Int32) throws {
+        let FITRIM: UInt = 0xC004_5879
+        var trange = fitrim_range(start: 0, len: UInt64.max, min_len: 0)
+        let rc: CInt = ioctl(fd, FITRIM, &trange)
+        if rc != 0 {
+            let error = swiftErrno("ioctl(FITRIM)")
+            throw RPCError(code: .internalError, message: "trim failed", cause: error)
         }
     }
 

@@ -2177,19 +2177,22 @@ extension IntegrationSuite {
             try await pod.create()
             try await pod.startContainer("container1")
 
-            try await pod.filesystemOperation("container1", operation: .freeze, path: "/data")
+            _ = try await pod.filesystemOperation("container1", operation: .freeze, path: "/data")
 
             let writeExec = try await pod.execInContainer("container1", processID: "write-hello") { config in
                 config.arguments = ["/bin/sh", "-c", "echo hello > /data/hello.txt"]
             }
             try await writeExec.start()
             let writeStatus = try await writeExec.wait()
+            try await writeExec.delete()
             guard writeStatus.exitCode == 0 else {
                 throw IntegrationError.assert(msg: "write exec failed with status \(writeStatus)")
             }
-            try await writeExec.delete()
-
-            try await pod.filesystemOperation("container1", operation: .thaw, path: "/data")
+            _ = try await pod.filesystemOperation("container1", operation: .thaw, path: "/data")
+            let trimmedBytes = try await pod.filesystemOperation("container1", operation: .trim, path: "/data")
+            guard let trimmedBytes, trimmedBytes > 0 else {
+                throw IntegrationError.assert(msg: "expected trim to reclaim bytes")
+            }
 
             let readBuffer = BufferWriter()
             let readExec = try await pod.execInContainer("container1", processID: "read-hello") { config in
@@ -2198,10 +2201,10 @@ extension IntegrationSuite {
             }
             try await readExec.start()
             let readStatus = try await readExec.wait()
+            try await readExec.delete()
             guard readStatus.exitCode == 0 else {
                 throw IntegrationError.assert(msg: "read exec failed with status \(readStatus)")
             }
-            try await readExec.delete()
 
             let readOutput = String(decoding: readBuffer.data, as: UTF8.self)
             guard readOutput == "hello\n" else {
@@ -2214,7 +2217,7 @@ extension IntegrationSuite {
             _ = try await pod.waitContainer("container1")
             try await pod.stop()
         } catch {
-            try? await pod.filesystemOperation("container1", operation: .thaw, path: "/data")
+            _ = try? await pod.filesystemOperation("container1", operation: .thaw, path: "/data")
             try? await pod.stop()
             throw error
         }

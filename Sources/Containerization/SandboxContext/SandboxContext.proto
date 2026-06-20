@@ -294,18 +294,34 @@ message StatResponse {
   string error = 2; // Non-empty if stat failed.
 }
 
+message FiTrimParams {
+  oneof schedule {
+    OneShot one_shot = 1;
+  }
+
+  message OneShot {}
+}
 message FiFreezeParams {}
 message FiThawParams {}
+
+message FiTrimResult {
+  uint64 trimmed_bytes = 1;
+}
 
 message FilesystemOperationRequest {
   string path = 1;
   oneof operation {
-    FiFreezeParams freeze = 2;
-    FiThawParams thaw = 3;
+    FiTrimParams trim = 2;
+    FiFreezeParams freeze = 3;
+    FiThawParams thaw = 4;
   }
 }
 
-message FilesystemOperationResponse {}
+message FilesystemOperationResponse {
+  oneof result {
+    FiTrimResult trim = 1;
+  }
+}
 
 message IpLinkSetRequest {
   string interface = 1;
