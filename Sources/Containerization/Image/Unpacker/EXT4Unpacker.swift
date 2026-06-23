@@ -25,8 +25,15 @@ import SystemPackage
 public struct EXT4Unpacker: Unpacker {
     let blockSizeInBytes: UInt64
 
-    public init(blockSizeInBytes: UInt64) {
+    let journal: EXT4.JournalConfig?
+
+    /// Creates an unpacker that extracts images into EXT4 filesystems.
+    /// - Parameters:
+    ///   - blockSizeInBytes: The filesystem block size.
+    ///   - journal: The journal configuration to use, or nil for no journaling.
+    public init(blockSizeInBytes: UInt64, journal: EXT4.JournalConfig? = nil) {
         self.blockSizeInBytes = blockSizeInBytes
+        self.journal = journal
     }
 
     /// Performs the unpacking of a tar archive into a filesystem.
@@ -42,7 +49,8 @@ public struct EXT4Unpacker: Unpacker {
         let cleanedPath = try prepareUnpackPath(path: path)
         let filesystem = try EXT4.Formatter(
             FilePath(cleanedPath),
-            minDiskSize: blockSizeInBytes
+            minDiskSize: blockSizeInBytes,
+            journal: journal
         )
         defer { try? filesystem.close() }
 
