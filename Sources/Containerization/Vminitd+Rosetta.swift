@@ -18,7 +18,11 @@ import ContainerizationOS
 
 extension Vminitd {
     /// Enable Rosetta's x86_64 emulation.
-    public func enableRosetta() async throws {
+    public func enableRosetta(cachingOptions: RosettaConfiguration.CachingOptions? = .defaultUnixSocket) async throws {
+        if let socketDirectory = cachingOptions?.unixSocketDirectoryPath {
+            try await self.mkdir(path: socketDirectory, all: true, perms: 0o755)
+        }
+
         let path = "/run/rosetta"
         try await self.mount(
             .init(
