@@ -361,6 +361,97 @@ struct UnpackProgressTest {
         let childNames = Set(children.map { $0.0 })
         #expect(childNames.contains("test"), "Directory 'test' should exist in unpacked filesystem")
     }
+
+    @Test func unpackCreatesImplicitParentsForHardlink() async throws {
+        // A hardlink whose parent dir has no explicit archive entry must unpack: the
+        // missing parents are created implicitly instead of failing with "... not found".
+        // This is the exact repro shape (e.g. Bazel rules_img runfiles trees).
+        let tempDir = FileManager.default.uniqueTemporaryDirectory()
+        let archivePath = tempDir.appendingPathComponent("hardlink.tar.gz", isDirectory: false)
+        let fsPath = FilePath(tempDir.appendingPathComponent("hardlink.ext4.img", isDirectory: false))
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let archiver = try ArchiveWriter(
+            configuration: ArchiveWriterConfiguration(format: .paxRestricted, filter: .gzip))
+        try archiver.open(file: archivePath)
+        // The hardlink target. /bin itself has no explicit dir entry either.
+        let payload = Data("hello".utf8)
+        try archiver.writeEntry(
+            entry: WriteEntry.file(path: "/bin/app", permissions: 0o755, size: Int64(payload.count)),
+            data: payload)
+        // The parent dir /bin/app.runfiles/_main/app_ has no explicit archive entry.
+        try archiver.writeEntry(
+            entry: WriteEntry.hardlink(path: "/bin/app.runfiles/_main/app_/app", target: "/bin/app"),
+            data: nil)
+        try archiver.finishEncoding()
+
+        let formatter = try EXT4.Formatter(fsPath)
+        try await formatter.unpack(source: archivePath)  // must not throw notFound
+        try formatter.close()
+
+        let reader = try EXT4.EXT4Reader(blockDevice: fsPath)
+        // Implicitly-created parent directories exist and are directories.
+        #expect(try reader.stat("/bin/app.runfiles").inode.mode.isDir())
+        #expect(try reader.stat("/bin/app.runfiles/_main").inode.mode.isDir())
+        #expect(try reader.stat("/bin/app.runfiles/_main/app_").inode.mode.isDir())
+        // Hardlink resolves to the target inode and bumps the link count to 2.
+        let target = try reader.stat("/bin/app")
+        let hardlink = try reader.stat("/bin/app.runfiles/_main/app_/app")
+        #expect(hardlink.inodeNumber == target.inodeNumber)
+        #expect(target.inode.linksCount == 2)
+    }
+
+    @Test func unpackCreatesImplicitParentsForSymlink() async throws {
+        // A symlink whose parent dir has no explicit archive entry must unpack.
+        let tempDir = FileManager.default.uniqueTemporaryDirectory()
+        let archivePath = tempDir.appendingPathComponent("symlink.tar.gz", isDirectory: false)
+        let fsPath = FilePath(tempDir.appendingPathComponent("symlink.ext4.img", isDirectory: false))
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let archiver = try ArchiveWriter(
+            configuration: ArchiveWriterConfiguration(format: .paxRestricted, filter: .gzip))
+        try archiver.open(file: archivePath)
+        // The parent dir /etc/links has no explicit archive entry.
+        try archiver.writeEntry(
+            entry: WriteEntry.link(path: "/etc/links/cur", permissions: 0o777, target: "/bin/app"),
+            data: nil)
+        try archiver.finishEncoding()
+
+        let formatter = try EXT4.Formatter(fsPath)
+        try await formatter.unpack(source: archivePath)  // must not throw notFound
+        try formatter.close()
+
+        let reader = try EXT4.EXT4Reader(blockDevice: fsPath)
+        #expect(try reader.stat("/etc/links").inode.mode.isDir())
+        #expect(try reader.stat("/etc/links/cur", followSymlinks: false).inode.mode.isLink())
+    }
+
+    @Test func unpackCreatesImplicitParentsForRegularFile() async throws {
+        // A regular file whose parent dir has no explicit archive entry must unpack.
+        let tempDir = FileManager.default.uniqueTemporaryDirectory()
+        let archivePath = tempDir.appendingPathComponent("file.tar.gz", isDirectory: false)
+        let fsPath = FilePath(tempDir.appendingPathComponent("file.ext4.img", isDirectory: false))
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let archiver = try ArchiveWriter(
+            configuration: ArchiveWriterConfiguration(format: .paxRestricted, filter: .gzip))
+        try archiver.open(file: archivePath)
+        // The parent dir /var/lib/data has no explicit archive entry.
+        let payload = Data("world".utf8)
+        try archiver.writeEntry(
+            entry: WriteEntry.file(path: "/var/lib/data/file.txt", permissions: 0o644, size: Int64(payload.count)),
+            data: payload)
+        try archiver.finishEncoding()
+
+        let formatter = try EXT4.Formatter(fsPath)
+        try await formatter.unpack(source: archivePath)  // must not throw notFound
+        try formatter.close()
+
+        let reader = try EXT4.EXT4Reader(blockDevice: fsPath)
+        #expect(try reader.stat("/var/lib/data").inode.mode.isDir())
+        #expect(try reader.stat("/var/lib/data/file.txt").inode.mode.isReg())
+        #expect(try reader.readFile(at: "/var/lib/data/file.txt") == payload)
+    }
 }
 
 extension ContainerizationArchive.WriteEntry {
@@ -389,6 +480,14 @@ extension ContainerizationArchive.WriteEntry {
         entry.path = path
         entry.fileType = .symbolicLink
         entry.symlinkTarget = target
+        return entry
+    }
+
+    static func hardlink(path: String, target: String) -> WriteEntry {
+        let entry = WriteEntry()
+        entry.path = path
+        entry.fileType = .regular
+        entry.hardlink = target
         return entry
     }
 }
