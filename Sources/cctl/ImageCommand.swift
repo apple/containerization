@@ -22,7 +22,6 @@ import ContainerizationExtras
 import ContainerizationOCI
 import Foundation
 
-#if os(macOS)
 extension Application {
     struct Images: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
@@ -276,8 +275,10 @@ extension Application {
             if let authentication {
                 return try await body(authentication)
             }
+            #if os(macOS)
             let keychain = KeychainHelper(securityDomain: Application.keychainID)
             authentication = try? keychain.lookup(hostname: host)
+            #endif
             return try await body(authentication)
         }
 
@@ -293,4 +294,3 @@ extension Application {
         }
     }
 }
-#endif

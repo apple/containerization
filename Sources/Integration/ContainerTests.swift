@@ -648,6 +648,7 @@ extension IntegrationSuite {
         }
     }
 
+    #if os(macOS)
     func testNestedVirtualizationEnabled() async throws {
         let id = "test-nested-virt"
 
@@ -849,6 +850,8 @@ extension IntegrationSuite {
                 msg: "process should have \(devConsole) in `mount` output")
         }
     }
+
+    #endif
 
     func testContainerStatistics() async throws {
         let id = "test-container-statistics"
@@ -3188,6 +3191,7 @@ extension IntegrationSuite {
         }
     }
 
+    #if os(macOS)
     @available(macOS 26.0, *)
     func testInterfaceMTU() async throws {
         let id = "test-interface-mtu"
@@ -3246,6 +3250,8 @@ extension IntegrationSuite {
             throw error
         }
     }
+
+    #endif
 
     func testSingleFileMount() async throws {
         let id = "test-single-file-mount"
@@ -4666,6 +4672,7 @@ extension IntegrationSuite {
         }
     }
 
+    #if os(macOS)
     @available(macOS 26.0, *)
     func testNetworkingDisabled() async throws {
         let id = "test-networking-disabled"
@@ -5214,6 +5221,8 @@ extension IntegrationSuite {
             throw error
         }
     }
+
+    #endif
 
     func testSysctl() async throws {
         let id = "test-container-sysctl"
