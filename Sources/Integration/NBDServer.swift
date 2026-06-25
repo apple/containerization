@@ -20,6 +20,7 @@ import Logging
 import NIOCore
 import NIOPosix
 
+#if os(macOS)
 /// A minimal NBD server for integration testing.
 ///
 /// Serves a file-backed block device using the NBD newstyle handshake protocol.
@@ -379,3 +380,4 @@ private final class NBDConnectionHandler: ChannelInboundHandler {
         buf.writeInteger(cookie)
     }
 }
+#endif

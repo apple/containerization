@@ -125,7 +125,15 @@ public final class LinuxProcess: Sendable {
 
 extension LinuxProcess {
     func setupIO(listeners: [VsockListener?]) async throws -> [FileHandle?] {
-        let handles = try await Timeout.run(seconds: 3) {
+        // Nested virtualization (x86_64 CI) is dramatically slower to bring the
+        // guest vsock listeners up than native arm64 virt, so allow a longer
+        // window there while keeping the arm64 path tight.
+        #if arch(x86_64)
+        let ioTimeout: UInt32 = 30
+        #else
+        let ioTimeout: UInt32 = 3
+        #endif
+        let handles = try await Timeout.run(seconds: ioTimeout) {
             try await withThrowingTaskGroup(of: (Int, FileHandle?).self) { group in
                 var results = [FileHandle?](repeating: nil, count: 3)
 

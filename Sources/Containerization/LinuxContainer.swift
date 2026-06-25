@@ -589,18 +589,57 @@ extension LinuxContainer {
 
             try await vm.start()
             do {
+                let mountsForAgent = containerMounts
                 try await vm.withAgent { agent in
                     try await agent.standardSetup()
 
-                    // Mount the unified virtiofs share at /run/virtiofs
-                    // All virtiofs directories appear as subdirectories here
-                    try await agent.mount(
-                        ContainerizationOCI.Mount(
-                            type: "virtiofs",
-                            source: "virtiofs",
-                            destination: "/run/virtiofs",
-                            options: []
-                        ))
+                    // Mount the unified virtiofs share at /run/virtiofs only
+                    // when at least one of the container's mounts is virtiofs
+                    // — the bind-mount transform below derives its sources
+                    // from /run/virtiofs/{tag}, so the unified share is only
+                    // load-bearing when there are virtiofs mounts. The macOS
+                    // VZ backend always exposes the virtiofs device (even
+                    // with zero shares), but the cloud-hypervisor backend
+                    // only spawns virtiofsd when shares exist; mounting an
+                    // unbacked tag fails with EINVAL.
+                    let hasVirtiofsMount = mountsForAgent.contains { mount in
+                        if case .virtiofs = mount.runtimeOptions { return true }
+                        return false
+                    }
+                    if hasVirtiofsMount {
+                        // VZ exposes ONE virtio-fs device with tag "virtiofs"
+                        // and multiple sources as subdirs (VZMultipleDirectoryShare).
+                        // The CH backend exposes one device per source-hash
+                        // tag instead, so the guest must mount each tag
+                        // separately at /run/virtiofs/<tag>. The bind-mount
+                        // transform below uses /run/virtiofs/<tag> in both
+                        // cases, so this branch is only about how /run/virtiofs
+                        // gets populated.
+                        if vm.virtiofsLayout == .perTag {
+                            try await agent.mkdir(path: "/run/virtiofs", all: true, perms: 0o755)
+                            let virtiofsAttachments = (vm.mounts[self.id] ?? []).filter { $0.type == "virtiofs" }
+                            let uniqueTags = Set(virtiofsAttachments.map(\.source))
+                            for tag in uniqueTags {
+                                let dest = "/run/virtiofs/\(tag)"
+                                try await agent.mkdir(path: dest, all: true, perms: 0o755)
+                                try await agent.mount(
+                                    ContainerizationOCI.Mount(
+                                        type: "virtiofs",
+                                        source: tag,
+                                        destination: dest,
+                                        options: []
+                                    ))
+                            }
+                        } else {
+                            try await agent.mount(
+                                ContainerizationOCI.Mount(
+                                    type: "virtiofs",
+                                    source: "virtiofs",
+                                    destination: "/run/virtiofs",
+                                    options: []
+                                ))
+                        }
+                    }
 
                     guard let attachments = vm.mounts[self.id] else {
                         throw ContainerizationError(.notFound, message: "rootfs mount not found")
