@@ -265,6 +265,52 @@ struct PodVolumeTests {
         #expect(mount.type == "xfs")
     }
 
+    @Test func podVolumeDiskImageSourceCreation() {
+        let volume = LinuxPod.PodVolume(
+            name: "disk-data",
+            source: .diskImage(path: URL(fileURLWithPath: "/tmp/disk.ext4")),
+            format: "ext4"
+        )
+
+        #expect(volume.name == "disk-data")
+        #expect(volume.format == "ext4")
+        if case .diskImage(let path, let readOnly) = volume.source {
+            #expect(path.path == "/tmp/disk.ext4")
+            #expect(readOnly == false)
+        } else {
+            Issue.record("Expected .diskImage source")
+        }
+    }
+
+    @Test func podVolumeDiskImageToMountConvertsCorrectly() {
+        let volume = LinuxPod.PodVolume(
+            name: "my-disk",
+            source: .diskImage(path: URL(fileURLWithPath: "/tmp/my-disk.ext4")),
+            format: "ext4"
+        )
+
+        let mount = volume.toMount()
+
+        // The mount source must be the raw filesystem path, not a file:// URL.
+        #expect(mount.source == "/tmp/my-disk.ext4")
+        #expect(mount.destination == "/run/volumes/my-disk")
+        #expect(mount.type == "ext4")
+        #expect(mount.isBlock)
+    }
+
+    @Test func podVolumeDiskImageReadOnlySetsOptions() {
+        let volume = LinuxPod.PodVolume(
+            name: "ro-disk",
+            source: .diskImage(path: URL(fileURLWithPath: "/tmp/ro-disk.ext4"), readOnly: true),
+            format: "ext4"
+        )
+
+        let mount = volume.toMount()
+
+        #expect(mount.options.contains("ro"))
+        #expect(mount.isBlock)
+    }
+
     @Test func sharedMountCreation() {
         let mount = Mount.sharedMount(
             name: "shared-data",

@@ -102,6 +102,8 @@ public final class LinuxPod: Sendable {
         public enum Source: Sendable {
             /// A network block device (NBD) volume.
             case nbd(url: URL, timeout: TimeInterval? = nil, readOnly: Bool = false)
+            /// A disk-image file on the host, attached as a virtio-block device.
+            case diskImage(path: URL, readOnly: Bool = false)
         }
 
         /// The logical name of this volume. Containers reference this name
@@ -131,6 +133,13 @@ public final class LinuxPod: Sendable {
                     destination: LinuxPod.guestVolumePath(name),
                     options: readOnly ? ["ro"] : [],
                     runtimeOptions: runtimeOptions
+                )
+            case .diskImage(let path, let readOnly):
+                return Mount.block(
+                    format: self.format,
+                    source: path.absolutePath(),
+                    destination: LinuxPod.guestVolumePath(name),
+                    options: readOnly ? ["ro"] : []
                 )
             }
         }
