@@ -26,6 +26,17 @@ public enum VirtualMachineInstanceState: Sendable {
     case unknown
 }
 
+/// How the VMM exposes virtiofs devices to the guest.
+///
+/// - `unified`: a single virtio-fs device (tag `virtiofs`) carries all
+///   shares as subdirectories (Apple's `VZMultipleDirectoryShare` model).
+/// - `perTag`: one virtio-fs device per source-hash tag, each mounted
+///   separately in the guest (cloud-hypervisor / virtiofsd model).
+public enum VirtiofsLayout: Sendable {
+    case unified
+    case perTag
+}
+
 /// A live instance of a virtual machine.
 public protocol VirtualMachineInstance: Sendable {
     associatedtype Agent: VirtualMachineAgent
@@ -34,6 +45,10 @@ public protocol VirtualMachineInstance: Sendable {
     var state: VirtualMachineInstanceState { get }
 
     var mounts: [String: [AttachedFilesystem]] { get }
+
+    /// How this VMM exposes virtiofs devices to the guest. Defaults to
+    /// `.unified` (the VZ-shaped behavior); CH overrides to `.perTag`.
+    var virtiofsLayout: VirtiofsLayout { get }
     /// Dial the Agent. It's up the VirtualMachineInstance to determine
     /// what port the agent is listening on.
     func dialAgent() async throws -> Agent
@@ -81,6 +96,7 @@ public protocol VirtualMachineInstance: Sendable {
 }
 
 extension VirtualMachineInstance {
+    public var virtiofsLayout: VirtiofsLayout { .unified }
     public func pause() async throws {
         throw ContainerizationError(.unsupported, message: "pause")
     }

@@ -85,8 +85,15 @@ struct LinkAttributeType {
     static let IFLA_BROADCAST: UInt16 = 2
     static let IFLA_IFNAME: UInt16 = 3
     static let IFLA_MTU: UInt16 = 4
+    static let IFLA_MASTER: UInt16 = 10
+    static let IFLA_LINKINFO: UInt16 = 18
     static let IFLA_STATS64: UInt16 = 23
     static let IFLA_EXT_MASK: UInt16 = 29
+}
+
+/// Nested attribute types inside `IFLA_LINKINFO`.
+struct LinkInfoAttributeType {
+    static let IFLA_INFO_KIND: UInt16 = 1
 }
 
 struct LinkAttributeMaskFilter {
