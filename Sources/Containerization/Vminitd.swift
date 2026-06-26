@@ -20,9 +20,8 @@ import ContainerizationOCI
 import ContainerizationOS
 import Foundation
 import GRPCCore
-import GRPCNIOTransportCore
-import NIOCore
-import NIOPosix
+import GRPCNIOTransportHTTP2
+import NIO
 
 /// A remote connection into the vminitd Linux guest agent via a port (vsock).
 /// Used to modify the runtime environment of the Linux sandbox.
@@ -34,18 +33,24 @@ public struct Vminitd: Sendable {
     public let grpcClient: GRPCClient<HTTP2ClientTransport.WrappedChannel>
     private let connectionTask: Task<Void, Error>
 
-    public init(connection: FileHandle, group: any EventLoopGroup) throws {
-        let channel = try ClientBootstrap(group: group)
-            .channelInitializer { channel in
-                channel.eventLoop.makeCompletedFuture(withResultOf: {
-                    try channel.pipeline.syncOperations.addHandler(HTTP2ConnectBufferingHandler())
-                })
+    public init(connection: FileHandle, group: any EventLoopGroup) async throws {
+        let transport = try await HTTP2ClientTransport.WrappedChannel.wrapping(
+            config: .defaults { $0.connection.maxIdleTime = nil },
+            serviceConfig: .init()
+        ) { configure in
+            try await withCheckedThrowingContinuation { continuation in
+                ClientBootstrap(group: group)
+                    .channelInitializer { channel in
+                        configure(channel).map { configured in
+                            continuation.resume(returning: configured)
+                        }
+                    }
+                    .withConnectedSocket(connection.fileDescriptor)
+                    .whenFailure { error in
+                        continuation.resume(throwing: error)
+                    }
             }
-            .withConnectedSocket(connection.fileDescriptor).wait()
-        let transport = HTTP2ClientTransport.WrappedChannel.wrapping(
-            channel: channel,
-            config: .defaults { $0.connection.maxIdleTime = nil }
-        )
+        }
         let grpcClient = GRPCClient(transport: transport)
         self.grpcClient = grpcClient
         self.client = Com_Apple_Containerization_Sandbox_V3_SandboxContext.Client(wrapping: self.grpcClient)
