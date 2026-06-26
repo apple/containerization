@@ -94,6 +94,7 @@ public final class LinuxProcess: Sendable {
 
     private let state: Mutex<State>
     private let ioSetup: Stdio
+    private let native: Bool
     private let agent: any VirtualMachineAgent
     private let vm: any VirtualMachineInstance
     private let ociRuntimePath: String?
@@ -105,6 +106,7 @@ public final class LinuxProcess: Sendable {
         containerID: String? = nil,
         spec: Spec,
         io: Stdio,
+        native: Bool = false,
         ociRuntimePath: String?,
         agent: any VirtualMachineAgent,
         vm: any VirtualMachineInstance,
@@ -115,6 +117,7 @@ public final class LinuxProcess: Sendable {
         self.owningContainer = containerID
         self.state = Mutex<State>(.init(spec: spec, pid: -1, stdio: StdioHandles()))
         self.ioSetup = io
+        self.native = native
         self.agent = agent
         self.ociRuntimePath = ociRuntimePath
         self.vm = vm
@@ -240,6 +243,11 @@ extension LinuxProcess {
         do {
             let spec = self.state.withLock { $0.spec }
             var listeners = [VsockListener?](repeating: nil, count: 3)
+
+            let options = try JSONEncoder().encode(
+                CreateProcessOptions(native: self.native)
+            )
+
             if let stdin = self.ioSetup.stdin {
                 listeners[0] = try self.vm.listen(stdin.port)
             }
@@ -268,7 +276,7 @@ extension LinuxProcess {
                 stderrPort: self.ioSetup.stderr?.port,
                 ociRuntimePath: self.ociRuntimePath,
                 configuration: spec,
-                options: nil
+                options: options
             )
 
             let result = try await t.value
