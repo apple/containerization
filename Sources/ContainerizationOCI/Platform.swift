@@ -47,13 +47,25 @@ public struct Platform: Sendable, Equatable {
         return .init(arch: normalized.arch, os: "linux", variant: normalized.variant)
     }
 
-    /// The computed description, for example, `linux/arm64/v8`.
+    /// The computed description, for example, `linux/amd64` or `linux/arm/v7`.
+    ///
+    /// `arm64`'s only defined variant is `v8`, which `==` and `hash` already treat as
+    /// equivalent to a `nil` variant. The redundant `v8` is therefore omitted so that
+    /// two equal arm64 platforms (one with `variant == nil`, one with `"v8"`) describe
+    /// identically as `linux/arm64`, rather than drifting between `arm64` and
+    /// `arm64/v8`. See apple/container#1542.
     public var description: String {
         let architecture = architecture
-        if let variant = variant {
+        if let variant, !Self.isRedundantVariant(variant, for: architecture) {
             return "\(os)/\(architecture)/\(variant)"
         }
         return "\(os)/\(architecture)"
+    }
+
+    /// Whether `variant` is the canonical default for `architecture` and can be omitted
+    /// from the rendered description without losing information.
+    private static func isRedundantVariant(_ variant: String, for architecture: String) -> Bool {
+        architecture == "arm64" && variant == "v8"
     }
 
     /// The CPU architecture, for example, `amd64` or `arm64`.
