@@ -426,6 +426,19 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
                 type: .unary
             )
         }
+        /// Namespace for "NotifyFileSystemEvent" metadata.
+        public enum NotifyFileSystemEvent: Sendable {
+            /// Request type for "NotifyFileSystemEvent".
+            public typealias Input = Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest
+            /// Response type for "NotifyFileSystemEvent".
+            public typealias Output = Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse
+            /// Descriptor for "NotifyFileSystemEvent".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
+                method: "NotifyFileSystemEvent",
+                type: .bidirectionalStreaming
+            )
+        }
         /// Descriptors for all methods in the "com.apple.containerization.sandbox.v3.SandboxContext" service.
         public static let descriptors: [GRPCCore.MethodDescriptor] = [
             Mount.descriptor,
@@ -457,7 +470,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             ConfigureDns.descriptor,
             ConfigureHosts.descriptor,
             Sync.descriptor,
-            Kill.descriptor
+            Kill.descriptor,
+            NotifyFileSystemEvent.descriptor
         ]
     }
 }
@@ -1029,6 +1043,25 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext {
             request: GRPCCore.StreamingServerRequest<Com_Apple_Containerization_Sandbox_V3_KillRequest>,
             context: GRPCCore.ServerContext
         ) async throws -> GRPCCore.StreamingServerResponse<Com_Apple_Containerization_Sandbox_V3_KillResponse>
+
+        /// Handle the "NotifyFileSystemEvent" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Notify the guest of filesystem events on mounted volumes.
+        /// > Used to trigger synthetic inotify events for virtio-fs mounts.
+        ///
+        /// - Parameters:
+        ///   - request: A streaming request of `Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest` messages.
+        ///   - context: Context providing information about the RPC.
+        /// - Throws: Any error which occurred during the processing of the request. Thrown errors
+        ///     of type `RPCError` are mapped to appropriate statuses. All other errors are converted
+        ///     to an internal error.
+        /// - Returns: A streaming response of `Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse` messages.
+        func notifyFileSystemEvent(
+            request: GRPCCore.StreamingServerRequest<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest>,
+            context: GRPCCore.ServerContext
+        ) async throws -> GRPCCore.StreamingServerResponse<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse>
     }
 
     /// Service protocol for the "com.apple.containerization.sandbox.v3.SandboxContext" service.
@@ -1585,6 +1618,25 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext {
             request: GRPCCore.ServerRequest<Com_Apple_Containerization_Sandbox_V3_KillRequest>,
             context: GRPCCore.ServerContext
         ) async throws -> GRPCCore.ServerResponse<Com_Apple_Containerization_Sandbox_V3_KillResponse>
+
+        /// Handle the "NotifyFileSystemEvent" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Notify the guest of filesystem events on mounted volumes.
+        /// > Used to trigger synthetic inotify events for virtio-fs mounts.
+        ///
+        /// - Parameters:
+        ///   - request: A streaming request of `Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest` messages.
+        ///   - context: Context providing information about the RPC.
+        /// - Throws: Any error which occurred during the processing of the request. Thrown errors
+        ///     of type `RPCError` are mapped to appropriate statuses. All other errors are converted
+        ///     to an internal error.
+        /// - Returns: A streaming response of `Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse` messages.
+        func notifyFileSystemEvent(
+            request: GRPCCore.StreamingServerRequest<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest>,
+            context: GRPCCore.ServerContext
+        ) async throws -> GRPCCore.StreamingServerResponse<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse>
     }
 
     /// Simple service protocol for the "com.apple.containerization.sandbox.v3.SandboxContext" service.
@@ -2140,6 +2192,26 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext {
             request: Com_Apple_Containerization_Sandbox_V3_KillRequest,
             context: GRPCCore.ServerContext
         ) async throws -> Com_Apple_Containerization_Sandbox_V3_KillResponse
+
+        /// Handle the "NotifyFileSystemEvent" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Notify the guest of filesystem events on mounted volumes.
+        /// > Used to trigger synthetic inotify events for virtio-fs mounts.
+        ///
+        /// - Parameters:
+        ///   - request: A stream of `Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest` messages.
+        ///   - response: A response stream of `Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse` messages.
+        ///   - context: Context providing information about the RPC.
+        /// - Throws: Any error which occurred during the processing of the request. Thrown errors
+        ///     of type `RPCError` are mapped to appropriate statuses. All other errors are converted
+        ///     to an internal error.
+        func notifyFileSystemEvent(
+            request: GRPCCore.RPCAsyncSequence<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest, any Swift.Error>,
+            response: GRPCCore.RPCWriter<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse>,
+            context: GRPCCore.ServerContext
+        ) async throws
     }
 }
 
@@ -2472,6 +2544,17 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext.StreamingServiceP
             serializer: GRPCProtobuf.ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_KillResponse>(),
             handler: { request, context in
                 try await self.kill(
+                    request: request,
+                    context: context
+                )
+            }
+        )
+        router.registerHandler(
+            forMethod: Com_Apple_Containerization_Sandbox_V3_SandboxContext.Method.NotifyFileSystemEvent.descriptor,
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest>(),
+            serializer: GRPCProtobuf.ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse>(),
+            handler: { request, context in
+                try await self.notifyFileSystemEvent(
                     request: request,
                     context: context
                 )
@@ -3210,6 +3293,23 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServiceProt
             metadata: [:]
         )
     }
+
+    public func notifyFileSystemEvent(
+        request: GRPCCore.StreamingServerRequest<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest>,
+        context: GRPCCore.ServerContext
+    ) async throws -> GRPCCore.StreamingServerResponse<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse> {
+        return GRPCCore.StreamingServerResponse<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse>(
+            metadata: [:],
+            producer: { writer in
+                try await self.notifyFileSystemEvent(
+                    request: request.messages,
+                    response: writer,
+                    context: context
+                )
+                return [:]
+            }
+        )
+    }
 }
 
 // MARK: com.apple.containerization.sandbox.v3.SandboxContext (client)
@@ -3916,6 +4016,30 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext {
             deserializer: some GRPCCore.MessageDeserializer<Com_Apple_Containerization_Sandbox_V3_KillResponse>,
             options: GRPCCore.CallOptions,
             onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Com_Apple_Containerization_Sandbox_V3_KillResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "NotifyFileSystemEvent" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Notify the guest of filesystem events on mounted volumes.
+        /// > Used to trigger synthetic inotify events for virtio-fs mounts.
+        ///
+        /// - Parameters:
+        ///   - request: A streaming request producing `Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest` messages.
+        ///   - serializer: A serializer for `Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest` messages.
+        ///   - deserializer: A deserializer for `Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func notifyFileSystemEvent<Result>(
+            request: GRPCCore.StreamingClientRequest<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest>,
+            serializer: some GRPCCore.MessageSerializer<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.StreamingClientResponse<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse>) async throws -> Result
         ) async throws -> Result where Result: Sendable
     }
 
@@ -4959,6 +5083,39 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext {
                 onResponse: handleResponse
             )
         }
+
+        /// Call the "NotifyFileSystemEvent" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Notify the guest of filesystem events on mounted volumes.
+        /// > Used to trigger synthetic inotify events for virtio-fs mounts.
+        ///
+        /// - Parameters:
+        ///   - request: A streaming request producing `Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest` messages.
+        ///   - serializer: A serializer for `Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest` messages.
+        ///   - deserializer: A deserializer for `Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func notifyFileSystemEvent<Result>(
+            request: GRPCCore.StreamingClientRequest<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest>,
+            serializer: some GRPCCore.MessageSerializer<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.StreamingClientResponse<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.bidirectionalStreaming(
+                request: request,
+                descriptor: Com_Apple_Containerization_Sandbox_V3_SandboxContext.Method.NotifyFileSystemEvent.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
     }
 }
 
@@ -5831,6 +5988,34 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext.ClientProtocol {
             request: request,
             serializer: GRPCProtobuf.ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_KillRequest>(),
             deserializer: GRPCProtobuf.ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_KillResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "NotifyFileSystemEvent" method.
+    ///
+    /// > Source IDL Documentation:
+    /// >
+    /// > Notify the guest of filesystem events on mounted volumes.
+    /// > Used to trigger synthetic inotify events for virtio-fs mounts.
+    ///
+    /// - Parameters:
+    ///   - request: A streaming request producing `Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest` messages.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func notifyFileSystemEvent<Result>(
+        request: GRPCCore.StreamingClientRequest<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.StreamingClientResponse<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse>) async throws -> Result
+    ) async throws -> Result where Result: Sendable {
+        try await self.notifyFileSystemEvent(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse>(),
             options: options,
             onResponse: handleResponse
         )
@@ -6825,6 +7010,39 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext.ClientProtocol {
             metadata: metadata
         )
         return try await self.kill(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "NotifyFileSystemEvent" method.
+    ///
+    /// > Source IDL Documentation:
+    /// >
+    /// > Notify the guest of filesystem events on mounted volumes.
+    /// > Used to trigger synthetic inotify events for virtio-fs mounts.
+    ///
+    /// - Parameters:
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - producer: A closure producing request messages to send to the server. The request
+    ///       stream is closed when the closure returns.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func notifyFileSystemEvent<Result>(
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        requestProducer producer: @Sendable @escaping (GRPCCore.RPCWriter<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest>) async throws -> Void,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.StreamingClientResponse<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventResponse>) async throws -> Result
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.StreamingClientRequest<Com_Apple_Containerization_Sandbox_V3_NotifyFileSystemEventRequest>(
+            metadata: metadata,
+            producer: producer
+        )
+        return try await self.notifyFileSystemEvent(
             request: request,
             options: options,
             onResponse: handleResponse

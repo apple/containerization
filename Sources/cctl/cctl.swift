@@ -67,6 +67,7 @@ struct Application: AsyncParsableCommand {
             ]
             #if os(macOS)
             commands += [
+                FSNotify.self,
                 Images.self,
                 Login.self,
                 Run.self,
