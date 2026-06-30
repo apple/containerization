@@ -922,7 +922,7 @@ extension LinuxContainer {
                 agent: agent,
                 vm: startedState.vm,
                 logger: self.logger,
-                onDelete: { [weak self = self] in
+                onDelete: { [weak self] in
                     await self?.removeProcess(id: id)
                 }
             )
@@ -959,7 +959,7 @@ extension LinuxContainer {
                 agent: agent,
                 vm: state.vm,
                 logger: self.logger,
-                onDelete: { [weak self = self] in
+                onDelete: { [weak self] in
                     await self?.removeProcess(id: id)
                 }
             )
