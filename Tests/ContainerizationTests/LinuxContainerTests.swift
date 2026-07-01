@@ -15,6 +15,7 @@
 //===----------------------------------------------------------------------===//
 
 import ContainerizationOCI
+import ContainerizationOS
 import Foundation
 import Testing
 
@@ -65,5 +66,30 @@ struct LinuxContainerTests {
         let process = LinuxProcessConfiguration(from: imageConfig)
 
         #expect(process.arguments == ["/bin/sh", "-c", "echo 'hello'", "&&", "sleep 10"])
+    }
+
+    @Test func defaultCapabilitiesAreRestrictedOCISet() {
+        // Regression guard against shipping `.allCapabilities` as the default.
+        // A default container must not receive CAP_SYS_ADMIN, which would let it
+        // write /proc/sys/kernel/core_pattern and escape to guest-root. Cover both
+        // construction paths: the no-argument init (property default) and the full
+        // memberwise init (parameter default).
+        let viaProperty = LinuxProcessConfiguration()
+        let viaInit = LinuxProcessConfiguration(arguments: ["/bin/sh"])
+
+        for caps in [viaProperty.capabilities, viaInit.capabilities] {
+            for set in [caps.bounding, caps.effective, caps.permitted, caps.inheritable, caps.ambient] {
+                #expect(!set.contains(.sysAdmin), "default capabilities must not include CAP_SYS_ADMIN")
+            }
+        }
+
+        // The default must be exactly the documented OCI baseline.
+        let expected = LinuxCapabilities.defaultOCICapabilities
+        #expect(viaProperty.capabilities.bounding == expected.bounding)
+        #expect(viaProperty.capabilities.effective == expected.effective)
+        #expect(viaProperty.capabilities.permitted == expected.permitted)
+        #expect(viaProperty.capabilities.inheritable == expected.inheritable)
+        #expect(viaProperty.capabilities.ambient == expected.ambient)
+        #expect(viaInit.capabilities.bounding == expected.bounding)
     }
 }
