@@ -2091,6 +2091,7 @@ extension IntegrationSuite {
         }
     }
 
+    #if os(macOS)
     @available(macOS 26.0, *)
     func testPodIPv6AddressAdd() async throws {
         let id = "test-pod-ipv6-address"
@@ -2146,6 +2147,7 @@ extension IntegrationSuite {
                 msg: "expected fd00::2 on eth0 inside pod container, got: \(output)")
         }
     }
+    #endif
 
     func testPodFilesystemOperation() async throws {
         let id = "test-pod-filesystem-operation"

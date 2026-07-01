@@ -373,13 +373,6 @@ public struct ContainerManager: Sendable {
     }
 }
 
-extension CIDRv4 {
-    /// The gateway address of the network.
-    public var gateway: IPv4Address {
-        IPv4Address(self.lower.value + 1)
-    }
-}
-
 extension CIDRv6 {
     /// The gateway address of the network.
     public var gateway: IPv6Address {
