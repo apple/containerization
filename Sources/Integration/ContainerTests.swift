@@ -5144,7 +5144,9 @@ extension IntegrationSuite {
         }
 
         // Capture the v4 address vmnet allocated so we can assert it ends up on eth0.
-        let expectedV4 = interface.ipv4Address.address.description
+        guard let expectedV4 = interface.ipv4Address?.address.description else {
+            throw IntegrationError.assert(msg: "network interface needs IPv4 address")
+        }
 
         let addrBuffer = BufferWriter()
         let routeBuffer = BufferWriter()
