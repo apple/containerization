@@ -49,4 +49,16 @@ int CZ_setrlimit(int resource, unsigned long long soft,
   limit.rlim_max = (rlim_t)hard;
   return setrlimit(resource, &limit);
 }
+
+#ifndef SYS_seccomp
+#define SYS_seccomp 277
+#endif
+
+#ifndef SECCOMP_SET_MODE_FILTER
+#define SECCOMP_SET_MODE_FILTER 1
+#endif
+
+int CZ_seccomp_set_mode_filter(unsigned int flags, struct CZ_sock_fprog *prog) {
+  return syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER, flags, prog);
+}
 #endif

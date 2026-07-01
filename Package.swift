@@ -33,6 +33,7 @@ let package = Package(
         .library(name: "ContainerizationOS", targets: ["ContainerizationOS"]),
         .library(name: "ContainerizationExtras", targets: ["ContainerizationExtras"]),
         .library(name: "ContainerizationArchive", targets: ["ContainerizationArchive"]),
+        .library(name: "ContainerizationSeccomp", targets: ["ContainerizationSeccomp"]),
         .library(name: "VminitdCore", targets: ["VminitdCore", "Cgroup", "LCShim"]),
         .executable(name: "cctl", targets: ["cctl"]),
     ],
@@ -293,6 +294,19 @@ let package = Package(
                 "Cgroup",
             ],
             path: "vminitd/Sources/VminitdCore"
+        ),
+        .target(
+            name: "ContainerizationSeccomp",
+            dependencies: [
+                "ContainerizationOCI"
+            ]
+        ),
+        .testTarget(
+            name: "ContainerizationSeccompTests",
+            dependencies: [
+                "ContainerizationSeccomp",
+                "ContainerizationOCI",
+            ]
         ),
     ]
 )

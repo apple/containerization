@@ -415,6 +415,14 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container NBD read-only", testContainerNBDReadOnly),
                 Test("container NBD raw block", testContainerNBDRawBlock),
                 Test("container NBD volume identity", testContainerNBDVolumeIdentity),
+                Test("container seccomp block syscall", testSeccompBlockSyscall),
+                Test("container seccomp block syscall explicit errno", testSeccompBlockSyscallExplicitErrno),
+                Test("container seccomp allow list", testSeccompAllowList),
+                Test("container seccomp kill process", testSeccompKillProcess),
+                Test("container seccomp exec", testSeccompExec),
+                Test("container seccomp defaultProfile capability gated rules", testSeccompOCIDefaultCapabilityGatedRules),
+                Test("container seccomp log action", testSeccompLogAction),
+                Test("container seccomp syscall by number", testSeccompSyscallByNumber),
 
                 // Pods
                 Test("pod single container", testPodSingleContainer),
