@@ -178,9 +178,13 @@ public final class RegistryClient: ContentClient {
                 response = _response
                 if _response.status == .unauthorized || _response.status == .forbidden {
                     let authHeader = _response.headers[TokenRequest.authenticateHeaderName]
+                    let authChallenges = Self.parseWWWAuthenticateHeaders(headers: authHeader)
+                    if let reason = Self.authenticationFailureReason(authentication: self.authentication, challenges: authChallenges) {
+                        throw RegistryClient.Error.invalidStatus(url: path, _response.status, reason: reason)
+                    }
                     let tokenRequest: TokenRequest
                     do {
-                        tokenRequest = try self.createTokenRequest(parsing: authHeader)
+                        tokenRequest = try self.createTokenRequest(from: authChallenges)
                     } catch {
                         // The server did not tell us how to authenticate our requests,
                         // Or we do not support scheme the server is requesting for.
