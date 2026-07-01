@@ -45,7 +45,8 @@ public struct ContainerManager: Sendable {
         imageStore: ImageStore,
         network: Network? = nil,
         rosetta: Bool = false,
-        nestedVirtualization: Bool = false
+        nestedVirtualization: Bool = false,
+        rosettaConfiguration: RosettaConfiguration? = nil
     ) throws {
         self.imageStore = imageStore
         self.network = network
@@ -54,7 +55,8 @@ public struct ContainerManager: Sendable {
             kernel: kernel,
             initialFilesystem: initfs,
             rosetta: rosetta,
-            nestedVirtualization: nestedVirtualization
+            nestedVirtualization: nestedVirtualization,
+            rosettaConfiguration: rosettaConfiguration
         )
     }
 
@@ -67,7 +69,8 @@ public struct ContainerManager: Sendable {
         root: URL? = nil,
         network: Network? = nil,
         rosetta: Bool = false,
-        nestedVirtualization: Bool = false
+        nestedVirtualization: Bool = false,
+        rosettaConfiguration: RosettaConfiguration? = nil
     ) throws {
         if let root {
             self.imageStore = try ImageStore(path: root)
@@ -80,7 +83,8 @@ public struct ContainerManager: Sendable {
             kernel: kernel,
             initialFilesystem: initfs,
             rosetta: rosetta,
-            nestedVirtualization: nestedVirtualization
+            nestedVirtualization: nestedVirtualization,
+            rosettaConfiguration: rosettaConfiguration
         )
     }
 
@@ -93,7 +97,8 @@ public struct ContainerManager: Sendable {
         imageStore: ImageStore,
         network: Network? = nil,
         rosetta: Bool = false,
-        nestedVirtualization: Bool = false
+        nestedVirtualization: Bool = false,
+        rosettaConfiguration: RosettaConfiguration? = nil
     ) async throws {
         self.imageStore = imageStore
         self.network = network
@@ -121,7 +126,8 @@ public struct ContainerManager: Sendable {
             kernel: kernel,
             initialFilesystem: initfs,
             rosetta: rosetta,
-            nestedVirtualization: nestedVirtualization
+            nestedVirtualization: nestedVirtualization,
+            rosettaConfiguration: rosettaConfiguration
         )
     }
 
@@ -133,7 +139,8 @@ public struct ContainerManager: Sendable {
         root: URL? = nil,
         network: Network? = nil,
         rosetta: Bool = false,
-        nestedVirtualization: Bool = false
+        nestedVirtualization: Bool = false,
+        rosettaConfiguration: RosettaConfiguration? = nil
     ) async throws {
         if let root {
             self.imageStore = try ImageStore(path: root)
@@ -165,7 +172,8 @@ public struct ContainerManager: Sendable {
             kernel: kernel,
             initialFilesystem: initfs,
             rosetta: rosetta,
-            nestedVirtualization: nestedVirtualization
+            nestedVirtualization: nestedVirtualization,
+            rosettaConfiguration: rosettaConfiguration
         )
     }
 
