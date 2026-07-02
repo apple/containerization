@@ -18,6 +18,11 @@ export GIT_COMMIT := $(shell git rev-parse HEAD)
 export GIT_TAG := $(shell git describe --tags --exact-match 2>/dev/null || echo "")
 export BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 SWIFT_WARNING_CONFIG := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors)
+# MUSL_ARCH selects which Static Linux SDK triple to build against
+# ($(MUSL_ARCH)-swift-linux-musl). Defaults to the host architecture
+# so the in-tree aarch64 flow works unchanged, but callers can override
+# (e.g. `make MUSL_ARCH=x86_64` for the dist-x86_64 cross-build path).
+ifndef MUSL_ARCH
 UNAME_M := $(shell uname -m)
 ifeq ($(UNAME_M),arm64)
 MUSL_ARCH := aarch64
@@ -25,6 +30,7 @@ else ifeq ($(UNAME_M),aarch64)
 MUSL_ARCH := aarch64
 else
 MUSL_ARCH := x86_64
+endif
 endif
 
 LIBC ?= musl
@@ -58,16 +64,21 @@ endif
 
 .DEFAULT_GOAL := all
 
+# INSTALL_DIR is where built binaries land. Defaults to ./bin so the
+# in-tree aarch64 flow is unchanged. The dist-x86_64 cross-build
+# overrides this to keep its artifacts out of vminitd/bin/.
+INSTALL_DIR ?= ./bin
+
 .PHONY: all
-all: 
+all:
 	@echo Building vminitd and vmexec...
-	@mkdir -p ./bin/
-	@rm -f ./bin/vminitd
-	@rm -f ./bin/vmexec
+	@mkdir -p $(INSTALL_DIR)
+	@rm -f $(INSTALL_DIR)/vminitd
+	@rm -f $(INSTALL_DIR)/vmexec
 	@$(SWIFT) --version
 	@$(SWIFT) build -c $(BUILD_CONFIGURATION) $(SWIFT_CONFIGURATION)
-	@install "$(BUILD_BIN_DIR)/vminitd" ./bin/
-	@install "$(BUILD_BIN_DIR)/vmexec" ./bin/
+	@install "$(BUILD_BIN_DIR)/vminitd" $(INSTALL_DIR)/
+	@install "$(BUILD_BIN_DIR)/vmexec" $(INSTALL_DIR)/
 
 .PHONY: cross-prep
 cross-prep: swift linux-sdk

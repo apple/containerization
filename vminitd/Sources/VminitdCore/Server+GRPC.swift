@@ -951,7 +951,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             if error is RPCError {
                 throw error
             }
-            throw RPCError(code: .internalError, message: "createProcess", cause: error)
+            throw RPCError(code: .internalError, message: "createProcess: \(error)", cause: error)
         }
     }
 

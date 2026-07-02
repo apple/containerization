@@ -63,14 +63,14 @@ struct Application: AsyncParsableCommand {
         version: "2.0.0",
         subcommands: {
             var commands: [any ParsableCommand.Type] = [
-                Rootfs.self
-            ]
-            #if os(macOS)
-            commands += [
+                Rootfs.self,
                 Images.self,
-                Login.self,
                 Run.self,
             ]
+            #if os(macOS)
+            commands.append(Login.self)
+            #elseif os(Linux)
+            commands.append(Bridge.self)
             #endif
             return commands
         }()

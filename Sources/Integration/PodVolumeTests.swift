@@ -23,6 +23,7 @@ import Foundation
 import Logging
 import SystemPackage
 
+#if os(macOS)
 extension IntegrationSuite {
     private func cloneRootfsForContainer(_ rootfs: Containerization.Mount, testID: String, containerID: String) throws -> Containerization.Mount {
         let clonePath = Self.testDir.appending(component: "\(testID)-\(containerID).ext4").absolutePath()
@@ -853,3 +854,4 @@ extension IntegrationSuite {
         }
     }
 }
+#endif
