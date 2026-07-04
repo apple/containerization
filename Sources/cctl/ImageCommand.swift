@@ -145,7 +145,7 @@ extension Application {
                 let unpackUrl = URL(filePath: unpackPath)
                 try FileManager.default.createDirectory(at: unpackUrl, withIntermediateDirectories: true)
 
-                let unpacker = EXT4Unpacker.init(blockSizeInBytes: 2.gib())
+                let unpacker = EXT4Unpacker.init(capacityInBytes: 2.gib())
 
                 startTime = ContinuousClock.now
                 if let platform {
