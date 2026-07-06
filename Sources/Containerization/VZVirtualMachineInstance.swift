@@ -566,38 +566,6 @@ extension VZVirtualMachineInstance.Configuration {
     }
 }
 
-extension Kernel {
-    func linuxCommandline(initialFilesystem: Mount) -> String {
-        var args = self.commandLine.kernelArgs
-
-        args.append("init=/sbin/vminitd")
-        // rootfs is always set as ro.
-        args.append("ro")
-
-        switch initialFilesystem.type {
-        case "virtiofs":
-            args.append(contentsOf: [
-                "rootfstype=virtiofs",
-                "root=rootfs",
-            ])
-        case "ext4":
-            args.append(contentsOf: [
-                "rootfstype=ext4",
-                "root=/dev/vda",
-            ])
-        default:
-            fatalError("unsupported initfs filesystem \(initialFilesystem.type)")
-        }
-
-        if self.commandLine.initArgs.count > 0 {
-            args.append("--")
-            args.append(contentsOf: self.commandLine.initArgs)
-        }
-
-        return args.joined(separator: " ")
-    }
-}
-
 public protocol VZInterface {
     func device() throws -> VZVirtioNetworkDeviceConfiguration
 }

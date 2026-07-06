@@ -1,0 +1,14 @@
+#!/bin/bash
+# Wrapper that dispatches to `zig cc -target x86_64-linux-musl`.
+# Filters out `--target=<rust-triple>` args that cc-rs (Rust build
+# scripts like zstd-sys) adds — cc-rs emits the Rust-form triple
+# (x86_64-unknown-linux-musl) which Zig can't parse. We always pass
+# our own -target below, so cc-rs's is redundant.
+args=()
+for arg in "$@"; do
+    case "$arg" in
+        --target=*) ;;
+        *) args+=("$arg") ;;
+    esac
+done
+exec /opt/zig/zig cc -target x86_64-linux-musl "${args[@]}"

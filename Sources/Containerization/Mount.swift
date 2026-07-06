@@ -21,6 +21,14 @@ import Foundation
 import Virtualization
 #endif
 
+#if os(Linux)
+#if canImport(Musl)
+import Musl
+#elseif canImport(Glibc)
+import Glibc
+#endif
+#endif
+
 /// A filesystem mount exposed to a container.
 public struct Mount: Sendable {
     /// The filesystem or mount type. This is the string
@@ -127,14 +135,23 @@ public struct Mount: Sendable {
         )
     }
 
-    #if os(macOS)
     /// Clone the Mount to the provided path.
     ///
-    /// This uses `clonefile` to provide a copy-on-write copy of the Mount.
+    /// On macOS this uses `clonefile` (via `FileManager.copyItem`) for a
+    /// copy-on-write copy when the underlying filesystem supports it. On
+    /// Linux it tries `ioctl(FICLONE)` first (CoW on btrfs / xfs / bcachefs)
+    /// and falls back to a `SEEK_DATA`/`SEEK_HOLE` sparse copy that copies
+    /// only data ranges. This matters for EXT4 images produced by
+    /// `EXT4+Formatter`, which sparse-allocate via `lseek + 1-byte write` —
+    /// a non-sparse copy would inflate a ~50 MB alpine rootfs into a
+    /// fully-allocated 2 GiB clone and exhaust the integration suite's
+    /// writable layer in ~30 tests.
     public func clone(to: String) throws -> Self {
-        let fm = FileManager.default
-        let src = self.source
-        try fm.copyItem(atPath: src, toPath: to)
+        #if os(Linux)
+        try Self.linuxSparseCopy(from: self.source, to: to)
+        #else
+        try FileManager.default.copyItem(atPath: self.source, toPath: to)
+        #endif
 
         return .init(
             type: self.type,
@@ -143,6 +160,121 @@ public struct Mount: Sendable {
             options: self.options,
             runtimeOptions: self.runtimeOptions
         )
+    }
+
+    #if os(Linux)
+    /// Copy `src` to `dst`, preferring a CoW reflink (`ioctl(FICLONE)`) and
+    /// falling back to a SEEK_DATA/SEEK_HOLE sparse copy. The reflink path
+    /// succeeds on btrfs / xfs (`reflink=1`) / bcachefs; on ext4 / tmpfs /
+    /// overlayfs it fails fast with EOPNOTSUPP/EXDEV/EINVAL and we walk
+    /// the hole map instead. The sparse-copy path also handles
+    /// filesystems that don't support hole-seeking (the very first
+    /// SEEK_DATA returns EINVAL) by copying the remainder verbatim. Mode
+    /// bits are preserved from the source.
+    private static func linuxSparseCopy(from src: String, to dst: String) throws {
+        // Stable Linux ABI since 3.1 (ext4, tmpfs, overlayfs all support it).
+        // Re-declared here so the build doesn't depend on whether the
+        // Glibc/Musl Swift overlay re-exports them.
+        let SEEK_DATA: Int32 = 3
+        let SEEK_HOLE: Int32 = 4
+        // _IOW(0x94, 9, int) on every Linux arch we target (x86_64, aarch64).
+        let FICLONE: CUnsignedLong = 0x4004_9409
+
+        let srcFd = open(src, O_RDONLY | O_CLOEXEC)
+        guard srcFd >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        defer { _ = close(srcFd) }
+
+        var st = stat()
+        guard fstat(srcFd, &st) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        let size = off_t(st.st_size)
+        let mode = mode_t(st.st_mode & 0o7777)
+
+        let dstFd = open(dst, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, mode)
+        guard dstFd >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        defer { _ = close(dstFd) }
+
+        // FICLONE atomically replaces dst's contents with a CoW clone of
+        // src — sets size and contents in one shot, no ftruncate needed
+        // afterwards. On failure FICLONE guarantees dst is untouched, so
+        // we can safely fall through to the sparse-copy path. ioctl(2) is
+        // variadic; type-pun via a fixed-arity function pointer (same
+        // pattern as ContainerizationOS.Socket).
+        let ioctlFICLONE: @convention(c) (CInt, CUnsignedLong, CInt) -> CInt = ioctl
+        if ioctlFICLONE(dstFd, FICLONE, srcFd) == 0 {
+            return
+        }
+
+        // Set the destination size up front so any trailing hole survives —
+        // we only ever pwrite data ranges, never zero-fill.
+        guard ftruncate(dstFd, size) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+
+        let bufSize = 1 << 20  // 1 MiB
+        let buf = UnsafeMutableRawPointer.allocate(byteCount: bufSize, alignment: 16)
+        defer { buf.deallocate() }
+
+        var pos: off_t = 0
+        while pos < size {
+            let dataStart = lseek(srcFd, pos, SEEK_DATA)
+            if dataStart < 0 {
+                // ENXIO: no more data — rest is hole, already covered by ftruncate.
+                if errno == ENXIO {
+                    break
+                }
+                // EINVAL/ENOTSUP: filesystem doesn't support SEEK_DATA. Treat
+                // the remainder as one big data range and copy it verbatim.
+                try Self.copyRange(srcFd: srcFd, dstFd: dstFd, start: pos, end: size, buf: buf, bufSize: bufSize)
+                break
+            }
+
+            // SEEK_HOLE returns end-of-file when there's no trailing hole.
+            let dataEnd = lseek(srcFd, dataStart, SEEK_HOLE)
+            let endOff: off_t = dataEnd < 0 ? size : dataEnd
+
+            try Self.copyRange(srcFd: srcFd, dstFd: dstFd, start: dataStart, end: endOff, buf: buf, bufSize: bufSize)
+            pos = endOff
+        }
+    }
+
+    private static func copyRange(
+        srcFd: Int32,
+        dstFd: Int32,
+        start: off_t,
+        end: off_t,
+        buf: UnsafeMutableRawPointer,
+        bufSize: Int
+    ) throws {
+        var off = start
+        while off < end {
+            let want = Int(min(off_t(bufSize), end - off))
+            let nread = pread(srcFd, buf, want, off)
+            if nread < 0 {
+                if errno == EINTR { continue }
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            if nread == 0 {
+                // Source shorter than fstat reported — shouldn't happen, but
+                // bail rather than spin.
+                return
+            }
+            var written = 0
+            while written < nread {
+                let nwrite = pwrite(dstFd, buf.advanced(by: written), nread - written, off + off_t(written))
+                if nwrite < 0 {
+                    if errno == EINTR { continue }
+                    throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                }
+                written += nwrite
+            }
+            off += off_t(nread)
+        }
     }
     #endif
 }

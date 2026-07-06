@@ -23,8 +23,9 @@ import Foundation
 import Logging
 import SystemPackage
 
+#if os(macOS)
 extension IntegrationSuite {
-    private func cloneRootfsForNBD(_ rootfs: Containerization.Mount, testID: String, containerID: String) throws -> Containerization.Mount {
+    private func cloneRootfsForContainer(_ rootfs: Containerization.Mount, testID: String, containerID: String) throws -> Containerization.Mount {
         let clonePath = Self.testDir.appending(component: "\(testID)-\(containerID).ext4").absolutePath()
         try? FileManager.default.removeItem(atPath: clonePath)
         return try rootfs.clone(to: clonePath)
@@ -295,8 +296,8 @@ extension IntegrationSuite {
         let (server, diskURL) = try createNBDServer(testID: id, name: "shared")
         defer { server.stop() }
 
-        let rootfs1 = try cloneRootfsForNBD(bs.rootfs, testID: id, containerID: "writer")
-        let rootfs2 = try cloneRootfsForNBD(bs.rootfs, testID: id, containerID: "reader")
+        let rootfs1 = try cloneRootfsForContainer(bs.rootfs, testID: id, containerID: "writer")
+        let rootfs2 = try cloneRootfsForContainer(bs.rootfs, testID: id, containerID: "reader")
 
         let pod = try LinuxPod(id, vmm: bs.vmm) { config in
             config.cpus = 4
@@ -511,8 +512,8 @@ extension IntegrationSuite {
         let (server, _) = try createNBDServer(testID: id, name: "persistent")
         defer { server.stop() }
 
-        let rootfs1 = try cloneRootfsForNBD(bs.rootfs, testID: id, containerID: "writer")
-        let rootfs2 = try cloneRootfsForNBD(bs.rootfs, testID: id, containerID: "reader")
+        let rootfs1 = try cloneRootfsForContainer(bs.rootfs, testID: id, containerID: "writer")
+        let rootfs2 = try cloneRootfsForContainer(bs.rootfs, testID: id, containerID: "reader")
 
         let pod = try LinuxPod(id, vmm: bs.vmm) { config in
             config.cpus = 4
@@ -578,8 +579,8 @@ extension IntegrationSuite {
         let (server, _) = try createNBDServer(testID: id, name: "shared")
         defer { server.stop() }
 
-        let rootfs1 = try cloneRootfsForNBD(bs.rootfs, testID: id, containerID: "c1")
-        let rootfs2 = try cloneRootfsForNBD(bs.rootfs, testID: id, containerID: "c2")
+        let rootfs1 = try cloneRootfsForContainer(bs.rootfs, testID: id, containerID: "c1")
+        let rootfs2 = try cloneRootfsForContainer(bs.rootfs, testID: id, containerID: "c2")
 
         let pod = try LinuxPod(id, vmm: bs.vmm) { config in
             config.cpus = 4
@@ -726,4 +727,131 @@ extension IntegrationSuite {
             }
         }
     }
+
+    /// Attach an empty EXT4 disk-image file as a pod volume and have
+    /// multiple containers read from and write to the shared mount.
+    func testPodSharedDiskImageVolume() async throws {
+        let id = "test-pod-shared-disk-image-volume"
+        let bs = try await bootstrap(id)
+
+        // Create an empty EXT4 disk image to back the shared volume.
+        let diskURL = try createEXT4DiskImage(testID: id, name: "shared")
+
+        let rootfs1 = try cloneRootfsForContainer(bs.rootfs, testID: id, containerID: "writer")
+        let rootfs2 = try cloneRootfsForContainer(bs.rootfs, testID: id, containerID: "appender")
+        let rootfs3 = try cloneRootfsForContainer(bs.rootfs, testID: id, containerID: "reader")
+
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 1
+            config.memoryInBytes = 512.mib()
+            config.bootLog = bs.bootLog
+            config.volumes = [
+                .init(
+                    name: "shared-data",
+                    source: .diskImage(path: diskURL),
+                    format: "ext4"
+                )
+            ]
+        }
+
+        // Container 1: writes a file to the shared volume and verifies mount type.
+        let writerBuffer = BufferWriter()
+        try await pod.addContainer("writer", rootfs: rootfs1) { config in
+            config.process.arguments = [
+                "/bin/sh", "-c",
+                "echo shared-content > /data/shared.txt && grep /data /proc/mounts",
+            ]
+            config.process.stdout = writerBuffer
+            config.mounts.append(.sharedMount(name: "shared-data", destination: "/data"))
+        }
+
+        // Container 2: reads what the writer produced and writes a second file,
+        // mounted at a different path to prove it's the same backing store.
+        let appenderBuffer = BufferWriter()
+        try await pod.addContainer("appender", rootfs: rootfs2) { config in
+            config.process.arguments = [
+                "/bin/sh", "-c",
+                "cat /vol/shared.txt && echo more-content > /vol/second.txt",
+            ]
+            config.process.stdout = appenderBuffer
+            config.mounts.append(.sharedMount(name: "shared-data", destination: "/vol"))
+        }
+
+        // Container 3: reads both files written by the previous containers.
+        let readerBuffer = BufferWriter()
+        try await pod.addContainer("reader", rootfs: rootfs3) { config in
+            config.process.arguments = [
+                "/bin/sh", "-c",
+                "cat /shared/shared.txt && cat /shared/second.txt && grep /shared /proc/mounts",
+            ]
+            config.process.stdout = readerBuffer
+            config.mounts.append(.sharedMount(name: "shared-data", destination: "/shared"))
+        }
+
+        do {
+            try await pod.create()
+
+            // Run the containers sequentially so reads see prior writes.
+            try await pod.startContainer("writer")
+            let writerStatus = try await pod.waitContainer("writer")
+            guard writerStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "writer exited with status \(writerStatus)")
+            }
+
+            try await pod.startContainer("appender")
+            let appenderStatus = try await pod.waitContainer("appender")
+            guard appenderStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "appender exited with status \(appenderStatus)")
+            }
+
+            try await pod.startContainer("reader")
+            let readerStatus = try await pod.waitContainer("reader")
+            guard readerStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "reader exited with status \(readerStatus)")
+            }
+            try await pod.stop()
+        } catch {
+            try? await pod.stop()
+            throw error
+        }
+
+        // Verify writer mounted a virtio block device at /data.
+        let writerOutput = String(data: writerBuffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let writerLines = writerOutput.components(separatedBy: "\n")
+        guard !writerLines.isEmpty else {
+            throw IntegrationError.assert(msg: "writer produced no output")
+        }
+        try assertVirtioBlockMount(writerLines.last!, path: "/data")
+
+        // Verify the appender read the writer's file.
+        let appenderOutput = String(data: appenderBuffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard appenderOutput == "shared-content" else {
+            throw IntegrationError.assert(msg: "appender: expected 'shared-content', got '\(appenderOutput)'")
+        }
+
+        // Verify the reader saw both files and a virtio block mount.
+        let readerOutput = String(data: readerBuffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let readerLines = readerOutput.components(separatedBy: "\n")
+        guard readerLines.count >= 3 else {
+            throw IntegrationError.assert(msg: "expected at least 3 lines from reader, got: \(readerOutput)")
+        }
+        guard readerLines[0] == "shared-content" else {
+            throw IntegrationError.assert(msg: "reader: expected 'shared-content', got '\(readerLines[0])'")
+        }
+        guard readerLines[1] == "more-content" else {
+            throw IntegrationError.assert(msg: "reader: expected 'more-content', got '\(readerLines[1])'")
+        }
+        try assertVirtioBlockMount(readerLines[2], path: "/shared")
+
+        // Verify both writes landed on the host-side EXT4 disk image.
+        let firstContent = try readFileFromDiskImage(diskURL, path: "/shared.txt")
+        guard firstContent == "shared-content" else {
+            throw IntegrationError.assert(msg: "disk image /shared.txt: expected 'shared-content', got '\(firstContent)'")
+        }
+        let secondContent = try readFileFromDiskImage(diskURL, path: "/second.txt")
+        guard secondContent == "more-content" else {
+            throw IntegrationError.assert(msg: "disk image /second.txt: expected 'more-content', got '\(secondContent)'")
+        }
+    }
 }
+#endif
