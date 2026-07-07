@@ -106,6 +106,7 @@ let package = Package(
             name: "ContainerizationEXT4",
             dependencies: [
                 "ContainerizationArchive",
+                .product(name: "OrderedCollections", package: "swift-collections"),
                 .product(name: "SystemPackage", package: "swift-system"),
                 "ContainerizationOS",
             ],

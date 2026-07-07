@@ -24,7 +24,7 @@ extension EXT4.EXT4Reader {
             format: .paxRestricted, filter: .none, options: [Options.xattrformat(.schily)])
         let writer = try ArchiveWriter(configuration: config)
         try writer.open(file: archive.url)
-        var items = self.tree.root.pointee.children
+        var items = Array(self.tree.root.pointee.children)
         let hardlinkedInodes = Set(self.hardlinks.values)
         var hardlinkTargets: [EXT4.InodeNumber: FilePath] = [:]
 
