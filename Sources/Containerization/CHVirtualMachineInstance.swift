@@ -261,7 +261,7 @@ extension CHVirtualMachineInstance: VirtualMachineInstance {
                 try await chCall { try await self.client.vmBoot() }
 
                 let fh = try await self.dialVminitdWithRetries()
-                let agent = try Vminitd(connection: fh, group: self.group)
+                let agent = try await Vminitd(connection: fh, group: self.group)
                 await self.timeSyncer.start(context: agent)
 
                 for ext in self.config.extensions.compactMap({ $0 as? any CHInstanceExtension }) {
@@ -377,7 +377,7 @@ extension CHVirtualMachineInstance: VirtualMachineInstance {
                 baseSocket: self.workDir.appendingPathComponent("vsock.sock"),
                 port: Vminitd.port
             )
-            return try Vminitd(connection: fh, group: self.group)
+            return try await Vminitd(connection: fh, group: self.group)
         }
     }
 

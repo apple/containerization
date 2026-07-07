@@ -1733,7 +1733,7 @@ extension IntegrationSuite {
             try await assertExec(container, id: "create-fifo", cmd: "mkfifo /tmp/test-fifo")
 
             let vsock = try await container.dialVsock(port: 1024)
-            let vminitd = try Vminitd(connection: vsock, group: Self.eventLoop)
+            let vminitd = try await Vminitd(connection: vsock, group: Self.eventLoop)
 
             let root = URL(filePath: container.root)
 
