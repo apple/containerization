@@ -455,6 +455,9 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("container capabilities all capabilities", testCapabilitiesAllCapabilities),
             Test("container capabilities file ownership", testCapabilitiesFileOwnership),
 
+            // Masked / read-only paths
+            Test("container default masked and read-only paths", testDefaultMaskedAndReadonlyPaths),
+
             // Stat / Copy
             Test("container stat", testStat),
             Test("container copy in", testCopyIn),
