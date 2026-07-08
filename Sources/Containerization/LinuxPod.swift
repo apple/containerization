@@ -410,6 +410,52 @@ extension LinuxPod {
                             additionalMounts: fileMountContext.transformedMounts
                         )
 
+                        // Mount the hotplugged container's virtiofs shares in the
+                        // guest. create() does this for boot-time containers (the
+                        // /run/virtiofs loop); the hotplug path must do the same or
+                        // the container's bind mounts from /run/virtiofs/<tag> fail
+                        // with ENOENT.
+                        let newVirtiofsTags = (vm.mounts[id] ?? [])
+                            .filter { $0.type == "virtiofs" }
+                            .map { $0.source }
+                        if !newVirtiofsTags.isEmpty {
+                            // Tags already mounted in the guest at boot or by a
+                            // prior hotplug (i.e. present on another container).
+                            let alreadyMounted = Set(
+                                vm.mounts
+                                    .filter { $0.key != id }
+                                    .values.flatMap { $0 }
+                                    .filter { $0.type == "virtiofs" }
+                                    .map { $0.source }
+                            )
+                            try await agent.mkdir(path: "/run/virtiofs", all: true, perms: 0o755)
+                            if vm.virtiofsLayout == .perTag {
+                                var seen: Set<String> = []
+                                for tag in newVirtiofsTags
+                                where !alreadyMounted.contains(tag) && seen.insert(tag).inserted {
+                                    let dest = "/run/virtiofs/\(tag)"
+                                    try await agent.mkdir(path: dest, all: true, perms: 0o755)
+                                    try await agent.mount(
+                                        ContainerizationOCI.Mount(
+                                            type: "virtiofs",
+                                            source: tag,
+                                            destination: dest,
+                                            options: []
+                                        ))
+                                }
+                            } else if alreadyMounted.isEmpty {
+                                // Unified layout: one /run/virtiofs mount, needed
+                                // only if nothing mounted it at boot / earlier.
+                                try await agent.mount(
+                                    ContainerizationOCI.Mount(
+                                        type: "virtiofs",
+                                        source: "virtiofs",
+                                        destination: "/run/virtiofs",
+                                        options: []
+                                    ))
+                            }
+                        }
+
                         if fileMountContext.hasFileMounts {
                             let containerMounts = vm.mounts[id] ?? []
                             try await updatedFileMountContext.mountHoldingDirectories(
