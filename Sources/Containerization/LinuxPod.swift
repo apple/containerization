@@ -83,6 +83,16 @@ public final class LinuxPod: Sendable {
         public var sysctl: [String: String] = [:]
         /// The mounts for the container.
         public var mounts: [Mount] = LinuxContainer.defaultMounts()
+        /// Paths inside the container that vmexec hides from the workload.
+        /// Defaults to the OCI standard set (``LinuxContainer/defaultMaskedPaths()``),
+        /// matching the restricted capability baseline. Set to `[]` to opt out,
+        /// or append to extend it.
+        public var maskedPaths: [String] = LinuxContainer.defaultMaskedPaths()
+        /// Paths inside the container that vmexec marks read-only.
+        /// Defaults to the OCI standard set (``LinuxContainer/defaultReadonlyPaths()``),
+        /// matching the restricted capability baseline. Set to `[]` to opt out,
+        /// or append to extend it.
+        public var readonlyPaths: [String] = LinuxContainer.defaultReadonlyPaths()
         /// The Unix domain socket relays to setup for the container.
         public var sockets: [UnixSocketConfiguration] = []
         /// The DNS configuration for the container.
@@ -290,6 +300,8 @@ public final class LinuxPod: Sendable {
 
         // Linux toggles
         spec.linux?.sysctl = config.sysctl
+        spec.linux?.maskedPaths = config.maskedPaths
+        spec.linux?.readonlyPaths = config.readonlyPaths
 
         // If the rootfs was requested as read-only, set it in the OCI spec.
         // We let the OCI runtime remount as ro, instead of doing it originally.

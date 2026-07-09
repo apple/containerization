@@ -1697,6 +1697,70 @@ extension IntegrationSuite {
         }
     }
 
+    func testDefaultMaskedAndReadonlyPaths() async throws {
+        let id = "test-masked-readonly-defaults"
+
+        // A default container (default capabilities + default masked/readonly
+        // paths) must have the OCI standard set enforced by vmexec without any
+        // opt-in. Probe from inside the guest:
+        //   1. readonlyPaths: writing under /proc/sys fails with EROFS. EROFS
+        //      (not EPERM) proves the read-only remount rather than a mere
+        //      capability denial — the default (restricted) caps already lack
+        //      CAP_SYS_ADMIN, so a writable /proc/sys would fail with EPERM.
+        //      The write is wrapped in a brace group so the shell's redirection
+        //      failure ("can't create ...: Read-only file system") is captured:
+        //      a trailing `2>&1` on the command misses it, because the failing
+        //      `>` redirection aborts before `2>&1` is applied.
+        //   2. maskedPaths: at least one default-masked path is mounted over
+        //      (visible in /proc/self/mountinfo). Checked via mountinfo rather
+        //      than reading the target, since some masked paths (e.g.
+        //      /proc/kcore) require CAP_SYS_RAWIO to read and would appear empty
+        //      even if masking were broken, yielding a false pass.
+        let probe = """
+            set -u
+            rerr=$( { echo x > /proc/sys/kernel/hostname; } 2>&1 )
+            case "$rerr" in
+                *"Read-only file system"*) ;;
+                *) echo "RO-FAIL: writing /proc/sys expected EROFS, got: ${rerr:-<write succeeded>}"; exit 1 ;;
+            esac
+            masked=0
+            for p in /proc/kcore /proc/keys /proc/scsi /proc/sched_debug /sys/firmware /sys/devices/virtual/powercap; do
+                grep -q " $p " /proc/self/mountinfo && masked=$((masked + 1))
+            done
+            if [ "$masked" -eq 0 ]; then
+                echo "MASK-FAIL: no default masked path mounted"
+                cat /proc/self/mountinfo
+                exit 1
+            fi
+            echo "MASKED-RO-OK masked=$masked"
+            """
+
+        let bs = try await bootstrap(id)
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            // Intentionally leave config.maskedPaths / readonlyPaths /
+            // process.capabilities untouched — the point is that the defaults
+            // are secure out of the box.
+            config.process.arguments = ["/bin/sh", "-c", probe]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        let output = String(data: buffer.data, encoding: .utf8) ?? "<non-utf8 output>"
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "default masked/readonly enforcement failed (exit \(status.exitCode)): \(output)")
+        }
+        guard output.contains("MASKED-RO-OK") else {
+            throw IntegrationError.assert(msg: "expected MASKED-RO-OK sentinel, got: \(output)")
+        }
+    }
+
     func testStat() async throws {
         let id = "test-stat"
 

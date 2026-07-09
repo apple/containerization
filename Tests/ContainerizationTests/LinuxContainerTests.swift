@@ -92,4 +92,31 @@ struct LinuxContainerTests {
         #expect(viaProperty.capabilities.ambient == expected.ambient)
         #expect(viaInit.capabilities.bounding == expected.bounding)
     }
+
+    @Test func defaultMaskedAndReadonlyPathsAreOCISet() {
+        // Regression guard: masked/readonly paths must default to the OCI
+        // standard set now that capabilities default to the restricted baseline.
+        // Without CAP_SYS_ADMIN a workload can't unmount these, so the defaults
+        // are meaningful defense-in-depth — shipping empty defaults would leave
+        // /proc/kcore and friends exposed. Cover both construction paths and
+        // both configuration types.
+        let expectedMasked = LinuxContainer.defaultMaskedPaths()
+        let expectedReadonly = LinuxContainer.defaultReadonlyPaths()
+
+        // Sensitive kernel paths must actually be in the defaults.
+        #expect(expectedMasked.contains("/proc/kcore"))
+        #expect(expectedMasked.contains("/sys/firmware"))
+        #expect(expectedReadonly.contains("/proc/sys"))
+
+        let containerViaProperty = LinuxContainer.Configuration()
+        let containerViaInit = LinuxContainer.Configuration(process: LinuxProcessConfiguration(arguments: ["/bin/sh"]))
+        let pod = LinuxPod.ContainerConfiguration()
+
+        for config in [containerViaProperty, containerViaInit] {
+            #expect(config.maskedPaths == expectedMasked)
+            #expect(config.readonlyPaths == expectedReadonly)
+        }
+        #expect(pod.maskedPaths == expectedMasked)
+        #expect(pod.readonlyPaths == expectedReadonly)
+    }
 }

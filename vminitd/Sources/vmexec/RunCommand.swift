@@ -53,7 +53,10 @@ struct RunCommand: ParsableCommand {
         }
     }
 
-    private func childRootSetup(rootfs: ContainerizationOCI.Root, mounts: [ContainerizationOCI.Mount]) throws {
+    private func childRootSetup(
+        rootfs: ContainerizationOCI.Root,
+        mounts: [ContainerizationOCI.Mount]
+    ) throws {
         // setup rootfs
         try prepareRoot(rootfs: rootfs.path)
         try mountRootfs(rootfs: rootfs.path, mounts: mounts)
@@ -67,6 +70,71 @@ struct RunCommand: ParsableCommand {
         }
 
         try reOpenDevNull()
+    }
+
+    /// Mask paths per OCI `linux.maskedPaths`. Files (and any non-directory)
+    /// get `/dev/null` bind-mounted on top; directories get an empty read-only
+    /// tmpfs. Missing paths are skipped silently — matches runc's `maskPath`.
+    private func applyMaskedPaths(_ paths: [String]) throws {
+        for path in paths {
+            var st = stat()
+            if stat(path, &st) != 0 {
+                if errno == ENOENT {
+                    continue
+                }
+                throw App.Errno(stage: "stat(\(path)) for mask")
+            }
+
+            if (st.st_mode & S_IFMT) == S_IFDIR {
+                // Match runc: mask directories with a read-only tmpfs. MS_RDONLY
+                // is what actually prevents writes into the masked dir; a
+                // `size=0k` option would be a no-op (the kernel treats tmpfs
+                // size=0 as "no limit", not an empty filesystem).
+                guard mount("tmpfs", path, "tmpfs", UInt(MS_RDONLY | MS_NOSUID | MS_NODEV | MS_NOEXEC), nil) == 0 else {
+                    throw App.Errno(stage: "mount(tmpfs mask \(path))")
+                }
+            } else {
+                guard mount("/dev/null", path, "bind", UInt(MS_BIND), nil) == 0 else {
+                    throw App.Errno(stage: "mount(bind /dev/null -> \(path))")
+                }
+            }
+        }
+    }
+
+    /// Make paths read-only per OCI `linux.readonlyPaths` by bind-mounting
+    /// each onto itself and remounting with `MS_RDONLY`. Missing paths are
+    /// skipped silently — matches runc's `readonlyPath`. The statfs fallback
+    /// mirrors `remountRootfsReadOnly()` for filesystems whose existing flags
+    /// (e.g. nosuid, nodev) must be preserved on the remount.
+    private func applyReadonlyPaths(_ paths: [String]) throws {
+        for path in paths {
+            var st = stat()
+            if stat(path, &st) != 0 {
+                if errno == ENOENT {
+                    continue
+                }
+                throw App.Errno(stage: "stat(\(path)) for readonly")
+            }
+
+            guard mount(path, path, "", UInt(MS_BIND | MS_REC), nil) == 0 else {
+                throw App.Errno(stage: "mount(bind \(path))")
+            }
+
+            var flags = UInt(MS_BIND | MS_REMOUNT | MS_RDONLY)
+            if mount("", path, "", flags, "") == 0 {
+                continue
+            }
+
+            var s = statfs()
+            guard statfs(path, &s) == 0 else {
+                throw App.Errno(stage: "statfs(\(path))")
+            }
+            flags |= UInt(s.f_flags)
+
+            guard mount("", path, "", flags, "") == 0 else {
+                throw App.Errno(stage: "mount remount-ro \(path)")
+            }
+        }
     }
 
     private func remountRootfsReadOnly() throws {
@@ -180,6 +248,14 @@ struct RunCommand: ParsableCommand {
                 }
             }
         }
+
+        // Apply OCI maskedPaths/readonlyPaths AFTER sysctls (writes to
+        // /proc/sys/* would otherwise fail once /proc/sys is remounted ro)
+        // and BEFORE the user/capability change (mount() requires
+        // CAP_SYS_ADMIN, which we still have here as root). Mask runs first
+        // so a path appearing in both lists is hidden, not just locked.
+        try self.applyMaskedPaths(spec.linux?.maskedPaths ?? [])
+        try self.applyReadonlyPaths(spec.linux?.readonlyPaths ?? [])
 
         // Apply O_CLOEXEC to all file descriptors except stdio.
         // This ensures that all unwanted fds we may have accidentally
