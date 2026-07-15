@@ -273,6 +273,9 @@ let package = Package(
                 .product(name: "NIOPosix", package: "swift-nio"),
                 .product(name: "NIOHTTP1", package: "swift-nio"),
                 .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+            ],
+            exclude: [
+                "README.md"
             ]
         ),
         .testTarget(
