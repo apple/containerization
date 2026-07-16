@@ -654,7 +654,10 @@ private func runContainerSession(
     let sigwinchStream = AsyncSignalHandler.create(notify: [SIGWINCH])
     let current = try Terminal.current
     try current.setraw()
-    defer { current.tryReset() }
+    defer {
+        sigwinchStream.cancel()
+        current.tryReset()
+    }
 
     // Build environment for the agent process.
     var envVarsBuilder = [
@@ -684,17 +687,17 @@ private func runContainerSession(
         envVarsBuilder.append("https_proxy=\(proxyURL)")
         envVarsBuilder.append("NO_PROXY=localhost,127.0.0.1")
         envVarsBuilder.append("no_proxy=localhost,127.0.0.1")
-        envVarsBuilder.append("GLOBAL_AGENT_HTTP_PROXY=\(proxyURL)")
-        envVarsBuilder.append("GLOBAL_AGENT_HTTPS_PROXY=\(proxyURL)")
-        envVarsBuilder.append("GLOBAL_AGENT_NO_PROXY=localhost,127.0.0.1")
+        if definition.installCommands.contains(where: { $0.contains("global-agent") }) {
+            envVarsBuilder.append("GLOBAL_AGENT_HTTP_PROXY=\(proxyURL)")
+            envVarsBuilder.append("GLOBAL_AGENT_HTTPS_PROXY=\(proxyURL)")
+            envVarsBuilder.append("GLOBAL_AGENT_NO_PROXY=localhost,127.0.0.1")
 
-        // Prepend global-agent bootstrap to NODE_OPTIONS so Node.js http/https
-        // modules respect the proxy environment variables.
-        if let idx = envVarsBuilder.firstIndex(where: { $0.hasPrefix("NODE_OPTIONS=") }) {
-            let existing = String(envVarsBuilder[idx].dropFirst("NODE_OPTIONS=".count))
-            envVarsBuilder[idx] = "NODE_OPTIONS=-r /usr/local/lib/node_modules/global-agent/dist/routines/bootstrap.js \(existing)"
-        } else {
-            envVarsBuilder.append("NODE_OPTIONS=-r /usr/local/lib/node_modules/global-agent/dist/routines/bootstrap.js")
+            if let idx = envVarsBuilder.firstIndex(where: { $0.hasPrefix("NODE_OPTIONS=") }) {
+                let existing = String(envVarsBuilder[idx].dropFirst("NODE_OPTIONS=".count))
+                envVarsBuilder[idx] = "NODE_OPTIONS=-r /usr/local/lib/node_modules/global-agent/dist/routines/bootstrap.js \(existing)"
+            } else {
+                envVarsBuilder.append("NODE_OPTIONS=-r /usr/local/lib/node_modules/global-agent/dist/routines/bootstrap.js")
+            }
         }
     }
 
@@ -725,6 +728,7 @@ private func runContainerSession(
 
         let status = try await agentProcess.wait()
         group.cancelAll()
+        sigwinchStream.cancel()
 
         try await agentProcess.delete()
 
@@ -754,7 +758,9 @@ private func runContainerSession(
             )
             try stopped.save(appRoot: Sandboxy.appRoot)
 
-            ProgressUI.printStatus("Instance \u{1b}[1m\(instanceName)\u{1b}[0m saved. Resume with: sandboxy run \(agentName) --name \(instanceName)")
+            ProgressUI.printStatus(
+                "Instance \u{1b}[1m\(instanceName)\u{1b}[0m saved. Resume with: sandboxy run --name \(instanceName) \(agentName)"
+            )
         }
 
         if status.exitCode != 0 {

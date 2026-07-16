@@ -108,7 +108,8 @@ struct AgentMount: Codable, Sendable {
 extension AgentDefinition {
     /// Built-in agent definitions, keyed by their CLI name.
     static let builtIn: [String: AgentDefinition] = [
-        "claude": .claude
+        "claude": .claude,
+        "pi": .pi,
     ]
 
     /// Returns all available agents: built-in definitions merged with any
@@ -184,6 +185,38 @@ extension AgentDefinition {
             "*.githubusercontent.com",
             "*.pypi.org",
             "*.pythonhosted.org",
+        ]
+    )
+
+    static let pi = AgentDefinition(
+        displayName: "Pi",
+        baseImage: "docker.io/library/node:22",
+        installCommands: [
+            "apt-get update && apt-get install -y --no-install-recommends git ca-certificates && apt-get clean && rm -rf /var/lib/apt/lists/*",
+            "npm install -g --ignore-scripts @earendil-works/pi-coding-agent",
+        ],
+        launchCommand: ["pi"],
+        environmentVariables: [
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_OAUTH_TOKEN",
+            "OPENAI_API_KEY",
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+            "OPENROUTER_API_KEY",
+            "XAI_API_KEY",
+        ],
+        mounts: [
+            AgentMount(hostPath: "~/.pi/agent", containerPath: "/root/.pi/agent")
+        ],
+        allowedHosts: [
+            "*.anthropic.com",
+            "api.openai.com",
+            "generativelanguage.googleapis.com",
+            "openrouter.ai",
+            "*.openrouter.ai",
+            "api.x.ai",
+            "npm.org",
+            "*.npmjs.org",
         ]
     )
 }
