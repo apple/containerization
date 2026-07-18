@@ -352,7 +352,7 @@ extension Application {
 
             var rootfsMount: Containerization.Mount
             do {
-                let unpacker = EXT4Unpacker(blockSizeInBytes: fsSizeInMB.mib())
+                let unpacker = EXT4Unpacker(capacityInBytes: fsSizeInMB.mib())
                 rootfsMount = try await unpacker.unpack(image, for: imagePlatform, at: rootfsPath)
             } catch let err as ContainerizationError where err.code == .exists {
                 rootfsMount = .block(
