@@ -114,6 +114,8 @@ public final class LinuxPod: Sendable {
             case nbd(url: URL, timeout: TimeInterval? = nil, readOnly: Bool = false)
             /// A disk-image file on the host, attached as a virtio-block device.
             case diskImage(path: URL, readOnly: Bool = false)
+            /// An in-memory (tmpfs) volume mounted inside the guest.
+            case tmpfs(sizeBytes: UInt64? = nil)
         }
 
         /// The logical name of this volume. Containers reference this name
@@ -150,6 +152,13 @@ public final class LinuxPod: Sendable {
                     source: path.absolutePath(),
                     destination: LinuxPod.guestVolumePath(name),
                     options: readOnly ? ["ro"] : []
+                )
+            case .tmpfs(let sizeBytes):
+                return Mount.any(
+                    type: "tmpfs",
+                    source: "tmpfs",
+                    destination: LinuxPod.guestVolumePath(name),
+                    options: sizeBytes.map { ["size=\($0)"] } ?? []
                 )
             }
         }
@@ -416,10 +425,17 @@ extension LinuxPod {
                         mount.destination = Self.guestRootfsPath(id)
                         try await agent.mount(mount)
 
+                        // Filter out shared mounts — those are handled separately as
+                        // pod volume bind mounts. Without it here, a container added to an
+                        // already-created would add a duplicated mount into the shared VM.
+                        let nonSharedMounts = fileMountContext.transformedMounts.filter {
+                            if case .shared = $0.runtimeOptions { return false }
+                            return true
+                        }
                         try vm.registerMounts(
                             id: id,
                             rootfs: attachment,
-                            additionalMounts: fileMountContext.transformedMounts
+                            additionalMounts: nonSharedMounts
                         )
 
                         // Mount the hotplugged container's virtiofs shares in the
@@ -741,7 +757,7 @@ extension LinuxPod {
                                 type: volume.format,
                                 source: attachment.source,
                                 destination: guestPath,
-                                options: []
+                                options: attachment.options
                             ))
                     }
 

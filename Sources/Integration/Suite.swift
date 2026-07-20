@@ -617,6 +617,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("pod NBD volume identity", testPodNBDVolumeIdentity),
                 Test("pod filesystem operation", testPodFilesystemOperation),
                 Test("pod shared disk image volume", testPodSharedDiskImageVolume),
+                Test("pod shared tmpfs volume", testPodSharedTmpfsVolume),
             ] + macOS26Tests()
         let tests: [Test] = crossPlatformTests + macOSOnlyTests
         #else
