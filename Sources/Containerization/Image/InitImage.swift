@@ -34,7 +34,7 @@ public struct InitImage: Sendable {
 extension InitImage {
     /// Unpack the initial filesystem for the desired platform at a given path.
     public func initBlock(at: URL, for platform: SystemPlatform) async throws -> Mount {
-        let unpacker = EXT4Unpacker(blockSizeInBytes: 512.mib())
+        let unpacker = EXT4Unpacker(capacityInBytes: 512.mib())
         var fs = try await unpacker.unpack(self.image, for: platform.ociPlatform(), at: at)
         fs.options = ["ro"]
         return fs

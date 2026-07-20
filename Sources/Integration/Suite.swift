@@ -236,7 +236,7 @@ struct IntegrationSuite: AsyncParsableCommand {
         let fsPath = Self.testDir.appending(component: image.digest)
         let fs = try await Self.unpackCoordinator.unpack(key: fsPath.absolutePath()) {
             do {
-                let unpacker = EXT4Unpacker(blockSizeInBytes: 2.gib())
+                let unpacker = EXT4Unpacker(capacityInBytes: 2.gib())
                 return try await unpacker.unpack(image, for: platform, at: fsPath)
             } catch let err as ContainerizationError {
                 if err.code == .exists {
