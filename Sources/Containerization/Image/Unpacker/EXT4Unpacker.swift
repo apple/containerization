@@ -79,7 +79,8 @@ public struct EXT4Unpacker: Unpacker {
             FilePath(
                 cleanedPath
             ),
-            minDiskSize: capacityInBytes
+            minDiskSize: capacityInBytes,
+            journal: journal
         )
         defer { try? filesystem.close() }
 
