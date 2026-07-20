@@ -853,5 +853,97 @@ extension IntegrationSuite {
             throw IntegrationError.assert(msg: "disk image /second.txt: expected 'more-content', got '\(secondContent)'")
         }
     }
+
+    /// Attach an in-memory tmpfs pod volume shared across two containers: one
+    /// writes a file and verifies the mount type/size, the other reads the file
+    /// back from a different mount path to prove it is the same backing store.
+    func testPodSharedTmpfsVolume() async throws {
+        let id = "test-pod-shared-tmpfs-volume"
+        let bs = try await bootstrap(id)
+
+        let rootfs1 = try cloneRootfsForContainer(bs.rootfs, testID: id, containerID: "writer")
+        let rootfs2 = try cloneRootfsForContainer(bs.rootfs, testID: id, containerID: "reader")
+
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 1
+            config.memoryInBytes = 512.mib()
+            config.bootLog = bs.bootLog
+            config.volumes = [
+                .init(
+                    name: "mytmpfs",
+                    source: .tmpfs(sizeBytes: 128.mib()),
+                    format: "tmpfs"
+                )
+            ]
+        }
+
+        // Container 1: writes a file to the shared tmpfs volume and verifies mount type.
+        let writerBuffer = BufferWriter()
+        try await pod.addContainer("writer", rootfs: rootfs1) { config in
+            config.process.arguments = [
+                "/bin/sh", "-c",
+                "echo bar > /my-tmpfs-mount/foo && grep /my-tmpfs-mount /proc/mounts",
+            ]
+            config.process.stdout = writerBuffer
+            config.mounts.append(.sharedMount(name: "mytmpfs", destination: "/my-tmpfs-mount"))
+        }
+
+        // Container 2: reads the file the writer produced, mounted at a different
+        // path to prove it is the same in-memory backing store.
+        let readerBuffer = BufferWriter()
+        try await pod.addContainer("reader", rootfs: rootfs2) { config in
+            config.process.arguments = [
+                "/bin/sh", "-c",
+                "cat /shared-tmpfs/foo && grep /shared-tmpfs /proc/mounts",
+            ]
+            config.process.stdout = readerBuffer
+            config.mounts.append(.sharedMount(name: "mytmpfs", destination: "/shared-tmpfs"))
+        }
+
+        do {
+            try await pod.create()
+
+            // Run sequentially so the reader observes the writer's file.
+            try await pod.startContainer("writer")
+            let writerStatus = try await pod.waitContainer("writer")
+            guard writerStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "writer exited with status \(writerStatus)")
+            }
+
+            try await pod.startContainer("reader")
+            let readerStatus = try await pod.waitContainer("reader")
+            guard readerStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "reader exited with status \(readerStatus)")
+            }
+            try await pod.stop()
+        } catch {
+            try? await pod.stop()
+            throw error
+        }
+
+        // Verify the writer mounted a tmpfs of the expected size.
+        let writerOut = String(data: writerBuffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard writerOut.contains("tmpfs /my-tmpfs-mount tmpfs") else {
+            throw IntegrationError.assert(msg: "pod volume /my-tmpfs-mount is not backed by tmpfs: \(writerOut)")
+        }
+        // tmpfs reports its size in /proc/mounts in kibibytes with a trailing 'k'.
+        let expectedSizeKiB: UInt64 = 128 * 1024
+        guard writerOut.contains("size=\(expectedSizeKiB)k") else {
+            throw IntegrationError.assert(msg: "tmpfs mount is not of expected size (\(expectedSizeKiB)k): \(writerOut)")
+        }
+
+        // Verify the reader saw the writer's file on the shared tmpfs at its own path.
+        let readerOut = String(data: readerBuffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let readerLines = readerOut.components(separatedBy: "\n")
+        guard readerLines.count >= 2 else {
+            throw IntegrationError.assert(msg: "expected at least 2 lines from reader, got: \(readerOut)")
+        }
+        guard readerLines[0] == "bar" else {
+            throw IntegrationError.assert(msg: "reader: expected 'bar', got '\(readerLines[0])'")
+        }
+        guard readerOut.contains("tmpfs /shared-tmpfs tmpfs") else {
+            throw IntegrationError.assert(msg: "reader mount /shared-tmpfs is not backed by tmpfs: \(readerOut)")
+        }
+    }
 }
 #endif

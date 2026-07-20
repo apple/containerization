@@ -311,6 +311,31 @@ struct PodVolumeTests {
         #expect(mount.isBlock)
     }
 
+    @Test func podVolumeTmpfsToMountConvertsCorrectly() {
+        let volume = LinuxPod.PodVolume(
+            name: "mem",
+            source: .tmpfs(sizeBytes: 64 * 1024 * 1024),
+            format: "tmpfs"
+        )
+        let mount = volume.toMount()
+        #expect(mount.type == "tmpfs")
+        #expect(mount.source == "tmpfs")
+        #expect(mount.destination == "/run/volumes/mem")
+        #expect(mount.options == ["size=\(64 * 1024 * 1024)"])
+    }
+
+    @Test func podVolumeTmpfsWithoutSizeHasNoOptions() {
+        let volume = LinuxPod.PodVolume(
+            name: "mem",
+            source: .tmpfs(),
+            format: "tmpfs"
+        )
+        let mount = volume.toMount()
+        #expect(mount.type == "tmpfs")
+        #expect(mount.options.isEmpty)
+        #expect(!mount.isBlock)
+    }
+
     @Test func sharedMountCreation() {
         let mount = Mount.sharedMount(
             name: "shared-data",
