@@ -663,7 +663,47 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             )
 
             #if os(Linux)
-            try mnt.mount(createWithPerms: 0o755)
+            do {
+                try mnt.mount(createWithPerms: 0o755)
+            } catch {
+                // A hot-plugged virtio device (virtio-blk / virtio-fs) may not
+                // be enumerated by the guest yet when the host issues this
+                // mount immediately after vm.add-disk / vm.add-fs: cloud-
+                // hypervisor places the device on the PCI bus but the guest
+                // does not always auto-probe it. Force a PCI rescan and retry
+                // with a bounded wait. Scoped to hot-plug-candidate sources so
+                // an ordinary mount failure isn't delayed.
+                let hotplugCandidate = request.type == "virtiofs" || request.source.hasPrefix("/dev/vd")
+                guard hotplugCandidate else { throw error }
+
+                if let rescan = FileHandle(forWritingAtPath: "/sys/bus/pci/rescan") {
+                    defer { try? rescan.close() }
+                    do {
+                        try rescan.write(contentsOf: Data("1".utf8))
+                        log.info("mount: triggered PCI bus rescan for hot-plugged device")
+                    } catch {
+                        log.error("mount: PCI rescan write failed", metadata: ["error": "\(error)"])
+                    }
+                } else {
+                    log.error("mount: cannot open /sys/bus/pci/rescan")
+                }
+
+                var mounted = false
+                for attempt in 1...20 {  // up to ~2s for the device to enumerate
+                    try? await Task.sleep(for: .milliseconds(100))
+                    do {
+                        try mnt.mount(createWithPerms: 0o755)
+                        log.info("mount: succeeded after PCI rescan", metadata: ["attempt": "\(attempt)"])
+                        mounted = true
+                        break
+                    } catch {
+                        continue
+                    }
+                }
+                if !mounted {
+                    throw error
+                }
+            }
             return .init()
             #else
             fatalError("mount not supported on platform")
