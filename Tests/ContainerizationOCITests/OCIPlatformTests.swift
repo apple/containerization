@@ -81,4 +81,40 @@ struct OCIPlatformTests {
         set.insert(withoutVariant)
         #expect(set.contains(withV8), "arm64/v8 must be found in a Set that contains arm64 with nil variant")
     }
+
+    // MARK: - description consistency (issue apple/container#1542)
+
+    @Test func arm64_nilAndV8_sameDescription() {
+        let withoutVariant = Platform(arch: "arm64", os: "linux", variant: nil)
+        let withV8 = Platform(arch: "arm64", os: "linux", variant: "v8")
+        #expect(
+            withoutVariant.description == withV8.description,
+            "equal arm64 platforms must produce the same description"
+        )
+    }
+
+    @Test func arm64_descriptionDropsRedundantV8() {
+        let withV8 = Platform(arch: "arm64", os: "linux", variant: "v8")
+        #expect(withV8.description == "linux/arm64", "arm64/v8 is canonical arm64, rendered without the redundant variant")
+    }
+
+    @Test func arm64_nilVariantDescription() {
+        let withoutVariant = Platform(arch: "arm64", os: "linux", variant: nil)
+        #expect(withoutVariant.description == "linux/arm64")
+    }
+
+    @Test func arm64_fromStringWithV8DescriptionIsCanonical() throws {
+        let parsed = try Platform(from: "linux/arm64/v8")
+        #expect(parsed.description == "linux/arm64", "parsing arm64/v8 then describing must yield the canonical short form")
+    }
+
+    @Test func arm_v7_descriptionKeepsVariant() {
+        let armv7 = Platform(arch: "arm", os: "linux", variant: "v7")
+        #expect(armv7.description == "linux/arm/v7", "non-redundant variants such as arm/v7 must be preserved")
+    }
+
+    @Test func amd64_descriptionUnaffected() {
+        let amd64 = Platform(arch: "amd64", os: "linux")
+        #expect(amd64.description == "linux/amd64")
+    }
 }
