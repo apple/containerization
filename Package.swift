@@ -198,6 +198,7 @@ let package = Package(
                 "Containerization",
                 "ContainerizationIO",
                 .product(name: "NIO", package: "swift-nio"),
+                .product(name: "NIOHTTP1", package: "swift-nio"),
                 .product(name: "Crypto", package: "swift-crypto"),
             ]
         ),
