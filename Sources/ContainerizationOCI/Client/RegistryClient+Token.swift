@@ -159,6 +159,10 @@ extension RegistryClient {
 
     internal func createTokenRequest(parsing authenticateHeaders: [String]) throws -> TokenRequest {
         let parsedHeaders = Self.parseWWWAuthenticateHeaders(headers: authenticateHeaders)
+        return try createTokenRequest(from: parsedHeaders)
+    }
+
+    internal func createTokenRequest(from parsedHeaders: [AuthenticateChallenge]) throws -> TokenRequest {
         let bearerChallenge = parsedHeaders.first { $0.type == "Bearer" }
         guard let bearerChallenge else {
             throw ContainerizationError(.invalidArgument, message: "missing Bearer challenge in \(TokenRequest.authenticateHeaderName) header")
@@ -172,6 +176,21 @@ extension RegistryClient {
         let scope = bearerChallenge.scope
         let tokenRequest = TokenRequest(realm: realm, service: service, clientId: self.clientID, scope: scope, authentication: self.authentication)
         return tokenRequest
+    }
+
+    internal static func authenticationFailureReason(authentication: Authentication?, challenges: [AuthenticateChallenge]) -> String? {
+        guard authentication != nil else {
+            return nil
+        }
+        let hasBearerChallenge = challenges.contains { $0.type.caseInsensitiveCompare("Bearer") == .orderedSame }
+        guard !hasBearerChallenge else {
+            return nil
+        }
+        let hasBasicChallenge = challenges.contains { $0.type.caseInsensitiveCompare("Basic") == .orderedSame }
+        guard hasBasicChallenge else {
+            return nil
+        }
+        return "access denied or wrong credentials"
     }
 
     internal static func parseWWWAuthenticateHeaders(headers: [String]) -> [AuthenticateChallenge] {
