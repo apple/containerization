@@ -16,11 +16,7 @@
 
 import ArgumentParser
 import Containerization
-import ContainerizationArchive
-import ContainerizationEXT4
-import ContainerizationError
 import ContainerizationOCI
-import ContainerizationOS
 import Foundation
 
 extension Application {
@@ -34,146 +30,39 @@ extension Application {
         )
 
         struct Create: AsyncParsableCommand {
-            @Option(name: [.short, .customLong("add-file")], help: "Additional file to add (format src-path:dst-path)")
-            var addFiles: [String] = []
-
-            @Option(name: .customLong("ext4"), help: "The path to an ext4 image to create.")
-            var ext4File: String?
+            static let configuration = CommandConfiguration(
+                commandName: "create",
+                abstract: "Create an init image from a prebuilt rootfs tar archive"
+            )
 
             @Option(name: .customLong("image"), help: "The name of the image to produce.")
-            var imageName: String?
+            var imageName: String
 
             @Option(name: .customLong("label"), help: "Label to add to the image (format: key=value)")
             var labels: [String] = []
 
-            @Option(name: .long, help: "Platform of the built binaries being packaged into the block")
+            @Option(name: .long, help: "Platform of the binaries packaged into the rootfs")
             var platformString: String = Platform.current.description
 
-            @Option(name: .long, help: "Path to vmexec")
-            var vmexec: String
-
-            @Option(name: .long, help: "Path to vminitd")
-            var vminitd: String
-
-            @Option(name: .long, help: "Path to OCI runtime")
-            var ociRuntime: String?
-
-            // The path where the intermediate tar archive is created.
-            @Argument var tarPath: String
-
-            private static let directories = [
-                "bin",
-                "sbin",
-                "dev",
-                "sys",
-                "proc/self",  // hack for swift init's booting
-                "run",
-                "tmp",
-                "mnt",
-                "var",
-            ]
+            // The gzip-compressed rootfs tar archive whose contents make up the
+            // image layer — e.g. produced by `scripts/build-initfs.sh --tar`,
+            // which also builds the matching initfs.ext4. The rootfs layout is
+            // owned by that script; this command only wraps it into an image.
+            @Argument(help: "Path to the gzip-compressed rootfs tar archive")
+            var rootfs: String
 
             func run() async throws {
-                let path = URL(filePath: self.tarPath)
-                try await writeArchive(path: path)
-
-                if let image = self.imageName {
-                    print("creating initfs image \(image)...")
-                    try await outputImage(
-                        path: path,
-                        reference: image
-                    )
-                }
-
-                if let ext4Path = self.ext4File {
-                    print("creating initfs ext4 image at \(ext4Path)...")
-                    try await outputExt4(
-                        archive: path,
-                        to: URL(filePath: ext4Path)
-                    )
-                }
-            }
-
-            private func outputExt4(archive: URL, to path: URL) async throws {
-                let unpacker = EXT4Unpacker(capacityInBytes: 256.mib())
-                try await unpacker.unpack(archive: archive, compression: .gzip, at: path)
-            }
-
-            private func outputImage(path: URL, reference: String) async throws {
-                let p = try Platform(from: platformString)
+                let platform = try Platform(from: platformString)
                 let parsedLabels = Application.parseKeyValuePairs(from: labels)
+                print("creating initfs image \(imageName)...")
                 _ = try await InitImage.create(
-                    reference: reference,
-                    rootfs: path,
-                    platform: p,
+                    reference: imageName,
+                    rootfs: URL(filePath: rootfs),
+                    platform: platform,
                     labels: parsedLabels,
                     imageStore: Application.imageStore,
                     contentStore: Application.contentStore
                 )
-            }
-
-            private func writeArchive(path: URL) async throws {
-                let writer = try ArchiveWriter(
-                    format: .pax,
-                    filter: .gzip,
-                    file: path,
-                )
-                let ts = Date()
-                let entry = WriteEntry()
-                entry.permissions = 0o755
-                entry.modificationDate = ts
-                entry.creationDate = ts
-                entry.group = 0
-                entry.owner = 0
-                entry.fileType = .directory
-
-                // create the initial directory structure.
-                for dir in Self.directories {
-                    entry.path = dir
-                    try writer.writeEntry(entry: entry, data: nil)
-                }
-
-                entry.fileType = .regular
-                entry.path = "sbin/vminitd"
-
-                var src = URL(fileURLWithPath: vminitd)
-                var data = try Data(contentsOf: src)
-                entry.size = Int64(data.count)
-                try writer.writeEntry(entry: entry, data: data)
-
-                src = URL(fileURLWithPath: vmexec)
-                data = try Data(contentsOf: src)
-                entry.path = "sbin/vmexec"
-                entry.size = Int64(data.count)
-                try writer.writeEntry(entry: entry, data: data)
-
-                if let ociRuntimePath = self.ociRuntime {
-                    src = URL(fileURLWithPath: ociRuntimePath)
-                    let fileName = src.lastPathComponent
-                    data = try Data(contentsOf: src)
-                    entry.path = "sbin/\(fileName)"
-                    entry.size = Int64(data.count)
-                    try writer.writeEntry(entry: entry, data: data)
-                }
-
-                for addFile in addFiles {
-                    let paths = addFile.components(separatedBy: ":")
-                    guard paths.count == 2 else {
-                        throw ContainerizationError(.invalidArgument, message: "use src-path:dst-path for --add-file")
-                    }
-                    src = URL(fileURLWithPath: paths[0])
-                    data = try Data(contentsOf: src)
-                    entry.path = paths[1]
-                    entry.size = Int64(data.count)
-                    try writer.writeEntry(entry: entry, data: data)
-                }
-
-                entry.fileType = .symbolicLink
-                entry.path = "proc/self/exe"
-                entry.symlinkTarget = "sbin/vminitd"
-                entry.size = nil
-                try writer.writeEntry(entry: entry, data: nil)
-                try writer.finishEncoding()
             }
         }
     }

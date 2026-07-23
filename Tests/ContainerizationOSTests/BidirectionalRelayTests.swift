@@ -30,6 +30,10 @@ import Musl
 @Suite("BidirectionalRelay tests")
 final class BidirectionalRelayTests {
 
+    // Raw write() to a socketpair whose peer is closed must not kill the
+    // `swift test` process with SIGPIPE on Linux. See ignoreSIGPIPEForTests().
+    init() { ignoreSIGPIPEForTests() }
+
     /// Creates a Unix domain socket pair and returns (fd0, fd1).
     private func makeSocketPair() throws -> (Int32, Int32) {
         var fds: [Int32] = [0, 0]

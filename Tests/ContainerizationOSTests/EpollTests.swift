@@ -30,6 +30,10 @@ import Glibc
 @Suite("Epoll tests")
 final class EpollTests {
 
+    // write() to a pipe whose read end is closed must not kill the
+    // `swift test` process with SIGPIPE on Linux. See ignoreSIGPIPEForTests().
+    init() { ignoreSIGPIPEForTests() }
+
     @Suite("Mask option set")
     struct MaskTests {
         @Test
