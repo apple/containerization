@@ -102,7 +102,7 @@ extension EXT4 {
                         itemTreeNode.blocks = blocks.first
                     }
                     let itemTreeNodePtr = Ptr(itemTreeNode)
-                    root.children.append(itemTreeNodePtr)
+                    root.addChild(itemTreeNodePtr)
                     itemPtr.pointee = root
                     let itemInode = try self.getInode(number: itemInodeNum)
                     if itemInode.mode.isDir() {
