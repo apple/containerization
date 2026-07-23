@@ -2114,6 +2114,62 @@ extension IntegrationSuite {
         }
     }
 
+    func testCopyOutMissingSourceDoesNotBlockLifecycle() async throws {
+        let id = "test-copy-out-missing-source"
+
+        let bs = try await bootstrap(id)
+        let hostDestination = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("missing-output.txt")
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            do {
+                try await Timeout.run(seconds: 5) {
+                    try await container.copyOut(
+                        from: URL(filePath: "/does-not-exist"),
+                        to: hostDestination
+                    )
+                }
+                throw IntegrationError.assert(msg: "copyOut should fail for a missing source")
+            } catch is CancellationError {
+                throw IntegrationError.assert(msg: "copyOut did not fail before the timeout")
+            } catch let error as IntegrationError {
+                throw error
+            } catch {
+                let message = String(describing: error)
+                guard !message.contains("copyOut: no metadata received"),
+                    !message.contains("copyOut: vsock connection not established")
+                else {
+                    throw IntegrationError.assert(msg: "copyOut replaced the guest error with '\(message)'")
+                }
+            }
+
+            let exec = try await container.exec("after-missing-copy") { config in
+                config.arguments = ["true"]
+            }
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "container lifecycle remained blocked after copyOut failure")
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
     func testCopyLargeFile() async throws {
         let id = "test-copy-large-file"
 
