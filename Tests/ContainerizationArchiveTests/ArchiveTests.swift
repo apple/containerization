@@ -242,6 +242,37 @@ struct ArchiveTests {
         #expect(try String(contentsOf: extractDir.appendingPathComponent("subdir/file2.txt"), encoding: .utf8) == "world")
     }
 
+    @Test func archiveDirectoryPreservesReadonlySubdirectory() throws {
+        let testDir = createTemporaryDirectory(baseName: "ArchiveTests.archiveDirReadonlySubdir")!
+        defer { try? FileManager.default.removeItem(at: testDir) }
+
+        let sourceDir = testDir.appendingPathComponent("source")
+        let readonlyDir = sourceDir.appendingPathComponent("readonly")
+        try FileManager.default.createDirectory(at: readonlyDir, withIntermediateDirectories: true)
+        try "content".write(to: readonlyDir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: readonlyDir.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: readonlyDir.path)
+        }
+
+        let archiveURL = testDir.appendingPathComponent("test.tar.gz")
+        let writer = try ArchiveWriter(format: .pax, filter: .gzip, file: archiveURL)
+        try writer.archiveDirectory(sourceDir)
+        try writer.finishEncoding()
+
+        let extractDir = testDir.appendingPathComponent("extract")
+        let reader = try ArchiveReader(file: archiveURL)
+        let rejected = try reader.extractContents(to: extractDir)
+
+        #expect(rejected.isEmpty)
+        #expect(
+            try String(contentsOf: extractDir.appendingPathComponent("readonly/file.txt"), encoding: .utf8)
+                == "content")
+        let attrs = try FileManager.default.attributesOfItem(atPath: extractDir.appendingPathComponent("readonly").path)
+        let perms = (attrs[.posixPermissions] as? NSNumber)?.uint16Value ?? 0
+        #expect((perms & 0o777) == 0o555, "Read-only directory permissions should be preserved")
+    }
+
     @Test func archiveDirectoryEmpty() throws {
         let testDir = createTemporaryDirectory(baseName: "ArchiveTests.archiveDirEmpty")!
         defer { try? FileManager.default.removeItem(at: testDir) }
@@ -722,7 +753,7 @@ struct ArchiveTests {
         let readonlyDir = sourceDir.appendingPathComponent("readonly")
         try FileManager.default.createDirectory(at: readonlyDir, withIntermediateDirectories: true)
         try "content".write(to: readonlyDir.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o777], ofItemAtPath: readonlyDir.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: readonlyDir.path)
         defer {
             try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: readonlyDir.path)
         }
@@ -742,7 +773,7 @@ struct ArchiveTests {
                 == "content")
         let attrs = try FileManager.default.attributesOfItem(atPath: extractDir.appendingPathComponent("readonly").path)
         let perms = (attrs[.posixPermissions] as? NSNumber)?.uint16Value ?? 0
-        #expect((perms & 0o777) == 0o777, "Read-only directory permissions should be preserved")
+        #expect((perms & 0o777) == 0o555, "Read-only directory permissions should be preserved")
     }
 
     @Test func archiveURLsSymlinks() throws {
