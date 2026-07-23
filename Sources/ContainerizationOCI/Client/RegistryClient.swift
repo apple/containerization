@@ -146,6 +146,7 @@ public final class RegistryClient: ContentClient {
         method: HTTPMethod = .GET,
         bodyClosure: () throws -> HTTPClientRequest.Body? = { nil },
         headers: [(String, String)]? = nil,
+        retryOptionsOverride: RetryOptions? = nil,
         closure: (HTTPClientResponse) async throws -> T
     ) async throws -> T {
         guard let path = components.url?.absoluteString else {
@@ -173,6 +174,7 @@ public final class RegistryClient: ContentClient {
         var response: HTTPClientResponse?
         while true {
             request.body = try bodyClosure()
+            let activeRetryOptions = retryOptionsOverride ?? self.retryOptions
             do {
                 let _response = try await client.execute(request, deadline: .distantFuture)
                 response = _response
@@ -217,7 +219,7 @@ public final class RegistryClient: ContentClient {
                     retryCount += 1
                     continue
                 }
-                guard let retryOptions = self.retryOptions else {
+                guard let retryOptions = activeRetryOptions else {
                     break
                 }
                 guard retryCount < retryOptions.maxRetries else {
@@ -245,7 +247,7 @@ public final class RegistryClient: ContentClient {
                     }
                 }
                 #endif
-                guard let retryOptions = self.retryOptions, retryCount < retryOptions.maxRetries else {
+                guard let retryOptions = activeRetryOptions, retryCount < retryOptions.maxRetries else {
                     throw error
                 }
                 retryCount += 1
