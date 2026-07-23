@@ -621,7 +621,13 @@ struct IntegrationSuite: AsyncParsableCommand {
             ] + macOS26Tests()
         let tests: [Test] = crossPlatformTests + macOSOnlyTests
         #else
-        let tests: [Test] = crossPlatformTests
+        // Hotplug into a running pod VM is CH-only (VZ has no runtime hotplug),
+        // and no pod test elsewhere exercises addContainer-after-create.
+        let linuxOnlyTests: [Test] = [
+            Test("pod hotplug block rootfs", testPodHotplugBlockRootfs),
+            Test("pod hotplug virtiofs rootfs", testPodHotplugVirtiofsRootfs),
+        ]
+        let tests: [Test] = crossPlatformTests + linuxOnlyTests
         #endif
 
         let filteredTests: [Test]

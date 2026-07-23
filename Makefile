@@ -35,6 +35,12 @@ LINUX_INTEGRATION_KERNEL := kernel/vmlinuz-x86_64
 else
 LINUX_INTEGRATION_KERNEL := kernel/vmlinux-$(KERNEL_ARCH)
 endif
+
+# Optional test-name filter for `make linux-integration`, e.g.
+#   make linux-integration FILTER="pod hotplug"
+# Comma-separated; a test is kept if its name contains ANY of the substrings.
+FILTER ?=
+linux_integration_filter = $(if $(strip $(FILTER)),--filter '$(strip $(FILTER))')
 ifeq ($(UNAME_S),Darwin)
 SWIFT ?= /usr/bin/swift
 else
@@ -239,7 +245,7 @@ ifeq (,$(wildcard bin/initfs.ext4))
 	@echo "missing bin/initfs.ext4; run 'make init' first (this also seeds the persistent imageStore at .local/integration-cache)"
 	@exit 1
 endif
-	$(call linux_run,CONTAINERIZATION_RELAXED_SANDBOX=1 ./bin/containerization-integration --kernel ./$(LINUX_INTEGRATION_KERNEL) --ch-binary ./bin/cloud-hypervisor --virtiofsd-binary ./bin/virtiofsd --max-concurrency 1,--kernel $(LINUX_INTEGRATION_KERNEL))
+	$(call linux_run,CONTAINERIZATION_RELAXED_SANDBOX=1 ./bin/containerization-integration --kernel ./$(LINUX_INTEGRATION_KERNEL) --ch-binary ./bin/cloud-hypervisor --virtiofsd-binary ./bin/virtiofsd --max-concurrency 1 $(linux_integration_filter),--kernel $(LINUX_INTEGRATION_KERNEL))
 
 # Builds the x86_64 deployment tarball.
 #

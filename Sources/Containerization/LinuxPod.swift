@@ -438,14 +438,18 @@ extension LinuxPod {
                             additionalMounts: nonSharedMounts
                         )
 
-                        // Mount the hotplugged container's virtiofs shares in the
+                        // Mount this container's additional virtiofs shares in the
                         // guest. create() does this for boot-time containers (the
                         // /run/virtiofs loop); the hotplug path must do the same or
                         // the container's bind mounts from /run/virtiofs/<tag> fail
                         // with ENOENT.
-                        let newVirtiofsTags = (vm.mounts[id] ?? [])
-                            .filter { $0.type == "virtiofs" }
-                            .map { $0.source }
+                        //
+                        // Derive the tags from the additional mounts directly rather
+                        // than from vm.mounts[id], so this is independent of the
+                        // rootfs (which may be virtiofs or virtio-blk) and of mount
+                        // ordering. The rootfs is mounted at /run/container/<id>/rootfs
+                        // and is never consumed from /run/virtiofs.
+                        let newVirtiofsTags = try virtioFSMounts.map { try hashFilePath(path: $0.source) }
                         if !newVirtiofsTags.isEmpty {
                             // Tags already mounted in the guest at boot or by a
                             // prior hotplug (i.e. present on another container).

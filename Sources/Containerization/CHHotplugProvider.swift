@@ -93,39 +93,61 @@ final class CHHotplugProvider: HotplugProvider {
 
     // MARK: - HotplugProvider conformance
 
-    func hotplug(_ block: Mount, id: String) async throws -> AttachedFilesystem {
-        guard case .virtioblk = block.runtimeOptions else {
-            throw ContainerizationError(.invalidArgument, message: "hotplug requires a virtio-blk mount")
+    func hotplug(_ rootfs: Mount, id: String) async throws -> AttachedFilesystem {
+        switch rootfs.runtimeOptions {
+        case .virtioblk:
+            let letter = try allocator.allocate()
+            let chId = "blk-\(id)-\(letter)"
+            let disk = CloudHypervisor.DiskConfig(
+                path: rootfs.source,
+                readonly: rootfs.options.contains("ro"),
+                id: chId,
+                imageType: .raw
+            )
+
+            let pci: CloudHypervisor.PciDeviceInfo
+            do {
+                pci = try await chCall { try await self.client.vmAddDisk(disk) }
+            } catch {
+                try? allocator.release(letter)
+                throw error
+            }
+
+            let attached = AttachedFilesystem(
+                type: rootfs.type,
+                source: "/dev/vd\(letter)",
+                destination: rootfs.destination,
+                options: rootfs.options
+            )
+
+            _records.withLock {
+                $0[id, default: []].append(HotplugRecord(chDeviceId: pci.id, kind: .block(letter: letter)))
+            }
+            return attached
+
+        case .virtiofs:
+            // Compute the tag up front (throwing) so nothing can fail between
+            // committing the virtiofsd/device and recording the HotplugRecord —
+            // otherwise a thrown error would orphan a running virtiofsd.
+            let tag = try hashFilePath(path: rootfs.source)
+            let chDeviceId = try await ensureVirtiofsDevice(
+                tag: tag,
+                source: rootfs.source,
+                readonly: rootfs.options.contains("ro")
+            )
+            _records.withLock {
+                $0[id, default: []].append(HotplugRecord(chDeviceId: chDeviceId, kind: .virtiofs(tag: tag)))
+            }
+            return AttachedFilesystem(
+                type: rootfs.type,
+                source: tag,
+                destination: rootfs.destination,
+                options: rootfs.options
+            )
+
+        case .shared, .any:
+            throw ContainerizationError(.unsupported, message: "hotplug rootfs must be virtio-blk or virtiofs")
         }
-
-        let letter = try allocator.allocate()
-        let chId = "blk-\(id)-\(letter)"
-        let disk = CloudHypervisor.DiskConfig(
-            path: block.source,
-            readonly: block.options.contains("ro"),
-            id: chId,
-            imageType: .raw
-        )
-
-        let pci: CloudHypervisor.PciDeviceInfo
-        do {
-            pci = try await chCall { try await self.client.vmAddDisk(disk) }
-        } catch {
-            try? allocator.release(letter)
-            throw error
-        }
-
-        let attached = AttachedFilesystem(
-            type: block.type,
-            source: "/dev/vd\(letter)",
-            destination: block.destination,
-            options: block.options
-        )
-
-        _records.withLock {
-            $0[id, default: []].append(HotplugRecord(chDeviceId: pci.id, kind: .block(letter: letter)))
-        }
-        return attached
     }
 
     func registerMounts(id: String, rootfs: AttachedFilesystem, additionalMounts: [Mount]) throws {
@@ -199,93 +221,75 @@ final class CHHotplugProvider: HotplugProvider {
         }
 
         for (tag, group) in byTag {
-            // Hold spawnLock across the existence check and the spawn /
-            // _tags write so two concurrent calls for the same tag can't
-            // both decide alreadyRunning=false and double-spawn virtiofsd
-            // (the second write would clobber the first in `_tags`,
-            // orphaning that process).
-            try await spawnLock.withLock { _ in
-                // Build per-container AttachedFilesystem entries up front.
-                // These depend only on Mount + allocator and don't need the
-                // chDeviceId, so surfacing any error here keeps the
-                // transactional shape: nothing irreversible has happened
-                // yet, no virtiofsd has spawned, no _tags entry written.
-                var attached: [AttachedFilesystem] = []
-                for mount in group {
-                    attached.append(try AttachedFilesystem(mount: mount, allocator: self.allocator))
-                }
-
-                let chDeviceId: String
-
-                // Refcount-bump path. If a virtiofsd already serves this
-                // tag, increment refcount and use the cached deviceId.
-                let cachedDeviceId: String? = self._tags.withLock { tags in
-                    if var state = tags[tag] {
-                        state.refcount += 1
-                        tags[tag] = state
-                        return state.chDeviceId
-                    }
-                    return nil
-                }
-
-                if let cached = cachedDeviceId {
-                    chDeviceId = cached
-                } else {
-                    // First-spawn path. Walk: spawn → vmAddFs → commit _tags,
-                    // with rollback at every step so a partial failure can't
-                    // leave a virtiofsd running unrecorded.
-                    let socket = chVirtiofsSocketURL(workDir: self.workDir, tag: tag)
-                    let readonly = group.allSatisfy { $0.options.contains("ro") }
-                    guard let source = group.first?.source else { return }
-                    let virtiofsdBinary = try CHVirtualMachineManager.resolveBinary(
-                        self.virtiofsdBinaryOverride,
-                        name: "virtiofsd"
-                    )
-
-                    let process = VirtiofsdProcess(
-                        config: .init(
-                            binary: virtiofsdBinary,
-                            socketPath: socket,
-                            sharedDir: URL(fileURLWithPath: source),
-                            readonly: readonly
-                        ),
-                        logger: self.logger
-                    )
-
-                    try await process.start()
-
-                    let fsConfig = CloudHypervisor.FsConfig(
-                        tag: tag,
-                        socket: socket.path,
-                        id: "fs-\(tag)"
-                    )
-                    let pci: CloudHypervisor.PciDeviceInfo
-                    do {
-                        pci = try await chCall { try await self.client.vmAddFs(fsConfig) }
-                    } catch {
-                        await process.terminate(graceSeconds: 5)
-                        try? FileManager.default.removeItem(at: socket)
-                        throw error
-                    }
-
-                    self._tags.withLock {
-                        $0[tag] = VirtiofsdTagState(process: process, refcount: 1, chDeviceId: pci.id)
-                    }
-                    chDeviceId = pci.id
-                }
-
-                // Bookkeeping. Both writes are non-throwing closures, and
-                // `attached` was built up front, so once we reach here
-                // nothing can fail between the refcount/spawn commit above
-                // and the per-container record below — the orphan window
-                // (tag committed, record missing) is closed.
-                self._records.withLock {
-                    $0[id, default: []].append(HotplugRecord(chDeviceId: chDeviceId, kind: .virtiofs(tag: tag)))
-                }
-                self._mounts.withLock {
-                    $0[id, default: []].append(contentsOf: attached)
-                }
+            guard let source = group.first?.source else { continue }
+            let readonly = group.allSatisfy { $0.options.contains("ro") }
+            let chDeviceId = try await ensureVirtiofsDevice(tag: tag, source: source, readonly: readonly)
+            // Record once per tag for this container. The AttachedFilesystem
+            // entries for these mounts are written by registerMounts (the sole
+            // _mounts writer), so we do NOT touch _mounts here.
+            _records.withLock {
+                $0[id, default: []].append(HotplugRecord(chDeviceId: chDeviceId, kind: .virtiofs(tag: tag)))
             }
+        }
+    }
+
+    /// Ensure a virtio-fs device backed by `virtiofsd` exists for `tag`,
+    /// spawning one (and issuing `vm.add-fs`) on first use or bumping the
+    /// refcount of an existing one. Returns the cloud-hypervisor device id
+    /// (`vm.remove-device` keys on it). Serialized per-provider by `spawnLock`
+    /// so two concurrent callers for the same tag can't double-spawn.
+    private func ensureVirtiofsDevice(tag: String, source: String, readonly: Bool) async throws -> String {
+        try await spawnLock.withLock { _ in
+            // Refcount-bump path: a virtiofsd already serves this tag.
+            let cached: String? = self._tags.withLock { tags in
+                if var state = tags[tag] {
+                    state.refcount += 1
+                    tags[tag] = state
+                    return state.chDeviceId
+                }
+                return nil
+            }
+            if let cached {
+                return cached
+            }
+
+            // First-spawn path: spawn → vm.add-fs → commit _tags, rolling back
+            // the process/socket if vm.add-fs fails.
+            let socket = chVirtiofsSocketURL(workDir: self.workDir, tag: tag)
+            let virtiofsdBinary = try CHVirtualMachineManager.resolveBinary(
+                self.virtiofsdBinaryOverride,
+                name: "virtiofsd"
+            )
+            let process = VirtiofsdProcess(
+                config: .init(
+                    binary: virtiofsdBinary,
+                    socketPath: socket,
+                    sharedDir: URL(fileURLWithPath: source),
+                    readonly: readonly
+                ),
+                logger: self.logger
+            )
+
+            try await process.start()
+
+            let fsConfig = CloudHypervisor.FsConfig(
+                tag: tag,
+                socket: socket.path,
+                id: "fs-\(tag)"
+            )
+            let pci: CloudHypervisor.PciDeviceInfo
+            do {
+                pci = try await chCall { try await self.client.vmAddFs(fsConfig) }
+            } catch {
+                await process.terminate(graceSeconds: 5)
+                try? FileManager.default.removeItem(at: socket)
+                throw error
+            }
+
+            self._tags.withLock {
+                $0[tag] = VirtiofsdTagState(process: process, refcount: 1, chDeviceId: pci.id)
+            }
+            return pci.id
         }
     }
 
