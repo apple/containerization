@@ -369,8 +369,17 @@ extension ArchiveReader {
                 guard let targetPath = (entry.symlinkTarget.map { FilePath($0) }) else {
                     return false
                 }
+                guard !targetPath.isAbsolute else {
+                    return false
+                }
                 var symlinkCreated = false
                 try FileDescriptorOps.mkdir(rootFileDescriptor, relativePath, makeIntermediates: true) { fd in
+                    // Validate the targetPath does not escape the root extraction path
+                    let resolvedTarget = relativePath.appending(targetPath.components).lexicallyNormalized()
+                    guard resolvedTarget.components.first != FilePath.Component("..") else {
+                        return
+                    }
+
                     // Remove existing entry if present (mimics containerd's "last entry wins" behavior)
                     try? FileDescriptorOps.unlinkRecursive(fd, filename: lastComponent)
 
@@ -398,7 +407,7 @@ extension ArchiveReader {
     }
 
     private func setFileAttributes(fd: Int32, entry: WriteEntry) {
-        fchmod(fd, entry.permissions)
+        fchmod(fd, entry.permissions & 0o777)
         if let owner = entry.owner, let group = entry.group {
             fchown(fd, owner, group)
         }

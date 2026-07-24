@@ -253,8 +253,8 @@ struct ArchiveReaderTests {
                 ("dir/target.txt", .regular("target content"), nil),
                 ("dir/link", .symlink, "target.txt"),
                 ("link2", .symlink, "dir/target.txt"),
-                ("dir/passwd", .symlink, "/etc/passwd"),
-                ("dir2/passwd", .symlink, "../../../../etc/passwd"),
+                ("dir/passwd", .symlink, "/etc/passwd"),  // absolute path, should be rejected
+                ("dir2/passwd", .symlink, "../../../../etc/passwd"),  // escapes extraction root, should be rejected
             ])
 
         defer { try? FileManager.default.removeItem(at: archiveURL.deletingLastPathComponent()) }
@@ -265,9 +265,11 @@ struct ArchiveReaderTests {
         let reader = try ArchiveReader(format: .paxRestricted, filter: .none, file: archiveURL)
         let rejectedPaths = try reader.extractContents(to: extractDir)
 
-        #expect(rejectedPaths.isEmpty, "Valid symlinks should be allowed")
+        #expect(
+            Set(rejectedPaths) == Set(["dir/passwd", "dir2/passwd"]),
+            "Symlinks with absolute or escaping targets should be rejected")
 
-        // Verify symlinks were created
+        // Verify valid symlinks were created
         let linkPath = extractDir.appendingPathComponent("dir/link").path
         #expect(FileManager.default.fileExists(atPath: linkPath))
 
@@ -280,6 +282,10 @@ struct ArchiveReaderTests {
 
         let link2Target = try FileManager.default.destinationOfSymbolicLink(atPath: link2Path)
         #expect(link2Target == "dir/target.txt")
+
+        // Verify the rejected symlinks were not created
+        #expect(!FileManager.default.fileExists(atPath: extractDir.appendingPathComponent("dir/passwd").path))
+        #expect(!FileManager.default.fileExists(atPath: extractDir.appendingPathComponent("dir2/passwd").path))
     }
 
     @Test func allowSymlinkWithDotDot() throws {

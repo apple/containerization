@@ -773,7 +773,9 @@ struct ArchiveTests {
         let reader = try ArchiveReader(file: archiveURL)
         let rejected = try reader.extractContents(to: extractDir)
 
-        #expect(rejected.isEmpty)
+        // The writer stores the symlink's absolute target verbatim but the reader unconditionally
+        // rejects absolute symlink targets.
+        #expect(rejected == ["source/absolute"])
 
         let extractedSource = extractDir.appendingPathComponent("source")
         #expect(
@@ -787,11 +789,7 @@ struct ArchiveTests {
             try String(contentsOf: extractedSource.appendingPathComponent("relative"), encoding: .utf8)
                 == "symlink content")
 
-        let absTarget = try FileManager.default.destinationOfSymbolicLink(
-            atPath: extractedSource.appendingPathComponent("absolute").path)
-
-        print("absTarget: \(absTarget), fileURL: \(fileURL.path)")
-        #expect(absTarget == fileURL.path)
+        #expect(!FileManager.default.fileExists(atPath: extractedSource.appendingPathComponent("absolute").path))
     }
 
     @Test func archiveDirectorySymlinkRelativeSubdir() throws {
