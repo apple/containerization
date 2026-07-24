@@ -535,7 +535,11 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             try FileManager.default.createDirectory(at: destURL, withIntermediateDirectories: true)
 
             let fileHandle = FileHandle(fileDescriptor: sockFd, closeOnDealloc: false)
-            let reader = try ArchiveReader(format: .pax, filter: .gzip, fileHandle: fileHandle)
+            // Auto-detect format and compression filter so both the internal
+            // pax+gzip archives (directory copyIn) and externally supplied tar
+            // streams (uncompressed or compressed, e.g. `docker cp -`) are
+            // accepted.
+            let reader = try ArchiveReader(fileHandle: fileHandle)
             return try reader.extractContents(to: destURL)
         }
 
@@ -562,7 +566,10 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else {
             throw RPCError(code: .notFound, message: "copy: path not found '\(path)'")
         }
-        let isArchive = isDirectory.boolValue
+        // `request.isArchive` forces archive output even for a single regular
+        // file, matching `docker cp CONTAINER:/path -` which always emits a tar
+        // stream. Directories are always archived.
+        let isArchive = isDirectory.boolValue || request.isArchive
 
         // Determine total size for single files.
         var totalSize: UInt64 = 0
@@ -593,7 +600,15 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                 let fileURL = URL(fileURLWithPath: path)
                 let writer = try ArchiveWriter(configuration: .init(format: .pax, filter: .gzip))
                 try writer.open(fileDescriptor: sock.fileDescriptor)
-                try writer.archiveDirectory(fileURL)
+                if isDirectory.boolValue {
+                    try writer.archiveDirectory(fileURL)
+                } else {
+                    // Forced single-file archive: emit one entry named after the
+                    // file's basename, relative to its parent directory.
+                    let filePath = FilePath(path)
+                    let base = filePath.removingLastComponent()
+                    try writer.archive([filePath], base: base)
+                }
                 try writer.finishEncoding()
             } else {
                 let srcFd = open(path, O_RDONLY)
