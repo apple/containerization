@@ -294,26 +294,60 @@ ifeq ($(UNAME_S),Darwin)
 	@codesign --force --sign - --timestamp=none --entitlements=signing/vz.entitlements bin/containerization-integration
 endif
 
+# Shell fragments run inside the Linux dev container (see linux_run). Kept as
+# variables so `vminitd` (compile only) and `init` (compile + build the initfs
+# in a single container run) don't duplicate the command.
+VMINITD_BUILD_CMD = make -C vminitd BUILD_CONFIGURATION=$(BUILD_CONFIGURATION) WARNINGS_AS_ERRORS=$(WARNINGS_AS_ERRORS)
+INITFS_BUILD_CMD = ./scripts/build-initfs.sh --vminitd vminitd/bin/vminitd --vmexec vminitd/bin/vmexec --ext4 bin/initfs.ext4 --tar bin/init.rootfs.tar.gz
+
 .PHONY: init
-init: containerization vminitd
-	@echo Creating init.ext4...
-	@rm -f bin/init.rootfs.tar.gz bin/init.block bin/initfs.ext4
+ifeq ($(UNAME_S),Darwin)
+# Compile the guest and build the initfs (ext4 + rootfs tar) in a single dev
+# container run — where mkfs/loop-mount live — then create the vminit:latest
+# OCI image natively from the tar. The container's output is the finished
+# initfs, not raw binaries.
+init: containerization
+	@mkdir -p ./bin
+	$(call linux_run,$(VMINITD_BUILD_CMD) && $(INITFS_BUILD_CMD))
+	@"$(MAKE)" init-image
+else
+init: containerization
+	@mkdir -p ./bin
+	@$(VMINITD_BUILD_CMD)
+	@$(INITFS_BUILD_CMD)
+	@"$(MAKE)" init-image
+endif
+
+# Create the vminit:latest OCI image from the container-built rootfs tar, using
+# the native cctl. Split out from `init` so CI can create the image after
+# downloading the initfs artifact built by the Linux container job — no
+# apple/container needed on the macOS runner. The integration suite and the
+# release ghcr push consume this image.
+.PHONY: init-image
+init-image:
+	@echo Creating vminit:latest image...
+	@rm -f bin/init.block
 	@./bin/cctl rootfs create \
-		--vminitd vminitd/bin/vminitd \
-		--vmexec vminitd/bin/vmexec \
-		--ext4 ./bin/initfs.ext4 \
-		--label org.opencontainers.image.source=https://github.com/apple/containerization \
 		--image vminit:latest \
+		--label org.opencontainers.image.source=https://github.com/apple/containerization \
 		bin/init.rootfs.tar.gz
 
-.PHONY: cross-prep
-cross-prep:
-	@"$(MAKE)" -C vminitd cross-prep
-
 .PHONY: vminitd
+ifeq ($(UNAME_S),Darwin)
+# On macOS, vminitd/vmexec are static musl Linux binaries. Rather than
+# cross-compiling on the host (which used to require Swiftly + the Static
+# Linux SDK via `make cross-prep`), build them inside the Linux dev container
+# via `linux_run` — the same model `build-cloud-hypervisor` uses. The dev
+# image bakes in the Static Linux SDK, and the /workspace mount makes the
+# resulting binaries visible on the host at vminitd/bin/.
 vminitd:
 	@mkdir -p ./bin
-	@"$(MAKE)" -C vminitd BUILD_CONFIGURATION=$(BUILD_CONFIGURATION) WARNINGS_AS_ERRORS=$(WARNINGS_AS_ERRORS)
+	$(call linux_run,$(VMINITD_BUILD_CMD))
+else
+vminitd:
+	@mkdir -p ./bin
+	@$(VMINITD_BUILD_CMD)
+endif
 
 .PHONY: update-libarchive-source
 update-libarchive-source:

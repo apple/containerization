@@ -18,6 +18,7 @@ FROM swift:${SWIFT_VERSION}-noble
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
         make \
+        e2fsprogs \
         libarchive-dev \
         libbz2-dev \
         liblzma-dev \

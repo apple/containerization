@@ -100,31 +100,19 @@ Set the active developer directory to the installed Xcode (replace `<PATH_TO_XCO
 sudo xcode-select -s <PATH_TO_XCODE>
 ``` 
 
-Install [Swiftly](https://github.com/swiftlang/swiftly), [Swift](https://www.swift.org), and [Static Linux SDK](https://www.swift.org/documentation/articles/static-linux-getting-started.html):
+The Linux guest init (`vminitd`/`vmexec`) is compiled as a static binary
+*inside a Linux container* rather than cross-compiled on your Mac, so no Swift
+toolchain, Swiftly, or Static Linux SDK setup is required on the host. Install
+the [`container`](https://github.com/apple/container) CLI, which the build uses
+to compile the guest:
 
 ```bash
-make cross-prep
+# Install per https://github.com/apple/container, then verify it is on PATH:
+container --version
 ```
 
-If you use a custom terminal application, you may need to move this command from `.zprofile` to `.zshrc` (replace `<USERNAME>`):
-
-```bash
-# Added by swiftly
-. "/Users/<USERNAME>/.swiftly/env.sh"
-```
-
-Restart the terminal application. Ensure this command returns `/Users/<USERNAME>/.swiftly/bin/swift` (replace `<USERNAME>`):
-
-```bash
-which swift
-```
-
-If you've installed or used a Static Linux SDK previously, you may need to remove older SDK versions from the system (replace `<SDK-ID>`):
-
-```bash
-swift sdk list
-swift sdk remove <SDK-ID>
-```
+The first build automatically builds the Linux dev image used to compile the
+guest, which can take a few minutes.
 
 ## Build the package
 
