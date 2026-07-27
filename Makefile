@@ -212,11 +212,11 @@ endif
 		cd /workspace/.local/virtiofsd && \
 		if git apply --check /workspace/scripts/patches/virtiofsd-skip-cap-drop-with-sandbox-none.patch 2>/dev/null; then \
 			git apply /workspace/scripts/patches/virtiofsd-skip-cap-drop-with-sandbox-none.patch && \
-			echo "applied virtiofsd cap-drop patch"; \
+			echo 'applied virtiofsd cap-drop patch'; \
 		elif git apply --reverse --check /workspace/scripts/patches/virtiofsd-skip-cap-drop-with-sandbox-none.patch 2>/dev/null; then \
-			echo "virtiofsd cap-drop patch already applied"; \
+			echo 'virtiofsd cap-drop patch already applied'; \
 		else \
-			echo "ERROR: virtiofsd cap-drop patch does not apply cleanly" >&2; \
+			echo 'ERROR: virtiofsd cap-drop patch does not apply cleanly' >&2; \
 			exit 1; \
 		fi && \
 		cargo build --release && \
