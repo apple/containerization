@@ -561,6 +561,37 @@ struct ArchiveReaderTests {
         #expect((permissions & 0o777) == 0o700, "deferred attributes escaped the extraction root")
     }
 
+    @Test func duplicateDirectoryUsesLastDeferredAttributes() throws {
+        let testDirectory = createTemporaryDirectory(baseName: "ArchiveReaderTests.duplicateDirectory")!
+        defer { try? FileManager.default.removeItem(at: testDirectory) }
+        let archiveURL = testDirectory.appendingPathComponent("duplicate-directory.tar")
+        let writer = try ArchiveWriter(format: .paxRestricted, filter: .none, file: archiveURL)
+
+        let entries: [(path: String, permissions: mode_t)] = [
+            ("directory/", 0o000),
+            ("./directory/", 0o755),
+        ]
+        for (path, permissions) in entries {
+            let entry = WriteEntry()
+            entry.path = path
+            entry.fileType = .directory
+            entry.permissions = permissions
+            entry.size = 0
+            try writer.writeEntry(entry: entry, data: nil)
+        }
+        try writer.finishEncoding()
+
+        let extractDir = testDirectory.appendingPathComponent("extract")
+        let reader = try ArchiveReader(format: .paxRestricted, filter: .none, file: archiveURL)
+        let rejectedPaths = try reader.extractContents(to: extractDir)
+
+        #expect(rejectedPaths.isEmpty)
+        let attributes = try FileManager.default.attributesOfItem(
+            atPath: extractDir.appendingPathComponent("directory").path)
+        let permissions = (attributes[.posixPermissions] as? NSNumber)?.uint16Value ?? 0
+        #expect((permissions & 0o777) == 0o755, "the last directory entry should define final permissions")
+    }
+
     @Test func regularFileToSymlink() throws {
         let archiveURL = try createTestArchive(
             name: "file-to-symlink",

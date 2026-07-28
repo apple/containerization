@@ -284,7 +284,7 @@ extension ArchiveReader {
         // Iterate and extract archive entries, collecting rejected paths.
         var foundEntry = false
         var rejectedPaths = [String]()
-        var deferredDirAttrs: [(path: FilePath, entry: WriteEntry)] = []
+        var deferredDirAttrs: [FilePath: WriteEntry] = [:]
         for (entry, dataReader) in self.makeStreamingIterator() {
             guard let memberPath = (entry.path.map { FilePath($0) }) else {
                 continue
@@ -300,7 +300,8 @@ extension ArchiveReader {
             )
 
             if extracted, entry.fileType == .directory {
-                deferredDirAttrs.append((memberPath, entry))
+                let deferredPath = FilePath().appending(memberPath.components).lexicallyNormalized()
+                deferredDirAttrs[deferredPath] = entry
             }
 
             if !extracted {
@@ -313,10 +314,10 @@ extension ArchiveReader {
 
         // Apply directory permissions after all children are extracted, deepest first,
         // so a restrictive parent cannot block access to its children.
-        for deferred in deferredDirAttrs.sorted(by: { $0.path.components.count > $1.path.components.count }) {
+        for deferred in deferredDirAttrs.sorted(by: { $0.key.components.count > $1.key.components.count }) {
             do {
-                try FileDescriptorOps.withOpenDirectory(rootFileDescriptor, deferred.path) { fd in
-                    setFileAttributes(fd: fd.rawValue, entry: deferred.entry)
+                try FileDescriptorOps.withOpenDirectory(rootFileDescriptor, deferred.key) { fd in
+                    setFileAttributes(fd: fd.rawValue, entry: deferred.value)
                 }
             } catch let error as FileDescriptorOps.Error {
                 switch error {
