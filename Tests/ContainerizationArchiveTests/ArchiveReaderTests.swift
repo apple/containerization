@@ -438,6 +438,36 @@ struct ArchiveReaderTests {
         #expect((perms & permMask) == 0o755, "Permissions should be preserved")
     }
 
+    @Test func preserveSpecialPermissionBits() throws {
+        let testDirectory = createTemporaryDirectory(baseName: "ArchiveReaderTests")!
+        let archiveURL = testDirectory.appendingPathComponent("special-permissions.tar")
+        let archiver = try ArchiveWriter(format: .paxRestricted, filter: .none, file: archiveURL)
+
+        let writeEntry = WriteEntry()
+        writeEntry.path = "sticky"
+        writeEntry.fileType = .directory
+        writeEntry.permissions = 0o1777
+        writeEntry.size = 0
+        try archiver.writeEntry(entry: writeEntry, data: nil)
+        try archiver.finishEncoding()
+
+        defer { try? FileManager.default.removeItem(at: testDirectory) }
+
+        let extractDir = try createExtractionDirectory(name: "special-permissions")
+        defer { try? FileManager.default.removeItem(at: extractDir.deletingLastPathComponent()) }
+
+        let reader = try ArchiveReader(format: .paxRestricted, filter: .none, file: archiveURL)
+        let rejectedPaths = try reader.extractContents(to: extractDir)
+
+        #expect(rejectedPaths.isEmpty)
+
+        let directoryPath = extractDir.appendingPathComponent("sticky").path
+        let attrs = try FileManager.default.attributesOfItem(atPath: directoryPath)
+        let perms = (attrs[.posixPermissions] as? NSNumber)?.uint16Value ?? 0
+        let permMask: UInt16 = 0o7777
+        #expect((perms & permMask) == 0o1777, "Special permission bits should be preserved")
+    }
+
     // MARK: - Duplicate Entry Tests
 
     @Test func duplicateRegularFiles() throws {
