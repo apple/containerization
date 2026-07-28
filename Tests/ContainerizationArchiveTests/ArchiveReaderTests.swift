@@ -534,6 +534,33 @@ struct ArchiveReaderTests {
         #expect(content == "content", "Should have file content")
     }
 
+    @Test func deferredDirectoryAttributesDoNotFollowReplacedParentSymlink() throws {
+        let externalRoot = createTemporaryDirectory(baseName: "ArchiveReaderTests.external")!
+        defer { try? FileManager.default.removeItem(at: externalRoot) }
+        let externalChild = externalRoot.appendingPathComponent("child")
+        try FileManager.default.createDirectory(at: externalChild, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: externalChild.path)
+
+        let archiveURL = try createTestArchive(
+            name: "deferred-attrs-replaced-parent",
+            entries: [
+                ("parent/child/", .directory, nil),
+                ("parent", .symlink, externalRoot.path),
+            ])
+        defer { try? FileManager.default.removeItem(at: archiveURL.deletingLastPathComponent()) }
+
+        let extractDir = try createExtractionDirectory(name: "deferred-attrs-replaced-parent")
+        defer { try? FileManager.default.removeItem(at: extractDir.deletingLastPathComponent()) }
+
+        let reader = try ArchiveReader(format: .paxRestricted, filter: .none, file: archiveURL)
+        let rejectedPaths = try reader.extractContents(to: extractDir)
+
+        #expect(rejectedPaths.isEmpty)
+        let attributes = try FileManager.default.attributesOfItem(atPath: externalChild.path)
+        let permissions = (attributes[.posixPermissions] as? NSNumber)?.uint16Value ?? 0
+        #expect((permissions & 0o777) == 0o700, "deferred attributes escaped the extraction root")
+    }
+
     @Test func regularFileToSymlink() throws {
         let archiveURL = try createTestArchive(
             name: "file-to-symlink",
