@@ -449,6 +449,17 @@ struct ArchiveReaderTests {
         writeEntry.permissions = 0o1777
         writeEntry.size = 0
         try archiver.writeEntry(entry: writeEntry, data: nil)
+
+        let setIDEntry = WriteEntry()
+        setIDEntry.path = "set-id"
+        setIDEntry.fileType = .regular
+        setIDEntry.permissions = 0o6755
+        setIDEntry.owner = getuid()
+        setIDEntry.group = getgid()
+        let setIDData = Data("set-id".utf8)
+        setIDEntry.size = numericCast(setIDData.count)
+        try archiver.writeEntry(entry: setIDEntry, data: setIDData)
+
         try archiver.finishEncoding()
 
         defer { try? FileManager.default.removeItem(at: testDirectory) }
@@ -466,6 +477,11 @@ struct ArchiveReaderTests {
         let perms = (attrs[.posixPermissions] as? NSNumber)?.uint16Value ?? 0
         let permMask: UInt16 = 0o7777
         #expect((perms & permMask) == 0o1777, "Special permission bits should be preserved")
+
+        let setIDPath = extractDir.appendingPathComponent("set-id").path
+        let setIDAttrs = try FileManager.default.attributesOfItem(atPath: setIDPath)
+        let setIDPerms = (setIDAttrs[.posixPermissions] as? NSNumber)?.uint16Value ?? 0
+        #expect((setIDPerms & permMask) == 0o6755, "Set-ID permission bits should be preserved after ownership")
     }
 
     // MARK: - Duplicate Entry Tests

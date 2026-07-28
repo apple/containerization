@@ -398,10 +398,10 @@ extension ArchiveReader {
     }
 
     private func setFileAttributes(fd: Int32, entry: WriteEntry) {
-        fchmod(fd, entry.permissions & 0o7777)
         if let owner = entry.owner, let group = entry.group {
             fchown(fd, owner, group)
         }
+        fchmod(fd, entry.permissions & 0o7777)
     }
 
     private static func copyDataReaderToFd(dataReader: ArchiveEntryReader, fileFd: Int32, memberPath: FilePath) throws {
