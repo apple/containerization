@@ -195,6 +195,8 @@ public final class LinuxPod: Sendable {
         var phase: Phase
         var containers: [String: PodContainer]
         var pauseProcess: LinuxProcess?
+        // Whether the unified virtiofs share is mounted at `/run/virtiofs` in the guest
+        var unifiedVirtiofsMounted: Bool = false
     }
 
     private enum Phase: Sendable {
@@ -451,17 +453,17 @@ extension LinuxPod {
                         // and is never consumed from /run/virtiofs.
                         let newVirtiofsTags = try virtioFSMounts.map { try hashFilePath(path: $0.source) }
                         if !newVirtiofsTags.isEmpty {
-                            // Tags already mounted in the guest at boot or by a
-                            // prior hotplug (i.e. present on another container).
-                            let alreadyMounted = Set(
-                                vm.mounts
-                                    .filter { $0.key != id }
-                                    .values.flatMap { $0 }
-                                    .filter { $0.type == "virtiofs" }
-                                    .map { $0.source }
-                            )
                             try await agent.mkdir(path: "/run/virtiofs", all: true, perms: 0o755)
                             if vm.virtiofsLayout == .perTag {
+                                // Tags already mounted in the guest at boot or by a
+                                // prior hotplug (i.e. present on another container).
+                                let alreadyMounted = Set(
+                                    vm.mounts
+                                        .filter { $0.key != id }
+                                        .values.flatMap { $0 }
+                                        .filter { $0.type == "virtiofs" }
+                                        .map { $0.source }
+                                )
                                 var seen: Set<String> = []
                                 for tag in newVirtiofsTags
                                 where !alreadyMounted.contains(tag) && seen.insert(tag).inserted {
@@ -475,9 +477,10 @@ extension LinuxPod {
                                             options: []
                                         ))
                                 }
-                            } else if alreadyMounted.isEmpty {
-                                // Unified layout: one /run/virtiofs mount, needed
-                                // only if nothing mounted it at boot / earlier.
+                            } else if !state.unifiedVirtiofsMounted && vm.virtiofsLayout == .unified {
+                                // Unified layout: one /run/virtiofs mount for the
+                                // VM's lifetime, so mount it only if nothing has
+                                // mounted it at boot or on an earlier hotplug.
                                 try await agent.mount(
                                     ContainerizationOCI.Mount(
                                         type: "virtiofs",
@@ -485,6 +488,7 @@ extension LinuxPod {
                                         destination: "/run/virtiofs",
                                         options: []
                                     ))
+                                state.unifiedVirtiofsMounted = true
                             }
                         }
 
@@ -812,6 +816,7 @@ extension LinuxPod {
                 }
 
                 state.pauseProcess = pauseProcessHolder.withLock { $0 }
+                state.unifiedVirtiofsMounted = hasVirtiofsMount && vm.virtiofsLayout == .unified
 
                 // Apply file mount context updates.
                 let updates = fileMountContextUpdates.withLock { $0 }
