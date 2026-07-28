@@ -111,6 +111,19 @@ public enum FileDescriptorOps {
         )
     }
 
+    /// Opens an existing directory relative to `fd` without following symbolic links.
+    ///
+    /// Each path component must already exist and be a directory. Unlike ``mkdir``,
+    /// this operation never creates or replaces filesystem entries.
+    public static func withOpenDirectory(
+        _ fd: FileDescriptor,
+        _ relativePath: FilePath,
+        completion: (FileDescriptor) throws -> Void
+    ) throws {
+        try validateRelativePath(relativePath)
+        try withOpenDirectory(fd, relativePath.components, completion: completion)
+    }
+
     /// Recursively removes a direct child of the directory at `fd`.
     ///
     /// - Parameters:
@@ -267,6 +280,37 @@ public enum FileDescriptorOps {
         try mkdir(
             componentFileDescriptor, childComponents,
             permissions: permissions, makeIntermediates: makeIntermediates, completion: completion)
+    }
+
+    private static func withOpenDirectory(
+        _ fd: FileDescriptor,
+        _ relativeComponents: FilePath.ComponentView,
+        completion: (FileDescriptor) throws -> Void
+    ) throws {
+        guard let currentComponent = relativeComponents.first else {
+            try completion(fd)
+            return
+        }
+
+        let componentFd = openat(fd.rawValue, currentComponent.string, O_NOFOLLOW | O_RDONLY | O_DIRECTORY)
+        guard componentFd >= 0 else {
+            switch errno {
+            case ELOOP:
+                throw Error.cannotFollowSymlink
+            case ENOENT, ENOTDIR:
+                throw Error.invalidPathComponent
+            default:
+                throw Error.systemError("directory open during file descriptor traversal", errno)
+            }
+        }
+
+        let componentFileDescriptor = FileDescriptor(rawValue: componentFd)
+        defer { try? componentFileDescriptor.close() }
+        try withOpenDirectory(
+            componentFileDescriptor,
+            FilePath.ComponentView(relativeComponents.dropFirst()),
+            completion: completion
+        )
     }
 
     private static func enumerateHelper(

@@ -186,6 +186,40 @@ struct FileDescriptorPathSecureTests {
         }
     }
 
+    @Test
+    func withOpenDirectoryDoesNotReplaceRegularFile() async throws {
+        let rootPath = try createTempDirectory()
+        defer { try? FileManager.default.removeItem(atPath: rootPath.string) }
+        try createEntries(rootPath: rootPath, entries: [.regular(path: "entry")], permissions: nil)
+
+        let rootFd = try FileDescriptor.open(rootPath, .readOnly, options: [.directory])
+        defer { try? rootFd.close() }
+
+        #expect(throws: FileDescriptorOps.Error.invalidPathComponent) {
+            try FileDescriptorOps.withOpenDirectory(rootFd, FilePath("entry")) { _ in }
+        }
+
+        var isDirectory: ObjCBool = false
+        #expect(FileManager.default.fileExists(atPath: rootPath.appending("entry").string, isDirectory: &isDirectory))
+        #expect(!isDirectory.boolValue)
+    }
+
+    @Test
+    func withOpenDirectoryTraversesExistingDirectories() async throws {
+        let rootPath = try createTempDirectory()
+        defer { try? FileManager.default.removeItem(atPath: rootPath.string) }
+        try createEntries(rootPath: rootPath, entries: [.directory(path: "parent/child")], permissions: nil)
+
+        let rootFd = try FileDescriptor.open(rootPath, .readOnly, options: [.directory])
+        defer { try? rootFd.close() }
+
+        var opened = false
+        try FileDescriptorOps.withOpenDirectory(rootFd, FilePath("parent/child")) { _ in
+            opened = true
+        }
+        #expect(opened)
+    }
+
     @Test(
         "Test paths with .. that normalize to valid paths",
         arguments: [
