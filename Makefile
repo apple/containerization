@@ -99,7 +99,7 @@ define linux_run
 		$(MAKE) linux-image; \
 	fi
 	@mkdir -p $(ROOT_DIR)/.local/integration-cache
-	@container run --rm $(2) --memory 16gb --cpus 8 --virtualization \
+	@container run --rm $(2) --memory 16gb --cpus 8 \
 		-v $(ROOT_DIR):/workspace \
 		-v $(ROOT_DIR)/.local/integration-cache:/root/.local/share/com.apple.containerization \
 		-w /workspace $(LINUX_DEV_IMAGE) \
@@ -245,7 +245,7 @@ ifeq (,$(wildcard bin/initfs.ext4))
 	@echo "missing bin/initfs.ext4; run 'make init' first (this also seeds the persistent imageStore at .local/integration-cache)"
 	@exit 1
 endif
-	$(call linux_run,CONTAINERIZATION_RELAXED_SANDBOX=1 ./bin/containerization-integration --kernel ./$(LINUX_INTEGRATION_KERNEL) --ch-binary ./bin/cloud-hypervisor --virtiofsd-binary ./bin/virtiofsd --max-concurrency 1 $(linux_integration_filter),--kernel $(LINUX_INTEGRATION_KERNEL))
+	$(call linux_run,CONTAINERIZATION_RELAXED_SANDBOX=1 ./bin/containerization-integration --kernel ./$(LINUX_INTEGRATION_KERNEL) --ch-binary ./bin/cloud-hypervisor --virtiofsd-binary ./bin/virtiofsd --max-concurrency 1 $(linux_integration_filter),--kernel $(LINUX_INTEGRATION_KERNEL) --virtualization)
 
 # Builds the x86_64 deployment tarball.
 #
