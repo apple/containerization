@@ -592,6 +592,55 @@ struct ArchiveReaderTests {
         #expect((permissions & 0o777) == 0o755, "the last directory entry should define final permissions")
     }
 
+    @Test func replacedDirectoryDoesNotReceiveStaleDeferredAttributes() throws {
+        let testDirectory = createTemporaryDirectory(baseName: "ArchiveReaderTests.replacedDirectory")!
+        defer { try? FileManager.default.removeItem(at: testDirectory) }
+        let archiveURL = testDirectory.appendingPathComponent("replaced-directory.tar")
+        let writer = try ArchiveWriter(format: .paxRestricted, filter: .none, file: archiveURL)
+
+        let directory = WriteEntry()
+        directory.path = "parent/child/"
+        directory.fileType = .directory
+        directory.permissions = 0o123
+        directory.size = 0
+        try writer.writeEntry(entry: directory, data: nil)
+
+        let symlink = WriteEntry()
+        symlink.path = "parent"
+        symlink.fileType = .symbolicLink
+        symlink.symlinkTarget = "elsewhere"
+        symlink.size = 0
+        try writer.writeEntry(entry: symlink, data: nil)
+
+        let file = WriteEntry()
+        file.path = "parent/child/file"
+        file.fileType = .regular
+        file.permissions = 0o644
+        let data = Data("content".utf8)
+        file.size = numericCast(data.count)
+        try writer.writeEntry(entry: file, data: data)
+        try writer.finishEncoding()
+
+        let extractDir = testDirectory.appendingPathComponent("extract")
+        let reader = try ArchiveReader(format: .paxRestricted, filter: .none, file: archiveURL)
+        let rejectedPaths = try reader.extractContents(to: extractDir)
+
+        let parent = extractDir.appendingPathComponent("parent")
+        let child = parent.appendingPathComponent("child")
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: child.path) }
+
+        #expect(rejectedPaths.isEmpty)
+        let parentAttributes = try FileManager.default.attributesOfItem(atPath: parent.path)
+        let childAttributes = try FileManager.default.attributesOfItem(atPath: child.path)
+        let parentPermissions = (parentAttributes[.posixPermissions] as? NSNumber)?.uint16Value ?? 0
+        let childPermissions = (childAttributes[.posixPermissions] as? NSNumber)?.uint16Value ?? 0
+        #expect(
+            (childPermissions & 0o777) == (parentPermissions & 0o777),
+            "a replacement directory received stale attributes from an unlinked inode"
+        )
+        #expect(try String(contentsOf: child.appendingPathComponent("file"), encoding: .utf8) == "content")
+    }
+
     @Test func regularFileToSymlink() throws {
         let archiveURL = try createTestArchive(
             name: "file-to-symlink",

@@ -249,6 +249,29 @@ extension ArchiveReader: Sequence {
 }
 
 extension ArchiveReader {
+    private struct DirectoryIdentity: Equatable {
+        let device: UInt64
+        let inode: UInt64
+    }
+
+    private struct DeferredDirectoryAttributes {
+        let entry: WriteEntry
+        let identity: DirectoryIdentity
+    }
+
+    private struct ExtractionResult {
+        let extracted: Bool
+        let deferredDirectoryAttributes: DeferredDirectoryAttributes?
+
+        static var rejected: ExtractionResult {
+            ExtractionResult(extracted: false, deferredDirectoryAttributes: nil)
+        }
+
+        static var extracted: ExtractionResult {
+            ExtractionResult(extracted: true, deferredDirectoryAttributes: nil)
+        }
+    }
+
     public convenience init(name: String, bundle: Data, tempDirectoryBaseName: String? = nil) throws {
         let baseName = tempDirectoryBaseName ?? "Unarchiver"
         guard let tempDir = createTemporaryDirectory(baseName: baseName) else {
@@ -284,7 +307,7 @@ extension ArchiveReader {
         // Iterate and extract archive entries, collecting rejected paths.
         var foundEntry = false
         var rejectedPaths = [String]()
-        var deferredDirAttrs: [FilePath: WriteEntry] = [:]
+        var deferredDirAttrs: [FilePath: DeferredDirectoryAttributes] = [:]
         for (entry, dataReader) in self.makeStreamingIterator() {
             guard let memberPath = (entry.path.map { FilePath($0) }) else {
                 continue
@@ -292,19 +315,19 @@ extension ArchiveReader {
             foundEntry = true
 
             // Try to extract the entry, catching path validation errors
-            let extracted = try extractEntry(
+            let result = try extractEntry(
                 entry: entry,
                 dataReader: dataReader,
                 memberPath: memberPath,
                 rootFileDescriptor: rootFileDescriptor
             )
 
-            if extracted, entry.fileType == .directory {
+            if let deferredDirectoryAttributes = result.deferredDirectoryAttributes {
                 let deferredPath = FilePath().appending(memberPath.components).lexicallyNormalized()
-                deferredDirAttrs[deferredPath] = entry
+                deferredDirAttrs[deferredPath] = deferredDirectoryAttributes
             }
 
-            if !extracted {
+            if !result.extracted {
                 rejectedPaths.append(memberPath.string)
             }
         }
@@ -317,7 +340,10 @@ extension ArchiveReader {
         for deferred in deferredDirAttrs.sorted(by: { $0.key.components.count > $1.key.components.count }) {
             do {
                 try FileDescriptorOps.withOpenDirectory(rootFileDescriptor, deferred.key) { fd in
-                    setFileAttributes(fd: fd.rawValue, entry: deferred.value)
+                    guard try Self.directoryIdentity(fd) == deferred.value.identity else {
+                        return
+                    }
+                    setFileAttributes(fd: fd.rawValue, entry: deferred.value.entry)
                 }
             } catch let error as FileDescriptorOps.Error {
                 switch error {
@@ -360,9 +386,9 @@ extension ArchiveReader {
         dataReader: ArchiveEntryReader,
         memberPath: FilePath,
         rootFileDescriptor: FileDescriptor
-    ) throws -> Bool {
+    ) throws -> ExtractionResult {
         guard let lastComponent = memberPath.lastComponent else {
-            return false
+            return .rejected
         }
         let relativePath = memberPath.removingLastComponent()
         let type = entry.fileType
@@ -385,11 +411,22 @@ extension ArchiveReader {
                     try Self.copyDataReaderToFd(dataReader: dataReader, fileFd: fileFd, memberPath: memberPath)
                     setFileAttributes(fd: fileFd, entry: entry)
                 }
+                return .extracted
             case .directory:
-                try FileDescriptorOps.mkdir(rootFileDescriptor, memberPath, makeIntermediates: true) { _ in }
+                var deferredDirectoryAttributes: DeferredDirectoryAttributes?
+                try FileDescriptorOps.mkdir(rootFileDescriptor, memberPath, makeIntermediates: true) { fd in
+                    deferredDirectoryAttributes = DeferredDirectoryAttributes(
+                        entry: entry,
+                        identity: try Self.directoryIdentity(fd)
+                    )
+                }
+                return ExtractionResult(
+                    extracted: true,
+                    deferredDirectoryAttributes: deferredDirectoryAttributes
+                )
             case .symbolicLink:
                 guard let targetPath = (entry.symlinkTarget.map { FilePath($0) }) else {
-                    return false
+                    return .rejected
                 }
                 var symlinkCreated = false
                 try FileDescriptorOps.mkdir(rootFileDescriptor, relativePath, makeIntermediates: true) { fd in
@@ -401,12 +438,10 @@ extension ArchiveReader {
                     }
                     symlinkCreated = true
                 }
-                return symlinkCreated
+                return symlinkCreated ? .extracted : .rejected
             default:
-                return false
+                return .rejected
             }
-
-            return true
         } catch let error as FileDescriptorOps.Error {
             // Just reject path validation errors, don't fail the extraction
             switch error {
@@ -414,9 +449,20 @@ extension ArchiveReader {
                 // Fail for system errors
                 throw error
             case .invalidRelativePath, .invalidPathComponent, .cannotFollowSymlink:
-                return false
+                return .rejected
             }
         }
+    }
+
+    private static func directoryIdentity(_ fd: FileDescriptor) throws -> DirectoryIdentity {
+        var attributes = stat()
+        guard fstat(fd.rawValue, &attributes) == 0 else {
+            throw FileDescriptorOps.Error.systemError("fstat during archive directory extraction", errno)
+        }
+        return DirectoryIdentity(
+            device: UInt64(attributes.st_dev),
+            inode: UInt64(attributes.st_ino)
+        )
     }
 
     private func setFileAttributes(fd: Int32, entry: WriteEntry) {
