@@ -91,7 +91,7 @@ public enum CIDR: CustomStringConvertible, Equatable, Sendable, Hashable {
         case (.v4(let addr, let prefix)):
             return .v4(IPv4Address(addr.value & prefix.prefixMask32))
         case (.v6(let addr, let prefix)):
-            return .v6(IPv6Address(addr.value & prefix.prefixMask128))
+            return .v6(IPv6Address(addr.value & prefix.prefixMask128, zone: addr.zone))
         }
     }
 
@@ -113,9 +113,9 @@ public enum CIDR: CustomStringConvertible, Equatable, Sendable, Hashable {
     public func contains(_ ip: IPAddress) -> Bool {
         switch (self, ip) {
         case (.v4(let network, let prefix), .v4(let ip)):
-            return network.value == (ip.value & prefix.prefixMask32)
+            return (network.value & prefix.prefixMask32) == (ip.value & prefix.prefixMask32)
         case (.v6(let network, let prefix), .v6(let ip)):
-            return (network.zone == ip.zone) && (network.value == (ip.value & prefix.prefixMask128))
+            return (network.zone == ip.zone) && ((network.value & prefix.prefixMask128) == (ip.value & prefix.prefixMask128))
         default:
             return false
         }

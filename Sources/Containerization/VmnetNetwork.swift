@@ -291,7 +291,10 @@ public struct VmnetNetwork: Network {
 
     private static func configurePrefixV6(_ config: vmnet_network_configuration_ref, prefixV6: CIDRv6) throws {
         var p = in6_addr()
-        inet_pton(AF_INET6, prefixV6.lower.description, &p)
+        // `inet_pton` rejects a zone suffix, so render the network address on
+        // its own. A vmnet prefix is never link-scoped, so dropping the zone
+        // here loses nothing.
+        inet_pton(AF_INET6, IPv6Address(prefixV6.lower.value).description, &p)
 
         guard vmnet_network_configuration_set_ipv6_prefix(config, &p, prefixV6.prefix.length) == .VMNET_SUCCESS else {
             throw ContainerizationError(.internalError, message: "failed to set IPv6 prefix \(prefixV6) for network")
