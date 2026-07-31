@@ -146,14 +146,20 @@ if [ "${REBUILD_VIRTIOFSD:-0}" != "1" ] && [ -x "${DIST_DIR}/virtiofsd" ]; then
     NEED_VIRTIOFSD=0
 fi
 
+SCRATCH_FLAGS=()
+if [ -n "${SCRATCH_ROOT:-}" ]; then
+    SCRATCH_FLAGS=(--scratch-path "${SCRATCH_ROOT}/build-containerization")
+fi
+
 echo "==> Cross-compiling cctl to x86_64-linux-musl"
 swift build -c release \
     --swift-sdk x86_64-swift-linux-musl \
     --product cctl \
     -Xswiftc -warnings-as-errors \
     -Xlinker -L"${CROSS_PREFIX}/lib" \
-    --disable-automatic-resolution
-CCTL_X86_64_BIN="$(swift build -c release --swift-sdk x86_64-swift-linux-musl --show-bin-path)/cctl"
+    --disable-automatic-resolution \
+    "${SCRATCH_FLAGS[@]}"
+CCTL_X86_64_BIN="$(swift build -c release --swift-sdk x86_64-swift-linux-musl "${SCRATCH_FLAGS[@]}" --show-bin-path)/cctl"
 install -m 755 "${CCTL_X86_64_BIN}" "${DIST_DIR}/cctl"
 
 if [ "${NEED_VMINITD}" = "1" ]; then

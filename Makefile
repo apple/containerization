@@ -15,7 +15,14 @@
 # Build configuration variables
 BUILD_CONFIGURATION ?= debug
 WARNINGS_AS_ERRORS ?= true
-SWIFT_CONFIGURATION := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors) --disable-automatic-resolution
+
+# Allow for a custom build cache directory
+# By default this is left unset, and swift uses the default directory as `./.build`
+# The `linux_run` target exports SCRATCH_ROOT inside of the container
+SCRATCH_ROOT ?=
+SCRATCH_PATH ?= $(if $(SCRATCH_ROOT),$(SCRATCH_ROOT)/build-containerization)
+SWIFT_SCRATCH_FLAGS := $(if $(SCRATCH_PATH),--scratch-path $(SCRATCH_PATH))
+SWIFT_CONFIGURATION := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors) --disable-automatic-resolution $(SWIFT_SCRATCH_FLAGS)
 
 # Commonly used locations
 UNAME_S := $(shell uname -s)
@@ -48,7 +55,7 @@ SWIFT ?= swift
 endif
 
 ROOT_DIR := $(shell git rev-parse --show-toplevel)
-BUILD_BIN_DIR = $(shell $(SWIFT) build -c $(BUILD_CONFIGURATION) --show-bin-path)
+BUILD_BIN_DIR = $(shell $(SWIFT) build -c $(BUILD_CONFIGURATION) $(SWIFT_SCRATCH_FLAGS) --show-bin-path)
 COV_DATA_DIR = $(shell $(SWIFT) test --show-coverage-path | xargs dirname)
 COV_REPORT_FILE = $(ROOT_DIR)/code-coverage-report
 
@@ -67,6 +74,14 @@ SWIFT_VERSION := $(shell cat $(ROOT_DIR)/.swift-version)
 SWIFT_SDK_URL := $(shell grep '^SWIFT_SDK_URL' vminitd/Makefile | head -1 | sed 's/.*:= *//')
 SWIFT_SDK_CHECKSUM := $(shell grep '^SWIFT_SDK_CHECKSUM' vminitd/Makefile | head -1 | sed 's/.*:= *//')
 LINUX_DEV_IMAGE := containerization-dev:$(SWIFT_VERSION)
+
+# Use an alternative path (backed by a named volume) for the build cache
+# when building products inside of a container
+# LINUX_SCRATCH_ROOT is used for the build cache
+# LINUX_SHARED_CACHE is used for the dependency cache
+LINUX_BUILD_VOLUME := containerization-linux-build
+LINUX_SCRATCH_ROOT := /build
+LINUX_SHARED_CACHE := $(LINUX_SCRATCH_ROOT)/cache
 
 # Literal `,` for use inside $(call ...) arguments — bare commas are
 # treated as the call's argument separator and split the value early.
@@ -99,8 +114,15 @@ define linux_run
 		$(MAKE) linux-image; \
 	fi
 	@mkdir -p $(ROOT_DIR)/.local/integration-cache
+	@if ! container volume inspect $(LINUX_BUILD_VOLUME) > /dev/null 2>&1; then \
+		echo "Creating Linux build volume $(LINUX_BUILD_VOLUME)..."; \
+		container volume create $(LINUX_BUILD_VOLUME) > /dev/null; \
+	fi
 	@container run --rm $(2) --memory 16gb --cpus 8 \
+		--env SCRATCH_ROOT=$(LINUX_SCRATCH_ROOT) \
+		--env XDG_CACHE_HOME=$(LINUX_SHARED_CACHE) \
 		-v $(ROOT_DIR):/workspace \
+		-v $(LINUX_BUILD_VOLUME):$(LINUX_SCRATCH_ROOT) \
 		-v $(ROOT_DIR)/.local/integration-cache:/root/.local/share/com.apple.containerization \
 		-w /workspace $(LINUX_DEV_IMAGE) \
 		bash -c "$(1)"
@@ -140,7 +162,7 @@ endif
 
 .PHONY: linux-test
 linux-test:
-	$(call linux_run,swift test $(SWIFT_CONFIGURATION))
+	$(call linux_run,swift test $(SWIFT_CONFIGURATION) --scratch-path $(LINUX_SCRATCH_ROOT)/build-containerization)
 
 .PHONY: build-cloud-hypervisor
 # Build cloud-hypervisor from the patched source at .local/cloud-hypervisor and

@@ -40,6 +40,10 @@ endif
 
 SWIFT_CONFIGURATION := $(SWIFT_SDK_FLAGS) $(SWIFT_WARNING_CONFIG) -Xlinker -s --disable-automatic-resolution
 
+SCRATCH_ROOT ?=
+SCRATCH_PATH ?= $(if $(SCRATCH_ROOT),$(SCRATCH_ROOT)/build-vminitd-$(LIBC))
+SWIFT_CONFIGURATION += $(if $(SCRATCH_PATH),--scratch-path $(SCRATCH_PATH))
+
 SWIFT_VERSION := 6.3.0
 SWIFT_SDK_URL := https://download.swift.org/swift-6.3-release/static-sdk/swift-6.3-RELEASE/swift-6.3-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz
 SWIFT_SDK_CHECKSUM := d2078b69bdeb5c31202c10e9d8a11d6f66f82938b51a4b75f032ccb35c4c286c
@@ -98,4 +102,4 @@ clean:
 	@echo Cleaning the vminitd build files...
 	@rm -f ./bin/vminitd
 	@rm -f ./bin/vmexec
-	@rm -rf .build
+	@rm -rf .build $(SCRATCH_PATH)
