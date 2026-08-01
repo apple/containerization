@@ -92,6 +92,25 @@ extension VZVirtualMachine {
         }
     }
 
+    /// Write the balloon's target size. Virtualization takes memory from the
+    /// guest and gives it to the host by the difference when the target is
+    /// lowered, and gives it back when the target is raised, so the guest's
+    /// operating system has to act before the change takes effect.
+    func setTargetMemorySize(_ bytes: UInt64, queue: DispatchQueue) throws {
+        try queue.sync {
+            guard
+                let balloon = self.memoryBalloonDevices.first
+                    as? VZVirtioTraditionalMemoryBalloonDevice
+            else {
+                throw ContainerizationError(
+                    .unsupported,
+                    message: "no memory balloon device attached to the virtual machine"
+                )
+            }
+            balloon.targetVirtualMachineMemorySize = bytes
+        }
+    }
+
     func pause(queue: DispatchQueue) async throws {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             queue.sync {

@@ -253,6 +253,18 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
         }
     }
 
+    public func setTargetMemorySize(_ bytes: UInt64) async throws {
+        guard bytes <= self.config.memoryInBytes else {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "cannot hold \(bytes) bytes, the machine was created with \(self.config.memoryInBytes)"
+            )
+        }
+        try await lock.withLock { _ in
+            try self.vm.setTargetMemorySize(bytes, queue: self.queue)
+        }
+    }
+
     public func dialAgent() async throws -> Vminitd {
         try await lock.withLock { _ in
             do {
@@ -419,6 +431,14 @@ extension VZVirtualMachineInstance.Configuration {
         config.memorySize = (self.memoryInBytes + mib - 1) & ~(mib - 1)
         config.entropyDevices = [VZVirtioEntropyDeviceConfiguration()]
         config.socketDevices = [VZVirtioSocketDeviceConfiguration()]
+        // A balloon lets the host take back memory the guest has stopped using.
+        // Nothing else can: the guest has no way to report a page it has freed,
+        // so without one those pages stay with the machine until the host runs
+        // short and reclaims them the way it reclaims any cold memory, paging
+        // out pages the guest would have given up for nothing. Lima attaches
+        // the same device beside the same entropy and socket devices.
+        // https://github.com/lima-vm/lima/blob/master/pkg/driver/vz/vm_darwin.go
+        config.memoryBalloonDevices = [VZVirtioTraditionalMemoryBalloonDeviceConfiguration()]
 
         if let bootLog = self.bootLog {
             config.serialPorts = try serialPort(destination: bootLog)

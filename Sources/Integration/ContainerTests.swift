@@ -315,6 +315,75 @@ extension IntegrationSuite {
         }
     }
 
+    func testContainerMemoryBalloon() async throws {
+        let id = "test-container-memory-balloon"
+        let bs = try await bootstrap(id)
+
+        let memory: UInt64 = 2048.mib()
+        let target: UInt64 = 1024.mib()
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            // Memory a guest has never touched is not backed on the host, so a
+            // balloon that takes only those pages moves nothing. The guest fills
+            // a tmpfs to put real pages behind its memory and frees them again,
+            // leaving the machine holding pages the guest no longer wants, which
+            // is the state the balloon exists to resolve.
+            config.mounts.append(
+                .any(
+                    type: "tmpfs", source: "tmpfs", destination: "/fill",
+                    options: ["rw", "size=1g"]))
+            config.process.arguments = [
+                "/bin/sh", "-c",
+                "dd if=/dev/zero of=/fill/pages bs=1M count=768 2>/dev/null; "
+                    + "rm /fill/pages; "
+                    + "awk '/MemFree/ { print $2 }' /proc/meminfo; sleep 25; "
+                    + "awk '/MemFree/ { print $2 }' /proc/meminfo",
+            ]
+            config.process.stdout = buffer
+            config.memoryInBytes = memory
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            try await Task.sleep(nanoseconds: 15_000_000_000)
+            try await container.withVirtualMachineInstance { vm in
+                try await vm.setTargetMemorySize(target)
+            }
+
+            let status = try await container.wait()
+            try await container.stop()
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "workload did not complete: \(status)")
+            }
+
+            let out = String(data: buffer.data, encoding: .utf8) ?? ""
+            let readings = out.split(separator: "\n").compactMap {
+                UInt64($0.trimmingCharacters(in: .whitespaces))
+            }
+            guard readings.count == 2 else {
+                throw IntegrationError.assert(msg: "expected two readings, got '\(out)'")
+            }
+            // The balloon holds what it takes, so the guest goes on reporting the
+            // same total while the memory it has free drops by close to the
+            // amount asked for. The driver keeps those pages accounted for in
+            // case it has to give them back, which is why the total does not
+            // move.
+            let takenByBalloon = Int64(readings[0]) - Int64(readings[1])
+            let asked = Int64((memory - target) / 1024)
+            guard takenByBalloon > asked / 2 else {
+                throw IntegrationError.assert(
+                    msg: "balloon took \(takenByBalloon) kB of the \(asked) kB asked for: "
+                        + "free before=\(readings[0]) after=\(readings[1])")
+            }
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
     func testProcessEchoHi() async throws {
         let id = "test-process-echo-hi"
         let bs = try await bootstrap(id)
