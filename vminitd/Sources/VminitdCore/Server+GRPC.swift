@@ -655,6 +655,21 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             ])
 
         do {
+            #if os(Linux)
+            // A swap area is enabled, not mounted: the host attaches it as a
+            // block device and marks it with this type so the size and the
+            // guest device path travel the same way a mount's do.
+            if request.type == Swap.mountType {
+                let size = try Swap.size(ofDeviceAt: request.source)
+                try Swap.enable(path: request.source, size: size)
+                log.info(
+                    "swap enabled",
+                    metadata: ["device": "\(request.source)", "bytes": "\(size)"]
+                )
+                return .init()
+            }
+            #endif
+
             let mnt = ContainerizationOS.Mount(
                 type: request.type,
                 source: request.source,

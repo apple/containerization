@@ -29,21 +29,28 @@ public struct ContainerStorage<Value: Sendable>: Sendable {
     /// overlay, when the container has one.
     public var writableLayer: Value?
 
+    /// The swap area enabled for the container, when it has one.
+    public var swap: Value?
+
     /// The container's remaining mounts, in configuration order.
     public var mounts: [Value]
 
-    public init(rootfs: Value, writableLayer: Value? = nil, mounts: [Value] = []) {
+    public init(rootfs: Value, writableLayer: Value? = nil, swap: Value? = nil, mounts: [Value] = []) {
         self.rootfs = rootfs
         self.writableLayer = writableLayer
+        self.swap = swap
         self.mounts = mounts
     }
 
-    /// Every value in the structure: the rootfs, the writable layer when
-    /// present, then the mounts, in that order.
+    /// Every value in the structure: the rootfs, the writable layer and swap
+    /// when present, then the mounts, in that order.
     public var all: [Value] {
         var values = [rootfs]
         if let writableLayer {
             values.append(writableLayer)
+        }
+        if let swap {
+            values.append(swap)
         }
         values.append(contentsOf: mounts)
         return values
@@ -55,6 +62,7 @@ public struct ContainerStorage<Value: Sendable>: Sendable {
         ContainerStorage<U>(
             rootfs: try transform(rootfs),
             writableLayer: try writableLayer.map(transform),
+            swap: try swap.map(transform),
             mounts: try mounts.map(transform)
         )
     }

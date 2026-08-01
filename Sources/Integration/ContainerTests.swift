@@ -137,6 +137,184 @@ extension IntegrationSuite {
         }
     }
 
+    func testContainerSwap() async throws {
+        let id = "test-container-swap"
+        let bs = try await bootstrap(id)
+
+        let swapPath = Self.binPath(name: "\(id)-swap.raw")
+        let swap = try Self.makeSwapDevice(at: swapPath, size: 64.mib())
+        defer { try? FileManager.default.removeItem(at: swapPath) }
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/cat", "/proc/swaps"]
+            config.process.stdout = buffer
+            config.swapLayer = swap
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let status = try await container.wait()
+            try await container.stop()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "process status \(status) != 0")
+            }
+
+            // The guest lists the area it enabled, so the device is present and
+            // the kernel accepted the header the agent wrote to it.
+            let swaps = String(data: buffer.data, encoding: .utf8) ?? ""
+            guard swaps.contains("partition") else {
+                throw IntegrationError.assert(msg: "swap not enabled in guest: '\(swaps)'")
+            }
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    /// The point of swap: a workload whose pages exceed the memory limit
+    /// reclaims instead of meeting the out of memory killer. The tmpfs is
+    /// sized explicitly because its default is half of RAM, which cannot
+    /// exceed the limit and so would never drive a page out.
+    func testContainerSwapUnderPressure() async throws {
+        let id = "test-container-swap-pressure"
+        let bs = try await bootstrap(id)
+
+        let swapPath = Self.binPath(name: "\(id)-swap.raw")
+        let swap = try Self.makeSwapDevice(at: swapPath, size: 512.mib())
+        defer { try? FileManager.default.removeItem(at: swapPath) }
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            // A shell variable is anonymous memory, which is what the kernel
+            // reclaims to a swap area, and asking the container's cgroup to
+            // reclaim puts it there rather than leaving it to the pressure the
+            // allocation happens to produce. Reading the value back afterwards
+            // is what shows it made the round trip intact, so the length is
+            // checked after the area has been measured.
+            config.process.arguments = [
+                "/bin/sh", "-c",
+                "fill=$(head -c 340000000 /dev/zero | tr '\\0' 'a'); "
+                    + "echo 340M > /sys/fs/cgroup/memory.reclaim; "
+                    + "awk '/SwapTotal|SwapFree/ { print $1, $2 }' /proc/meminfo; "
+                    + "test ${#fill} -eq 340000000",
+            ]
+            config.process.stdout = buffer
+            config.memoryInBytes = 256.mib()
+            config.swapLayer = swap
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let status = try await container.wait()
+            try await container.stop()
+
+            // Survival is the first half of the claim: without swap this
+            // workload is killed rather than reclaimed.
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "workload did not survive memory pressure: \(status)")
+            }
+
+            // And the second half: pages actually reached the swap device.
+            let out = String(data: buffer.data, encoding: .utf8) ?? ""
+            let values = out.split(separator: "\n").reduce(into: [String: Int]()) { acc, line in
+                let parts = line.split(separator: " ")
+                if parts.count == 2 { acc[String(parts[0])] = Int(parts[1]) }
+            }
+            guard let total = values["SwapTotal:"], let free = values["SwapFree:"], total > 0 else {
+                throw IntegrationError.assert(msg: "guest reported no swap: '\(out)'")
+            }
+            guard UInt64(total - free) * 1024 > 64.mib() else {
+                throw IntegrationError.assert(msg: "little or nothing was swapped out: '\(out)'")
+            }
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testContainerSwapReclaimsFreedBlocks() async throws {
+        let id = "test-container-swap-reclaim"
+        let bs = try await bootstrap(id)
+
+        let swapPath = Self.binPath(name: "\(id)-swap.raw")
+        let swap = try Self.makeSwapDevice(at: swapPath, size: 512.mib())
+        defer { try? FileManager.default.removeItem(at: swapPath) }
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            // The allocation is held by a child that exits, because the swap
+            // slots are only freed once the pages themselves are, and a shell
+            // that drops a variable keeps the pages in its own allocator.
+            config.process.arguments = [
+                "/bin/sh", "-c",
+                "sh -c 'fill=$(head -c 200000000 /dev/zero | tr \"\\0\" a); "
+                    + "echo 200M > /sys/fs/cgroup/memory.reclaim; "
+                    + "test ${#fill} -eq 200000000' && sleep 30",
+            ]
+            config.memoryInBytes = 256.mib()
+            config.swapLayer = swap
+            config.bootLog = bs.bootLog
+        }
+
+        // The blocks the file holds, rather than the size it reports, because a
+        // sparse file only ever reports the whole area. URL resource values
+        // cache after their first read, which a sampler cannot use.
+        func allocatedBytes() -> UInt64 {
+            var info = stat()
+            guard stat(swapPath.absolutePath(), &info) == 0 else {
+                return 0
+            }
+            return UInt64(info.st_blocks) * 512
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Watching the file while the workload runs is what separates an
+            // area that released its blocks from one that never held any.
+            let peak = Task {
+                var high: UInt64 = 0
+                while !Task.isCancelled {
+                    high = max(high, allocatedBytes())
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                }
+                return high
+            }
+
+            let status = try await container.wait()
+            peak.cancel()
+            let highWater = await peak.value
+            try await container.stop()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "workload did not complete: \(status)")
+            }
+            guard highWater > 100.mib() else {
+                throw IntegrationError.assert(
+                    msg: "workload never filled the swap area, it held \(highWater) bytes")
+            }
+
+            // Having been filled, the area releases what the guest stopped
+            // using, so the file backing it does not hold its high water mark.
+            let settled = allocatedBytes()
+            guard settled < highWater / 4 else {
+                throw IntegrationError.assert(
+                    msg: "swap area kept \(settled) of \(highWater) bytes after the guest freed it")
+            }
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
     func testProcessEchoHi() async throws {
         let id = "test-process-echo-hi"
         let bs = try await bootstrap(id)

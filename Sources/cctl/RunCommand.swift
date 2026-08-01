@@ -48,6 +48,9 @@ extension Application {
         @Flag(name: .customLong("rosetta"), help: "Enable rosetta x64 emulation")
         var rosetta = false
 
+        @Option(name: .customLong("swap"), help: "Amount of swap in megabytes to create in the guest")
+        var swap: UInt64 = 0
+
         @Option(name: .customLong("mount"), help: "Directory to share into the container (Example: /foo:/bar)")
         var mounts: [String] = []
 
@@ -106,6 +109,7 @@ extension Application {
                 id,
                 reference: imageReference,
                 rootfsSizeInBytes: fsSizeInMB.mib(),
+                swapSizeInBytes: swap.mib(),
                 readOnly: readOnly,
                 networking: true
             ) { config in

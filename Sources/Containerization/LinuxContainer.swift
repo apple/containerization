@@ -99,6 +99,16 @@ public final class LinuxContainer: Container, Sendable {
         /// The total is aligned to a 1 MiB boundary.
         public var memoryOverhead: UInt64 = 128.mib()
 
+        /// Optional swap area for the container, as a block device mount.
+        ///
+        /// Swap lets a workload whose resident set exceeds `memoryInBytes`
+        /// reclaim rather than meet the out of memory killer. The area is a
+        /// block device rather than a file in the guest, because no filesystem
+        /// the agent can write to exists when the sandbox starts: its root is
+        /// mounted read only. The `destination` field is ignored, as the area
+        /// is enabled rather than mounted.
+        public var swapLayer: Mount? = nil
+
         public init() {}
 
         public init(
@@ -536,6 +546,30 @@ extension LinuxContainer {
         config.interfaces
     }
 
+    /// Enable the container's swap area, if it has one.
+    ///
+    /// The device is attached with the container's other block devices, so the
+    /// agent is told the guest path the VMM allocated it. It is enabled rather
+    /// than mounted, which is why it travels as a mount of type `swap`.
+    private func enableSwap(
+        attached: ContainerAttachments,
+        agent: VirtualMachineAgent
+    ) async throws {
+        guard self.config.swapLayer != nil else {
+            return
+        }
+        guard let swap = attached.swap else {
+            throw ContainerizationError(.notFound, message: "swap mount not found")
+        }
+        try await agent.mount(
+            ContainerizationOCI.Mount(
+                type: Swap.mountType,
+                source: swap.source,
+                destination: "",
+                options: swap.options
+            ))
+    }
+
     private func mountRootfs(
         attached: ContainerAttachments,
         rootfsPath: String,
@@ -613,10 +647,13 @@ extension LinuxContainer {
             // This is dumb, but alas.
             let fileMountContextHolder = Mutex<FileMountContext>(fileMountContext)
 
-            // Build the container's storage to attach to the VM.
+            // Build the container's storage to attach to the VM. The swap
+            // device is attached with the container's other block devices so
+            // the guest is told the /dev path the VMM allocates it.
             let containerStorage = ContainerMounts(
                 rootfs: modifiedRootfs,
                 writableLayer: self.writableLayer,
+                swap: self.config.swapLayer,
                 mounts: fileMountContext.transformedMounts
             )
 
@@ -691,6 +728,7 @@ extension LinuxContainer {
                     }
                     let rootfsPath = Self.guestRootfsPath(self.id)
                     try await self.mountRootfs(attached: attached, rootfsPath: rootfsPath, agent: agent)
+                    try await self.enableSwap(attached: attached, agent: agent)
 
                     // Mount file mount holding directories under /run.
                     if fileMountContext.hasFileMounts {

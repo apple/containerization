@@ -207,6 +207,27 @@ struct IntegrationSuite: AsyncParsableCommand {
 
     static let eventLoop = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
 
+    /// The swap area a test hands to a container. A suite that builds its own
+    /// containers owns the file behind them, the way `ContainerManager` owns
+    /// the ones it makes for callers that do not.
+    static func makeSwapDevice(at path: URL, size: UInt64) throws -> Containerization.Mount {
+        guard FileManager.default.createFile(atPath: path.absolutePath(), contents: nil) else {
+            throw IntegrationError.assert(msg: "failed to create swap device at \(path.absolutePath())")
+        }
+        let handle = try FileHandle(forWritingTo: path)
+        defer { try? handle.close() }
+        try handle.truncate(atOffset: size)
+        // A swap area holds nothing that outlives the container, so the host
+        // has no reason to synchronize it to permanent storage.
+        return .block(
+            format: Swap.mountType,
+            source: path.absolutePath(),
+            destination: "",
+            options: [],
+            runtimeOptions: ["vzDiskImageSynchronizationMode=none"]
+        )
+    }
+
     func bootstrap(_ testID: String) async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image, bootLog: BootLog) {
         let reference = "ghcr.io/linuxcontainers/alpine:3.20"
         let store = Self.imageStore
@@ -614,6 +635,11 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("pod filesystem operation", testPodFilesystemOperation),
                 Test("pod shared disk image volume", testPodSharedDiskImageVolume),
                 Test("pod shared tmpfs volume", testPodSharedTmpfsVolume),
+
+                // Swap
+                Test("container swap", testContainerSwap),
+                Test("container swap under pressure", testContainerSwapUnderPressure),
+                Test("container swap reclaims freed blocks", testContainerSwapReclaimsFreedBlocks),
             ] + macOS26Tests()
         let tests: [Test] = crossPlatformTests + macOSOnlyTests
         #else
