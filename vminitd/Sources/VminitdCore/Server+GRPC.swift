@@ -597,17 +597,21 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             defer { try? sock.close() }
 
             if isArchive {
-                let fileURL = URL(fileURLWithPath: path)
-                let writer = try ArchiveWriter(configuration: .init(format: .pax, filter: .gzip))
+                // `request.isArchive` marks the `docker cp CONTAINER:/path -`
+                // stream path. Docker emits an uncompressed tar whose entries are
+                // named relative to the source's parent, so the source's own
+                // basename is the top level entry, for both files and directories.
+                // The internal directory copyOut instead ships pax+gzip of the
+                // directory's contents, which is what the host extracts into the
+                // destination directory.
+                let filter: Filter = request.isArchive ? Filter.none : Filter.gzip
+                let writer = try ArchiveWriter(configuration: .init(format: .pax, filter: filter))
                 try writer.open(fileDescriptor: sock.fileDescriptor)
-                if isDirectory.boolValue {
-                    try writer.archiveDirectory(fileURL)
-                } else {
-                    // Forced single-file archive: emit one entry named after the
-                    // file's basename, relative to its parent directory.
+                if request.isArchive {
                     let filePath = FilePath(path)
-                    let base = filePath.removingLastComponent()
-                    try writer.archive([filePath], base: base)
+                    try writer.archive([filePath], base: filePath.removingLastComponent())
+                } else {
+                    try writer.archiveDirectory(URL(fileURLWithPath: path))
                 }
                 try writer.finishEncoding()
             } else {
