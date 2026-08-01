@@ -626,6 +626,10 @@ extension CHVirtualMachineInstance {
             net: net.isEmpty ? nil : net,
             fs: fsConfigs.isEmpty ? nil : fsConfigs,
             vsock: vsock,
+            // Free page reporting lets the host reclaim what the guest frees
+            // without anything having to choose a balloon size, which is how
+            // Kata drives the same device (ch-config/src/convert.rs).
+            balloon: CloudHypervisor.BalloonConfig(freePageReporting: true),
             // Kernel cmdline is `console=hvc0`, so userspace (vminitd) writes
             // to hvc0 — capture that to the bootlog. We deliberately disable
             // the pl011 (`serial`) UART entirely with `.Off`. Any non-Off mode

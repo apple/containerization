@@ -28,6 +28,7 @@ extension CloudHypervisor {
         public var net: [NetConfig]?
         public var fs: [FsConfig]?
         public var vsock: VsockConfig?
+        public var balloon: BalloonConfig?
         public var console: ConsoleConfig
         public var serial: ConsoleConfig
 
@@ -39,6 +40,7 @@ extension CloudHypervisor {
             net: [NetConfig]? = nil,
             fs: [FsConfig]? = nil,
             vsock: VsockConfig? = nil,
+            balloon: BalloonConfig? = nil,
             console: ConsoleConfig,
             serial: ConsoleConfig
         ) {
@@ -49,6 +51,7 @@ extension CloudHypervisor {
             self.net = net
             self.fs = fs
             self.vsock = vsock
+            self.balloon = balloon
             self.console = console
             self.serial = serial
         }
@@ -61,6 +64,7 @@ extension CloudHypervisor {
             case net
             case fs
             case vsock
+            case balloon
             case console
             case serial
         }
@@ -118,6 +122,38 @@ extension CloudHypervisor {
             case hotplugSize = "hotplug_size"
             case mergeable
             case shared
+        }
+    }
+
+    // MARK: - BalloonConfig
+
+    /// Memory balloon for handing guest memory back to the host.
+    ///
+    /// Maps to `BalloonConfig` in the Cloud Hypervisor OpenAPI spec.
+    public struct BalloonConfig: Sendable, Codable, Equatable {
+        /// Balloon size in bytes. Zero leaves every page with the guest until
+        /// something asks for it back.
+        public var size: UInt64
+        /// Give pages back to the guest when it runs out of memory.
+        public var deflateOnOom: Bool?
+        /// Report the pages the guest frees, so the host can reclaim them
+        /// without anything having to decide a balloon size.
+        public var freePageReporting: Bool?
+
+        public init(
+            size: UInt64 = 0,
+            deflateOnOom: Bool? = nil,
+            freePageReporting: Bool? = nil
+        ) {
+            self.size = size
+            self.deflateOnOom = deflateOnOom
+            self.freePageReporting = freePageReporting
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case size
+            case deflateOnOom = "deflate_on_oom"
+            case freePageReporting = "free_page_reporting"
         }
     }
 
