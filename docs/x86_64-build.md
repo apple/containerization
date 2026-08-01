@@ -88,10 +88,11 @@ unchanged components are skipped on subsequent runs.
    `/opt/cross-x86_64-gnu/`.
 
 5. **`initfs.ext4` packaging.**
-   A native aarch64 `cctl` is built (Swift release) and used as the packer:
-   `cctl rootfs create --vminitd … --vmexec …` writes a ready-to-mount
-   ext4 image with the x86_64 guest binaries inside. The native build
-   only runs when this stage runs.
+   `scripts/build-initfs.sh --vminitd … --vmexec … --ext4 …` stages the guest
+   rootfs and writes a ready-to-mount ext4 image with the x86_64 guest binaries
+   inside (loop mount where available, else `mke2fs -d`). The x86_64 tarball
+   ships this raw ext4 and boots it via `cctl run --initfs`, so — unlike the
+   arm64 flow — no `vminit` OCI image is built here.
 
 6. **Stage and tar.** Always runs. Lays out the staging tree at
    `bin/dist-x86_64/<dist-name>/`:
@@ -158,7 +159,8 @@ ship statically linked so the artifacts are host-libc independent.
 the deployment host provides glibc, libseccomp, and libcap-ng.
 
 - **Swift** uses Apple's Static Linux SDK (`x86_64-swift-linux-musl`),
-  installed by `make cross-prep` at dev-image build time. The same SDK
+  installed into the dev image by `make linux-image` (Dockerfile
+  `SWIFT_SDK_URL`/`SWIFT_SDK_CHECKSUM` build args). The same SDK
   is used for both `cctl` and `vminitd` cross-builds.
 - **Rust C cross-compiler is Zig.** For musl stages, `zig cc -target
   x86_64-linux-musl` is wrapped as `x86_64-linux-musl-{gcc,g++,ar,ranlib,strip}`.

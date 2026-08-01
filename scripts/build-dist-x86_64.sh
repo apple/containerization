@@ -27,7 +27,7 @@
 # Force-rebuild env vars (default = skip stages whose outputs are
 # up-to-date):
 #   REBUILD_VMINITD=1     vminitd + vmexec
-#   REBUILD_INITFS=1      initfs.ext4 (and the native aarch64 cctl packer)
+#   REBUILD_INITFS=1      initfs.ext4
 #   REBUILD_CH=1          cloud-hypervisor
 #   REBUILD_VIRTIOFSD=1   virtiofsd
 # cctl x86 cross always rebuilds (Swift incremental handles no-ops).
@@ -146,14 +146,20 @@ if [ "${REBUILD_VIRTIOFSD:-0}" != "1" ] && [ -x "${DIST_DIR}/virtiofsd" ]; then
     NEED_VIRTIOFSD=0
 fi
 
+SCRATCH_FLAGS=()
+if [ -n "${SCRATCH_ROOT:-}" ]; then
+    SCRATCH_FLAGS=(--scratch-path "${SCRATCH_ROOT}/build-containerization")
+fi
+
 echo "==> Cross-compiling cctl to x86_64-linux-musl"
 swift build -c release \
     --swift-sdk x86_64-swift-linux-musl \
     --product cctl \
     -Xswiftc -warnings-as-errors \
     -Xlinker -L"${CROSS_PREFIX}/lib" \
-    --disable-automatic-resolution
-CCTL_X86_64_BIN="$(swift build -c release --swift-sdk x86_64-swift-linux-musl --show-bin-path)/cctl"
+    --disable-automatic-resolution \
+    "${SCRATCH_FLAGS[@]}"
+CCTL_X86_64_BIN="$(swift build -c release --swift-sdk x86_64-swift-linux-musl "${SCRATCH_FLAGS[@]}" --show-bin-path)/cctl"
 install -m 755 "${CCTL_X86_64_BIN}" "${DIST_DIR}/cctl"
 
 if [ "${NEED_VMINITD}" = "1" ]; then
@@ -212,19 +218,17 @@ else
 fi
 
 if [ "${NEED_INITFS}" = "1" ]; then
-    echo "==> Building aarch64 cctl natively (used to pack initfs.ext4)"
-    swift build -c release --product cctl -Xswiftc -warnings-as-errors --disable-automatic-resolution
-    NATIVE_CCTL="$(swift build -c release --show-bin-path)/cctl"
-
     echo "==> Building initfs.ext4 with x86_64 guest binaries"
+    # The x86_64 tarball ships the raw initfs.ext4 (booted via `cctl run
+    # --initfs`); it does not ship a vminit OCI image, so no cctl step is
+    # needed here. build-initfs.sh builds the ext4 in-container (loop mount,
+    # or mke2fs -d fallback) and is arch-agnostic — the x86_64 guest binaries
+    # are just packed files.
     rm -f "${DIST_DIR}/init.rootfs.tar.gz" "${DIST_DIR}/initfs.ext4"
-    "${NATIVE_CCTL}" rootfs create \
+    ./scripts/build-initfs.sh \
         --vminitd "${DIST_DIR}/vminitd" \
         --vmexec "${DIST_DIR}/vmexec" \
-        --ext4 "${DIST_DIR}/initfs.ext4" \
-        --label org.opencontainers.image.source=https://github.com/apple/containerization \
-        --image vminit-x86_64:latest \
-        "${DIST_DIR}/init.rootfs.tar.gz"
+        --ext4 "${DIST_DIR}/initfs.ext4"
 else
     echo "==> Reusing staged initfs.ext4 (vminitd/vmexec unchanged; set REBUILD_INITFS=1 to force)"
 fi

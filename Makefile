@@ -15,7 +15,14 @@
 # Build configuration variables
 BUILD_CONFIGURATION ?= debug
 WARNINGS_AS_ERRORS ?= true
-SWIFT_CONFIGURATION := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors) --disable-automatic-resolution
+
+# Allow for a custom build cache directory
+# By default this is left unset, and swift uses the default directory as `./.build`
+# The `linux_run` target exports SCRATCH_ROOT inside of the container
+SCRATCH_ROOT ?=
+SCRATCH_PATH ?= $(if $(SCRATCH_ROOT),$(SCRATCH_ROOT)/build-containerization)
+SWIFT_SCRATCH_FLAGS := $(if $(SCRATCH_PATH),--scratch-path $(SCRATCH_PATH))
+SWIFT_CONFIGURATION := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors) --disable-automatic-resolution $(SWIFT_SCRATCH_FLAGS)
 
 # Commonly used locations
 UNAME_S := $(shell uname -s)
@@ -48,7 +55,7 @@ SWIFT ?= swift
 endif
 
 ROOT_DIR := $(shell git rev-parse --show-toplevel)
-BUILD_BIN_DIR = $(shell $(SWIFT) build -c $(BUILD_CONFIGURATION) --show-bin-path)
+BUILD_BIN_DIR = $(shell $(SWIFT) build -c $(BUILD_CONFIGURATION) $(SWIFT_SCRATCH_FLAGS) --show-bin-path)
 COV_DATA_DIR = $(shell $(SWIFT) test --show-coverage-path | xargs dirname)
 COV_REPORT_FILE = $(ROOT_DIR)/code-coverage-report
 
@@ -67,6 +74,14 @@ SWIFT_VERSION := $(shell cat $(ROOT_DIR)/.swift-version)
 SWIFT_SDK_URL := $(shell grep '^SWIFT_SDK_URL' vminitd/Makefile | head -1 | sed 's/.*:= *//')
 SWIFT_SDK_CHECKSUM := $(shell grep '^SWIFT_SDK_CHECKSUM' vminitd/Makefile | head -1 | sed 's/.*:= *//')
 LINUX_DEV_IMAGE := containerization-dev:$(SWIFT_VERSION)
+
+# Use an alternative path (backed by a named volume) for the build cache
+# when building products inside of a container
+# LINUX_SCRATCH_ROOT is used for the build cache
+# LINUX_SHARED_CACHE is used for the dependency cache
+LINUX_BUILD_VOLUME := containerization-linux-build
+LINUX_SCRATCH_ROOT := /build
+LINUX_SHARED_CACHE := $(LINUX_SCRATCH_ROOT)/cache
 
 # Literal `,` for use inside $(call ...) arguments — bare commas are
 # treated as the call's argument separator and split the value early.
@@ -99,8 +114,15 @@ define linux_run
 		$(MAKE) linux-image; \
 	fi
 	@mkdir -p $(ROOT_DIR)/.local/integration-cache
-	@container run --rm $(2) --memory 16gb --cpus 8 --virtualization \
+	@if ! container volume inspect $(LINUX_BUILD_VOLUME) > /dev/null 2>&1; then \
+		echo "Creating Linux build volume $(LINUX_BUILD_VOLUME)..."; \
+		container volume create $(LINUX_BUILD_VOLUME) > /dev/null; \
+	fi
+	@container run --rm $(2) --memory 16gb --cpus 8 \
+		--env SCRATCH_ROOT=$(LINUX_SCRATCH_ROOT) \
+		--env XDG_CACHE_HOME=$(LINUX_SHARED_CACHE) \
 		-v $(ROOT_DIR):/workspace \
+		-v $(LINUX_BUILD_VOLUME):$(LINUX_SCRATCH_ROOT) \
 		-v $(ROOT_DIR)/.local/integration-cache:/root/.local/share/com.apple.containerization \
 		-w /workspace $(LINUX_DEV_IMAGE) \
 		bash -c "$(1)"
@@ -140,7 +162,7 @@ endif
 
 .PHONY: linux-test
 linux-test:
-	$(call linux_run,swift test $(SWIFT_CONFIGURATION))
+	$(call linux_run,swift test $(SWIFT_CONFIGURATION) --scratch-path $(LINUX_SCRATCH_ROOT)/build-containerization)
 
 .PHONY: build-cloud-hypervisor
 # Build cloud-hypervisor from the patched source at .local/cloud-hypervisor and
@@ -212,11 +234,11 @@ endif
 		cd /workspace/.local/virtiofsd && \
 		if git apply --check /workspace/scripts/patches/virtiofsd-skip-cap-drop-with-sandbox-none.patch 2>/dev/null; then \
 			git apply /workspace/scripts/patches/virtiofsd-skip-cap-drop-with-sandbox-none.patch && \
-			echo "applied virtiofsd cap-drop patch"; \
+			echo 'applied virtiofsd cap-drop patch'; \
 		elif git apply --reverse --check /workspace/scripts/patches/virtiofsd-skip-cap-drop-with-sandbox-none.patch 2>/dev/null; then \
-			echo "virtiofsd cap-drop patch already applied"; \
+			echo 'virtiofsd cap-drop patch already applied'; \
 		else \
-			echo "ERROR: virtiofsd cap-drop patch does not apply cleanly" >&2; \
+			echo 'ERROR: virtiofsd cap-drop patch does not apply cleanly' >&2; \
 			exit 1; \
 		fi && \
 		cargo build --release && \
@@ -245,7 +267,7 @@ ifeq (,$(wildcard bin/initfs.ext4))
 	@echo "missing bin/initfs.ext4; run 'make init' first (this also seeds the persistent imageStore at .local/integration-cache)"
 	@exit 1
 endif
-	$(call linux_run,CONTAINERIZATION_RELAXED_SANDBOX=1 ./bin/containerization-integration --kernel ./$(LINUX_INTEGRATION_KERNEL) --ch-binary ./bin/cloud-hypervisor --virtiofsd-binary ./bin/virtiofsd --max-concurrency 1 $(linux_integration_filter),--kernel $(LINUX_INTEGRATION_KERNEL))
+	$(call linux_run,CONTAINERIZATION_RELAXED_SANDBOX=1 ./bin/containerization-integration --kernel ./$(LINUX_INTEGRATION_KERNEL) --ch-binary ./bin/cloud-hypervisor --virtiofsd-binary ./bin/virtiofsd --max-concurrency 1 $(linux_integration_filter),--kernel $(LINUX_INTEGRATION_KERNEL) --virtualization)
 
 # Builds the x86_64 deployment tarball.
 #
@@ -294,26 +316,60 @@ ifeq ($(UNAME_S),Darwin)
 	@codesign --force --sign - --timestamp=none --entitlements=signing/vz.entitlements bin/containerization-integration
 endif
 
+# Shell fragments run inside the Linux dev container (see linux_run). Kept as
+# variables so `vminitd` (compile only) and `init` (compile + build the initfs
+# in a single container run) don't duplicate the command.
+VMINITD_BUILD_CMD = make -C vminitd BUILD_CONFIGURATION=$(BUILD_CONFIGURATION) WARNINGS_AS_ERRORS=$(WARNINGS_AS_ERRORS)
+INITFS_BUILD_CMD = ./scripts/build-initfs.sh --vminitd vminitd/bin/vminitd --vmexec vminitd/bin/vmexec --ext4 bin/initfs.ext4 --tar bin/init.rootfs.tar.gz
+
 .PHONY: init
-init: containerization vminitd
-	@echo Creating init.ext4...
-	@rm -f bin/init.rootfs.tar.gz bin/init.block bin/initfs.ext4
+ifeq ($(UNAME_S),Darwin)
+# Compile the guest and build the initfs (ext4 + rootfs tar) in a single dev
+# container run — where mkfs/loop-mount live — then create the vminit:latest
+# OCI image natively from the tar. The container's output is the finished
+# initfs, not raw binaries.
+init: containerization
+	@mkdir -p ./bin
+	$(call linux_run,$(VMINITD_BUILD_CMD) && $(INITFS_BUILD_CMD))
+	@"$(MAKE)" init-image
+else
+init: containerization
+	@mkdir -p ./bin
+	@$(VMINITD_BUILD_CMD)
+	@$(INITFS_BUILD_CMD)
+	@"$(MAKE)" init-image
+endif
+
+# Create the vminit:latest OCI image from the container-built rootfs tar, using
+# the native cctl. Split out from `init` so CI can create the image after
+# downloading the initfs artifact built by the Linux container job — no
+# apple/container needed on the macOS runner. The integration suite and the
+# release ghcr push consume this image.
+.PHONY: init-image
+init-image:
+	@echo Creating vminit:latest image...
+	@rm -f bin/init.block
 	@./bin/cctl rootfs create \
-		--vminitd vminitd/bin/vminitd \
-		--vmexec vminitd/bin/vmexec \
-		--ext4 ./bin/initfs.ext4 \
-		--label org.opencontainers.image.source=https://github.com/apple/containerization \
 		--image vminit:latest \
+		--label org.opencontainers.image.source=https://github.com/apple/containerization \
 		bin/init.rootfs.tar.gz
 
-.PHONY: cross-prep
-cross-prep:
-	@"$(MAKE)" -C vminitd cross-prep
-
 .PHONY: vminitd
+ifeq ($(UNAME_S),Darwin)
+# On macOS, vminitd/vmexec are static musl Linux binaries. Rather than
+# cross-compiling on the host (which used to require Swiftly + the Static
+# Linux SDK via `make cross-prep`), build them inside the Linux dev container
+# via `linux_run` — the same model `build-cloud-hypervisor` uses. The dev
+# image bakes in the Static Linux SDK, and the /workspace mount makes the
+# resulting binaries visible on the host at vminitd/bin/.
 vminitd:
 	@mkdir -p ./bin
-	@"$(MAKE)" -C vminitd BUILD_CONFIGURATION=$(BUILD_CONFIGURATION) WARNINGS_AS_ERRORS=$(WARNINGS_AS_ERRORS)
+	$(call linux_run,$(VMINITD_BUILD_CMD))
+else
+vminitd:
+	@mkdir -p ./bin
+	@$(VMINITD_BUILD_CMD)
+endif
 
 .PHONY: update-libarchive-source
 update-libarchive-source:

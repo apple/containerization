@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build / Test / Format
 
-The project is built via `make`, not directly with `swift build`. Two Swift packages live in this repo: the root package (Containerization libraries + `cctl` + macOS-only integration binary) and `vminitd/` (the Linux guest init system, cross-compiled with the Static Linux SDK).
+The project is built via `make`, not directly with `swift build`. Two Swift packages live in this repo: the root package (Containerization libraries + `cctl` + macOS-only integration binary) and `vminitd/` (the Linux guest init system, compiled as a static musl binary inside the Linux dev container via the apple/`container` CLI — see `make vminitd`).
 
 - `make all` — build everything (`containerization` + `vminitd` + `init.ext4` rootfs in `bin/`). Default `BUILD_CONFIGURATION=debug`; pass `release` (or use `make release`) for optimized builds.
 - `make containerization` — build just the host-side Swift package (skips vminitd).
-- `make vminitd` — build vminitd / vmexec only. By default uses `LIBC=musl` via the Static Linux SDK; `make linux-build LIBC=glibc` builds via a Linux dev container.
+- `make vminitd` — build vminitd / vmexec only. On macOS this runs `swift build --swift-sdk …-swift-linux-musl` *inside the Linux dev container* via the `container` CLI (the cloud-hypervisor build model), producing static musl binaries at `vminitd/bin/`; no host Swiftly/SDK needed. `make linux-build LIBC=glibc` builds via a Linux dev container.
 - `make test` — unit tests with code coverage. `make coverage` regenerates the coverage report.
 - `make integration` — runs `bin/containerization-integration`. Requires an in-repo kernel under `bin/` (`bin/vmlinux-arm64` on arm64, `bin/vmlinuz-x86_64` or `bin/vmlinux-x86_64` on x86_64); if absent, run `make fetch-default-kernel` to download the Kata-provided kernel for the host arch.
 - Single test: `swift test --filter ContainerizationOCITests.ReferenceTests/testParsing` (Swift Testing / XCTest filter syntax). Targets are listed in `Package.swift`.
@@ -22,7 +22,7 @@ The project is built via `make`, not directly with `swift build`. Two Swift pack
 - `make check` — formatting + license-header lint (this is what the pre-commit hook runs). Uses `.swift-format-nolint` for stricter linting.
 - `make pre-commit` — installs `scripts/pre-commit.fmt` as a git pre-commit hook.
 - `make protos` — regenerates `Sources/Containerization/SandboxContext/SandboxContext.{pb,grpc}.swift` from the `.proto`. Touch this whenever the proto changes; never hand-edit the generated files.
-- `make cross-prep` — installs Swiftly, the pinned Swift toolchain (see `.swift-version`), and the Static Linux SDK. Run once before the first build.
+- `make init` / `make init-image` — `init` compiles the guest and builds `bin/initfs.ext4` (+ a rootfs tar) inside the dev container via `scripts/build-initfs.sh` (mkfs + loop mount, with a `mke2fs -d` fallback), then `init-image` creates the `vminit:latest` OCI image from the tar with the native `cctl` (`cctl rootfs create --rootfs <tar> --image vminit:latest`). CI splits these: a Linux container job builds the initfs artifact, the macOS job runs `init-image`. Building the guest on macOS requires the apple/`container` CLI — there is no host Swiftly / Static Linux SDK setup step anymore.
 
 `WARNINGS_AS_ERRORS=true` is the default for both packages. Don't disable it casually — CI builds with it on.
 
@@ -88,4 +88,4 @@ These are independently consumable Swift modules. Keep their dependencies narrow
 
 ## Requirements
 
-Apple silicon Mac, macOS 26, Xcode 26. Swift toolchain version is pinned in `.swift-version` (currently `6.3.0`) and installed via Swiftly during `make cross-prep`. Older macOS releases are not supported.
+Apple silicon Mac, macOS 26, Xcode 26. The host-side build uses Xcode's Swift toolchain (`/usr/bin/swift`); the Linux guest is built inside the dev container, so the apple/`container` CLI is required (see the README). The pinned Swift version (`.swift-version`, currently `6.3.0`) tags the dev image and the CI Swift Linux container. Older macOS releases are not supported.
