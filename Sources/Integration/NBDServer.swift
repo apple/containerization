@@ -31,23 +31,27 @@ final class NBDServer: Sendable {
     private let group: EventLoopGroup
     let url: String
 
-    init(filePath: String, socketPath: String, logger: Logger? = nil) throws {
+    private let store: NBDBackingStore
+
+    init(store: NBDBackingStore, socketPath: String, logger: Logger? = nil) throws {
         self.socketPath = socketPath
+        self.store = store
         self.group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
 
         try? FileManager.default.removeItem(atPath: socketPath)
 
-        self.channel = try Self.bootstrap(group: self.group, filePath: filePath, logger: logger)
+        self.channel = try Self.bootstrap(group: self.group, store: store, logger: logger)
             .bind(unixDomainSocketPath: socketPath)
             .wait()
         self.url = "nbd+unix:///?socket=\(socketPath)"
     }
 
-    init(filePath: String, port: Int, logger: Logger? = nil) throws {
+    init(store: NBDBackingStore, port: Int, logger: Logger? = nil) throws {
         self.socketPath = nil
+        self.store = store
         self.group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
 
-        self.channel = try Self.bootstrap(group: self.group, filePath: filePath, logger: logger)
+        self.channel = try Self.bootstrap(group: self.group, store: store, logger: logger)
             .bind(host: "127.0.0.1", port: port)
             .wait()
 
@@ -57,21 +61,37 @@ final class NBDServer: Sendable {
         self.url = "nbd://127.0.0.1:\(boundPort)"
     }
 
+    convenience init(filePath: String, socketPath: String, logger: Logger? = nil) throws {
+        try self.init(store: Self.fileStore(filePath), socketPath: socketPath, logger: logger)
+    }
+
+    convenience init(filePath: String, port: Int, logger: Logger? = nil) throws {
+        try self.init(store: Self.fileStore(filePath), port: port, logger: logger)
+    }
+
+    private static func fileStore(_ path: String) throws -> NBDBackingStore {
+        guard let store = NBDFileStore(path: path) else {
+            throw ContainerizationError(.internalError, message: "NBD server failed to open \(path)")
+        }
+        return store
+    }
+
     func stop() {
         try? channel.close().wait()
         try? group.syncShutdownGracefully()
+        self.store.close()
         if let socketPath {
             try? FileManager.default.removeItem(atPath: socketPath)
         }
     }
 
-    private static func bootstrap(group: EventLoopGroup, filePath: String, logger: Logger?) -> ServerBootstrap {
+    private static func bootstrap(group: EventLoopGroup, store: NBDBackingStore, logger: Logger?) -> ServerBootstrap {
         ServerBootstrap(group: group)
             .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
             .childChannelInitializer { channel in
                 channel.eventLoop.makeCompletedFuture {
                     try channel.pipeline.syncOperations.addHandler(
-                        NBDConnectionHandler(filePath: filePath, logger: logger)
+                        NBDConnectionHandler(store: store, logger: logger)
                     )
                 }
             }
@@ -118,7 +138,7 @@ private final class NBDConnectionHandler: ChannelInboundHandler {
     static let errIO: UInt32 = 5
     static let errNotsup: UInt32 = 95
 
-    private let fileFD: Int32
+    private let store: NBDBackingStore
     private let fileSize: UInt64
     private let logger: Logger?
     private var buffer: ByteBuffer = ByteBuffer()
@@ -130,24 +150,14 @@ private final class NBDConnectionHandler: ChannelInboundHandler {
         case transmission
     }
 
-    init(filePath: String, logger: Logger?) {
-        self.fileFD = open(filePath, O_RDWR)
+    init(store: NBDBackingStore, logger: Logger?) {
+        self.store = store
+        self.fileSize = store.size
         self.logger = logger
-        guard fileFD >= 0 else {
-            self.fileSize = 0
-            logger?.error("NBD server: failed to open \(filePath), errno=\(errno)")
-            return
-        }
-        var st = stat()
-        if fstat(self.fileFD, &st) == 0 {
-            self.fileSize = UInt64(st.st_size)
-        } else {
-            self.fileSize = 0
-        }
     }
 
     func channelActive(context: ChannelHandlerContext) {
-        guard fileFD >= 0 else {
+        guard fileSize > 0 else {
             context.close(promise: nil)
             return
         }
@@ -160,9 +170,8 @@ private final class NBDConnectionHandler: ChannelInboundHandler {
     }
 
     func channelInactive(context: ChannelHandlerContext) {
-        if fileFD >= 0 {
-            close(fileFD)
-        }
+        // Every connection to an export serves the one store behind it, so a
+        // client going away is not what ends it. The server closes it instead.
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
@@ -329,19 +338,18 @@ private final class NBDConnectionHandler: ChannelInboundHandler {
                         }
                         return Int(length)
                     }
-                    let n = pwrite(fileFD, &writeData, Int(length), off_t(offset))
+                    let stored = store.write(offset: offset, data: writeData)
                     var reply = context.channel.allocator.buffer(capacity: 16)
-                    writeSimpleReply(&reply, cookie: cookie, error: n < 0 ? Self.errIO : Self.errOK)
+                    writeSimpleReply(&reply, cookie: cookie, error: stored ? Self.errOK : Self.errIO)
                     context.writeAndFlush(wrapOutboundOut(reply), promise: nil)
 
                 case Self.cmdRead:
                     buffer.moveReaderIndex(forwardBy: 28)
-                    var readBuf = [UInt8](repeating: 0, count: Int(length))
-                    let n = pread(fileFD, &readBuf, Int(length), off_t(offset))
+                    let readBuf = store.read(offset: offset, length: Int(length))
                     var reply = context.channel.allocator.buffer(capacity: 16 + Int(length))
-                    writeSimpleReply(&reply, cookie: cookie, error: n < 0 ? Self.errIO : Self.errOK)
-                    if n >= 0 {
-                        reply.writeBytes(readBuf[0..<Int(length)])
+                    writeSimpleReply(&reply, cookie: cookie, error: readBuf == nil ? Self.errIO : Self.errOK)
+                    if let readBuf {
+                        reply.writeBytes(readBuf)
                     }
                     context.writeAndFlush(wrapOutboundOut(reply), promise: nil)
 
@@ -352,7 +360,7 @@ private final class NBDConnectionHandler: ChannelInboundHandler {
 
                 case Self.cmdFlush:
                     buffer.moveReaderIndex(forwardBy: 28)
-                    fsync(fileFD)
+                    store.flush()
                     var reply = context.channel.allocator.buffer(capacity: 16)
                     writeSimpleReply(&reply, cookie: cookie, error: Self.errOK)
                     context.writeAndFlush(wrapOutboundOut(reply), promise: nil)
