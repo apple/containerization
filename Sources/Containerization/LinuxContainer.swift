@@ -91,6 +91,19 @@ public final class LinuxContainer: Container, Sendable {
         /// Run the container with a minimal init process that handles signal
         /// forwarding and zombie reaping.
         public var useInit: Bool = false
+        /// Hand the container's cgroup to the user the container runs as, so
+        /// that what runs inside can place its own work under limits of its
+        /// own. This is what a service manager does for a user session, and
+        /// what a container runtime nested in this one looks for.
+        ///
+        /// The user is given the cgroup it is placed in and nothing above it,
+        /// so the limits this container was given still bind everything within.
+        ///
+        /// A nested runtime asks a service manager for this where one exists:
+        /// rootless runc talks to systemd to have a cgroup delegated to it, and
+        /// without that it is left with no cgroup at all.
+        /// https://github.com/opencontainers/runc/blob/main/docs/cgroup-v2.md
+        public var cgroupDelegation: Bool = false
         /// Additional CPU cores to allocate for the virtual machine on top
         /// of the container's configured `cpus` value.
         public var cpuOverhead: Int = 1
@@ -407,6 +420,12 @@ public final class LinuxContainer: Container, Sendable {
         }
 
         // Linux toggles.
+        if config.cgroupDelegation {
+            var annotations = spec.annotations ?? [:]
+            annotations[AnnotationKeys.containerizationCgroupDelegation] = "true"
+            spec.annotations = annotations
+        }
+
         spec.linux?.sysctl = config.sysctl
         spec.linux?.maskedPaths = config.maskedPaths
         spec.linux?.readonlyPaths = config.readonlyPaths

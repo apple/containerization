@@ -59,6 +59,45 @@ extension IntegrationSuite {
         }
     }
 
+    /// Delegation reaches a pod's containers too, so one container's user can
+    /// limit its own work without touching what the pod gave any other.
+    func testPodCgroupDelegation() async throws {
+        let id = "test-pod-cgroup-delegation"
+
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        let buffer = BufferWriter()
+        try await pod.addContainer("delegated", rootfs: bs.rootfs) { config in
+            config.cgroupDelegation = true
+            config.process.user = ContainerizationOCI.User(uid: 1000, gid: 1000)
+            config.process.arguments = [
+                "/bin/sh", "-c",
+                "mkdir -p /sys/fs/cgroup/init /sys/fs/cgroup/work && "
+                    + "echo $$ > /sys/fs/cgroup/init/cgroup.procs && "
+                    + "echo '+memory' > /sys/fs/cgroup/cgroup.subtree_control && "
+                    + "echo 64000000 > /sys/fs/cgroup/work/memory.max && "
+                    + "echo LIMIT=$(cat /sys/fs/cgroup/work/memory.max)",
+            ]
+            config.process.stdout = buffer
+        }
+
+        try await pod.create()
+        try await pod.startContainer("delegated")
+        _ = try await pod.waitContainer("delegated")
+        try await pod.stop()
+
+        let out = String(data: buffer.data, encoding: .utf8) ?? ""
+        guard out.contains("LIMIT=64000000") else {
+            throw IntegrationError.assert(
+                msg: "pod container could not limit its own work: '\(out)'")
+        }
+    }
+
     func testPodMultipleContainers() async throws {
         let id = "test-pod-multiple-containers"
 

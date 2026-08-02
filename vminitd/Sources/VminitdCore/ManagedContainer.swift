@@ -66,6 +66,15 @@ public actor ManagedContainer {
         do {
             try cgManager.toggleAllAvailableControllers(enable: true)
 
+            // A container that asked for its cgroup gets it, so long as it runs
+            // as somebody who would otherwise be unable to use it.
+            if spec.annotations?[AnnotationKeys.containerizationCgroupDelegation] == "true",
+                let user = spec.process?.user, user.uid != 0
+            {
+                try cgManager.delegate(uid: user.uid, gid: user.gid)
+                log.info("delegated cgroup to \(user.uid):\(user.gid)")
+            }
+
             let initProcess: any ContainerProcess
 
             if let runtimePath = ociRuntimePath {

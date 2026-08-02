@@ -137,6 +137,42 @@ extension IntegrationSuite {
         }
     }
 
+    /// What delegation is for: the user the container runs as can put its own
+    /// work under a limit, which the kernel otherwise reserves for whoever owns
+    /// the cgroup.
+    func testContainerCgroupDelegation() async throws {
+        let id = "test-container-cgroup-delegation"
+        let bs = try await bootstrap(id)
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.cgroupDelegation = true
+            config.process.user = ContainerizationOCI.User(uid: 1000, gid: 1000)
+            config.process.arguments = [
+                "/bin/sh", "-c",
+                // A cgroup holding processes cannot enable controllers for its
+                // children, so step into a leaf before handing memory down.
+                "mkdir -p /sys/fs/cgroup/init /sys/fs/cgroup/work && "
+                    + "echo $$ > /sys/fs/cgroup/init/cgroup.procs && "
+                    + "echo '+memory' > /sys/fs/cgroup/cgroup.subtree_control && "
+                    + "echo 64000000 > /sys/fs/cgroup/work/memory.max && "
+                    + "echo LIMIT=$(cat /sys/fs/cgroup/work/memory.max)",
+            ]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+        try await container.create()
+        try await container.start()
+        _ = try await container.wait()
+        try await container.stop()
+
+        let out = String(data: buffer.data, encoding: .utf8) ?? ""
+        guard out.contains("LIMIT=64000000") else {
+            throw IntegrationError.assert(
+                msg: "container could not limit its own work: '\(out)'")
+        }
+    }
+
     func testProcessEchoHi() async throws {
         let id = "test-process-echo-hi"
         let bs = try await bootstrap(id)

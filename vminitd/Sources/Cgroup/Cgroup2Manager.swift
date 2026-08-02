@@ -49,6 +49,7 @@ public struct Cgroup2Manager: Sendable {
     private static let killFile = "cgroup.kill"
     private static let procsFile = "cgroup.procs"
     private static let subtreeControlFile = "cgroup.subtree_control"
+    private static let threadsFile = "cgroup.threads"
 
     private static let cg2Magic = 0x6367_7270
 
@@ -120,6 +121,27 @@ public struct Cgroup2Manager: Sendable {
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: perms]
         )
+    }
+
+    /// Hand control of this cgroup to a less privileged user, which the kernel
+    /// defines as write access to the directory and to its `cgroup.procs`,
+    /// `cgroup.threads` and `cgroup.subtree_control` files. The resource files
+    /// are deliberately left alone: they distribute the resources of the parent
+    /// rather than of this cgroup, so the user they are delegated to must not
+    /// be able to write them.
+    /// https://github.com/torvalds/linux/blob/master/Documentation/admin-guide/cgroup-v2.rst
+    package func delegate(uid: UInt32, gid: UInt32) throws {
+        let owned =
+            [self.path]
+            + [Self.procsFile, Self.threadsFile, Self.subtreeControlFile].map {
+                self.path.appending(path: $0)
+            }
+
+        for file in owned {
+            guard chown(file.path, uid, gid) == 0 else {
+                throw Error.errno(errno: errno, message: "failed to chown \(file.path)")
+            }
+        }
     }
 
     private static func writeValue(path: URL, value: String, fileName: String) throws {

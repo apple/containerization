@@ -19,6 +19,7 @@
 public struct AnnotationKeys: Codable, Sendable {
     public static let containerizationIndexIndirect = "com.apple.containerization.index.indirect"
     public static let containerizationImageName = "com.apple.containerization.image.name"
+    public static let containerizationCgroupDelegation = "com.apple.containerization.cgroup.delegation"
     public static let containerdImageName = "io.containerd.image.name"
     public static let openContainersImageName = "org.opencontainers.image.ref.name"
 }
