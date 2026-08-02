@@ -315,6 +315,75 @@ extension IntegrationSuite {
         }
     }
 
+    #if os(macOS)
+    /// A swap area does not have to be a file the host sets aside. Pointed at
+    /// an export whose blocks are held in memory, what the guest swaps out
+    /// lands in a host process instead, where it is pageable and reaches the
+    /// host's own swap rather than a store of its own.
+    func testContainerSwapOnMemoryBackedNBD() async throws {
+        let id = "test-container-swap-memory-nbd"
+        let bs = try await bootstrap(id)
+
+        let store = NBDMemoryStore(size: 512.mib())
+        let socketPath = "/tmp/nbd-swap-\(UUID().uuidString.prefix(8)).sock"
+        let server = try NBDServer(store: store, socketPath: socketPath)
+        defer { server.stop() }
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            // The area is reached over the export's URL rather than a path, so
+            // the same mount that names a file names this instead.
+            config.swapLayer = .block(
+                format: Swap.mountType,
+                source: server.url,
+                destination: "",
+                options: []
+            )
+            config.process.arguments = [
+                "/bin/sh", "-c",
+                "awk '/SwapTotal/ { print $2 }' /proc/meminfo; "
+                    + "sh -c 'fill=$(head -c 200000000 /dev/zero | tr \"\\0\" a); "
+                    + "echo 200M > /sys/fs/cgroup/memory.reclaim; "
+                    + "test ${#fill} -eq 200000000'",
+            ]
+            config.process.stdout = buffer
+            config.memoryInBytes = 256.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+            let status = try await container.wait()
+            try await container.stop()
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "workload did not complete: \(status)")
+            }
+
+            let out = String(data: buffer.data, encoding: .utf8) ?? ""
+            guard let total = UInt64(out.trimmingCharacters(in: .whitespacesAndNewlines)), total > 0 else {
+                throw IntegrationError.assert(msg: "guest enabled no swap area: '\(out)'")
+            }
+            // What the guest pushed out was held by the server, which is the
+            // whole point of keeping the blocks in memory rather than a file.
+            // The high water mark is what to ask for: a guest gives its swap
+            // back as it goes away, so what the export holds by now says
+            // nothing about what passed through it. Enabling an area writes a
+            // header to it, so the bar is set well above one, or a guest that
+            // swapped nothing would clear it.
+            let held = store.peakAllocatedBytes
+            guard held > 16.mib() else {
+                throw IntegrationError.assert(
+                    msg: "guest reported \(total) kB of swap but the export never held"
+                        + " more than \(held) bytes")
+            }
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+    #endif
+
     func testProcessEchoHi() async throws {
         let id = "test-process-echo-hi"
         let bs = try await bootstrap(id)

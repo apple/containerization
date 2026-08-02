@@ -640,6 +640,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container swap", testContainerSwap),
                 Test("container swap under pressure", testContainerSwapUnderPressure),
                 Test("container swap reclaims freed blocks", testContainerSwapReclaimsFreedBlocks),
+                Test("container swap on memory backed NBD", testContainerSwapOnMemoryBackedNBD),
             ] + macOS26Tests()
         let tests: [Test] = crossPlatformTests + macOSOnlyTests
         #else
