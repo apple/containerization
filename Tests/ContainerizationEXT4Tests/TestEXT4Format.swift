@@ -218,6 +218,113 @@ struct Ext4FormatTests: ~Copyable {
         #expect(regFile.mode.isReg())
         #expect(regFile.sizeLow == 4)
     }
+
+    // This is a regression test for requested size = 160 MiB where the final group is only partially filled with metadata.
+    @Test func partialFinalGroupPreservesExactRequestedSize() throws {
+        let fsPath = FilePath(
+            FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: false)
+        )
+        defer { try? FileManager.default.removeItem(at: fsPath.url) }
+
+        let requested = 160.mib()
+        let formatter = try EXT4.Formatter(fsPath, minDiskSize: requested)
+        try formatter.close()
+
+        let file = try FileHandle(forReadingFrom: fsPath.url)
+        let fileSize = try file.seekToEnd()
+        #expect(fileSize == requested)
+
+        let ext4 = try EXT4.EXT4Reader(blockDevice: fsPath)
+        let sb = ext4.superBlock
+        let blocksCount = UInt64(sb.blocksCountLow) | (UInt64(sb.blocksCountHigh) << 32)
+        let blockSize = UInt64(sb.blockSize)
+
+        #expect(blocksCount == 40_960)  // 160 MiB / 4 KiB
+        #expect(blockSize == 4.kib())
+        #expect(fileSize == blocksCount * blockSize)
+
+        let freeBlocks = UInt64(sb.freeBlocksCountLow) | (UInt64(sb.freeBlocksCountHigh) << 32)
+        #expect(freeBlocks <= blocksCount)
+
+        let gd1 = try ext4.getGroupDescriptor(1)
+        #expect(UInt64(gd1.inodeTableLow) < blocksCount)
+        #expect(UInt64(gd1.blockBitmapLow) < blocksCount)
+        #expect(UInt64(gd1.inodeBitmapLow) < blocksCount)
+    }
+
+    // This is a regression test for edge case of requested size = 128 MiB + 4 KiB
+    @Test func packedMetadataBoundaryPreservesExactRequestedSizeForExtremeTinyTail() throws {
+        let fsPath = FilePath(
+            FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: false)
+        )
+        defer { try? FileManager.default.removeItem(at: fsPath.url) }
+
+        let requested = 128.mib() + 4.kib()
+        let formatter = try EXT4.Formatter(fsPath, minDiskSize: requested)
+        try formatter.close()
+
+        let file = try FileHandle(forReadingFrom: fsPath.url)
+        let fileSize = try file.seekToEnd()
+
+        let ext4 = try EXT4.EXT4Reader(blockDevice: fsPath)
+        let sb = ext4.superBlock
+        let blocksCount = UInt64(sb.blocksCountLow) | (UInt64(sb.blocksCountHigh) << 32)
+        let blockSize = UInt64(sb.blockSize)
+
+        #expect(fileSize == requested)
+        #expect(blocksCount == 32_769)
+        #expect(fileSize == blocksCount * blockSize)
+
+        let gd1 = try ext4.getGroupDescriptor(1)
+
+        #expect(UInt64(gd1.inodeTableLow) < blocksCount)
+        #expect(UInt64(gd1.blockBitmapLow) < blocksCount)
+        #expect(UInt64(gd1.inodeBitmapLow) < blocksCount)
+
+        let group1Start = UInt64(sb.blocksPerGroup)
+        #expect(UInt64(gd1.inodeTableLow) < group1Start)
+        #expect(UInt64(gd1.blockBitmapLow) < group1Start)
+        #expect(UInt64(gd1.inodeBitmapLow) < group1Start)
+
+        #expect(gd1.inodeTableLow < gd1.blockBitmapLow)
+        #expect(gd1.blockBitmapLow < gd1.inodeBitmapLow)
+    }
+
+    // Regression: exact-size image when trailing-group capacity exactly matches packed metadata footprint (inode table + 2 bitmaps)
+    @Test func metadataPackingThresholdPreservesExactRequestedSize() throws {
+        let fsPath = FilePath(
+            FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: false)
+        )
+        defer { try? FileManager.default.removeItem(at: fsPath.url) }
+
+        let inodeTableBlocks: UInt64 = 512
+        let requested = 128.mib() + (inodeTableBlocks + 2) * 4.kib()
+
+        let formatter = try EXT4.Formatter(fsPath, minDiskSize: requested)
+        try formatter.close()
+
+        let file = try FileHandle(forReadingFrom: fsPath.url)
+        let fileSize = try file.seekToEnd()
+        #expect(fileSize == requested)
+
+        let ext4 = try EXT4.EXT4Reader(blockDevice: fsPath)
+        let sb = ext4.superBlock
+        let blocksCount = UInt64(sb.blocksCountLow) | (UInt64(sb.blocksCountHigh) << 32)
+        let blockSize = UInt64(sb.blockSize)
+        #expect(fileSize == blocksCount * blockSize)
+
+        #expect(blocksCount == 33_282)
+
+        let gd1 = try ext4.getGroupDescriptor(1)
+        #expect(UInt64(gd1.inodeTableLow) < blocksCount)
+        #expect(UInt64(gd1.blockBitmapLow) < blocksCount)
+        #expect(UInt64(gd1.inodeBitmapLow) < blocksCount)
+        #expect(gd1.inodeTableLow < gd1.blockBitmapLow)
+        #expect(gd1.blockBitmapLow < gd1.inodeBitmapLow)
+    }
 }
 
 @Suite(.serialized)
