@@ -130,6 +130,16 @@ After building, run basic and integration tests:
 make test integration
 ```
 
+Tests that only apply to Linux are compiled out on macOS, so `make test` passes
+without running them. Run those with:
+
+```bash
+make linux-test
+```
+
+which runs the same tests inside the Linux dev container, as the Linux build
+workflow does.
+
 A kernel is required to run integration tests.
 If you do not have a kernel locally, a default kernel can be fetched using the `make fetch-default-kernel` target.
 
