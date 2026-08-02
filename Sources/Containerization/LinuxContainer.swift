@@ -91,6 +91,16 @@ public final class LinuxContainer: Container, Sendable {
         /// Run the container with a minimal init process that handles signal
         /// forwarding and zombie reaping.
         public var useInit: Bool = false
+        /// Programs the runtime runs at points in the container's lifecycle,
+        /// as described by the runtime specification.
+        ///
+        /// The paths are resolved inside the guest, because that is where the
+        /// runtime that would run them lives.
+        ///
+        /// NOTE: these reach the bundle's config.json but are only acted on
+        /// when the container runs under an external OCI runtime. The default
+        /// launcher is not one, so they have no effect on that path.
+        public var hooks: ContainerizationOCI.Hooks? = nil
         /// Additional CPU cores to allocate for the virtual machine on top
         /// of the container's configured `cpus` value.
         public var cpuOverhead: Int = 1
@@ -404,6 +414,8 @@ public final class LinuxContainer: Container, Sendable {
 
         // Process toggles.
         spec.process = config.process.toOCI()
+
+        spec.hooks = config.hooks
 
         // Wrap with init process if requested.
         if config.useInit {
