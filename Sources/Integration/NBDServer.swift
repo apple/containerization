@@ -111,8 +111,18 @@ private final class NBDConnectionHandler: ChannelInboundHandler {
 
     static let optExportName: UInt32 = 1
     static let optAbort: UInt32 = 2
+    static let optList: UInt32 = 3
     static let optInfo: UInt32 = 6
     static let optGo: UInt32 = 7
+    static let optStructuredReply: UInt32 = 8
+    static let optListMetaContext: UInt32 = 9
+    static let optSetMetaContext: UInt32 = 10
+
+    /// The one export a server here serves, which has no name of its own.
+    static let exportName = ""
+    /// The layout context a client asks about, and the only one answered.
+    static let metaContextAllocation = "base:allocation"
+    static let metaContextID: UInt32 = 1
 
     static let cmdRead: UInt16 = 0
     static let cmdWrite: UInt16 = 1
@@ -126,6 +136,9 @@ private final class NBDConnectionHandler: ChannelInboundHandler {
     /// https://github.com/NetworkBlockDevice/nbd/blob/master/doc/proto.md
     static let cmdFlagFUA: UInt16 = 0x1
     static let cmdFlagNoHole: UInt16 = 0x2
+    static let cmdFlagDF: UInt16 = 0x4
+    static let cmdFlagReqOne: UInt16 = 0x8
+    static let cmdBlockStatus: UInt16 = 7
 
     static let flagFixedNewstyle: UInt16 = 0x1
     static let flagNoZeroes: UInt16 = 0x2
@@ -142,10 +155,28 @@ private final class NBDConnectionHandler: ChannelInboundHandler {
     static let transmitReadOnly: UInt16 = 0x2
     static let transmitSendWriteZeroes: UInt16 = 0x40
     static let transmitSendCache: UInt16 = 0x400
+    /// Every connection to an export here serves the one store behind it, so a
+    /// flush on any of them covers what was written on the others, which is
+    /// what lets a client spread its work across several.
+    static let transmitCanMultiConn: UInt16 = 0x100
+    static let transmitSendDF: UInt16 = 0x80
 
     static let repACK: UInt32 = 1
+    static let repServer: UInt32 = 2
     static let repInfo: UInt32 = 3
+    static let repMetaContext: UInt32 = 4
     static let repErrUnsup: UInt32 = 0x8000_0001
+
+    /// Structured replies carry their own framing, so that a read can name the
+    /// offset it answers and a hole can be sent without its zeroes.
+    static let structuredReplyMagic: UInt32 = 0x668e_33ef
+    static let replyFlagDone: UInt16 = 0x1
+    static let replyTypeNone: UInt16 = 0
+    static let replyTypeOffsetData: UInt16 = 1
+    static let replyTypeOffsetHole: UInt16 = 2
+    static let replyTypeBlockStatus: UInt16 = 5
+    static let replyTypeError: UInt16 = 32769
+    static let replyTypeErrorOffset: UInt16 = 32770
     static let infoExport: UInt16 = 0
     static let infoBlockSize: UInt16 = 3
 
@@ -165,6 +196,10 @@ private final class NBDConnectionHandler: ChannelInboundHandler {
     private let logger: Logger?
     private var buffer: ByteBuffer = ByteBuffer()
     private var state: ConnectionState = .handshake
+    /// Whether the client asked for replies that carry their own framing.
+    private var structuredReplies = false
+    /// Whether the client asked to be told about the export's layout.
+    private var metaContextSelected = false
 
     private enum ConnectionState {
         case handshake
@@ -247,6 +282,7 @@ private final class NBDConnectionHandler: ChannelInboundHandler {
                 var transmitFlags =
                     Self.transmitHasFlags | Self.transmitSendFlush | Self.transmitSendFUA
                     | Self.transmitSendTrim | Self.transmitSendWriteZeroes | Self.transmitSendCache
+                    | Self.transmitCanMultiConn | Self.transmitSendDF
                 if store.isReadOnly {
                     transmitFlags |= Self.transmitReadOnly
                 }
@@ -319,6 +355,49 @@ private final class NBDConnectionHandler: ChannelInboundHandler {
                     context.close(promise: nil)
                     return
 
+                case Self.optList:
+                    // One export, and it goes by no name.
+                    buffer.moveReaderIndex(forwardBy: Int(dataLen))
+                    let name = Self.exportName
+                    var listing = context.channel.allocator.buffer(capacity: 32)
+                    writeOptReply(
+                        &listing, optType: optType, replyType: Self.repServer,
+                        dataLen: UInt32(4 + name.utf8.count))
+                    listing.writeInteger(UInt32(name.utf8.count))
+                    listing.writeString(name)
+                    writeOptReply(&listing, optType: optType, replyType: Self.repACK, dataLen: 0)
+                    context.writeAndFlush(wrapOutboundOut(listing), promise: nil)
+
+                case Self.optStructuredReply:
+                    buffer.moveReaderIndex(forwardBy: Int(dataLen))
+                    structuredReplies = true
+                    var reply = context.channel.allocator.buffer(capacity: 20)
+                    writeOptReply(&reply, optType: optType, replyType: Self.repACK, dataLen: 0)
+                    context.writeAndFlush(wrapOutboundOut(reply), promise: nil)
+
+                case Self.optSetMetaContext, Self.optListMetaContext:
+                    // The queries name what a client wants to ask about later.
+                    // Only the layout of the export is on offer, so a query
+                    // that asks for it, or for everything, is answered and the
+                    // rest are passed over.
+                    let payload = buffer.getSlice(at: buffer.readerIndex, length: Int(dataLen))
+                    buffer.moveReaderIndex(forwardBy: Int(dataLen))
+                    let wanted = Self.queriedContexts(payload)
+                    var reply = context.channel.allocator.buffer(capacity: 64)
+                    if wanted {
+                        let name = Self.metaContextAllocation
+                        writeOptReply(
+                            &reply, optType: optType, replyType: Self.repMetaContext,
+                            dataLen: UInt32(4 + name.utf8.count))
+                        reply.writeInteger(Self.metaContextID)
+                        reply.writeString(name)
+                        if optType == Self.optSetMetaContext {
+                            metaContextSelected = true
+                        }
+                    }
+                    writeOptReply(&reply, optType: optType, replyType: Self.repACK, dataLen: 0)
+                    context.writeAndFlush(wrapOutboundOut(reply), promise: nil)
+
                 default:
                     if dataLen > 0 {
                         buffer.moveReaderIndex(forwardBy: Int(dataLen))
@@ -370,6 +449,7 @@ private final class NBDConnectionHandler: ChannelInboundHandler {
                 let addressed =
                     cmdType == Self.cmdRead || cmdType == Self.cmdWrite || cmdType == Self.cmdTrim
                     || cmdType == Self.cmdWriteZeroes || cmdType == Self.cmdCache
+                    || cmdType == Self.cmdBlockStatus
                 if writes && store.isReadOnly {
                     if cmdType == Self.cmdWrite {
                         // A refused write is consumed whole, so its payload is
@@ -421,10 +501,55 @@ private final class NBDConnectionHandler: ChannelInboundHandler {
                 case Self.cmdRead:
                     buffer.moveReaderIndex(forwardBy: 28)
                     let readBuf = store.read(offset: offset, length: Int(length))
-                    var reply = context.channel.allocator.buffer(capacity: 16 + Int(length))
-                    writeSimpleReply(&reply, cookie: cookie, error: readBuf == nil ? Self.errIO : Self.errOK)
-                    if let readBuf {
-                        reply.writeBytes(readBuf)
+                    var reply = context.channel.allocator.buffer(capacity: 32 + Int(length))
+                    if structuredReplies {
+                        // A structured read names the offset it answers, and an
+                        // error carries a message rather than a bare number.
+                        if let readBuf {
+                            writeStructuredHeader(
+                                &reply, cookie: cookie, type: Self.replyTypeOffsetData,
+                                payload: UInt32(8 + readBuf.count), done: true)
+                            reply.writeInteger(offset)
+                            reply.writeBytes(readBuf)
+                        } else {
+                            let message = "read failed"
+                            writeStructuredHeader(
+                                &reply, cookie: cookie, type: Self.replyTypeError,
+                                payload: UInt32(6 + message.utf8.count), done: true)
+                            reply.writeInteger(Self.errIO)
+                            reply.writeInteger(UInt16(message.utf8.count))
+                            reply.writeString(message)
+                        }
+                    } else {
+                        writeSimpleReply(
+                            &reply, cookie: cookie, error: readBuf == nil ? Self.errIO : Self.errOK)
+                        if let readBuf {
+                            reply.writeBytes(readBuf)
+                        }
+                    }
+                    context.writeAndFlush(wrapOutboundOut(reply), promise: nil)
+
+                case Self.cmdBlockStatus:
+                    buffer.moveReaderIndex(forwardBy: 28)
+                    var reply = context.channel.allocator.buffer(capacity: 64)
+                    guard structuredReplies, metaContextSelected else {
+                        // Layout can only be described in a structured reply,
+                        // and only about a context the client asked for.
+                        writeSimpleReply(&reply, cookie: cookie, error: Self.errInval)
+                        context.writeAndFlush(wrapOutboundOut(reply), promise: nil)
+                        continue
+                    }
+                    var runs = store.extents(offset: offset, length: Int(length))
+                    if cmdFlags & Self.cmdFlagReqOne != 0, let first = runs.first {
+                        runs = [first]
+                    }
+                    writeStructuredHeader(
+                        &reply, cookie: cookie, type: Self.replyTypeBlockStatus,
+                        payload: UInt32(4 + runs.count * 8), done: true)
+                    reply.writeInteger(Self.metaContextID)
+                    for run in runs {
+                        reply.writeInteger(run.length)
+                        reply.writeInteger(run.flags)
                     }
                     context.writeAndFlush(wrapOutboundOut(reply), promise: nil)
 
@@ -487,6 +612,45 @@ private final class NBDConnectionHandler: ChannelInboundHandler {
         buf.writeInteger(Self.simpleReplyMagic)
         buf.writeInteger(error)
         buf.writeInteger(cookie)
+    }
+
+    private func writeStructuredHeader(
+        _ buf: inout ByteBuffer, cookie: UInt64, type: UInt16, payload: UInt32, done: Bool
+    ) {
+        buf.writeInteger(Self.structuredReplyMagic)
+        buf.writeInteger(done ? Self.replyFlagDone : 0)
+        buf.writeInteger(type)
+        buf.writeInteger(cookie)
+        buf.writeInteger(payload)
+    }
+
+    /// Whether the queries a client sent ask about the export's layout, either
+    /// by name or by asking for everything the server has. A request carrying
+    /// no queries at all is asking for the lot.
+    private static func queriedContexts(_ payload: ByteBuffer?) -> Bool {
+        guard var payload else {
+            return false
+        }
+        guard let nameLen = payload.readInteger(as: UInt32.self),
+            payload.readSlice(length: Int(nameLen)) != nil,
+            let queryCount = payload.readInteger(as: UInt32.self)
+        else {
+            return false
+        }
+        if queryCount == 0 {
+            return true
+        }
+        for _ in 0..<queryCount {
+            guard let queryLen = payload.readInteger(as: UInt32.self),
+                let query = payload.readString(length: Int(queryLen))
+            else {
+                return false
+            }
+            if query == Self.metaContextAllocation || query == "base:" {
+                return true
+            }
+        }
+        return false
     }
 }
 #endif

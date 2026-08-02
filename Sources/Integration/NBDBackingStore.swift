@@ -55,9 +55,29 @@ protocol NBDBackingStore: Sendable {
     func close()
 }
 
+/// A run of the export that shares one allocation state, which is what a client
+/// asking about block status is told.
+struct NBDExtent: Sendable {
+    /// The extent is not allocated in the store behind the export.
+    static let stateHole: UInt32 = 0x1
+    /// The extent reads back as zeroes.
+    static let stateZero: UInt32 = 0x2
+
+    var length: UInt32
+    var flags: UInt32
+}
+
 extension NBDBackingStore {
     /// Most stores are written to, so saying nothing means so.
     var isReadOnly: Bool { false }
+
+    /// How the export is laid out over `length` bytes from `offset`.
+    ///
+    /// A store that cannot tell says the whole range is allocated, which is
+    /// true of any store and costs a client only the chance to skip a hole.
+    func extents(offset: UInt64, length: Int) -> [NBDExtent] {
+        [NBDExtent(length: UInt32(length), flags: 0)]
+    }
 
     /// Whether a request of `length` bytes at `offset` lies inside the export.
     /// The protocol asks a server to turn away one that does not rather than
@@ -126,6 +146,44 @@ final class NBDFileStore: NBDBackingStore {
             _ = fcntl(descriptor, F_PUNCHHOLE, &punch)
         }
         return true
+    }
+
+    /// A file says where its holes are through the same seeks a sparse copy
+    /// uses, so a client is told what the filesystem already knows.
+    func extents(offset: UInt64, length: Int) -> [NBDExtent] {
+        self.fd.withLock { descriptor in
+            var runs: [NBDExtent] = []
+            var at = off_t(offset)
+            let end = off_t(offset) + off_t(length)
+            while at < end {
+                let nextData = lseek(descriptor, at, SEEK_DATA)
+                if nextData < 0, errno != ENXIO {
+                    // The seek itself failed, so nothing is known about the
+                    // layout; say the range is allocated, which is true of any
+                    // range and costs a client only the chance to skip a hole.
+                    return [NBDExtent(length: UInt32(length), flags: 0)]
+                }
+                if nextData < 0 || nextData >= end {
+                    // Nothing written between here and the end of the range.
+                    runs.append(
+                        NBDExtent(
+                            length: UInt32(end - at),
+                            flags: NBDExtent.stateHole | NBDExtent.stateZero))
+                    break
+                }
+                if nextData > at {
+                    runs.append(
+                        NBDExtent(
+                            length: UInt32(nextData - at),
+                            flags: NBDExtent.stateHole | NBDExtent.stateZero))
+                }
+                let nextHole = lseek(descriptor, nextData, SEEK_HOLE)
+                let dataEnd = (nextHole < 0 || nextHole > end) ? end : nextHole
+                runs.append(NBDExtent(length: UInt32(dataEnd - nextData), flags: 0))
+                at = dataEnd
+            }
+            return runs.isEmpty ? [NBDExtent(length: UInt32(length), flags: 0)] : runs
+        }
     }
 
     func flush() {
@@ -233,6 +291,25 @@ final class NBDMemoryStore: NBDBackingStore {
             }
         }
         return true
+    }
+
+    /// A store in memory knows exactly which chunks it holds, so it can say
+    /// where the holes are rather than claiming the whole range is written.
+    func extents(offset: UInt64, length: Int) -> [NBDExtent] {
+        var runs: [NBDExtent] = []
+        self.chunks.withLock { chunks in
+            self.forEachSpan(offset: offset, length: length) { index, _, _, span in
+                let flags: UInt32 =
+                    chunks[index] == nil ? (NBDExtent.stateHole | NBDExtent.stateZero) : 0
+                if var last = runs.last, last.flags == flags {
+                    last.length += UInt32(span)
+                    runs[runs.count - 1] = last
+                } else {
+                    runs.append(NBDExtent(length: UInt32(span), flags: flags))
+                }
+            }
+        }
+        return runs
     }
 
     /// Nothing is held anywhere else, so a flush has nothing to do.
