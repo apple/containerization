@@ -317,6 +317,21 @@ extension CHVirtualMachineInstance: VirtualMachineInstance {
         }
     }
 
+    public func setTargetMemorySize(_ bytes: UInt64) async throws {
+        guard bytes <= self.config.memoryInBytes else {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "cannot hold \(bytes) bytes, the machine was created with \(self.config.memoryInBytes)"
+            )
+        }
+        // Cloud Hypervisor sizes the balloon rather than the machine, so the
+        // balloon is asked to hold whatever the machine should not.
+        let balloon = Int64(self.config.memoryInBytes - bytes)
+        try await chCall {
+            try await self.client.vmResize(.init(desiredBalloon: balloon))
+        }
+    }
+
     public func stop() async throws {
         try await lock.withLock { _ in
             guard self.state == .running else {
@@ -627,8 +642,10 @@ extension CHVirtualMachineInstance {
             fs: fsConfigs.isEmpty ? nil : fsConfigs,
             vsock: vsock,
             // Free page reporting lets the host reclaim what the guest frees
-            // without anything having to choose a balloon size, which is how
-            // Kata drives the same device (ch-config/src/convert.rs).
+            // without anything having to choose a balloon size, which is what
+            // Kata turns on to reclaim guest freed memory.
+            // https://github.com/kata-containers/kata-containers/blob/main/src/runtime-rs/crates/hypervisor/ch-config/src/convert.rs
+            // https://github.com/kata-containers/kata-containers/blob/main/docs/how-to/how-to-use-memory-agent.md
             balloon: CloudHypervisor.BalloonConfig(freePageReporting: true),
             // Kernel cmdline is `console=hvc0`, so userspace (vminitd) writes
             // to hvc0 — capture that to the bootlog. We deliberately disable

@@ -31,6 +31,13 @@ extension CloudHypervisor.Client {
         try await put("/api/v1/vm.boot")
     }
 
+    /// Resize a running VM's cpus, memory or balloon.
+    ///
+    /// Maps to `PUT /api/v1/vm.resize` in the Cloud Hypervisor REST API.
+    public func vmResize(_ resize: CloudHypervisor.VmResize) async throws {
+        try await put("/api/v1/vm.resize", body: resize)
+    }
+
     /// Shut down the VM.
     ///
     /// Maps to `PUT /api/v1/vm.shutdown` in the Cloud Hypervisor REST API.

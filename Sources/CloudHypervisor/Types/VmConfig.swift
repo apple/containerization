@@ -125,6 +125,33 @@ extension CloudHypervisor {
         }
     }
 
+    // MARK: - VmResize
+
+    /// Resize request for a running VM.
+    ///
+    /// Maps to `VmResize` in the Cloud Hypervisor OpenAPI spec.
+    public struct VmResize: Sendable, Codable, Equatable {
+        /// Desired vCPU count.
+        public var desiredVcpus: Int?
+        /// Desired memory in bytes.
+        public var desiredRam: Int64?
+        /// Desired balloon size in bytes. Growing the balloon takes memory from
+        /// the guest and gives it to the host.
+        public var desiredBalloon: Int64?
+
+        public init(desiredVcpus: Int? = nil, desiredRam: Int64? = nil, desiredBalloon: Int64? = nil) {
+            self.desiredVcpus = desiredVcpus
+            self.desiredRam = desiredRam
+            self.desiredBalloon = desiredBalloon
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case desiredVcpus = "desired_vcpus"
+            case desiredRam = "desired_ram"
+            case desiredBalloon = "desired_balloon"
+        }
+    }
+
     // MARK: - BalloonConfig
 
     /// Memory balloon for handing guest memory back to the host.
