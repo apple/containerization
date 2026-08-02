@@ -119,6 +119,13 @@ private final class NBDConnectionHandler: ChannelInboundHandler {
     static let cmdDisc: UInt16 = 2
     static let cmdFlush: UInt16 = 3
     static let cmdTrim: UInt16 = 4
+    static let cmdCache: UInt16 = 5
+    static let cmdWriteZeroes: UInt16 = 6
+
+    /// Command flags travel in the two bytes after the request magic.
+    /// https://github.com/NetworkBlockDevice/nbd/blob/master/doc/proto.md
+    static let cmdFlagFUA: UInt16 = 0x1
+    static let cmdFlagNoHole: UInt16 = 0x2
 
     static let flagFixedNewstyle: UInt16 = 0x1
     static let flagNoZeroes: UInt16 = 0x2
@@ -132,6 +139,9 @@ private final class NBDConnectionHandler: ChannelInboundHandler {
     /// anything go, however much the guest has finished with.
     /// https://github.com/NetworkBlockDevice/nbd/blob/master/doc/proto.md
     static let transmitSendTrim: UInt16 = 0x20
+    static let transmitReadOnly: UInt16 = 0x2
+    static let transmitSendWriteZeroes: UInt16 = 0x40
+    static let transmitSendCache: UInt16 = 0x400
 
     static let repACK: UInt32 = 1
     static let repInfo: UInt32 = 3
@@ -141,8 +151,14 @@ private final class NBDConnectionHandler: ChannelInboundHandler {
 
     // NBD error codes
     static let errOK: UInt32 = 0
+    static let errPerm: UInt32 = 1
     static let errIO: UInt32 = 5
+    static let errNoMem: UInt32 = 12
+    static let errInval: UInt32 = 22
+    static let errNoSpc: UInt32 = 28
+    static let errOverflow: UInt32 = 75
     static let errNotsup: UInt32 = 95
+    static let errShutdown: UInt32 = 108
 
     private let store: NBDBackingStore
     private let fileSize: UInt64
@@ -228,9 +244,12 @@ private final class NBDConnectionHandler: ChannelInboundHandler {
                     return
                 }
 
-                let transmitFlags =
+                var transmitFlags =
                     Self.transmitHasFlags | Self.transmitSendFlush | Self.transmitSendFUA
-                    | Self.transmitSendTrim
+                    | Self.transmitSendTrim | Self.transmitSendWriteZeroes | Self.transmitSendCache
+                if store.isReadOnly {
+                    transmitFlags |= Self.transmitReadOnly
+                }
 
                 switch optType {
                 case Self.optExportName:
@@ -316,6 +335,7 @@ private final class NBDConnectionHandler: ChannelInboundHandler {
                 }
                 let readerIndex = buffer.readerIndex
                 guard let magic = buffer.getInteger(at: readerIndex, as: UInt32.self),
+                    let cmdFlags = buffer.getInteger(at: readerIndex + 4, as: UInt16.self),
                     let cmdType = buffer.getInteger(at: readerIndex + 6, as: UInt16.self),
                     let cookie = buffer.getInteger(at: readerIndex + 8, as: UInt64.self),
                     let offset = buffer.getInteger(at: readerIndex + 16, as: UInt64.self),
@@ -327,6 +347,55 @@ private final class NBDConnectionHandler: ChannelInboundHandler {
                 guard magic == Self.requestMagic else {
                     context.close(promise: nil)
                     return
+                }
+
+                /// A command that has been dealt with, but whose reply the
+                /// protocol holds back until what it wrote is durable when the
+                /// client asked for that.
+                func replyHonouringFUA(_ error: UInt32) {
+                    if cmdFlags & Self.cmdFlagFUA != 0 && error == Self.errOK {
+                        store.flush()
+                    }
+                    var reply = context.channel.allocator.buffer(capacity: 16)
+                    writeSimpleReply(&reply, cookie: cookie, error: error)
+                    context.writeAndFlush(wrapOutboundOut(reply), promise: nil)
+                }
+
+                // An export that only reads turns away everything that writes,
+                // and a request reaching past the end of one is refused rather
+                // than passed to the store to fail on.
+                let writes =
+                    cmdType == Self.cmdWrite || cmdType == Self.cmdTrim
+                    || cmdType == Self.cmdWriteZeroes
+                let addressed =
+                    cmdType == Self.cmdRead || cmdType == Self.cmdWrite || cmdType == Self.cmdTrim
+                    || cmdType == Self.cmdWriteZeroes || cmdType == Self.cmdCache
+                if writes && store.isReadOnly {
+                    if cmdType == Self.cmdWrite {
+                        // A refused write is consumed whole, so its payload is
+                        // never read back as the next request's header; the
+                        // refusal waits alongside the acceptance for all of it.
+                        guard buffer.readableBytes >= 28 + Int(length) else {
+                            return
+                        }
+                        buffer.moveReaderIndex(forwardBy: 28 + Int(length))
+                    } else {
+                        buffer.moveReaderIndex(forwardBy: 28)
+                    }
+                    replyHonouringFUA(Self.errPerm)
+                    continue
+                }
+                if addressed && !store.covers(offset: offset, length: Int(length)) {
+                    if cmdType == Self.cmdWrite {
+                        guard buffer.readableBytes >= 28 + Int(length) else {
+                            return
+                        }
+                        buffer.moveReaderIndex(forwardBy: 28 + Int(length))
+                    } else {
+                        buffer.moveReaderIndex(forwardBy: 28)
+                    }
+                    replyHonouringFUA(Self.errInval)
+                    continue
                 }
 
                 switch cmdType {
@@ -347,9 +416,7 @@ private final class NBDConnectionHandler: ChannelInboundHandler {
                         return Int(length)
                     }
                     let stored = store.write(offset: offset, data: writeData)
-                    var reply = context.channel.allocator.buffer(capacity: 16)
-                    writeSimpleReply(&reply, cookie: cookie, error: stored ? Self.errOK : Self.errIO)
-                    context.writeAndFlush(wrapOutboundOut(reply), promise: nil)
+                    replyHonouringFUA(stored ? Self.errOK : Self.errIO)
 
                 case Self.cmdRead:
                     buffer.moveReaderIndex(forwardBy: 28)
@@ -376,9 +443,28 @@ private final class NBDConnectionHandler: ChannelInboundHandler {
                 case Self.cmdTrim:
                     buffer.moveReaderIndex(forwardBy: 28)
                     let released = store.discard(offset: offset, length: Int(length))
-                    var reply = context.channel.allocator.buffer(capacity: 16)
-                    writeSimpleReply(&reply, cookie: cookie, error: released ? Self.errOK : Self.errIO)
-                    context.writeAndFlush(wrapOutboundOut(reply), promise: nil)
+                    replyHonouringFUA(released ? Self.errOK : Self.errIO)
+
+                case Self.cmdWriteZeroes:
+                    buffer.moveReaderIndex(forwardBy: 28)
+                    // Discarding leaves zeroes behind and costs nothing, so it
+                    // serves unless the client has said it wants the range to
+                    // stay written through, which is what the flag is for.
+                    let zeroed: Bool
+                    if cmdFlags & Self.cmdFlagNoHole != 0 {
+                        zeroed = store.write(
+                            offset: offset, data: [UInt8](repeating: 0, count: Int(length)))
+                    } else {
+                        zeroed = store.discard(offset: offset, length: Int(length))
+                    }
+                    replyHonouringFUA(zeroed ? Self.errOK : Self.errIO)
+
+                case Self.cmdCache:
+                    // A hint that a range is wanted soon. Every store here
+                    // answers a read in the same time whether it was told or
+                    // not, so there is nothing to prepare.
+                    buffer.moveReaderIndex(forwardBy: 28)
+                    replyHonouringFUA(Self.errOK)
 
                 default:
                     buffer.moveReaderIndex(forwardBy: 28)

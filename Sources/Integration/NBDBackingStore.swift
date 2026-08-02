@@ -27,6 +27,10 @@ protocol NBDBackingStore: Sendable {
     /// The size of the export, which the server reports during the handshake.
     var size: UInt64 { get }
 
+    /// Whether the export only ever reads. A server says so during the
+    /// handshake and turns away everything that would write.
+    var isReadOnly: Bool { get }
+
     /// Read `length` bytes from `offset`. Returns nil when the read fails.
     func read(offset: UInt64, length: Int) -> [UInt8]?
 
@@ -49,6 +53,23 @@ protocol NBDBackingStore: Sendable {
 
     /// Release whatever the store holds.
     func close()
+}
+
+extension NBDBackingStore {
+    /// Most stores are written to, so saying nothing means so.
+    var isReadOnly: Bool { false }
+
+    /// Whether a request of `length` bytes at `offset` lies inside the export.
+    /// The protocol asks a server to turn away one that does not rather than
+    /// let it reach the store.
+    /// https://github.com/NetworkBlockDevice/nbd/blob/master/doc/proto.md
+    func covers(offset: UInt64, length: Int) -> Bool {
+        guard length >= 0 else {
+            return false
+        }
+        let (end, overflowed) = offset.addingReportingOverflow(UInt64(length))
+        return !overflowed && end <= self.size
+    }
 }
 
 /// A store that keeps its blocks in a file.
