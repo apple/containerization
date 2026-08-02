@@ -21,6 +21,7 @@ import Foundation
 import Logging
 import Synchronization
 
+import struct ContainerizationOS.Swap
 import struct ContainerizationOS.Terminal
 
 /// NOTE: Experimental API
@@ -43,6 +44,15 @@ public final class LinuxPod: Sendable {
         public var cpus: Int = 4
         /// The memory in bytes to give to the pod's VM.
         public var memoryInBytes: UInt64 = 1024.mib()
+        /// Optional swap area shared by every container in the pod, as a block
+        /// device mount.
+        ///
+        /// The area belongs to the pod rather than to any one container, so the
+        /// guest kernel decides which container's pages are reclaimed to it.
+        /// Containers are free to use all of it unless they carry a limit of
+        /// their own. The `destination` field is ignored, as the area is
+        /// enabled rather than mounted.
+        public var swapLayer: Mount? = nil
         /// The network interfaces for the pod.
         public var interfaces: [any Interface] = []
         /// Whether nested virtualization should be turned on for the pod.
@@ -77,6 +87,24 @@ public final class LinuxPod: Sendable {
         public var cpus: Int?
         /// Optional per-container memory limit in bytes (can exceed pod total for oversubscription).
         public var memoryInBytes: UInt64?
+        /// Optional cap on how much of the pod's swap area this container may
+        /// use, in bytes. Leaving it unset lets the container use the whole
+        /// area, which is what containers sharing a pool usually want.
+        ///
+        /// This counts swap alone. The runtime spec carries memory and swap
+        /// combined, so `memoryInBytes` is added to it when the spec is built,
+        /// and a swap limit without a memory limit is rejected because the
+        /// combined figure cannot be worked out without one.
+        ///
+        /// Kata and docker spell the same limit as the combined figure the spec
+        /// carries, subtracting the memory limit to size the area, so a
+        /// container asking there for 2 GiB against a 1 GiB memory limit is
+        /// asking for 1 GiB of swap and here for 2 GiB. That figure suits a
+        /// container whose swap is sized for it alone; this one is a share of
+        /// an area the pod owns, and how much of that share a container may
+        /// take is what the number says.
+        /// https://github.com/kata-containers/kata-containers/blob/main/docs/how-to/how-to-setup-swap-devices-in-guest-kernel.md
+        public var swapInBytes: UInt64?
         /// The hostname for the container.
         public var hostname: String?
         /// The system control options for the container.
@@ -326,8 +354,15 @@ public final class LinuxPod: Sendable {
             )
         }
         if let memoryInBytes = config.memoryInBytes, memoryInBytes > 0 {
+            // The runtime spec's `swap` is the memory and swap total, not the
+            // swap alone, so the container's memory limit is folded in here.
+            var swapTotal: Int64? = nil
+            if let swapInBytes = config.swapInBytes {
+                swapTotal = Int64(memoryInBytes + swapInBytes)
+            }
             spec.linux?.resources?.memory = LinuxMemory(
-                limit: Int64(memoryInBytes)
+                limit: Int64(memoryInBytes),
+                swap: swapTotal
             )
         }
 
@@ -389,6 +424,15 @@ extension LinuxPod {
 
             var config = ContainerConfiguration()
             try configuration(&config)
+
+            // The runtime spec carries memory and swap as one total, so a swap
+            // limit cannot be expressed without a memory limit to add it to.
+            if config.swapInBytes != nil, config.memoryInBytes == nil {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "container \(id) sets a swap limit without a memory limit"
+                )
+            }
 
             let fileMountContext = try FileMountContext.prepare(mounts: config.mounts)
 
@@ -607,6 +651,9 @@ extension LinuxPod {
             for volume in self.config.volumes {
                 machineStorage.volumes[volume.name] = volume.toMount()
             }
+            // The swap area is attached with the machine's own storage so the
+            // guest is told the /dev path the VMM allocates it.
+            machineStorage.swap = self.config.swapLayer
 
             // Capture into an immutable `let` so the value is safely usable
             // from the concurrent `withAgent` closure below. The container
@@ -638,9 +685,26 @@ extension LinuxPod {
                 let shareProcessNamespace = self.config.shareProcessNamespace
                 let pauseProcessHolder = Mutex<LinuxProcess?>(nil)
                 let fileMountContextUpdates = Mutex<[String: FileMountContext]>([:])
+                let hasSwapLayer = self.config.swapLayer != nil
 
                 try await vm.withAgent { agent in
                     try await agent.standardSetup()
+
+                    // The swap area belongs to the pod rather than to any one
+                    // container, so it is enabled once here and every container
+                    // reclaims to it through the guest's own memory management.
+                    if hasSwapLayer {
+                        guard let swap = vm.storage.swap else {
+                            throw ContainerizationError(.notFound, message: "swap mount not found")
+                        }
+                        try await agent.mount(
+                            ContainerizationOCI.Mount(
+                                type: Swap.mountType,
+                                source: swap.source,
+                                destination: "",
+                                options: swap.options
+                            ))
+                    }
 
                     // Mount the unified virtiofs share at /run/virtiofs only
                     // when at least one container has a virtiofs mount. VZ

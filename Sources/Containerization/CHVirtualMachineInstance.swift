@@ -729,8 +729,8 @@ extension CHVirtualMachineInstance {
 extension CHVirtualMachineInstance.Configuration {
     /// Walks boot-time storage in the machine's device order (rootfs first,
     /// then containers sorted by id, each in role order, then volumes sorted
-    /// by name), allocating disk letters for virtio-blk mounts and seeding
-    /// the machine's `AttachedFilesystem` registry.
+    /// by name, then swap), allocating disk letters for virtio-blk mounts
+    /// and seeding the machine's `AttachedFilesystem` registry.
     ///
     /// The allocator is shared with the runtime hotplug provider, so block
     /// hotplug picks up at the next free letter after boot.
@@ -765,8 +765,9 @@ extension CHVirtualMachineInstance.Configuration {
             guard let mount = self.storage.volumes[name] else { continue }
             volumes[name] = try attach(mount, chId: { "vol-\(name)-\($0)" })
         }
+        let swap = try self.storage.swap.map { try attach($0, chId: { "swap-\($0)" }) }
 
-        return (MachineAttachments(containers: containers, volumes: volumes), bootDisks)
+        return (MachineAttachments(containers: containers, volumes: volumes, swap: swap), bootDisks)
     }
 }
 #endif

@@ -83,18 +83,25 @@ public struct MachineStorage<Value: Sendable>: Sendable {
     /// Volumes shared by the machine's containers, by volume name.
     public var volumes: [String: Value]
 
-    public init(containers: [String: ContainerStorage<Value>] = [:], volumes: [String: Value] = [:]) {
+    /// The swap area shared by every container in the machine, when it has
+    /// one.
+    public var swap: Value?
+
+    public init(containers: [String: ContainerStorage<Value>] = [:], volumes: [String: Value] = [:], swap: Value? = nil) {
         self.containers = containers
         self.volumes = volumes
+        self.swap = swap
     }
 
     /// Every value the machine carries: containers sorted by ID, each in
-    /// role order, then volumes sorted by name. Walks that allocate device
-    /// addresses and walks that create the devices use this one order, so an
-    /// address always names the device it was handed out for.
+    /// role order, then volumes sorted by name, then swap. Walks that
+    /// allocate device addresses and walks that create the devices use this
+    /// one order, so an address always names the device it was handed out
+    /// for.
     public var ordered: [Value] {
         containers.keys.sorted().flatMap { containers[$0]?.all ?? [] }
             + volumes.keys.sorted().compactMap { volumes[$0] }
+            + (swap.map { [$0] } ?? [])
     }
 
     /// The storage with `transform` applied to every value, each keeping its
@@ -103,7 +110,8 @@ public struct MachineStorage<Value: Sendable>: Sendable {
     public func map<U: Sendable>(_ transform: (Value) throws -> U) rethrows -> MachineStorage<U> {
         MachineStorage<U>(
             containers: try containers.mapValues { try $0.map(transform) },
-            volumes: try volumes.mapValues(transform)
+            volumes: try volumes.mapValues(transform),
+            swap: try swap.map(transform)
         )
     }
 }

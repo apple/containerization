@@ -74,7 +74,7 @@ public final class VZVirtualMachineInstance: Sendable {
         /// Toggle nested virtualization support.
         public var nestedVirtualization: Bool
         /// The machine's storage: each container's mounts by role, and the
-        /// volumes its containers share.
+        /// volumes and swap its containers share.
         public var storage: MachineMounts
         /// Network interface attachments.
         public var interfaces: [any Interface]
@@ -567,8 +567,9 @@ extension VZVirtualMachineInstance.Configuration {
             guard let mount = self.storage.volumes[name] else { continue }
             volumes[name] = try attach(mount)
         }
+        let swap = try self.storage.swap.map(attach)
 
-        return (MachineAttachments(containers: containers, volumes: volumes), storageDeviceCount)
+        return (MachineAttachments(containers: containers, volumes: volumes, swap: swap), storageDeviceCount)
     }
 }
 

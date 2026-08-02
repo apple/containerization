@@ -409,6 +409,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container IPv6 only default route", testIPv6OnlyDefaultRoute),
                 Test("container IPv6 only gateway outside subnet", testIPv6OnlyGatewayOutsideSubnet),
                 Test("container IPv6 dual stack", testIPv6DualStack),
+                Test("pod shared swap", testPodSharedSwap),
                 Test("pod IPv6 address", testPodIPv6AddressAdd),
             ]
         }

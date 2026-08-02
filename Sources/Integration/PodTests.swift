@@ -96,6 +96,66 @@ extension IntegrationSuite {
         }
     }
 
+    func testPodSharedSwap() async throws {
+        let id = "test-pod-shared-swap"
+
+        let bs = try await bootstrap(id)
+        let swapPath = Self.binPath(name: "\(id)-swap.raw")
+        let swap = try Self.makeSwapDevice(at: swapPath, size: 512.mib())
+        defer { try? FileManager.default.removeItem(at: swapPath) }
+
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 2
+            config.memoryInBytes = 512.mib()
+            config.bootLog = bs.bootLog
+            config.swapLayer = swap
+        }
+
+        // Both containers report the same area, because the pod owns it and
+        // the guest kernel decides whose pages are reclaimed to it.
+        let names = ["swap1", "swap2"]
+        let buffers = [names[0]: BufferWriter(), names[1]: BufferWriter()]
+        for name in names {
+            let buffer = buffers[name]!
+            try await pod.addContainer(
+                name,
+                rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: name)
+            ) { config in
+                config.process.arguments = [
+                    "/bin/sh", "-c",
+                    "awk '/SwapTotal/ { print $2 }' /proc/meminfo",
+                ]
+                config.process.stdout = buffer
+            }
+        }
+
+        try await pod.create()
+
+        var totals: [UInt64] = []
+        for name in names {
+            try await pod.startContainer(name)
+            let status = try await pod.waitContainer(name)
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "\(name) status \(status) != 0")
+            }
+            let out = String(data: buffers[name]!.data, encoding: .utf8) ?? ""
+            guard let total = UInt64(out.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+                throw IntegrationError.assert(msg: "\(name) reported no swap total: '\(out)'")
+            }
+            totals.append(total)
+        }
+
+        try await pod.stop()
+
+        guard totals[0] > 0 else {
+            throw IntegrationError.assert(msg: "pod swap area was not enabled: \(totals)")
+        }
+        guard totals[0] == totals[1] else {
+            throw IntegrationError.assert(
+                msg: "containers saw different swap areas: \(totals)")
+        }
+    }
+
     func testPodContainerOutput() async throws {
         let id = "test-pod-container-output"
 

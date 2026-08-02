@@ -73,7 +73,7 @@ public struct VMConfiguration: Sendable {
     /// The network interfaces to attach.
     public var interfaces: [any Interface]
     /// The storage the machine carries: each container's mounts by role,
-    /// and the volumes its containers share.
+    /// and the volumes and swap its containers share.
     public var storage: MachineMounts
     /// Optional destination for serial boot logs.
     public var bootLog: BootLog?
