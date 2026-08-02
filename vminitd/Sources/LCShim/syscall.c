@@ -18,6 +18,7 @@
 #include <sys/prctl.h>
 #include <sys/resource.h>
 #include <sys/syscall.h>
+#include <sys/sysmacros.h>
 #include <unistd.h>
 
 #include "syscall.h"
@@ -36,6 +37,10 @@ int CZ_pidfd_open(pid_t pid, unsigned int flags) {
 int CZ_pidfd_getfd(int pidfd, int targetfd, unsigned int flags) {
   // Musl doesn't have pidfd_getfd.
   return syscall(SYS_pidfd_getfd, pidfd, targetfd, flags);
+}
+
+dev_t CZ_makedev(unsigned int major, unsigned int minor) {
+  return makedev(major, minor);
 }
 
 int CZ_prctl_set_no_new_privs() {

@@ -99,6 +99,9 @@ int CZ_pidfd_open(pid_t pid, unsigned int flags);
 #endif
 int CZ_pidfd_getfd(int pidfd, int targetfd, unsigned int flags);
 
+// makedev(3) is a macro, so Swift cannot call it.
+dev_t CZ_makedev(unsigned int major, unsigned int minor);
+
 int CZ_prctl_set_no_new_privs();
 
 #endif

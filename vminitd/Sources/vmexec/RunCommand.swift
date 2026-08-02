@@ -55,11 +55,13 @@ struct RunCommand: ParsableCommand {
 
     private func childRootSetup(
         rootfs: ContainerizationOCI.Root,
-        mounts: [ContainerizationOCI.Mount]
+        mounts: [ContainerizationOCI.Mount],
+        devices: [ContainerizationOCI.LinuxDevice]
     ) throws {
         // setup rootfs
         try prepareRoot(rootfs: rootfs.path)
         try mountRootfs(rootfs: rootfs.path, mounts: mounts)
+        try createDevices(rootfs: rootfs.path, devices: devices)
         try setDevSymlinks(rootfs: rootfs.path)
 
         try pivotRoot(rootfs: rootfs.path)
@@ -190,7 +192,7 @@ struct RunCommand: ParsableCommand {
             throw App.Errno(stage: "setsid()")
         }
 
-        try childRootSetup(rootfs: root, mounts: spec.mounts)
+        try childRootSetup(rootfs: root, mounts: spec.mounts, devices: spec.linux?.devices ?? [])
 
         if process.terminal {
             let pty = try Console()
@@ -379,6 +381,67 @@ struct RunCommand: ParsableCommand {
 
         guard mount(rootfs, rootfs, "bind", UInt(MS_BIND | MS_REC), nil) == 0 else {
             throw App.Errno(stage: "mount(bind|rec)")
+        }
+    }
+
+    /// Give the container the devices its runtime spec asks for, as runc does
+    /// from the same field.
+    /// https://github.com/opencontainers/runc/blob/main/libcontainer/rootfs_linux.go
+    ///
+    /// A device the spec names may already be present, because the container's
+    /// /dev can be a devtmpfs carrying everything the guest kernel exposes, in
+    /// which case it arrives with the kernel's own permissions rather than the
+    /// ones the spec asks for: the kernel gives a misc device no mode of its
+    /// own, so it lands at 0600 root. A machine running udev is what usually
+    /// says otherwise, `/dev/net/tun` and `/dev/fuse` being 0666 there because
+    /// its rules say so; there is no udev here, so the spec is what says.
+    /// https://github.com/systemd/systemd/blob/main/rules.d/50-udev-default.rules.in
+    private func createDevices(rootfs: String, devices: [ContainerizationOCI.LinuxDevice]) throws {
+        let rootfsURL = URL(fileURLWithPath: rootfs)
+        for device in devices {
+            let path = rootfsURL.appendingPathComponent(device.path).path
+            let mode = device.fileMode ?? 0o600
+
+            let kind: mode_t
+            switch device.type {
+            case "c", "u":
+                kind = S_IFCHR
+            case "b":
+                kind = S_IFBLK
+            case "p":
+                kind = S_IFIFO
+            default:
+                throw App.Failure(message: "unknown device type \(device.type) for \(device.path)")
+            }
+
+            let parent = URL(fileURLWithPath: path).deletingLastPathComponent().path
+            try FileManager.default.createDirectory(
+                atPath: parent, withIntermediateDirectories: true)
+
+            // Truncating as runc does, since the spec types these wider than
+            // any device number the kernel will encode.
+            // https://github.com/opencontainers/runc/blob/main/libcontainer/rootfs_linux.go
+            let id = CZ_makedev(
+                UInt32(truncatingIfNeeded: device.major),
+                UInt32(truncatingIfNeeded: device.minor))
+
+            if mknod(path, kind | mode_t(mode), id) != 0 {
+                guard errno == EEXIST else {
+                    throw App.Errno(stage: "mknod(\(device.path))")
+                }
+                // Already there, so only its permissions are ours to set.
+                guard chmod(path, mode_t(mode)) == 0 else {
+                    throw App.Errno(stage: "chmod(\(device.path))")
+                }
+            }
+
+            if device.uid != nil || device.gid != nil {
+                let uid = device.uid ?? 0
+                let gid = device.gid ?? 0
+                guard chown(path, uid, gid) == 0 else {
+                    throw App.Errno(stage: "chown(\(device.path))")
+                }
+            }
         }
     }
 

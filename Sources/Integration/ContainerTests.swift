@@ -315,6 +315,49 @@ extension IntegrationSuite {
         }
     }
 
+    func testContainerDeclaredDevices() async throws {
+        let id = "test-container-declared-devices"
+        let bs = try await bootstrap(id)
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            // The permissions a device arrives with are the kernel's; the ones
+            // it should have are the spec's. These two are what unprivileged
+            // container runtimes reach for, and udev grants them the same way.
+            config.devices = [
+                ContainerizationOCI.LinuxDevice(
+                    path: "/dev/net/tun", type: "c", major: 10, minor: 200,
+                    fileMode: 0o666, uid: 0, gid: 0),
+                ContainerizationOCI.LinuxDevice(
+                    path: "/dev/fuse", type: "c", major: 10, minor: 229,
+                    fileMode: 0o666, uid: 0, gid: 0),
+            ]
+            config.process.user = ContainerizationOCI.User(uid: 1000, gid: 1000)
+            config.process.arguments = [
+                "/bin/sh", "-c",
+                "ls -l /dev/net/tun /dev/fuse; "
+                    + "if : < /dev/net/tun; then echo TUN_OPEN; else echo TUN_DENIED; fi; "
+                    + "if : < /dev/fuse; then echo FUSE_OPEN; else echo FUSE_DENIED; fi",
+            ]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+        try await container.create()
+        try await container.start()
+        _ = try await container.wait()
+        try await container.stop()
+
+        let out = String(data: buffer.data, encoding: .utf8) ?? ""
+        // Both are readable by a process that is not root, which is what they
+        // are for, and which the kernel's own permissions would not allow.
+        guard out.contains("TUN_OPEN"), out.contains("FUSE_OPEN") else {
+            throw IntegrationError.assert(msg: "declared devices were not usable: '\(out)'")
+        }
+        guard out.contains("crw-rw-rw-") else {
+            throw IntegrationError.assert(msg: "devices did not take the mode asked for: '\(out)'")
+        }
+    }
+
     func testProcessEchoHi() async throws {
         let id = "test-process-echo-hi"
         let bs = try await bootstrap(id)
