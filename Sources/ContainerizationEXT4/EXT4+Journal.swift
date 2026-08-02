@@ -35,9 +35,17 @@ extension EXT4.Formatter {
             try self.seek(block: self.currentBlock + 1)
         }
         let journalStartBlock = self.currentBlock
+        let journalEndBlock = try calculateJournalEndBlock(
+            startBlock: journalStartBlock,
+            blockCount: journalBlocks
+        )
         try writeJournalSuperblock(journalBlocks: journalBlocks, filesystemUUID: filesystemUUID)
-        try zeroJournalBlocks(count: journalBlocks - 1)
-        try setupJournalInode(startBlock: journalStartBlock, blockCount: journalBlocks)
+        try skipJournalBlocks(count: journalBlocks - 1)
+        try setupJournalInode(
+            startBlock: journalStartBlock,
+            blockCount: journalBlocks,
+            endBlock: journalEndBlock
+        )
         return journalBlocks
     }
 
@@ -51,8 +59,10 @@ extension EXT4.Formatter {
             guard blocks >= EXT4.MinJournalBlocks else {
                 throw EXT4.Formatter.Error.journalTooSmall(size)
             }
-            // Safe: any journal large enough to overflow UInt32 (>16 TiB at 4 KiB block size)
-            // would fail at the I/O layer before this conversion is reached.
+            // Safe: blocks is guaranteed to be at least EXT4.MinJournalBlocks and at most UInt32.max.
+            guard blocks <= UInt64(UInt32.max) else {
+                throw EXT4.Formatter.Error.journalTooLarge(size)
+            }
             return UInt32(blocks)
         }
         // Default sizing: scale with the usable content area, with a floor determined by
@@ -124,22 +134,22 @@ extension EXT4.Formatter {
         try self.handle.write(contentsOf: buf)
     }
 
-    private func zeroJournalBlocks(count: UInt32) throws {
+    private func skipJournalBlocks(count: UInt32) throws {
         guard count > 0 else { return }
-        let chunkSize = 1.mib()
-        // Safe: both operands are UInt32, so their product peaks at ~17 TiB, which fits
-        // in Int64 (the width of Int on all 64-bit Apple platforms).
-        let totalBytes = Int(count) * Int(self.blockSize)
-        let zeroBuf = [UInt8](repeating: 0, count: min(Int(chunkSize), totalBytes))
-        var remaining = totalBytes
-        while remaining > 0 {
-            let toWrite = min(zeroBuf.count, remaining)
-            try self.handle.write(contentsOf: zeroBuf[0..<toWrite])
-            remaining -= toWrite
-        }
+        // Widen before multiplying so the byte offset is calculated without UInt32 overflow.
+        let totalBytes = UInt64(count) * UInt64(self.blockSize)
+        try self.handle.seek(toOffset: self.pos + totalBytes)
     }
 
-    private func setupJournalInode(startBlock: UInt32, blockCount: UInt32) throws {
+    private func calculateJournalEndBlock(startBlock: UInt32, blockCount: UInt32) throws -> UInt32 {
+        let (endBlock, overflow) = startBlock.addingReportingOverflow(blockCount)
+        guard !overflow else {
+            throw EXT4.Formatter.Error.journalTooLarge(UInt64(blockCount) * UInt64(self.blockSize))
+        }
+        return endBlock
+    }
+
+    private func setupJournalInode(startBlock: UInt32, blockCount: UInt32, endBlock: UInt32) throws {
         var journalInode = EXT4.Inode()
         journalInode.mode = EXT4.Inode.Mode(.S_IFREG, 0o600)
         journalInode.uid = 0
@@ -162,10 +172,7 @@ extension EXT4.Formatter {
 
         // Journal is one contiguous allocation → numExtents = 1 → extent tree fits inline
         // in the inode, so writeExtents needs no extra disk I/O for extent index blocks.
-        // Safe: blockCount is at most UInt32.max and startBlock ≥ 0, so the addition could
-        // theoretically overflow — but zeroJournalBlocks would have already failed with an
-        // I/O error if the journal extended past the end of the filesystem image.
-        journalInode = try self.writeExtents(journalInode, (startBlock, startBlock + blockCount))
+        journalInode = try self.writeExtents(journalInode, (startBlock, endBlock))
 
         self.inodes[Int(EXT4.JournalInode) - 1].pointee = journalInode
     }

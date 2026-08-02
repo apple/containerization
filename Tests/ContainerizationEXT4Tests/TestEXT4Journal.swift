@@ -163,4 +163,32 @@ struct JournalOverflowTests {
             try formatter.close()
         }
     }
+
+    @Test func closeRejectsJournalBlockCountOverflowingUInt32() throws {
+        let path = FilePath(
+            FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: false).path)
+        defer { try? FileManager.default.removeItem(atPath: path.string) }
+        let formatter = try EXT4.Formatter(
+            path,
+            journal: .init(size: (UInt64(UInt32.max) + 1) * 4096)
+        )
+        #expect(throws: EXT4.Formatter.Error.self) {
+            try formatter.close()
+        }
+    }
+
+    @Test func closeRejectsJournalEndBlockOverflowingUInt32() throws {
+        let path = FilePath(
+            FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: false).path)
+        defer { try? FileManager.default.removeItem(atPath: path.string) }
+        let formatter = try EXT4.Formatter(
+            path,
+            journal: .init(size: UInt64(UInt32.max) * 4096)
+        )
+        #expect(throws: EXT4.Formatter.Error.self) {
+            try formatter.close()
+        }
+    }
 }
