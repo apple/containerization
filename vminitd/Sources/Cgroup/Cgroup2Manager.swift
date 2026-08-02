@@ -216,6 +216,37 @@ public struct Cgroup2Manager: Sendable {
             )
         }
 
+        // The runtime spec's `swap` is the memory and swap total, the way cgroup
+        // v1 took it, while cgroup v2 wants the swap on its own. A zero is the
+        // spec's "unset", which leaves the limit at max.
+        // https://github.com/opencontainers/cgroups/blob/main/utils.go
+        if let memory = resources.memory, let swap = memory.swap, swap != 0 {
+            let value: String
+            if swap < 0 {
+                value = "max"
+            } else {
+                guard let limit = memory.limit, limit != 0 else {
+                    throw Error.invalidResource(
+                        message: "unable to set swap limit without memory limit")
+                }
+                if limit < 0 {
+                    // Memory is unlimited, so the total that contains it is too.
+                    value = "max"
+                } else {
+                    guard swap >= limit else {
+                        throw Error.invalidResource(
+                            message: "memory and swap limit \(swap) is below the memory limit \(limit)")
+                    }
+                    value = String(swap - limit)
+                }
+            }
+            try Self.writeValue(
+                path: self.path,
+                value: value,
+                fileName: "memory.swap.max"
+            )
+        }
+
         if let cpu = resources.cpu, let quota = cpu.quota, let period = cpu.period {
             // cpu.max format is "quota period"
             let value = "\(quota) \(period)"
@@ -751,6 +782,7 @@ extension Cgroup2Manager {
         case cgroup1
         case errno(errno: Int32, message: String)
         case notExist(path: String)
+        case invalidResource(message: String)
 
         package var description: String {
             switch self {
@@ -762,6 +794,8 @@ extension Cgroup2Manager {
                 return "tried to load a cgroup v1 path"
             case .notCgroup:
                 return "path is not a cgroup mountpoint"
+            case .invalidResource(let message):
+                return message
             }
         }
     }

@@ -156,6 +156,61 @@ extension IntegrationSuite {
         }
     }
 
+    /// A container's cap names the swap alone while the runtime spec carries the
+    /// memory and swap total, so the guest has to take the memory back out of it
+    /// before the kernel will hold the container to it. Read the cap back from
+    /// the kernel, because a spec the guest ignores leaves the container drawing
+    /// on the whole pod area with nothing to show it.
+    func testPodContainerSwapLimit() async throws {
+        let id = "test-pod-container-swap-limit"
+
+        let bs = try await bootstrap(id)
+        let swapPath = Self.binPath(name: "\(id)-swap.raw")
+        let swap = try Self.makeSwapDevice(at: swapPath, size: 512.mib())
+        defer { try? FileManager.default.removeItem(at: swapPath) }
+
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 2
+            config.memoryInBytes = 512.mib()
+            config.bootLog = bs.bootLog
+            config.swapLayer = swap
+        }
+
+        let capped: UInt64 = 64.mib()
+        let buffer = BufferWriter()
+        try await pod.addContainer(
+            "capped",
+            rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "capped")
+        ) { config in
+            config.memoryInBytes = 128.mib()
+            config.swapInBytes = capped
+            config.process.arguments = [
+                "/bin/sh", "-c", "cat /sys/fs/cgroup/memory.swap.max",
+            ]
+            config.process.stdout = buffer
+        }
+
+        try await pod.create()
+        try await pod.startContainer("capped")
+        let status = try await pod.waitContainer("capped")
+        try await pod.stop()
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "capped status \(status) != 0")
+        }
+
+        let reported =
+            String(data: buffer.data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard let limit = UInt64(reported) else {
+            throw IntegrationError.assert(
+                msg: "swap cap never reached the kernel, memory.swap.max is '\(reported)'")
+        }
+        guard limit == capped else {
+            throw IntegrationError.assert(
+                msg: "expected a \(capped) byte swap cap, kernel holds \(limit)")
+        }
+    }
+
     func testPodContainerOutput() async throws {
         let id = "test-pod-container-output"
 
