@@ -228,8 +228,11 @@ struct IntegrationSuite: AsyncParsableCommand {
         )
     }
 
-    func bootstrap(_ testID: String) async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image, bootLog: BootLog) {
-        let reference = "ghcr.io/linuxcontainers/alpine:3.20"
+    func bootstrap(
+        _ testID: String,
+        reference: String = "ghcr.io/linuxcontainers/alpine:3.20",
+        capacityInBytes: UInt64 = 2.gib()
+    ) async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image, bootLog: BootLog) {
         let store = Self.imageStore
 
         let initImage = try await store.getInitImage(reference: Self.initImage)
@@ -269,7 +272,7 @@ struct IntegrationSuite: AsyncParsableCommand {
         let fsPath = Self.imageCacheDir.appending(component: image.digest)
         let fs = try await Self.unpackCoordinator.unpack(key: fsPath.absolutePath()) {
             do {
-                let unpacker = EXT4Unpacker(capacityInBytes: 2.gib())
+                let unpacker = EXT4Unpacker(capacityInBytes: capacityInBytes)
                 return try await unpacker.unpack(image, for: platform, at: fsPath)
             } catch let err as ContainerizationError {
                 if err.code == .exists {
@@ -401,6 +404,8 @@ struct IntegrationSuite: AsyncParsableCommand {
             return [
                 Test("container interface custom MTU", testInterfaceMTU),
                 Test("container networking disabled", testNetworkingDisabled),
+                Test("dind rootless", testDindRootless),
+                Test("dind limits", testDindLimits),
                 Test("container networking enabled", testNetworkingEnabled),
                 Test("container networking enabled ipv6", testNetworkingEnabledIPv6),
                 Test("container IPv6 address", testIPv6AddressAdd),
