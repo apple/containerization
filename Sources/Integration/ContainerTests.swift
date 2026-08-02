@@ -137,6 +137,39 @@ extension IntegrationSuite {
         }
     }
 
+    /// A mount's propagation is set by a mount call of its own, so asking for
+    /// it has to survive the option parsing rather than land in the mount data.
+    func testContainerMountPropagation() async throws {
+        let id = "test-container-mount-propagation"
+        let bs = try await bootstrap(id)
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.mounts.append(
+                .any(
+                    type: "tmpfs", source: "tmpfs", destination: "/shared-mount",
+                    options: ["rw", "nosuid", "nodev", "rshared"]))
+            config.process.arguments = [
+                "/bin/sh", "-c", "grep ' /shared-mount ' /proc/self/mountinfo",
+            ]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+        try await container.create()
+        try await container.start()
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "mount is missing from mountinfo")
+        }
+        // Only a mount the kernel was told to share carries a peer group.
+        let info = String(data: buffer.data, encoding: .utf8) ?? ""
+        guard info.contains("shared:") else {
+            throw IntegrationError.assert(msg: "mount was not made shared: '\(info)'")
+        }
+    }
+
     func testProcessEchoHi() async throws {
         let id = "test-process-echo-hi"
         let bs = try await bootstrap(id)

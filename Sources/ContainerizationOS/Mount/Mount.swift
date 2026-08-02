@@ -101,13 +101,29 @@ extension Mount {
         "sync": .init(false, MS_SYNCHRONOUS),
     ]
 
+    /// Mount propagation options, which the kernel takes in a call of their
+    /// own rather than alongside the mount whose propagation they set.
+    /// https://github.com/opencontainers/runc/blob/main/libcontainer/specconv/spec_linux.go
+    internal static let propagationDictionary: [String: Int32] = [
+        "private": Int32(MS_PRIVATE),
+        "rprivate": Int32(MS_PRIVATE) | Int32(MS_REC),
+        "shared": Int32(MS_SHARED),
+        "rshared": Int32(MS_SHARED) | Int32(MS_REC),
+        "slave": Int32(MS_SLAVE),
+        "rslave": Int32(MS_SLAVE) | Int32(MS_REC),
+        "unbindable": Int32(MS_UNBINDABLE),
+        "runbindable": Int32(MS_UNBINDABLE) | Int32(MS_REC),
+    ]
+
     internal struct MountOptions {
         var flags: Int32
         var data: [String]
+        var propagation: [Int32]
 
-        public init(_ flags: Int32 = 0, data: [String] = []) {
+        public init(_ flags: Int32 = 0, data: [String] = [], propagation: [Int32] = []) {
             self.flags = flags
             self.data = data
+            self.propagation = propagation
         }
     }
 
@@ -304,10 +320,7 @@ extension Mount {
             throw Error.validation("data string exceeds page size (\(dataString.count) > \(pageSize))")
         }
 
-        let propagationTypes: Int32 = Int32(MS_SHARED) | Int32(MS_PRIVATE) | Int32(MS_SLAVE) | Int32(MS_UNBINDABLE)
-
-        // Ensure propagation type change flags aren't included in other calls.
-        let originalFlags = opts.flags & ~(propagationTypes)
+        let originalFlags = opts.flags
 
         // When targetResolved is true, the target path has already been securely
         // resolved and the mount point created by secureResolveInRoot. Skip
@@ -352,10 +365,8 @@ extension Mount {
             }
         }
 
-        if opts.flags & propagationTypes != 0 {
-            // Change the propagation type.
-            let pflags = propagationTypes | Int32(MS_REC) | Int32(MS_SILENT)
-            guard _mount("", target, "", UInt(opts.flags & pflags), "") == 0 else {
+        for propagation in opts.propagation {
+            guard _mount("", target, "", UInt(propagation | Int32(MS_SILENT)), "") == 0 else {
                 throw Error.errno(errno, "failed propagation change mount")
             }
         }
@@ -379,7 +390,9 @@ extension Mount {
     private func parseMountOptions() -> MountOptions {
         var mountOpts = MountOptions()
         for option in self.options {
-            if let entry = Self.flagsDictionary[option], entry.flag != 0 {
+            if let propagation = Self.propagationDictionary[option] {
+                mountOpts.propagation.append(propagation)
+            } else if let entry = Self.flagsDictionary[option], entry.flag != 0 {
                 if entry.clear {
                     mountOpts.flags &= ~Int32(entry.flag)
                 } else {
