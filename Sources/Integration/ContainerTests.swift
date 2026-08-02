@@ -137,6 +137,48 @@ extension IntegrationSuite {
         }
     }
 
+    /// A service manager running as the container's init, which is what an
+    /// image built around one expects, and which needs somewhere writable to
+    /// keep the runtime state it owns.
+    func testContainerSystemd() async throws {
+        let id = "test-container-systemd"
+        let bs = try await bootstrap(
+            id, reference: "docker.io/library/almalinux:9", capacityInBytes: 8.gib())
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            // Asked for by the process the container starts, rather than outright.
+            config.systemd = .detected
+            config.process.arguments = ["/usr/sbin/init"]
+            config.bootLog = bs.bootLog
+        }
+        try await container.create()
+        try await container.start()
+        try await Task.sleep(for: .seconds(30))
+
+        // It logs to the console rather than to us, so ask it from inside.
+        let buffer = BufferWriter()
+        let query = try await container.exec("state") { config in
+            config.arguments = [
+                "/bin/sh", "-c",
+                "echo PID1=$(cat /proc/1/comm); echo STATE=$(systemctl is-system-running)",
+            ]
+            config.stdout = buffer
+            config.stderr = buffer
+        }
+        try await query.start()
+        _ = try await query.wait()
+        try await query.delete()
+        try? await container.stop()
+
+        let out = String(data: buffer.data, encoding: .utf8) ?? ""
+        guard out.contains("PID1=systemd") else {
+            throw IntegrationError.assert(msg: "systemd is not the container's init: '\(out)'")
+        }
+        guard out.contains("STATE=running") || out.contains("STATE=degraded") else {
+            throw IntegrationError.assert(msg: "systemd did not come up: '\(out)'")
+        }
+    }
+
     func testProcessEchoHi() async throws {
         let id = "test-process-echo-hi"
         let bs = try await bootstrap(id)

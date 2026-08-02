@@ -26,6 +26,17 @@ import SystemPackage
 
 import struct ContainerizationOS.Terminal
 
+/// When a container is prepared for a service manager to run as its init.
+public enum SystemdMode: Sendable {
+    /// Never, which is what a container that runs a single process wants.
+    case disabled
+    /// When the process the container starts is one, by the paths that
+    /// nerdctl and podman both take to mean a service manager.
+    case detected
+    /// Whatever the container starts.
+    case always
+}
+
 /// `LinuxContainer` is an easy to use type for launching and managing the
 /// full lifecycle of a Linux container ran inside of a virtual machine.
 public final class LinuxContainer: Container, Sendable {
@@ -91,6 +102,9 @@ public final class LinuxContainer: Container, Sendable {
         /// Run the container with a minimal init process that handles signal
         /// forwarding and zombie reaping.
         public var useInit: Bool = false
+        /// Prepare the container for a service manager to run as its init,
+        /// which needs somewhere writable to keep runtime state.
+        public var systemd: SystemdMode = .disabled
         /// Additional CPU cores to allocate for the virtual machine on top
         /// of the container's configured `cpus` value.
         public var cpuOverhead: Int = 1
@@ -454,6 +468,68 @@ public final class LinuxContainer: Container, Sendable {
         ]
     }
 
+    /// Whether a service manager is to run as a container's init, which is
+    /// either asked for outright or taken from the process the container
+    /// starts, as nerdctl and podman both decide it.
+    static func runsSystemd(_ systemd: SystemdMode, arguments: [String]) -> Bool {
+        switch systemd {
+        case .disabled:
+            return false
+        case .always:
+            return true
+        case .detected:
+            guard let command = arguments.first else {
+                return false
+            }
+            return Self.systemdPaths().contains(command)
+        }
+    }
+
+    /// A container's mounts, plus somewhere writable for a service manager to
+    /// keep its runtime state when one is to run as the container's init. A
+    /// mount the caller supplied for the same place is left as they asked.
+    static func systemdAwareMounts(
+        _ mounts: [Mount], systemd: SystemdMode, arguments: [String]
+    ) -> [Mount] {
+        guard Self.runsSystemd(systemd, arguments: arguments) else {
+            return mounts
+        }
+        let asked = Set(mounts.map { $0.destination })
+        return mounts + Self.systemdMounts().filter { !asked.contains($0.destination) }
+    }
+
+    /// The paths a container's process is taken to be a service manager by,
+    /// which is what nerdctl and podman look for when told to detect one.
+    /// https://github.com/containerd/nerdctl/blob/main/pkg/cmd/container/create.go
+    public static func systemdPaths() -> [String] {
+        [
+            "/sbin/init",
+            "/usr/sbin/init",
+            "/usr/local/sbin/init",
+        ]
+    }
+
+    /// Somewhere writable for a service manager to keep the runtime state it
+    /// expects to own, which is what podman gives one.
+    /// https://github.com/containers/podman/blob/main/libpod/container_internal_linux.go
+    ///
+    /// The journal directory is the one journald reads. Persistent logs go to
+    /// `/var/log/journal` and volatile ones to `/run/log/journal`, so those are
+    /// the two paths worth making writable and `/var/log/journal` is the one a
+    /// tmpfs belongs on.
+    /// https://www.freedesktop.org/software/systemd/man/latest/journald.conf.html
+    ///
+    /// Two things that belong with these are seen to elsewhere. `/sys/fs/cgroup`
+    /// is mounted writable by ``defaultMounts()``, which is what podman gives a
+    /// service manager alongside its own list, and the `SIGRTMIN+3` one takes as
+    /// the request to shut down is carried on the image configuration here, with
+    /// nothing on the runtime side to set it.
+    public static func systemdMounts() -> [Mount] {
+        ["/run", "/run/lock", "/tmp", "/var/log/journal"].map {
+            .any(type: "tmpfs", source: "tmpfs", destination: $0)
+        }
+    }
+
     /// The default set of paths to mask inside a container, matching the OCI
     /// runtime spec defaults that runc and other production runtimes apply.
     /// Each path is hidden from the workload (replaced by `/dev/null` for files
@@ -619,7 +695,10 @@ extension LinuxContainer {
             let vmCpus = self.cpus + self.config.cpuOverhead
 
             // Prepare file mounts. This transforms single-file mounts into directory shares.
-            let fileMountContext = try FileMountContext.prepare(mounts: self.config.mounts)
+            let fileMountContext = try FileMountContext.prepare(
+                mounts: Self.systemdAwareMounts(
+                    self.config.mounts, systemd: self.config.systemd,
+                    arguments: self.config.process.arguments))
             // This is dumb, but alas.
             let fileMountContextHolder = Mutex<FileMountContext>(fileMountContext)
 

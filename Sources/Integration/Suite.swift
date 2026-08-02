@@ -195,8 +195,11 @@ struct IntegrationSuite: AsyncParsableCommand {
 
     static let eventLoop = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
 
-    func bootstrap(_ testID: String) async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image, bootLog: BootLog) {
-        let reference = "ghcr.io/linuxcontainers/alpine:3.20"
+    func bootstrap(
+        _ testID: String,
+        reference: String = "ghcr.io/linuxcontainers/alpine:3.20",
+        capacityInBytes: UInt64 = 2.gib()
+    ) async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image, bootLog: BootLog) {
         let store = Self.imageStore
 
         let initImage = try await store.getInitImage(reference: Self.initImage)
@@ -236,7 +239,7 @@ struct IntegrationSuite: AsyncParsableCommand {
         let fsPath = Self.testDir.appending(component: image.digest)
         let fs = try await Self.unpackCoordinator.unpack(key: fsPath.absolutePath()) {
             do {
-                let unpacker = EXT4Unpacker(capacityInBytes: 2.gib())
+                let unpacker = EXT4Unpacker(capacityInBytes: capacityInBytes)
                 return try await unpacker.unpack(image, for: platform, at: fsPath)
             } catch let err as ContainerizationError {
                 if err.code == .exists {
@@ -426,6 +429,7 @@ struct IntegrationSuite: AsyncParsableCommand {
             // Process basics
             Test("process true", testProcessTrue),
             Test("process false", testProcessFalse),
+            Test("container systemd", testContainerSystemd),
             Test("process echo hi", testProcessEchoHi),
             Test("process no executable", testProcessNoExecutable),
             Test("process user", testProcessUser),
