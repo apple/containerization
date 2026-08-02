@@ -64,7 +64,7 @@ LIBARCHIVE_UPSTREAM_REPO := https://github.com/libarchive/libarchive
 LIBARCHIVE_UPSTREAM_VERSION := v3.7.7
 LIBARCHIVE_LOCAL_DIR := workdir/libarchive
 
-KATA_BINARY_PACKAGE := https://github.com/kata-containers/kata-containers/releases/download/3.17.0/kata-static-3.17.0-arm64.tar.xz
+KATA_BINARY_PACKAGE := https://github.com/kata-containers/kata-containers/releases/download/3.28.0/kata-static-3.28.0-arm64.tar.zst
 CLOUD_HYPERVISOR_URL := https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/v52.0/cloud-hypervisor-static-aarch64
 # SHA256 of the v52.0 aarch64 static binary (verified locally from the
 # upstream release artifact). Bump alongside CLOUD_HYPERVISOR_URL.
@@ -410,11 +410,11 @@ integration:
 .PHONY: fetch-default-kernel
 fetch-default-kernel:
 	@mkdir -p .local/ bin/
-ifeq (,$(wildcard .local/kata.tar.gz))
-	@curl -SsL -o .local/kata.tar.gz ${KATA_BINARY_PACKAGE}
+ifeq (,$(wildcard .local/kata.tar))
+	@curl -SsL -o .local/kata.tar ${KATA_BINARY_PACKAGE}
 endif
 ifeq (,$(wildcard .local/vmlinux-$(KERNEL_ARCH)))
-	@tar -zxf .local/kata.tar.gz -C .local/ --strip-components=1
+	@tar -xf .local/kata.tar -C .local/ --strip-components=1
 	@cp -L .local/opt/kata/share/kata-containers/vmlinux.container .local/vmlinux-$(KERNEL_ARCH)
 endif
 ifeq (,$(wildcard bin/vmlinux-$(KERNEL_ARCH)))
