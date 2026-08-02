@@ -531,6 +531,7 @@ struct IntegrationSuite: AsyncParsableCommand {
             // Pods
             Test("pod single container", testPodSingleContainer),
             Test("pod multiple containers", testPodMultipleContainers),
+            Test("pod rootless containers", testPodRootlessContainers),
             Test("pod container output", testPodContainerOutput),
             Test("pod concurrent containers", testPodConcurrentContainers),
             Test("pod exec in container", testPodExecInContainer),

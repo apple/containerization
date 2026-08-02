@@ -96,6 +96,50 @@ extension IntegrationSuite {
         }
     }
 
+    func testPodRootlessContainers() async throws {
+        let id = "test-pod-rootless-containers"
+        let bs = try await bootstrap(id)
+
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 2
+            config.memoryInBytes = 512.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        // Each container in the pod runs as its own unprivileged user, which
+        // needs nothing of the guest beyond the ids themselves.
+        let ids: [(String, UInt32)] = [("rootless1", 1000), ("rootless2", 1001)]
+        let buffers = [ids[0].0: BufferWriter(), ids[1].0: BufferWriter()]
+        for (name, uid) in ids {
+            let buffer = buffers[name]!
+            try await pod.addContainer(
+                name,
+                rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: name)
+            ) { config in
+                config.process.arguments = ["/bin/sh", "-c", "id -u"]
+                config.process.user = ContainerizationOCI.User(uid: uid, gid: uid)
+                config.process.stdout = buffer
+            }
+        }
+
+        try await pod.create()
+
+        for (name, uid) in ids {
+            try await pod.startContainer(name)
+            let status = try await pod.waitContainer(name)
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "\(name) status \(status) != 0")
+            }
+            let out = (String(data: buffers[name]!.data, encoding: .utf8) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard out == "\(uid)" else {
+                throw IntegrationError.assert(msg: "\(name) ran as '\(out)', expected \(uid)")
+            }
+        }
+
+        try await pod.stop()
+    }
+
     func testPodContainerOutput() async throws {
         let id = "test-pod-container-output"
 
