@@ -137,6 +137,13 @@ public final class LinuxPod: Sendable {
         /// Run the container with a minimal init process that handles signal
         /// forwarding and zombie reaping.
         public var useInit: Bool = false
+        /// EXPERIMENTAL: Path in the root filesystem for the virtual
+        /// machine where the OCI runtime used to spawn the container lives.
+        public var ociRuntimePath: String?
+        /// Hooks the runtime specification carries for the container. An OCI
+        /// runtime is what runs them, so they take effect for a container
+        /// given an `ociRuntimePath`.
+        public var hooks: ContainerizationOCI.Hooks? = nil
 
         public init() {}
     }
@@ -347,6 +354,7 @@ public final class LinuxPod: Sendable {
         if let hostname = config.hostname ?? self.config.hostname {
             spec.hostname = hostname
         }
+        spec.hooks = config.hooks
 
         // Linux toggles
         spec.linux?.sysctl = config.sysctl
@@ -1085,7 +1093,7 @@ extension LinuxPod {
                     containerID: containerID,
                     spec: spec,
                     io: stdio,
-                    ociRuntimePath: nil,
+                    ociRuntimePath: container.config.ociRuntimePath,
                     agent: agent,
                     vm: createdState.vm,
                     logger: self.logger
@@ -1370,7 +1378,7 @@ extension LinuxPod {
                 containerID: containerID,
                 spec: spec,
                 io: stdio,
-                ociRuntimePath: nil,
+                ociRuntimePath: container.config.ociRuntimePath,
                 agent: agent,
                 vm: createdState.vm,
                 logger: self.logger
