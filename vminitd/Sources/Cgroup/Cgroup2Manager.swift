@@ -229,9 +229,12 @@ public struct Cgroup2Manager: Sendable {
                     throw Error.invalidResource(
                         message: "unable to set swap limit without memory limit")
                 }
-                if limit < 0 {
-                    // Memory is unlimited, so the total that contains it is too.
-                    value = "max"
+                if limit == -1 {
+                    // Unlimited memory leaves nothing to take out of the total,
+                    // so the swap stands as it was given.
+                    value = String(swap)
+                } else if limit < 0 {
+                    throw Error.invalidResource(message: "invalid memory value: \(limit)")
                 } else {
                     guard swap >= limit else {
                         throw Error.invalidResource(
