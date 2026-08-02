@@ -408,6 +408,13 @@ struct IntegrationSuite: AsyncParsableCommand {
     // Hopefully this improves over time.
     func run() async throws {
         try Self.adjustLimits()
+
+        // Tests reach for a temporary directory of their own freely and none of
+        // them take it away again. Pointing the temporary directory at the
+        // suite's own puts whatever they make where the removal at the end of
+        // the run already reaches, and takes any a test adds later with it.
+        setenv("TMPDIR", Self.testDir.absolutePath(), 1)
+
         let suiteStarted = Date().timeIntervalSinceReferenceDate
         log.info("starting integration suite\n")
 
