@@ -349,9 +349,7 @@ extension IntegrationSuite {
             try await container.start()
 
             try await Task.sleep(nanoseconds: 15_000_000_000)
-            try await container.withVirtualMachineInstance { vm in
-                try await vm.setTargetMemorySize(target)
-            }
+            try await container.setTargetMemorySize(target)
 
             let status = try await container.wait()
             try await container.stop()

@@ -133,4 +133,15 @@ extension VirtualMachineInstance {
     public func setTargetMemorySize(_ bytes: UInt64) async throws {
         throw ContainerizationError(.unsupported, message: "memory balloon not supported")
     }
+
+    /// Gather the guest's free memory into contiguous runs.
+    ///
+    /// Virtualization asks for this before the balloon is driven, so that the
+    /// pages the guest gives up sit together well enough to be worth taking.
+    /// https://developer.apple.com/documentation/virtualization/vzvirtiotraditionalmemoryballoondevice
+    public func compactGuestMemory() async throws {
+        try await withAgent { agent in
+            try await agent.sysctl(settings: ["vm.compact_memory": "1"])
+        }
+    }
 }
