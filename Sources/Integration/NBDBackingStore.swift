@@ -33,6 +33,17 @@ protocol NBDBackingStore: Sendable {
     /// Write `data` at `offset`. Returns false when the write fails.
     func write(offset: UInt64, data: [UInt8]) -> Bool
 
+    /// Let go of `length` bytes at `offset`, which the client has said it no
+    /// longer needs. Returns false only when the range is outside the export.
+    /// A store may release less than was asked, or nothing; what a released
+    /// range reads back as is the store's own affair.
+    ///
+    /// The protocol allows a server to do nothing here, but a swap area is
+    /// rewritten constantly and never shrinks on its own, so a store that
+    /// ignores this grows until the export is closed.
+    /// https://github.com/NetworkBlockDevice/nbd/blob/master/doc/proto.md
+    func discard(offset: UInt64, length: Int) -> Bool
+
     /// Put anything held back where it belongs before replying to a flush.
     func flush()
 
@@ -78,6 +89,22 @@ final class NBDFileStore: NBDBackingStore {
                 pwrite(descriptor, $0.baseAddress, data.count, off_t(offset)) == data.count
             }
         }
+    }
+
+    func discard(offset: UInt64, length: Int) -> Bool {
+        guard offset + UInt64(length) <= self.size else {
+            return false
+        }
+        // Punching a hole is how a file gives blocks back without changing the
+        // length the export reports. The punch is best effort: a range the
+        // filesystem will not punch, such as one it cannot align, keeps its
+        // blocks, which the protocol permits.
+        self.fd.withLock { descriptor in
+            var punch = fpunchhole_t(
+                fp_flags: 0, reserved: 0, fp_offset: off_t(offset), fp_length: off_t(length))
+            _ = fcntl(descriptor, F_PUNCHHOLE, &punch)
+        }
+        return true
     }
 
     func flush() {
@@ -164,6 +191,26 @@ final class NBDMemoryStore: NBDBackingStore {
             return chunks.count
         }
         self.peakChunks.withLock { $0 = max($0, held) }
+        return true
+    }
+
+    func discard(offset: UInt64, length: Int) -> Bool {
+        guard offset + UInt64(length) <= self.size else {
+            return false
+        }
+        self.chunks.withLock { chunks in
+            self.forEachSpan(offset: offset, length: length) { index, inChunk, _, span in
+                // Only a whole chunk can go; a chunk the client still wants part
+                // of keeps its place, with the discarded part zeroed.
+                if inChunk == 0 && span == Self.chunkSize {
+                    chunks.removeValue(forKey: index)
+                } else if var chunk = chunks[index] {
+                    chunk.replaceSubrange(
+                        inChunk..<(inChunk + span), with: [UInt8](repeating: 0, count: span))
+                    chunks[index] = chunk
+                }
+            }
+        }
         return true
     }
 

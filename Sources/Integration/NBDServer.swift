@@ -118,6 +118,7 @@ private final class NBDConnectionHandler: ChannelInboundHandler {
     static let cmdWrite: UInt16 = 1
     static let cmdDisc: UInt16 = 2
     static let cmdFlush: UInt16 = 3
+    static let cmdTrim: UInt16 = 4
 
     static let flagFixedNewstyle: UInt16 = 0x1
     static let flagNoZeroes: UInt16 = 0x2
@@ -126,6 +127,11 @@ private final class NBDConnectionHandler: ChannelInboundHandler {
     static let transmitHasFlags: UInt16 = 0x1
     static let transmitSendFlush: UInt16 = 0x4
     static let transmitSendFUA: UInt16 = 0x8
+    /// A client is not allowed to send a trim without being told the server
+    /// takes them, so an export that never sets this is never asked to let
+    /// anything go, however much the guest has finished with.
+    /// https://github.com/NetworkBlockDevice/nbd/blob/master/doc/proto.md
+    static let transmitSendTrim: UInt16 = 0x20
 
     static let repACK: UInt32 = 1
     static let repInfo: UInt32 = 3
@@ -222,7 +228,9 @@ private final class NBDConnectionHandler: ChannelInboundHandler {
                     return
                 }
 
-                let transmitFlags = Self.transmitHasFlags | Self.transmitSendFlush | Self.transmitSendFUA
+                let transmitFlags =
+                    Self.transmitHasFlags | Self.transmitSendFlush | Self.transmitSendFUA
+                    | Self.transmitSendTrim
 
                 switch optType {
                 case Self.optExportName:
@@ -363,6 +371,13 @@ private final class NBDConnectionHandler: ChannelInboundHandler {
                     store.flush()
                     var reply = context.channel.allocator.buffer(capacity: 16)
                     writeSimpleReply(&reply, cookie: cookie, error: Self.errOK)
+                    context.writeAndFlush(wrapOutboundOut(reply), promise: nil)
+
+                case Self.cmdTrim:
+                    buffer.moveReaderIndex(forwardBy: 28)
+                    let released = store.discard(offset: offset, length: Int(length))
+                    var reply = context.channel.allocator.buffer(capacity: 16)
+                    writeSimpleReply(&reply, cookie: cookie, error: released ? Self.errOK : Self.errIO)
                     context.writeAndFlush(wrapOutboundOut(reply), promise: nil)
 
                 default:
