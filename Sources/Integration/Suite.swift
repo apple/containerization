@@ -131,8 +131,20 @@ struct IntegrationSuite: AsyncParsableCommand {
         )
     }()
 
+    /// Where a run keeps everything it makes.
+    ///
+    /// Runs gather under one directory rather than each taking a name of its
+    /// own among the system's temporary files, so that what a run leaves behind
+    /// can be swept without knowing which run left it. `make cleantests` sweeps
+    /// this same directory, so the name is shared between the two.
+    static let testRootName = "containerization-integration"
+
     static let _testDir: URL = {
-        FileManager.default.uniqueTemporaryDirectory(create: true)
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(testRootName)
+        let run = root.appendingPathComponent(UUID().uuidString)
+        try? FileManager.default.createDirectory(at: run, withIntermediateDirectories: true)
+        return run
     }()
 
     /// The scratch directory of the test running on this task. The runner

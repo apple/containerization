@@ -491,6 +491,14 @@ cleancontent:
 	@echo Cleaning the content...
 	@rm -rf ~/Library/Application\ Support/com.apple.containerization
 
+# The integration suite takes its files away as it goes, so this is for what a
+# run that was interrupted, or one asked to keep them, has left behind. The
+# directory is the one IntegrationSuite.testRootName names.
+.PHONY: cleantests
+cleantests:
+	@echo Cleaning the integration test files...
+	@rm -rf "$${TMPDIR:-/tmp}/containerization-integration"
+
 .PHONY: examples
 examples:
 	@echo Building examples...
