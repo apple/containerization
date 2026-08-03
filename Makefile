@@ -486,10 +486,14 @@ docs:
 	@rm -rf _site
 	@scripts/make-docs.sh _site containerization
 
+# The Linux dev container keeps its content beside the repository rather than
+# under a home directory of its own, which does not survive a `container run`.
+# It is the same store either way, so cleaning the content means both of them.
 .PHONY: cleancontent
 cleancontent:
 	@echo Cleaning the content...
 	@rm -rf ~/Library/Application\ Support/com.apple.containerization
+	@rm -rf $(ROOT_DIR)/.local/integration-cache
 
 # The integration suite takes its files away as it goes, so this is for what a
 # run that was interrupted, or one asked to keep them, has left behind. The
