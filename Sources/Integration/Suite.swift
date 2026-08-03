@@ -195,6 +195,91 @@ struct IntegrationSuite: AsyncParsableCommand {
 
     static let eventLoop = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
 
+    #if os(macOS)
+    /// Attach something to the host as a block device and hand back its path.
+    ///
+    /// A block device attachment takes a device, so a test needs one of its own
+    /// to give. What `hdiutil` attaches belongs to whoever asked for it, which
+    /// is what keeps this off root.
+    private static func attachDevice(describing what: String, arguments: [String]) throws -> String {
+        let pipe = Pipe()
+        let errPipe = Pipe()
+        defer {
+            try? pipe.fileHandleForReading.close()
+            try? errPipe.fileHandleForReading.close()
+        }
+        // The plist output is the one hdiutil defines, where the plain output is
+        // a table whose columns depend on what it found. Its stderr is what says
+        // why something it will not take is something it will not take.
+        var cmd = Command("/usr/bin/hdiutil", arguments: ["attach", "-nomount", "-plist"] + arguments)
+        cmd.stdout = pipe.fileHandleForWriting
+        cmd.stderr = errPipe.fileHandleForWriting
+        try cmd.start()
+        try? pipe.fileHandleForWriting.close()
+        try? errPipe.fileHandleForWriting.close()
+        let data = (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
+        let errData = (try? errPipe.fileHandleForReading.readToEnd()) ?? Data()
+        let exit = try cmd.wait()
+        guard exit == 0 else {
+            let reason =
+                String(data: errData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            throw IntegrationError.assert(msg: "hdiutil attach of \(what) exited \(exit): \(reason)")
+        }
+
+        let plist = try PropertyListSerialization.propertyList(from: data, options: [], format: nil)
+        guard let root = plist as? [String: Any],
+            let entities = root["system-entities"] as? [[String: Any]]
+        else {
+            throw IntegrationError.assert(msg: "hdiutil attach of \(what) described no entities")
+        }
+        let devices = entities.compactMap { $0["dev-entry"] as? String }
+        // Whatever it found sits under the whole device, and that is the one to
+        // hand over: the guest is the one deciding what the contents mean.
+        guard let device = devices.min(by: { $0.count < $1.count }) else {
+            throw IntegrationError.assert(msg: "hdiutil attach of \(what) named no device")
+        }
+        return device
+    }
+
+    /// Attach a file to the host as a block device.
+    ///
+    /// An image holding a filesystem of the guest's is one hdiutil reads far
+    /// enough to decline, so naming the class tells it to carry the bytes and
+    /// leave the reading to whoever mounts them.
+    static func attachBlockDevice(imagePath: String) throws -> String {
+        try Self.attachDevice(
+            describing: imagePath,
+            arguments: ["-imagekey", "diskimage-class=CRawDiskImage", imagePath])
+    }
+
+    /// Attach a block device the host keeps in memory.
+    ///
+    /// The pages behind it are the host's ordinary memory: taken as they are
+    /// written rather than reserved up front, and left for the host to compress
+    /// and page out under contention as it would any others.
+    static func attachMemoryBlockDevice(size: UInt64) throws -> String {
+        // A ram disk is asked for in units of 512 byte sectors.
+        try Self.attachDevice(
+            describing: "a \(size) byte ram disk",
+            arguments: ["ram://\(size / 512)"])
+    }
+
+    /// Give a block device back to the host.
+    ///
+    /// Called both on the way out of a test and once the guest is done with the
+    /// device, so it tolerates a device that is already gone.
+    static func detachBlockDevice(_ device: String) {
+        let devNull = FileHandle(forWritingAtPath: "/dev/null")
+        defer { try? devNull?.close() }
+        var cmd = Command("/usr/bin/hdiutil", arguments: ["detach", device])
+        cmd.stdout = devNull
+        cmd.stderr = devNull
+        guard (try? cmd.start()) != nil else { return }
+        _ = try? cmd.wait()
+    }
+    #endif
+
     func bootstrap(_ testID: String) async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image, bootLog: BootLog) {
         let reference = "ghcr.io/linuxcontainers/alpine:3.20"
         let store = Self.imageStore
@@ -608,6 +693,9 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("multiple concurrent processes with output stress", testMultipleConcurrentProcessesOutputStress),
 
                 // NBD volumes (test infra is macOS-only)
+                Test("container block device mount", testContainerBlockDeviceMount),
+                Test("container block device read only", testContainerBlockDeviceReadOnly),
+                Test("container memory block device", testContainerMemoryBlockDevice),
                 Test("container NBD mount", testContainerNBDMount),
                 Test("container NBD read-only", testContainerNBDReadOnly),
                 Test("container NBD raw block", testContainerNBDRawBlock),

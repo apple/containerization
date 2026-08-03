@@ -19,6 +19,7 @@ import ContainerizationArchive
 import ContainerizationEXT4
 import ContainerizationError
 import ContainerizationOCI
+import ContainerizationOS
 import Foundation
 import Logging
 import SystemPackage
@@ -78,6 +79,68 @@ extension IntegrationSuite {
         }
     }
 
+    func testContainerBlockDeviceMount() async throws {
+        let id = "test-container-block-device-mount"
+        let bs = try await bootstrap(id)
+
+        let diskURL = try createEXT4DiskImage(testID: id, name: "vol")
+        let device = try Self.attachBlockDevice(imagePath: diskURL.absolutePath())
+        var attached = true
+        defer {
+            if attached {
+                Self.detachBlockDevice(device)
+            }
+        }
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.mounts.append(
+                Mount.block(
+                    format: "ext4",
+                    source: device,
+                    destination: "/data"
+                ))
+            config.process.arguments = [
+                "/bin/sh", "-c",
+                "echo hello > /data/test.txt && cat /data/test.txt && grep /data /proc/mounts",
+            ]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container exited with status \(status)")
+        }
+
+        let output = String(data: buffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let lines = output.components(separatedBy: "\n")
+
+        guard lines.count >= 2 else {
+            throw IntegrationError.assert(msg: "expected at least 2 lines of output, got: \(output)")
+        }
+
+        guard lines[0] == "hello" else {
+            throw IntegrationError.assert(msg: "expected 'hello', got '\(lines[0])'")
+        }
+
+        try assertVirtioBlockMount(lines[1], path: "/data")
+
+        // The guest wrote to the device, and the device is the image: what the
+        // container put there is in the file once the host has it back.
+        Self.detachBlockDevice(device)
+        attached = false
+        let diskContent = try readFileFromDiskImage(diskURL, path: "/test.txt")
+        guard diskContent == "hello" else {
+            throw IntegrationError.assert(msg: "block device image: expected 'hello', got '\(diskContent)'")
+        }
+    }
+
     func testContainerNBDMount() async throws {
         let id = "test-container-nbd-mount"
         let bs = try await bootstrap(id)
@@ -128,6 +191,94 @@ extension IntegrationSuite {
         let diskContent = try readFileFromDiskImage(diskURL, path: "/test.txt")
         guard diskContent == "hello" else {
             throw IntegrationError.assert(msg: "NBD backing file: expected 'hello', got '\(diskContent)'")
+        }
+    }
+
+    func testContainerBlockDeviceReadOnly() async throws {
+        let id = "test-container-block-device-readonly"
+        let bs = try await bootstrap(id)
+
+        let diskURL = try createEXT4DiskImage(testID: id, name: "ro-vol")
+        let device = try Self.attachBlockDevice(imagePath: diskURL.absolutePath())
+        defer { Self.detachBlockDevice(device) }
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.mounts.append(
+                Mount.block(
+                    format: "ext4",
+                    source: device,
+                    destination: "/data",
+                    options: ["ro"]
+                ))
+            // Verify virtio block mount, then attempt a write that should fail.
+            config.process.arguments = [
+                "/bin/sh", "-c",
+                "grep /data /proc/mounts; echo test > /data/fail.txt 2>&1; echo exit=$?",
+            ]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+
+        _ = try await container.wait()
+        try await container.stop()
+
+        let output = String(data: buffer.data, encoding: .utf8) ?? ""
+        let lines = output.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: "\n")
+
+        guard !lines.isEmpty else {
+            throw IntegrationError.assert(msg: "expected output, got nothing")
+        }
+
+        try assertVirtioBlockMount(lines[0], path: "/data")
+
+        guard !output.contains("exit=0") else {
+            throw IntegrationError.assert(msg: "write to a read only block device succeeded: \(output)")
+        }
+    }
+
+    func testContainerMemoryBlockDevice() async throws {
+        let id = "test-container-memory-block-device"
+        let bs = try await bootstrap(id)
+
+        let device = try Self.attachMemoryBlockDevice(size: 64.mib())
+        defer { Self.detachBlockDevice(device) }
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            // Nothing has written a filesystem to it, so the guest is given the
+            // device itself rather than something mounted out of it.
+            config.mounts.append(
+                Mount.block(
+                    format: "none",
+                    source: device,
+                    destination: "/dev/memdisk",
+                    options: ["bind"]
+                ))
+            config.process.arguments = [
+                "/bin/sh", "-c",
+                "test -b /dev/memdisk && printf 'memory-block-works' | dd of=/dev/memdisk bs=512 count=1 conv=sync 2>/dev/null && dd if=/dev/memdisk bs=1 count=18 2>/dev/null",
+            ]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "container exited with status \(status)")
+        }
+
+        let output = String(data: buffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard output == "memory-block-works" else {
+            throw IntegrationError.assert(msg: "expected 'memory-block-works', got '\(output)'")
         }
     }
 
