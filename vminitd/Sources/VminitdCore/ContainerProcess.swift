@@ -36,6 +36,9 @@ protocol ContainerProcess: Sendable {
     /// Process ID of the running container (nil if not started)
     var pid: Int32? { get }
 
+    /// Open the process root without resolving its numeric PID again.
+    func openRoot() throws -> Int32
+
     /// Start the container process
     /// - Returns: The process ID of the started container
     /// - Throws: If the process fails to start

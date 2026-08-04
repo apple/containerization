@@ -46,6 +46,7 @@ final class ManagedProcess: ContainerProcess, Sendable {
         var waiters: [CheckedContinuation<ContainerExitStatus, Never>] = []
         var exitStatus: ContainerExitStatus? = nil
         var pid: Int32?
+        var processRoot: ProcessRoot?
     }
 
     private static let ackPid = "AckPid"
@@ -191,6 +192,8 @@ extension ManagedProcess {
                     metadata: [
                         "pid": "\(pid)"
                     ])
+                let processRoot = try ProcessRoot(processID: pid)
+                $0.processRoot = processRoot
                 $0.pid = pid
 
                 // This should probably happen in vmexec, but we don't need to set any cgroup
@@ -279,6 +282,8 @@ extension ManagedProcess {
 
             let exitStatus = ContainerExitStatus(exitCode: status, exitedAt: Date.now)
             state.exitStatus = exitStatus
+            state.pid = nil
+            state.processRoot = nil
 
             do {
                 try state.io.close()
@@ -322,6 +327,15 @@ extension ManagedProcess {
             guard Foundation.kill(pid, signal) == 0 else {
                 throw POSIXError.fromErrno()
             }
+        }
+    }
+
+    func openRoot() throws -> Int32 {
+        try self.state.withLock {
+            guard $0.exitStatus == nil, let processRoot = $0.processRoot else {
+                throw ContainerizationError(.invalidState, message: "process is not running")
+            }
+            return try processRoot.openRoot()
         }
     }
 

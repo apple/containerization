@@ -1262,8 +1262,19 @@ extension LinuxPod {
         return try await fn(vm)
     }
 
+    struct FilesystemOperationTarget: Equatable {
+        let containerID: String
+        let path: String
+    }
+
+    static func filesystemOperationTarget(containerID: String, path: String) throws -> FilesystemOperationTarget {
+        try FilesystemOperationPath.validate(path)
+        return FilesystemOperationTarget(containerID: containerID, path: path)
+    }
+
     // Perform filesystem operations in a container.
     public func filesystemOperation(_ containerID: String, operation: FilesystemOperation, path: String) async throws {
+        let target = try Self.filesystemOperationTarget(containerID: containerID, path: path)
         try await self.state.withLock { state in
             let createdState = try state.phase.createdState("filesystemOperation")
 
@@ -1285,8 +1296,11 @@ extension LinuxPod {
                 guard let vminitd = agent as? Vminitd else {
                     throw ContainerizationError(.unsupported, message: "filesystemOperation requires Vminitd agent")
                 }
-                let guestPath = URL(filePath: Self.guestRootfsPath(containerID)).appending(path: path).path
-                try await vminitd.filesystemOperation(operation: operation, path: guestPath)
+                try await vminitd.filesystemOperation(
+                    operation: operation,
+                    path: target.path,
+                    containerID: target.containerID
+                )
             }
         }
     }

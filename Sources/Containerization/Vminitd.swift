@@ -214,11 +214,35 @@ extension Vminitd: VirtualMachineAgent {
 
     /// Perform a filesystem operation on a path inside the sandbox's environment.
     public func filesystemOperation(operation: FilesystemOperation, path: String) async throws {
+        try await filesystemOperation(operation: operation, path: path, containerID: nil)
+    }
+
+    public func filesystemOperation(
+        operation: FilesystemOperation,
+        path: String,
+        containerID: String?
+    ) async throws {
         _ = try await client.filesystemOperation(
-            .with {
-                $0.operation = operation.toProtoOperation()
-                $0.path = path
-            })
+            try Self.filesystemOperationRequest(
+                operation: operation,
+                path: path,
+                containerID: containerID
+            ))
+    }
+
+    package static func filesystemOperationRequest(
+        operation: FilesystemOperation,
+        path: String,
+        containerID: String?
+    ) throws -> Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest {
+        try FilesystemOperationPath.validate(path)
+        return .with {
+            $0.operation = operation.toProtoOperation()
+            $0.path = path
+            if let containerID {
+                $0.containerID = containerID
+            }
+        }
     }
 
     public func createProcess(

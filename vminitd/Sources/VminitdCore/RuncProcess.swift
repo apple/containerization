@@ -48,6 +48,7 @@ final class RuncProcess: ContainerProcess, Sendable {
     private struct State {
         var state: ProcessState = .initial
         var waiters: [CheckedContinuation<ContainerExitStatus, Never>] = []
+        var processRoot: ProcessRoot?
     }
 
     let id: String
@@ -185,10 +186,12 @@ final class RuncProcess: ContainerProcess, Sendable {
             try self.io.closeAfterExec()
         }
 
+        let processRoot = try ProcessRoot(processID: pid)
         try await self.runc.start(id: self.id)
 
         self.state.withLock {
             $0.state = .running(pid: pid)
+            $0.processRoot = processRoot
         }
 
         self.log.info(
@@ -211,6 +214,7 @@ final class RuncProcess: ContainerProcess, Sendable {
 
             let exitStatus = ContainerExitStatus(exitCode: status, exitedAt: Date.now)
             $0.state = .exited(exitStatus)
+            $0.processRoot = nil
 
             do {
                 try self.io.close()
@@ -242,6 +246,15 @@ final class RuncProcess: ContainerProcess, Sendable {
     func kill(_ signal: Int32) async throws {
         self.log.info("sending signal \(signal) to runc container \(id)")
         try await self.runc.kill(id: self.id, signal: signal)
+    }
+
+    func openRoot() throws -> Int32 {
+        try self.state.withLock {
+            guard case .running = $0.state, let processRoot = $0.processRoot else {
+                throw ContainerizationError(.invalidState, message: "process is not running")
+            }
+            return try processRoot.openRoot()
+        }
     }
 
     func resize(size: Terminal.Size) throws {

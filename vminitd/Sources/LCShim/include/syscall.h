@@ -99,6 +99,8 @@ int CZ_pidfd_open(pid_t pid, unsigned int flags);
 #endif
 int CZ_pidfd_getfd(int pidfd, int targetfd, unsigned int flags);
 
+int CZ_openat2_in_root(int dirfd, const char *path, int flags);
+
 int CZ_prctl_set_no_new_privs();
 
 #endif
