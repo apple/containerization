@@ -355,7 +355,6 @@ extension IntegrationSuite {
             try await container.create()
             try await container.start()
             let status = try await container.wait()
-            try await container.stop()
             guard status.exitCode == 0 else {
                 throw IntegrationError.assert(msg: "workload did not complete: \(status)")
             }
@@ -376,6 +375,23 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(
                     msg: "guest reported \(total) kB of swap but the export never held"
                         + " more than \(held) bytes")
+            }
+            // What grew must come back: the filler exited while the guest was
+            // still up, freeing its swap slots, and a freed cluster is
+            // discarded. The discards trail the exit, so the export is watched
+            // while the machine is still up rather than sampled once, until it
+            // holds little more than the swap header.
+            var residual = store.allocatedBytes
+            let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+            while residual > 32.mib(), ContinuousClock.now < deadline {
+                try await Task.sleep(nanoseconds: 200_000_000)
+                residual = store.allocatedBytes
+            }
+            try await container.stop()
+            guard residual <= 32.mib() else {
+                throw IntegrationError.assert(
+                    msg: "export still holds \(residual) bytes after the workload"
+                        + " freed its swap (peak \(held))")
             }
         } catch {
             try? await container.stop()
