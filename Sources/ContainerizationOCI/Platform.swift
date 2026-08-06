@@ -250,25 +250,22 @@ extension Platform: Hashable {
 
     /// `==` compares if **lhs** and **rhs** are the exact same platforms.
     public static func == (lhs: Platform, rhs: Platform) -> Bool {
+        guard lhs.os == rhs.os else {
+            return false
+        }
+        guard lhs.architecture == rhs.architecture else {
+            return false
+        }
+
         //  NOTE:
         //  If the platform struct was created by setting the fields directly and not using (from: String)
         //  then, there is a possibility that for arm64 architecture, the variant may be set to nil
         //  In that case, the variant should be assumed to v8
-        if lhs.architecture == "arm64" && rhs.architecture == "arm64" {
-            // The following checks effectively verify
-            // that one operand has nil value and other has "v8"
-            if lhs.variant == nil || rhs.variant == nil {
-                if lhs.variant == "v8" || rhs.variant == "v8" {
-                    return true
-                }
-            }
+        if lhs.architecture == "arm64" {
+            return (lhs.variant ?? "v8") == (rhs.variant ?? "v8")
         }
 
-        let osEqual = lhs.os == rhs.os
-        let archEqual = lhs.architecture == rhs.architecture
-        let variantEqual = lhs.variant == rhs.variant
-
-        return osEqual && archEqual && variantEqual
+        return lhs.variant == rhs.variant
     }
 
     public func hash(into hasher: inout Swift.Hasher) {

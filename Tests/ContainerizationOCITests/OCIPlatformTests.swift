@@ -33,7 +33,7 @@ struct OCIPlatformTests {
 
     @Test func differentOS() {
         let lhs = Platform(arch: "arm64", os: "linux")
-        let rhs = Platform(arch: "arm64", os: "darwin")
+        let rhs = Platform(arch: "arm64", os: "windows")
         #expect(lhs != rhs, "Different OS should not be equal")
     }
 
@@ -80,5 +80,39 @@ struct OCIPlatformTests {
         var set = Set<Platform>()
         set.insert(withoutVariant)
         #expect(set.contains(withV8), "arm64/v8 must be found in a Set that contains arm64 with nil variant")
+    }
+
+    @Test func arm64_differentOS_nilAndV8() {
+        let linux = Platform(arch: "arm64", os: "linux", variant: nil)
+        let windows = Platform(arch: "arm64", os: "windows", variant: "v8")
+        #expect(linux != windows, "The arm64 nil/v8 variant rule must not ignore a differing OS")
+        #expect(windows != linux, "The arm64 nil/v8 variant rule must not ignore a differing OS")
+    }
+
+    @Test func arm64_differentOS_bothV8() {
+        let linux = Platform(arch: "arm64", os: "linux", variant: "v8")
+        let windows = Platform(arch: "arm64", os: "windows", variant: "v8")
+        #expect(linux != windows, "Same arch and variant but different OS => not equal")
+    }
+
+    @Test func arm64_normalizedArchDifferentOS() {
+        // aarch64 normalizes to arm64, so both sides hit the arm64 variant rule.
+        let linux = Platform(arch: "aarch64", os: "linux", variant: nil)
+        let windows = Platform(arch: "arm64", os: "windows", variant: "v8")
+        #expect(linux != windows, "Normalized arm64 platforms with a differing OS => not equal")
+    }
+
+    @Test func arm64_differentOS_setLookup() {
+        let linux = Platform(arch: "arm64", os: "linux", variant: nil)
+        let windows = Platform(arch: "arm64", os: "windows", variant: "v8")
+        var set = Set<Platform>()
+        set.insert(linux)
+        #expect(!set.contains(windows), "windows/arm64/v8 must not be found in a Set holding linux/arm64")
+    }
+
+    @Test func arm64_platformMatcherDifferentOS() {
+        let matcher = createPlatformMatcher(for: Platform(arch: "arm64", os: "linux", variant: nil))
+        #expect(!matcher(Platform(arch: "arm64", os: "windows", variant: "v8")), "matcher must reject a differing OS")
+        #expect(matcher(Platform(arch: "arm64", os: "linux", variant: "v8")), "matcher must accept the same OS with an implied v8 variant")
     }
 }
