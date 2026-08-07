@@ -575,47 +575,16 @@ extension LinuxContainer {
         rootfsPath: String,
         agent: VirtualMachineAgent
     ) async throws {
-        let rootfsAttachment = attached.rootfs
-
         if let writableAttachment = attached.writableLayer {
-            // Set up overlayfs with image as lower layer and writable layer as upper.
-            let lowerPath = "/run/container/\(self.id)/lower"
-            let upperMountPath = "/run/container/\(self.id)/upper"
-            let upperPath = "/run/container/\(self.id)/upper/diff"
-            let workPath = "/run/container/\(self.id)/upper/work"
-
-            // Mount the image (lower layer) as read-only.
-            var lowerMount = rootfsAttachment.to
-            lowerMount.destination = lowerPath
-            if !lowerMount.options.contains("ro") {
-                lowerMount.options.append("ro")
-            }
-            try await agent.mount(lowerMount)
-
-            // Mount the writable layer.
-            var upperMount = writableAttachment.to
-            upperMount.destination = upperMountPath
-            try await agent.mount(upperMount)
-
-            // Create the upper and work directories inside the writable layer.
-            try await agent.mkdir(path: upperPath, all: true, perms: 0o755)
-            try await agent.mkdir(path: workPath, all: true, perms: 0o755)
-
-            // Mount the overlay.
-            let overlayMount = ContainerizationOCI.Mount(
-                type: "overlay",
-                source: "overlay",
-                destination: rootfsPath,
-                options: [
-                    "lowerdir=\(lowerPath)",
-                    "upperdir=\(upperPath)",
-                    "workdir=\(workPath)",
-                ]
+            try await agent.mountOverlayRootfs(
+                containerID: self.id,
+                rootfsAttachment: attached.rootfs,
+                writableAttachment: writableAttachment,
+                rootfsPath: rootfsPath
             )
-            try await agent.mount(overlayMount)
         } else {
             // No writable layer. Mount rootfs directly.
-            var rootfs = rootfsAttachment.to
+            var rootfs = attached.rootfs.to
             rootfs.destination = rootfsPath
             try await agent.mount(rootfs)
         }

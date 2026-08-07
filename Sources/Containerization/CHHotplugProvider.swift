@@ -150,12 +150,12 @@ final class CHHotplugProvider: HotplugProvider {
         }
     }
 
-    func registerMounts(id: String, rootfs: AttachedFilesystem, additionalMounts: [Mount]) throws {
+    func registerMounts(id: String, rootfs: AttachedFilesystem, writableLayer: AttachedFilesystem?, additionalMounts: [Mount]) throws {
         var mounts: [AttachedFilesystem] = []
         for mount in additionalMounts {
             mounts.append(try AttachedFilesystem(mount: mount, allocator: allocator))
         }
-        let container = ContainerAttachments(rootfs: rootfs, mounts: mounts)
+        let container = ContainerAttachments(rootfs: rootfs, writableLayer: writableLayer, mounts: mounts)
         _storage.withLock {
             $0.containers[id] = container
         }
