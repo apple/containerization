@@ -137,6 +137,13 @@ public final class LinuxPod: Sendable {
         /// Run the container with a minimal init process that handles signal
         /// forwarding and zombie reaping.
         public var useInit: Bool = false
+        /// Devices the container should be given, with the permissions it
+        /// should see them under.
+        ///
+        /// A device already present in the container's /dev arrives with the
+        /// kernel's permissions, which are stricter than the ones a machine
+        /// running udev would show. Naming it here is how those are asked for.
+        public var devices: [ContainerizationOCI.LinuxDevice] = []
         /// EXPERIMENTAL: Path in the root filesystem for the virtual
         /// machine where the OCI runtime used to spawn the container lives.
         public var ociRuntimePath: String?
@@ -358,6 +365,7 @@ public final class LinuxPod: Sendable {
 
         // Linux toggles
         spec.linux?.sysctl = config.sysctl
+        spec.linux?.devices = config.devices
         spec.linux?.maskedPaths = config.maskedPaths
         spec.linux?.readonlyPaths = config.readonlyPaths
 
