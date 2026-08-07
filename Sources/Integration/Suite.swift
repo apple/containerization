@@ -648,8 +648,9 @@ struct IntegrationSuite: AsyncParsableCommand {
             ] + macOS26Tests()
         let tests: [Test] = crossPlatformTests + macOSOnlyTests
         #else
-        // Hotplug into a running pod VM is CH-only (VZ has no runtime hotplug),
-        // and no pod test elsewhere exercises addContainer-after-create.
+        // VZ takes a disk into a running machine over its USB controller, but
+        // the guest's naming of it is not yet settled, so the block case is
+        // held here alongside the directory share, which VZ fixes at boot.
         let linuxOnlyTests: [Test] = [
             Test("pod hotplug block rootfs", testPodHotplugBlockRootfs),
             Test("pod hotplug virtiofs rootfs", testPodHotplugVirtiofsRootfs),

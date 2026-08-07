@@ -2432,9 +2432,11 @@ extension IntegrationSuite {
         }
     }
 
-    /// Hotplug a container with a block rootfs into a running pod VM. Guards
-    /// the existing block hotplug path against the registry-consolidation
-    /// change. CH-only.
+    #endif
+
+    /// Add a container with a block rootfs to a pod whose machine is already
+    /// running. Both backends attach a disk to a running machine, so both are
+    /// held to it.
     func testPodHotplugBlockRootfs() async throws {
         let id = "test-pod-hotplug-block-rootfs"
         let bs = try await bootstrap(id)
@@ -2476,7 +2478,6 @@ extension IntegrationSuite {
             throw error
         }
     }
-    #endif
 
     /// A container in a pod given a writable layer writes into it, and the
     /// image it was built from is left as it is for the pod's others.

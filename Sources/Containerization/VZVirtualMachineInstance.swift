@@ -140,6 +140,17 @@ public final class VZVirtualMachineInstance: Sendable {
             queue: self.queue
         )
 
+        // A disk can be attached while the machine runs, so the machine has
+        // somewhere to send the request.
+        if #available(macOS 15.0, *) {
+            self.hotplugProvider = VZHotplugProvider(
+                vm: self.vm,
+                queue: self.queue,
+                initialMounts: mountAttachments,
+                logger: logger
+            )
+        }
+
         for ext in config.extensions.compactMap({ $0 as? any VZInstanceExtension }) {
             try ext.didCreate(self)
         }
@@ -524,6 +535,13 @@ extension VZVirtualMachineInstance.Configuration {
         }
         platform.isNestedVirtualizationEnabled = self.nestedVirtualization
         config.platform = platform
+
+        // The machine's storage devices are fixed once it boots, so a disk
+        // that arrives later arrives over USB. The controller has to be in
+        // the configuration for one to exist to attach to.
+        if #available(macOS 15.0, *) {
+            config.usbControllers = [VZXHCIControllerConfiguration()]
+        }
 
         for ext in self.extensions.compactMap({ $0 as? any VZInstanceExtension }) {
             try ext.configureVZ(&config, allocator: allocator, storageDeviceCount: storageDeviceCount, storage: self.storage)
