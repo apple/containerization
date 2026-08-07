@@ -728,26 +728,48 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             metadata: [
                 "operation": "\(String(describing: request.operation))",
                 "path": "\(path)",
+                "containerID": "\(request.hasContainerID ? request.containerID : "")",
             ])
 
-        if !path.isAbsolute {
-            throw RPCError(code: .invalidArgument, message: "path must be absolute")
-        }
-
-        var finfo = _stat_struct()
-        let rc = _stat(path.string, &finfo)
-        if rc != 0 {
-            let error = swiftErrno("stat")
-            throw RPCError(code: .notFound, message: "failed to stat path", cause: error)
-        }
-
-        let fd = open(path.string, O_RDONLY | O_NOFOLLOW)
-        if fd < 0 {
-            if errno == ELOOP {
-                throw RPCError(code: .internalError, message: "path cannot be a symlink")
+        let fd: Int32
+        if request.hasContainerID {
+            do {
+                let container = try await self.state.get(container: request.containerID)
+                let rootDescriptor = try await container.openRoot()
+                defer { close(rootDescriptor) }
+                fd = try FilesystemOperationTarget.open(
+                    rootDescriptor: rootDescriptor,
+                    path: request.path
+                )
+            } catch let error as ContainerizationError {
+                throw error.toRPCError(operation: "filesystemOperation")
+            } catch {
+                throw RPCError(
+                    code: .internalError,
+                    message: "failed to open container filesystem path",
+                    cause: error
+                )
             }
-            let error = swiftErrno("open")
-            throw RPCError(code: .internalError, message: "failed to open path", cause: error)
+        } else {
+            if !path.isAbsolute {
+                throw RPCError(code: .invalidArgument, message: "path must be absolute")
+            }
+
+            var finfo = _stat_struct()
+            let rc = _stat(path.string, &finfo)
+            if rc != 0 {
+                let error = swiftErrno("stat")
+                throw RPCError(code: .notFound, message: "failed to stat path", cause: error)
+            }
+
+            fd = open(path.string, O_RDONLY | O_NOFOLLOW)
+            if fd < 0 {
+                if errno == ELOOP {
+                    throw RPCError(code: .internalError, message: "path cannot be a symlink")
+                }
+                let error = swiftErrno("open")
+                throw RPCError(code: .internalError, message: "failed to open path", cause: error)
+            }
         }
 
         defer { close(fd) }

@@ -14,8 +14,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import ContainerizationError
 import ContainerizationOCI
-import ContainerizationOS
 import Foundation
 import Testing
 
@@ -118,5 +118,48 @@ struct LinuxContainerTests {
         }
         #expect(pod.maskedPaths == expectedMasked)
         #expect(pod.readonlyPaths == expectedReadonly)
+    }
+
+    @Test func filesystemOperationPathAcceptsContainerAbsolutePaths() throws {
+        try FilesystemOperationPath.validate("/")
+        try FilesystemOperationPath.validate("/mnt/reclaim-data")
+    }
+
+    @Test(
+        arguments: [
+            "",
+            "mnt/reclaim-data",
+            "/mnt/../etc",
+            "/mnt/./reclaim-data",
+            "/mnt//reclaim-data",
+            "/mnt/reclaim-data/",
+            "/mnt/\0escape",
+        ])
+    func filesystemOperationPathRejectsAmbiguousOrEscapingPaths(path: String) {
+        #expect(throws: ContainerizationError.self) {
+            try FilesystemOperationPath.validate(path)
+        }
+    }
+
+    @Test func podFilesystemOperationTargetsContainerMountNamespace() throws {
+        let target = try LinuxPod.filesystemOperationTarget(
+            containerID: "pod-clean-volume",
+            path: "/mnt/reclaim-data"
+        )
+
+        #expect(target.path == "/mnt/reclaim-data")
+        #expect(target.containerID == "pod-clean-volume")
+    }
+
+    @Test func filesystemOperationRequestTargetsContainerMountNamespace() throws {
+        let request = try Vminitd.filesystemOperationRequest(
+            operation: .trim,
+            path: "/mnt/reclaim-data",
+            containerID: "clean-volume-reclaim"
+        )
+
+        #expect(request.path == "/mnt/reclaim-data")
+        #expect(request.containerID == "clean-volume-reclaim")
+        #expect(request.hasContainerID)
     }
 }

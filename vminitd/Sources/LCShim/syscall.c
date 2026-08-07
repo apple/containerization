@@ -22,6 +22,19 @@
 
 #include "syscall.h"
 
+#ifndef SYS_openat2
+#define SYS_openat2 437
+#endif
+
+#define CZ_RESOLVE_NO_MAGICLINKS 0x02
+#define CZ_RESOLVE_IN_ROOT       0x10
+
+struct cz_open_how {
+  unsigned long long flags;
+  unsigned long long mode;
+  unsigned long long resolve;
+};
+
 int CZ_pivot_root(const char *new_root, const char *put_old) {
   return syscall(SYS_pivot_root, new_root, put_old);
 }
@@ -36,6 +49,14 @@ int CZ_pidfd_open(pid_t pid, unsigned int flags) {
 int CZ_pidfd_getfd(int pidfd, int targetfd, unsigned int flags) {
   // Musl doesn't have pidfd_getfd.
   return syscall(SYS_pidfd_getfd, pidfd, targetfd, flags);
+}
+
+int CZ_openat2_in_root(int dirfd, const char *path, int flags) {
+  struct cz_open_how how = {
+      .flags = flags,
+      .resolve = CZ_RESOLVE_IN_ROOT | CZ_RESOLVE_NO_MAGICLINKS,
+  };
+  return syscall(SYS_openat2, dirfd, path, &how, sizeof(how));
 }
 
 int CZ_prctl_set_no_new_privs() {

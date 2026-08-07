@@ -315,6 +315,8 @@ message FilesystemOperationRequest {
     FiFreezeParams freeze = 3;
     FiThawParams thaw = 4;
   }
+  // Resolve path from this container's init process mount namespace.
+  optional string container_id = 5;
 }
 
 message FilesystemOperationResponse {
