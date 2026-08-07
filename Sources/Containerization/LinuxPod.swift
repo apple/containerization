@@ -174,6 +174,7 @@ public final class LinuxPod: Sendable {
     private struct PodContainer: Sendable {
         let id: String
         let rootfs: Mount
+        let writableLayer: Mount?
         let config: ContainerConfiguration
         var state: ContainerState
         var process: LinuxProcess?
@@ -301,7 +302,7 @@ public final class LinuxPod: Sendable {
         )
     }
 
-    private func generateRuntimeSpec(containerID: String, config: ContainerConfiguration, rootfs: Mount) -> Spec {
+    private func generateRuntimeSpec(containerID: String, config: ContainerConfiguration, rootfs: Mount, writableLayer: Mount? = nil) -> Spec {
         var spec = Self.createDefaultRuntimeSpec(containerID, podID: self.id)
 
         // Process configuration
@@ -326,7 +327,7 @@ public final class LinuxPod: Sendable {
 
         // If the rootfs was requested as read-only, set it in the OCI spec.
         // We let the OCI runtime remount as ro, instead of doing it originally.
-        spec.root?.readonly = rootfs.options.contains("ro")
+        spec.root?.readonly = rootfs.options.contains("ro") && writableLayer == nil
 
         // Resource limits (if specified)
         if let cpus = config.cpus, cpus > 0 {
@@ -378,9 +379,14 @@ extension LinuxPod {
     /// When called before `create()`, the container is registered for setup during VM creation.
     /// When called after `create()`, the container is hotplugged into the running VM.
     /// If the underlying VMM does not support hotplug, an error is thrown.
+    /// - Parameters:
+    ///   - writableLayer: Optional writable layer mount. When provided, an overlayfs is used with
+    ///     the container's rootfs as the lower layer and this as the upper layer, so all writes
+    ///     go to this layer instead of the rootfs.
     public func addContainer(
         _ id: String,
         rootfs: Mount,
+        writableLayer: Mount? = nil,
         configuration: @Sendable @escaping (inout ContainerConfiguration) throws -> Void
     ) async throws {
         guard id.count <= Self.maxIDLength else {
@@ -388,6 +394,14 @@ extension LinuxPod {
                 .invalidArgument,
                 message: "container id length \(id.count) exceeds maximum of \(Self.maxIDLength) characters"
             )
+        }
+        if let writableLayer {
+            guard writableLayer.isBlock else {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "writableLayer must be a block device"
+                )
+            }
         }
         try await self.state.withLock { state in
             guard state.containers[id] == nil else {
@@ -407,6 +421,7 @@ extension LinuxPod {
                 state.containers[id] = PodContainer(
                     id: id,
                     rootfs: rootfs,
+                    writableLayer: writableLayer,
                     config: config,
                     state: .registered,
                     process: nil,
@@ -416,6 +431,9 @@ extension LinuxPod {
             case .created(let createdState):
                 let vm = createdState.vm
 
+                // Strip "ro" as create() does: readonly is expressed through
+                // the OCI spec's root.readonly field and a remount in vmexec
+                // after setup completes, so the device attaches writable.
                 var modifiedRootfs = rootfs
                 modifiedRootfs.options.removeAll(where: { $0 == "ro" })
 
@@ -423,6 +441,13 @@ extension LinuxPod {
 
                 var updatedFileMountContext = fileMountContext
                 do {
+                    // The writable layer is a block device like the rootfs,
+                    // attached alongside it so the overlay has both layers.
+                    var writableAttachment: AttachedFilesystem?
+                    if let writableLayer {
+                        writableAttachment = try await vm.hotplug(writableLayer, id: id)
+                    }
+
                     let virtioFSMounts = fileMountContext.transformedMounts.filter {
                         if case .virtiofs(_) = $0.runtimeOptions { return true }
                         return false
@@ -433,13 +458,23 @@ extension LinuxPod {
 
                     let agent = try await vm.dialAgent()
                     do {
-                        var mount = attachment.to
-                        mount.destination = Self.guestRootfsPath(id)
-                        try await agent.mount(mount)
+                        if let writableAttachment {
+                            try await agent.mountOverlayRootfs(
+                                containerID: id,
+                                rootfsAttachment: attachment,
+                                writableAttachment: writableAttachment,
+                                rootfsPath: Self.guestRootfsPath(id)
+                            )
+                        } else {
+                            var mount = attachment.to
+                            mount.destination = Self.guestRootfsPath(id)
+                            try await agent.mount(mount)
+                        }
 
-                        // Filter out shared mounts — those are handled separately as
-                        // pod volume bind mounts. Without it here, a container added to an
-                        // already-created would add a duplicated mount into the shared VM.
+                        // Shared mounts are handled separately as pod volume
+                        // bind mounts; without the filter here, a container
+                        // added to an already-created pod would add a
+                        // duplicated mount into the shared VM.
                         let nonSharedMounts = fileMountContext.transformedMounts.filter {
                             if case .shared = $0.runtimeOptions { return false }
                             return true
@@ -447,6 +482,7 @@ extension LinuxPod {
                         try vm.registerMounts(
                             id: id,
                             rootfs: attachment,
+                            writableLayer: writableAttachment,
                             additionalMounts: nonSharedMounts
                         )
 
@@ -547,6 +583,7 @@ extension LinuxPod {
                     state.containers[id] = PodContainer(
                         id: id,
                         rootfs: rootfs,
+                        writableLayer: writableLayer,
                         config: config,
                         state: .created,
                         process: nil,
@@ -586,6 +623,7 @@ extension LinuxPod {
                 }
                 machineStorage.containers[id] = ContainerMounts(
                     rootfs: modifiedRootfs,
+                    writableLayer: container.writableLayer,
                     mounts: containerMounts
                 )
             }
@@ -745,6 +783,15 @@ extension LinuxPod {
                         guard let attached = vm.storage.containers[container.id] else {
                             throw ContainerizationError(.notFound, message: "rootfs mount not found for container \(container.id)")
                         }
+                        if let writableAttachment = attached.writableLayer {
+                            try await agent.mountOverlayRootfs(
+                                containerID: container.id,
+                                rootfsAttachment: attached.rootfs,
+                                writableAttachment: writableAttachment,
+                                rootfsPath: Self.guestRootfsPath(container.id)
+                            )
+                            continue
+                        }
                         var rootfs = attached.rootfs.to
                         rootfs.destination = Self.guestRootfsPath(container.id)
                         try await agent.mount(rootfs)
@@ -872,7 +919,7 @@ extension LinuxPod {
 
             let agent = try await createdState.vm.dialAgent()
             do {
-                var spec = self.generateRuntimeSpec(containerID: containerID, config: container.config, rootfs: container.rootfs)
+                var spec = self.generateRuntimeSpec(containerID: containerID, config: container.config, rootfs: container.rootfs, writableLayer: container.writableLayer)
                 // We don't need the rootfs, nor do OCI runtimes want it included.
                 // Also filter out file mount holding directories - we mount those separately under /run.
                 // Transform virtiofs mounts to bind mounts from /run/virtiofs/{tag}
@@ -1037,12 +1084,21 @@ extension LinuxPod {
                 try await process.kill(.kill)
                 try await process.wait(timeoutInSeconds: 3)
 
+                let hasWritableLayer = container.writableLayer != nil
                 try await createdState.vm.withAgent { agent in
                     // Unmount the rootfs
                     try await agent.umount(
                         path: Self.guestRootfsPath(containerID),
                         flags: 0
                     )
+
+                    // If we have a writable layer, we also need to unmount the lower and upper layers.
+                    if hasWritableLayer {
+                        let upperPath = "/run/container/\(containerID)/upper"
+                        let lowerPath = "/run/container/\(containerID)/lower"
+                        try await agent.umount(path: upperPath, flags: 0)
+                        try await agent.umount(path: lowerPath, flags: 0)
+                    }
                 }
 
                 // Release the hotplug device and virtiofs shares so they can be reused by new containers
@@ -1197,7 +1253,7 @@ extension LinuxPod {
                 )
             }
 
-            var spec = self.generateRuntimeSpec(containerID: containerID, config: container.config, rootfs: container.rootfs)
+            var spec = self.generateRuntimeSpec(containerID: containerID, config: container.config, rootfs: container.rootfs, writableLayer: container.writableLayer)
             // Inherit environment variables, working directory, user, capabilities, rlimits from container process.
             // Reset: process arguments, terminal, stdio as these are not supposed to be inherited.
             var config = container.config.process

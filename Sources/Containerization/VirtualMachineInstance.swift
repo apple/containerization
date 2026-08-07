@@ -78,8 +78,10 @@ public protocol VirtualMachineInstance: Sendable {
     /// so they can be found when building the container's OCI spec.
     /// - Parameter id: The container ID
     /// - Parameter rootfs: The rootfs attachment from hotplug
+    /// - Parameter writableLayer: The container's writable layer attachment when it
+    ///   has one
     /// - Parameter additionalMounts: Additional mounts (like /proc, /sys) to register
-    func registerMounts(id: String, rootfs: AttachedFilesystem, additionalMounts: [Mount]) throws
+    func registerMounts(id: String, rootfs: AttachedFilesystem, writableLayer: AttachedFilesystem?, additionalMounts: [Mount]) throws
 
     /// Release a hotplug device.
     /// This should be called when a hotplugged container is stopped or fails to start.
@@ -107,7 +109,7 @@ extension VirtualMachineInstance {
     public func hotplug(_ block: Mount, id: String) async throws -> AttachedFilesystem {
         throw ContainerizationError(.unsupported, message: "hotplug not supported")
     }
-    public func registerMounts(id: String, rootfs: AttachedFilesystem, additionalMounts: [Mount]) throws {
+    public func registerMounts(id: String, rootfs: AttachedFilesystem, writableLayer: AttachedFilesystem?, additionalMounts: [Mount]) throws {
         // no-op default
     }
     public func releaseHotplug(id: String) async throws {

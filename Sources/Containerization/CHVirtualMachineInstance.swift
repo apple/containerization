@@ -490,8 +490,8 @@ extension CHVirtualMachineInstance: VirtualMachineInstance {
         try await hotplug.releaseVirtioFS(id: id)
     }
 
-    public func registerMounts(id: String, rootfs: AttachedFilesystem, additionalMounts: [Mount]) throws {
-        try hotplug.registerMounts(id: id, rootfs: rootfs, additionalMounts: additionalMounts)
+    public func registerMounts(id: String, rootfs: AttachedFilesystem, writableLayer: AttachedFilesystem?, additionalMounts: [Mount]) throws {
+        try hotplug.registerMounts(id: id, rootfs: rootfs, writableLayer: writableLayer, additionalMounts: additionalMounts)
     }
 }
 

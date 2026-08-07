@@ -537,6 +537,7 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("pod container resource limits", testPodContainerResourceLimits),
             Test("pod container filesystem isolation", testPodContainerFilesystemIsolation),
             Test("pod copy round trip", testPodCopyRoundTrip),
+            Test("pod writable layer", testPodWritableLayer),
             Test("pod container PID namespace isolation", testPodContainerPIDNamespaceIsolation),
             Test("pod container independent resource limits", testPodContainerIndependentResourceLimits),
             Test("pod shared PID namespace", testPodSharedPIDNamespace),
@@ -623,6 +624,7 @@ struct IntegrationSuite: AsyncParsableCommand {
         let linuxOnlyTests: [Test] = [
             Test("pod hotplug block rootfs", testPodHotplugBlockRootfs),
             Test("pod hotplug virtiofs rootfs", testPodHotplugVirtiofsRootfs),
+            Test("pod hotplug writable layer", testPodHotplugWritableLayer),
         ]
         let tests: [Test] = crossPlatformTests + linuxOnlyTests
         #endif

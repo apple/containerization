@@ -30,8 +30,10 @@ public protocol HotplugProvider: Sendable {
     /// - Parameters:
     ///   - id: The container ID
     ///   - rootfs: The rootfs attachment from hotplug
+    ///   - writableLayer: The container's writable layer attachment when it
+    ///     has one
     ///   - additionalMounts: Additional mounts to register
-    func registerMounts(id: String, rootfs: AttachedFilesystem, additionalMounts: [Mount]) throws
+    func registerMounts(id: String, rootfs: AttachedFilesystem, writableLayer: AttachedFilesystem?, additionalMounts: [Mount]) throws
 
     /// Release a hotplug device.
     /// - Parameter id: The container ID who should be released
