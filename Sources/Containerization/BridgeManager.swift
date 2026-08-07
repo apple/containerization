@@ -72,6 +72,12 @@ public struct BridgeManager: Sendable {
     ///     created without external connectivity, leaving host firewall
     ///     policy untouched.
     ///   - logger: optional logger. Defaults to a `bridge`-labeled logger.
+    ///
+    /// Use ``make(name:subnet:gateway:mtu:egressInterface:enableNAT:logger:)``
+    /// to validate interface names eagerly and surface invalid input as a
+    /// ``ContainerizationError``. `create()` and `delete()` also validate
+    /// before touching host state, so existing `init` callers do not trap on
+    /// invalid names.
     public init(
         name: String,
         subnet: CIDRv4,
@@ -81,11 +87,58 @@ public struct BridgeManager: Sendable {
         enableNAT: Bool = false,
         logger: Logger? = nil
     ) {
-        self.name = Self.validateInterfaceName(name)
+        self.name = name
         self.subnet = subnet
         self.gateway = gateway ?? subnet.gateway
         self.mtu = mtu
-        self.egressInterface = egressInterface.map(Self.validateInterfaceName)
+        self.egressInterface = egressInterface
+        self.enableNAT = enableNAT
+        self.log = logger ?? Logger(label: "com.apple.containerization.bridge")
+    }
+
+    /// Create a manager after validating user-provided interface names.
+    ///
+    /// - Throws: ``ContainerizationError`` with code `.invalidArgument` when
+    ///   `name` or `egressInterface` is empty, longer than 15 bytes, or
+    ///   contains whitespace, `/`, `:`, or NUL.
+    public static func make(
+        name: String,
+        subnet: CIDRv4,
+        gateway: IPv4Address? = nil,
+        mtu: UInt32 = 1500,
+        egressInterface: String? = nil,
+        enableNAT: Bool = false,
+        logger: Logger? = nil
+    ) throws -> Self {
+        let validatedName = try Self.validateInterfaceName(name, parameter: "name")
+        let validatedEgress = try egressInterface.map {
+            try Self.validateInterfaceName($0, parameter: "egressInterface")
+        }
+        return Self(
+            validatedName: validatedName,
+            subnet: subnet,
+            gateway: gateway ?? subnet.gateway,
+            mtu: mtu,
+            validatedEgressInterface: validatedEgress,
+            enableNAT: enableNAT,
+            logger: logger
+        )
+    }
+
+    private init(
+        validatedName name: String,
+        subnet: CIDRv4,
+        gateway: IPv4Address,
+        mtu: UInt32,
+        validatedEgressInterface egressInterface: String?,
+        enableNAT: Bool,
+        logger: Logger?
+    ) {
+        self.name = name
+        self.subnet = subnet
+        self.gateway = gateway
+        self.mtu = mtu
+        self.egressInterface = egressInterface
         self.enableNAT = enableNAT
         self.log = logger ?? Logger(label: "com.apple.containerization.bridge")
     }
@@ -94,36 +147,65 @@ public struct BridgeManager: Sendable {
     /// `iptables`. This is a defense-in-depth check; the kernel and
     /// `iptables` themselves will also reject pathological inputs, but doing
     /// it here surfaces the error in a callable Swift API rather than as a
-    /// netlink rc or iptables exit. Asserts (rather than throws) — these
-    /// constraints are static, so a violation is a programming error.
-    private static func validateInterfaceName(_ name: String) -> String {
+    /// netlink rc or iptables exit.
+    private static func validateInterfaceName(_ name: String, parameter: String) throws -> String {
         // IFNAMSIZ on Linux is 16 (15 usable + NUL). iptables itself caps
-        // at 15. Names with `/`, whitespace, or NUL are kernel-rejected.
-        precondition(!name.isEmpty, "interface name must be non-empty")
-        precondition(name.utf8.count <= 15, "interface name '\(name)' exceeds IFNAMSIZ-1 (15)")
-        precondition(
-            !name.contains(where: { $0.isWhitespace || $0 == "/" || $0 == "\0" || $0 == ":" }),
-            "interface name '\(name)' contains invalid characters"
-        )
+        // at 15. Names with `/`, `:`, whitespace, or NUL are rejected.
+        guard !name.isEmpty else {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "\(parameter) must be non-empty"
+            )
+        }
+        guard name.utf8.count <= 15 else {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "\(parameter) '\(name)' exceeds IFNAMSIZ-1 (15)"
+            )
+        }
+        guard !name.contains(where: { $0.isWhitespace || $0 == "/" || $0 == "\0" || $0 == ":" }) else {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "\(parameter) '\(name)' contains invalid characters (whitespace, '/', ':', or NUL)"
+            )
+        }
         return name
     }
 
     /// Idempotent create.
     public func create() throws {
+        let validated = try validated()
         try Self.ensureStateDirectory()
-        let lock = try FileLock(path: Self.lockPath(for: name))
+        let lock = try FileLock(path: Self.lockPath(for: validated.name))
         try lock.withExclusive {
-            try createLocked()
+            try validated.createLocked()
         }
     }
 
     /// Idempotent delete. No-op when the bridge does not exist.
     public func delete() throws {
+        let validated = try validated()
         try Self.ensureStateDirectory()
-        let lock = try FileLock(path: Self.lockPath(for: name))
+        let lock = try FileLock(path: Self.lockPath(for: validated.name))
         try lock.withExclusive {
-            try deleteLocked()
+            try validated.deleteLocked()
         }
+    }
+
+    private func validated() throws -> Self {
+        let validatedName = try Self.validateInterfaceName(name, parameter: "name")
+        let validatedEgress = try egressInterface.map {
+            try Self.validateInterfaceName($0, parameter: "egressInterface")
+        }
+        return Self(
+            validatedName: validatedName,
+            subnet: subnet,
+            gateway: gateway,
+            mtu: mtu,
+            validatedEgressInterface: validatedEgress,
+            enableNAT: enableNAT,
+            logger: log
+        )
     }
 
     private func createLocked() throws {

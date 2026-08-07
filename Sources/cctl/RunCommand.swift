@@ -403,7 +403,7 @@ extension Application {
                 let subnetCIDR = try CIDRv4(subnet)
                 let gw = try bridgeGateway.map { try IPv4Address($0) }
 
-                let mgr = BridgeManager(
+                let mgr = try BridgeManager.make(
                     name: bridge,
                     subnet: subnetCIDR,
                     gateway: gw,
