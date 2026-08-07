@@ -191,6 +191,9 @@ public final class LinuxPod: Sendable {
     // the host.
     private let guestVsockPorts: Atomic<UInt32>
 
+    // Where the blocking reads and writes of a file transfer run.
+    private let copyQueue = DispatchQueue(label: "com.apple.containerization.copy")
+
     private struct State: Sendable {
         var phase: Phase
         var containers: [String: PodContainer]
@@ -1289,6 +1292,82 @@ extension LinuxPod {
                 try await vminitd.filesystemOperation(operation: operation, path: guestPath)
             }
         }
+    }
+
+    /// Default chunk size for file transfers (1MiB).
+    public static let defaultCopyChunkSize = GuestFileTransfer.defaultChunkSize
+
+    /// Copy a file or directory from the host into a container in the pod.
+    ///
+    /// Data transfer happens over a dedicated vsock connection. For
+    /// directories, the source is archived as tar+gzip and streamed directly
+    /// through vsock without intermediate temp files.
+    public func copyIn(
+        _ containerID: String,
+        from source: URL,
+        to destination: URL,
+        mode: UInt32 = 0o644,
+        createParents: Bool = true,
+        chunkSize: Int = defaultCopyChunkSize
+    ) async throws {
+        try await self.state.withLock { state in
+            try await self.transfer(containerID, state: state, operation: "copyIn").copyIn(
+                from: source,
+                to: destination,
+                mode: mode,
+                createParents: createParents,
+                chunkSize: chunkSize
+            )
+        }
+    }
+
+    /// Copy a file or directory from a container in the pod to the host.
+    ///
+    /// Data transfer happens over a dedicated vsock connection. For
+    /// directories, the guest archives the source as tar+gzip and streams it
+    /// directly through vsock. The host extracts the archive without
+    /// intermediate temp files.
+    public func copyOut(
+        _ containerID: String,
+        from source: URL,
+        to destination: URL,
+        createParents: Bool = true,
+        chunkSize: Int = defaultCopyChunkSize
+    ) async throws {
+        try await self.state.withLock { state in
+            try await self.transfer(containerID, state: state, operation: "copyOut").copyOut(
+                from: source,
+                to: destination,
+                createParents: createParents,
+                chunkSize: chunkSize
+            )
+        }
+    }
+
+    /// A transfer against one container's filesystem, on a port of its own.
+    private func transfer(_ containerID: String, state: State, operation: String) throws -> GuestFileTransfer {
+        let createdState = try state.phase.createdState(operation)
+
+        guard let container = state.containers[containerID] else {
+            throw ContainerizationError(
+                .notFound,
+                message: "container \(containerID) not found in pod"
+            )
+        }
+
+        guard container.state == .started else {
+            throw ContainerizationError(
+                .invalidState,
+                message: "container \(containerID) must be started to copy files"
+            )
+        }
+
+        return GuestFileTransfer(
+            vm: createdState.vm,
+            guestRoot: Self.guestRootfsPath(containerID),
+            port: self.hostVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue,
+            queue: self.copyQueue
+        )
     }
 
     /// Close a container's standard input to signal no more input is arriving.
