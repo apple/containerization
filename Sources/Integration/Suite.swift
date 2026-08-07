@@ -562,6 +562,8 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("pod container filesystem isolation", testPodContainerFilesystemIsolation),
             Test("pod copy round trip", testPodCopyRoundTrip),
             Test("pod writable layer", testPodWritableLayer),
+            Test("pod hotplug block rootfs", testPodHotplugBlockRootfs),
+            Test("pod hotplug writable layer", testPodHotplugWritableLayer),
             Test("pod container PID namespace isolation", testPodContainerPIDNamespaceIsolation),
             Test("pod container independent resource limits", testPodContainerIndependentResourceLimits),
             Test("pod shared PID namespace", testPodSharedPIDNamespace),
@@ -648,13 +650,10 @@ struct IntegrationSuite: AsyncParsableCommand {
             ] + macOS26Tests()
         let tests: [Test] = crossPlatformTests + macOSOnlyTests
         #else
-        // VZ takes a disk into a running machine over its USB controller, but
-        // the guest's naming of it is not yet settled, so the block case is
-        // held here alongside the directory share, which VZ fixes at boot.
+        // A directory share is fixed at boot on VZ, so only the backend that
+        // adds one to a running machine is held to it.
         let linuxOnlyTests: [Test] = [
-            Test("pod hotplug block rootfs", testPodHotplugBlockRootfs),
-            Test("pod hotplug virtiofs rootfs", testPodHotplugVirtiofsRootfs),
-            Test("pod hotplug writable layer", testPodHotplugWritableLayer),
+            Test("pod hotplug virtiofs rootfs", testPodHotplugVirtiofsRootfs)
         ]
         let tests: [Test] = crossPlatformTests + linuxOnlyTests
         #endif

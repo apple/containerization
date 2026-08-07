@@ -21,7 +21,7 @@ import ContainerizationExtras
 import Foundation
 import Logging
 import Synchronization
-import Virtualization
+@preconcurrency import Virtualization
 
 /// Attaches block devices to a running virtual machine.
 ///
@@ -85,12 +85,15 @@ final class VZHotplugProvider: HotplugProvider, @unchecked Sendable {
                 message: "only a block device can be attached to a running machine"
             )
         }
-        guard let controller = vm.usbControllers.first else {
+        // The controller and the device are Virtualization objects, touched
+        // only inside a block dispatched to the machine's own queue.
+        guard let first = vm.usbControllers.first else {
             throw ContainerizationError(
                 .unsupported,
                 message: "the machine has no USB controller to attach to"
             )
         }
+        nonisolated(unsafe) let controller = first
 
         let letter = try allocator.allocate()
         do {
@@ -98,7 +101,7 @@ final class VZHotplugProvider: HotplugProvider, @unchecked Sendable {
                 url: URL(filePath: block.source),
                 readOnly: block.options.contains("ro")
             )
-            let device = VZUSBMassStorageDevice(
+            nonisolated(unsafe) let device = VZUSBMassStorageDevice(
                 configuration: VZUSBMassStorageDeviceConfiguration(attachment: attachment)
             )
 
@@ -145,15 +148,17 @@ final class VZHotplugProvider: HotplugProvider, @unchecked Sendable {
             defer { records.removeValue(forKey: id) }
             return records[id] ?? []
         }
-        guard let controller = vm.usbControllers.first else {
+        guard let first = vm.usbControllers.first else {
             return
         }
+        nonisolated(unsafe) let controller = first
 
         for record in popped {
+            nonisolated(unsafe) let device = record.device
             do {
                 try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
                     queue.async {
-                        controller.detach(device: record.device) { error in
+                        controller.detach(device: device) { error in
                             if let error {
                                 continuation.resume(throwing: error)
                                 return
@@ -171,7 +176,7 @@ final class VZHotplugProvider: HotplugProvider, @unchecked Sendable {
             try? allocator.release(record.letter)
         }
 
-        _mounts.withLock { $0.removeValue(forKey: id) }
+        _ = _mounts.withLock { $0.removeValue(forKey: id) }
     }
 
     /// Virtualization shares directories through devices fixed at boot, so a
