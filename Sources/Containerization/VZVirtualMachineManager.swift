@@ -26,6 +26,7 @@ public struct VZVirtualMachineManager: VirtualMachineManager {
     private let kernel: Kernel
     private let initialFilesystem: Mount
     private let rosetta: Bool
+    private let rosettaConfiguration: RosettaConfiguration?
     private let nestedVirtualization: Bool
     private let group: EventLoopGroup?
     private let logger: Logger?
@@ -36,11 +37,13 @@ public struct VZVirtualMachineManager: VirtualMachineManager {
         rosetta: Bool = false,
         nestedVirtualization: Bool = false,
         group: EventLoopGroup? = nil,
-        logger: Logger? = nil
+        logger: Logger? = nil,
+        rosettaConfiguration: RosettaConfiguration? = nil
     ) {
         self.kernel = kernel
         self.initialFilesystem = initialFilesystem
         self.rosetta = rosetta
+        self.rosettaConfiguration = rosettaConfiguration
         self.nestedVirtualization = nestedVirtualization
         self.group = group
         self.logger = logger
@@ -58,6 +61,8 @@ public struct VZVirtualMachineManager: VirtualMachineManager {
         // Clamp to system CPU count as Virtualization.framework bounds us to this.
         let cpus = min(vmConfig.cpus, ProcessInfo.processInfo.activeProcessorCount)
 
+        let rosettaConfiguration = self.rosettaConfiguration ?? (self.rosetta ? .cached : nil)
+
         return try VZVirtualMachineInstance(
             group: self.group,
             logger: self.logger,
@@ -73,7 +78,8 @@ public struct VZVirtualMachineManager: VirtualMachineManager {
                 }
 
                 instanceConfig.interfaces = vmConfig.interfaces
-                instanceConfig.rosetta = self.rosetta
+                instanceConfig.rosetta = rosettaConfiguration != nil
+                instanceConfig.rosettaCachingOptions = rosettaConfiguration?.cachingOptions
                 instanceConfig.nestedVirtualization = useNestedVirtualization
 
                 instanceConfig.mountsByID = vmConfig.mountsByID

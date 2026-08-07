@@ -71,6 +71,8 @@ public final class VZVirtualMachineInstance: Sendable {
         public var memoryInBytes: UInt64
         /// Toggle rosetta's x86_64 emulation support.
         public var rosetta: Bool
+        /// Configure Rosetta's translation cache when Rosetta is enabled.
+        public var rosettaCachingOptions: RosettaConfiguration.CachingOptions?
         /// Toggle nested virtualization support.
         public var nestedVirtualization: Bool
         /// Mount attachments organized by metadata ID.
@@ -90,9 +92,14 @@ public final class VZVirtualMachineInstance: Sendable {
             self.cpus = 4
             self.memoryInBytes = 1024.mib()
             self.rosetta = false
+            self.rosettaCachingOptions = .defaultUnixSocket
             self.nestedVirtualization = false
             self.mountsByID = [:]
             self.interfaces = []
+        }
+
+        var rosettaEnabled: Bool {
+            self.rosetta
         }
     }
 
@@ -197,8 +204,8 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
             )
 
             do {
-                if self.config.rosetta {
-                    try await agent.enableRosetta()
+                if self.config.rosettaEnabled {
+                    try await agent.enableRosetta(cachingOptions: self.config.rosettaCachingOptions)
                 }
             } catch {
                 try await agent.close()
@@ -366,7 +373,7 @@ extension VZVirtualMachineInstance {
     }
 
     func prestart() async throws {
-        if self.config.rosetta {
+        if self.config.rosettaEnabled {
             #if arch(arm64)
             if VZLinuxRosettaDirectoryShare.availability == .notInstalled {
                 self.logger?.info("installing rosetta")
@@ -380,6 +387,23 @@ extension VZVirtualMachineInstance {
 }
 
 extension VZVirtualMachineInstance.Configuration {
+    #if arch(arm64)
+    private func vzRosettaCachingOptions() -> VZLinuxRosettaDirectoryShare.CachingOptions? {
+        guard let options = self.rosettaCachingOptions else {
+            return nil
+        }
+
+        switch options {
+        case .defaultUnixSocket:
+            return .defaultUnixSocket
+        case .unixSocket(let path):
+            return .unixSocket(path)
+        case .abstractSocket(let name):
+            return .abstractSocket(name)
+        }
+    }
+    #endif
+
     public static func installRosetta() async throws {
         do {
             #if arch(arm64)
@@ -433,7 +457,7 @@ extension VZVirtualMachineInstance.Configuration {
             return try vzi.device()
         }
 
-        if self.rosetta {
+        if self.rosettaEnabled {
             #if arch(arm64)
             switch VZLinuxRosettaDirectoryShare.availability {
             case .notSupported:
@@ -447,6 +471,7 @@ extension VZVirtualMachineInstance.Configuration {
                 fallthrough
             case .installed:
                 let share = try VZLinuxRosettaDirectoryShare()
+                try share.setCachingOptions(self.vzRosettaCachingOptions())
                 let device = VZVirtioFileSystemDeviceConfiguration(tag: "rosetta")
                 device.share = share
                 config.directorySharingDevices.append(device)
