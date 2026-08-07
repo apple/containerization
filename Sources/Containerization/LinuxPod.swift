@@ -57,6 +57,13 @@ public final class LinuxPod: Sendable {
         public var interfaces: [any Interface] = []
         /// Whether nested virtualization should be turned on for the pod.
         public var virtualization: Bool = false
+        /// Additional CPU cores to allocate for the virtual machine on top of
+        /// the pod's configured `cpus`, so what the pod was given is what its
+        /// containers have rather than what the guest agent leaves of it.
+        public var cpuOverhead: Int = 1
+        /// Additional memory in bytes to allocate for the virtual machine on
+        /// top of the pod's configured `memoryInBytes`.
+        public var memoryOverhead: UInt64 = 128.mib()
         /// Optional file path to store serial boot logs.
         public var bootLog: BootLog?
         /// Whether containers in the pod should share a PID namespace.
@@ -669,9 +676,12 @@ extension LinuxPod {
                 return false
             }
 
+            // The machine carries the guest agent as well as the containers,
+            // so it is given the pod's size and the agent's on top; what the
+            // pod was given is then what its containers have.
             var vmConfig = VMConfiguration(
-                cpus: self.config.cpus,
-                memoryInBytes: self.config.memoryInBytes,
+                cpus: self.config.cpus + self.config.cpuOverhead,
+                memoryInBytes: self.config.memoryInBytes + self.config.memoryOverhead,
                 interfaces: self.config.interfaces,
                 storage: machineStorage,
                 bootLog: self.config.bootLog,
@@ -681,9 +691,8 @@ extension LinuxPod {
             let creationConfig = StandardVMConfig(configuration: vmConfig)
             let vm = try await self.vmm.create(config: creationConfig)
             let relayManager = UnixSocketRelayManager(vm: vm)
-            try await vm.start()
-
             do {
+                try await vm.start()
                 let containers = state.containers
                 let shareProcessNamespace = self.config.shareProcessNamespace
                 let pauseProcessHolder = Mutex<LinuxProcess?>(nil)
