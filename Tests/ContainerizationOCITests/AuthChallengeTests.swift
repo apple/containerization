@@ -55,4 +55,20 @@ struct AuthChallengeTests {
         #expect(challenges.count == 1)
         #expect(challenges[0] == testCase.expected)
     }
+
+    @Test func basicChallengeWithCredentialsReportsAuthenticationFailure() throws {
+        let challenges = RegistryClient.parseWWWAuthenticateHeaders(headers: ["Basic realm=\"IssueRegistry\""])
+        let reason = RegistryClient.authenticationFailureReason(
+            authentication: BasicAuthentication(username: "issue-user", password: "wrong-password"),
+            challenges: challenges)
+
+        #expect(reason == "access denied or wrong credentials")
+    }
+
+    @Test func basicChallengeWithoutCredentialsDoesNotReportAuthenticationFailure() throws {
+        let challenges = RegistryClient.parseWWWAuthenticateHeaders(headers: ["Basic realm=\"IssueRegistry\""])
+        let reason = RegistryClient.authenticationFailureReason(authentication: nil, challenges: challenges)
+
+        #expect(reason == nil)
+    }
 }
