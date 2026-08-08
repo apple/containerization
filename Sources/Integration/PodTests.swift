@@ -2455,7 +2455,7 @@ extension IntegrationSuite {
 
         let buffer = BufferWriter()
         try await pod.addContainer("hot", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "hot")) { config in
-            config.process.arguments = ["/bin/echo", "hello from block rootfs"]
+            config.process.arguments = ["/bin/echo", "hello from a disk added while running"]
             config.process.stdout = buffer
         }
 
@@ -2469,9 +2469,10 @@ extension IntegrationSuite {
             guard status.exitCode == 0 else {
                 throw IntegrationError.assert(msg: "hot container status \(status) != 0")
             }
-            guard String(data: buffer.data, encoding: .utf8) == "hello from block rootfs\n" else {
+            let expected = "hello from a disk added while running\n"
+            guard String(data: buffer.data, encoding: .utf8) == expected else {
                 throw IntegrationError.assert(
-                    msg: "expected 'hello from block rootfs', got '\(String(data: buffer.data, encoding: .utf8) ?? "nil")'")
+                    msg: "expected '\(expected)', got '\(String(data: buffer.data, encoding: .utf8) ?? "nil")'")
             }
         } catch {
             try? await pod.stop()

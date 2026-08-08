@@ -681,14 +681,19 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             do {
                 try mnt.mount(createWithPerms: 0o755)
             } catch {
-                // A hot-plugged virtio device (virtio-blk / virtio-fs) may not
-                // be enumerated by the guest yet when the host issues this
-                // mount immediately after vm.add-disk / vm.add-fs: cloud-
-                // hypervisor places the device on the PCI bus but the guest
-                // does not always auto-probe it. Force a PCI rescan and retry
-                // with a bounded wait. Scoped to hot-plug-candidate sources so
-                // an ordinary mount failure isn't delayed.
-                let hotplugCandidate = request.type == "virtiofs" || request.source.hasPrefix("/dev/vd")
+                // A device attached to a running machine may not be enumerated
+                // by the guest yet when the host issues this mount straight
+                // after attaching it, so the mount races the guest and finds
+                // nothing. A virtio device (virtio-blk / virtio-fs) is placed
+                // on the PCI bus, which the guest does not always auto-probe,
+                // so the rescan below prompts it; a USB mass storage disk
+                // (/dev/sd*) enumerates on its own bus and simply needs the
+                // retry to wait for it. Scoped to the sources that can arrive
+                // this way so an ordinary mount failure isn't delayed.
+                let hotplugCandidate =
+                    request.type == "virtiofs"
+                    || request.source.hasPrefix("/dev/vd")
+                    || request.source.hasPrefix("/dev/sd")
                 guard hotplugCandidate else { throw error }
 
                 if let rescan = FileHandle(forWritingAtPath: "/sys/bus/pci/rescan") {
