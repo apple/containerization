@@ -53,6 +53,7 @@ public protocol VirtualMachineAgent: Sendable {
     func kill(pid: Int32, signal: Int32) async throws -> Int32
     func sync() async throws
     func writeFile(path: String, data: Data, flags: WriteFileFlags, mode: UInt32) async throws
+    func sysctl(settings: [String: String]) async throws
 
     // Process lifecycle
     func createProcess(
