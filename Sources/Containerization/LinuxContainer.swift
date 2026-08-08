@@ -1439,6 +1439,179 @@ extension LinuxContainer {
             }
         }
     }
+
+    /// Copy the contents of a tar stream into the container.
+    ///
+    /// The `archive` file handle is expected to yield a tar stream, either
+    /// uncompressed or compressed (gzip/bzip2/xz), matching `docker cp -` /
+    /// `podman cp -` input semantics. The bytes are streamed directly to the
+    /// guest, which extracts them in place honoring the ownership, mode and
+    /// symlink metadata recorded in the tar headers. No intermediate files are
+    /// created on the host, so host-side permission and path-length constraints
+    /// do not apply.
+    ///
+    /// - Parameters:
+    ///   - archive: A file handle yielding the tar stream to extract.
+    ///   - destination: The guest directory to extract the archive into.
+    ///   - createParents: Create parent directories of `destination` if missing.
+    ///   - chunkSize: The transfer chunk size in bytes.
+    public func copyIn(
+        archive: FileHandle,
+        to destination: URL,
+        createParents: Bool = true,
+        chunkSize: Int = defaultCopyChunkSize
+    ) async throws {
+        try await self.state.withLock {
+            let state = try $0.startedState("copyIn")
+
+            let guestPath = URL(filePath: self.root).appending(path: destination.path)
+            let port = self.hostVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
+            let listener = try state.vm.listen(port)
+
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    try await state.vm.withAgent { agent in
+                        guard let vminitd = agent as? Vminitd else {
+                            throw ContainerizationError(.unsupported, message: "copyIn requires Vminitd agent")
+                        }
+                        try await vminitd.copy(
+                            direction: .copyIn,
+                            guestPath: guestPath,
+                            vsockPort: port,
+                            createParents: createParents,
+                            isArchive: true
+                        )
+                    }
+                }
+
+                group.addTask {
+                    guard let conn = await listener.first(where: { _ in true }) else {
+                        throw ContainerizationError(.internalError, message: "copyIn: vsock connection not established")
+                    }
+                    try listener.finish()
+
+                    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                        self.copyQueue.async {
+                            do {
+                                defer { conn.closeFile() }
+                                try Self.spliceFd(
+                                    from: archive.fileDescriptor,
+                                    to: conn.fileDescriptor,
+                                    chunkSize: chunkSize,
+                                    label: "copyIn"
+                                )
+                                continuation.resume()
+                            } catch {
+                                continuation.resume(throwing: error)
+                            }
+                        }
+                    }
+                }
+
+                try await group.waitForAll()
+            }
+        }
+    }
+
+    /// Stream the contents of a container path as a tar archive to a file handle.
+    ///
+    /// Matches `docker cp CONTAINER:/path -` / `podman cp` output semantics: the
+    /// output is always a tar archive, even for a single regular file, and
+    /// preserves the ownership and mode recorded in the guest filesystem. The
+    /// guest performs the archiving natively and streams the result directly;
+    /// no intermediate files are created on the host.
+    ///
+    /// - Parameters:
+    ///   - source: The guest path (file or directory) to archive.
+    ///   - archive: A file handle the tar stream is written to.
+    ///   - chunkSize: The transfer chunk size in bytes.
+    public func copyOut(
+        from source: URL,
+        to archive: FileHandle,
+        chunkSize: Int = defaultCopyChunkSize
+    ) async throws {
+        try await self.state.withLock {
+            let state = try $0.startedState("copyOut")
+
+            let guestPath = URL(filePath: self.root).appending(path: source.path)
+            let port = self.hostVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
+            let listener = try state.vm.listen(port)
+
+            let (metadataStream, metadataCont) = AsyncStream.makeStream(of: Vminitd.CopyMetadata.self)
+
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    try await state.vm.withAgent { agent in
+                        guard let vminitd = agent as? Vminitd else {
+                            throw ContainerizationError(.unsupported, message: "copyOut requires Vminitd agent")
+                        }
+                        try await vminitd.copy(
+                            direction: .copyOut,
+                            guestPath: guestPath,
+                            vsockPort: port,
+                            isArchive: true,
+                            onMetadata: { meta in
+                                metadataCont.yield(meta)
+                                metadataCont.finish()
+                            }
+                        )
+                    }
+                }
+
+                group.addTask {
+                    // Wait for the guest to report metadata (and thus that the
+                    // source exists) before accepting the data connection.
+                    _ = await metadataStream.first(where: { _ in true })
+
+                    guard let conn = await listener.first(where: { _ in true }) else {
+                        throw ContainerizationError(.internalError, message: "copyOut: vsock connection not established")
+                    }
+                    try listener.finish()
+
+                    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                        self.copyQueue.async {
+                            do {
+                                defer { conn.closeFile() }
+                                try Self.spliceFd(
+                                    from: conn.fileDescriptor,
+                                    to: archive.fileDescriptor,
+                                    chunkSize: chunkSize,
+                                    label: "copyOut"
+                                )
+                                continuation.resume()
+                            } catch {
+                                continuation.resume(throwing: error)
+                            }
+                        }
+                    }
+                }
+
+                try await group.waitForAll()
+            }
+        }
+    }
+
+    /// Copy raw bytes from one file descriptor to another until EOF.
+    private static func spliceFd(from srcFd: Int32, to dstFd: Int32, chunkSize: Int, label: String) throws {
+        var buf = [UInt8](repeating: 0, count: chunkSize)
+        while true {
+            let n = read(srcFd, &buf, buf.count)
+            if n == 0 { break }
+            guard n > 0 else {
+                throw ContainerizationError(.internalError, message: "\(label): read error: \(String(cString: strerror(errno)))")
+            }
+            var written = 0
+            while written < n {
+                let w = buf.withUnsafeBytes { ptr in
+                    write(dstFd, ptr.baseAddress! + written, n - written)
+                }
+                guard w > 0 else {
+                    throw ContainerizationError(.internalError, message: "\(label): vsock write error: \(String(cString: strerror(errno)))")
+                }
+                written += w
+            }
+        }
+    }
 }
 
 extension VirtualMachineInstance {
