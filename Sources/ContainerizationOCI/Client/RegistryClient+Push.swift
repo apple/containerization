@@ -103,39 +103,7 @@ extension RegistryClient {
             headers = [
                 ("Content-Type", mediaType)
             ]
-        } else {
-            // Start upload request for blobs.
-            components.path = "/v2/\(name)/blobs/uploads/"
-            try await request(components: components, method: .POST) { response in
-                switch response.status {
-                case .ok, .accepted, .noContent:
-                    break
-                case .created:
-                    throw ContainerizationError(.exists, message: "content already exists \(descriptor.digest)")
-                default:
-                    let url = components.url?.absoluteString ?? "unknown"
-                    let reason = await ErrorResponse.fromResponseBody(response.body)?.jsonString
-                    throw Error.invalidStatus(url: url, response.status, reason: reason)
-                }
-
-                // Get the location to upload the blob.
-                guard let location = response.headers.first(name: "Location") else {
-                    throw ContainerizationError(.invalidArgument, message: "missing required header Location")
-                }
-
-                guard let urlComponents = URLComponents(string: location) else {
-                    throw ContainerizationError(.invalidArgument, message: "invalid url \(location)")
-                }
-                var queryItems = urlComponents.queryItems ?? []
-                queryItems.append(URLQueryItem(name: "digest", value: descriptor.digest))
-                components.path = urlComponents.path
-                components.queryItems = queryItems
-                headers = [
-                    ("Content-Type", "application/octet-stream"),
-                    ("Content-Length", String(descriptor.size)),
-                ]
-            }
-        }
+        } 
 
         // We have to pass a body closure rather than a body to reset the stream when retrying.
         let bodyClosure = {
@@ -144,19 +112,89 @@ extension RegistryClient {
             return body
         }
 
-        return try await request(components: components, method: .PUT, bodyClosure: bodyClosure, headers: headers) { response in
-            switch response.status {
-            case .ok, .created, .noContent:
-                break
-            default:
-                let url = components.url?.absoluteString ?? "unknown"
-                let reason = await ErrorResponse.fromResponseBody(response.body)?.jsonString
-                throw Error.invalidStatus(url: url, response.status, reason: reason)
-            }
+        // Establish our smart retry limits
+        let maxRetries = self.retryOptions?.maxRetries ?? 3
+        let retryInterval = self.retryOptions?.retryInterval ?? 1_000_000_000
+        var retryCount = 0
 
-            guard descriptor.digest == response.headers.first(name: "Docker-Content-Digest") else {
-                let required = response.headers.first(name: "Docker-Content-Digest") ?? ""
-                throw ContainerizationError(.internalError, message: "digest mismatch \(descriptor.digest) != \(required)")
+        while true {
+            do {
+                if !isManifest {
+                    // Start upload request for blobs to get a FRESH session URL.
+                    var postComponents = base
+                    postComponents.path = "/v2/\(name)/blobs/uploads/"
+                    
+                    // Override generic retry: we do NOT want the generic client retrying this POST
+                    try await request(
+                        components: postComponents, 
+                        method: .POST,
+                        retryOptionsOverride: RetryOptions(maxRetries: 0, retryInterval: 0)
+                    ) { response in
+                        switch response.status {
+                        case .ok, .accepted, .noContent:
+                            break
+                        case .created:
+                            throw ContainerizationError(.exists, message: "content already exists \(descriptor.digest)")
+                        default:
+                            let url = postComponents.url?.absoluteString ?? "unknown"
+                            let reason = await ErrorResponse.fromResponseBody(response.body)?.jsonString
+                            throw Error.invalidStatus(url: url, response.status, reason: reason)
+                        }
+
+                        guard let location = response.headers.first(name: "Location") else {
+                            throw ContainerizationError(.invalidArgument, message: "missing required header Location")
+                        }
+
+                        guard let urlComponents = URLComponents(string: location) else {
+                            throw ContainerizationError(.invalidArgument, message: "invalid url \(location)")
+                        }
+                        
+                        var queryItems = urlComponents.queryItems ?? []
+                        queryItems.append(URLQueryItem(name: "digest", value: descriptor.digest))
+                        components.path = urlComponents.path
+                        components.queryItems = queryItems
+                        headers = [
+                            ("Content-Type", "application/octet-stream"),
+                            ("Content-Length", String(descriptor.size)),
+                        ]
+                    }
+                }
+
+                // Execute the PUT request with generic retries completely disabled
+                try await request(
+                    components: components, 
+                    method: .PUT, 
+                    bodyClosure: bodyClosure, 
+                    headers: headers,
+                    retryOptionsOverride: RetryOptions(maxRetries: 0, retryInterval: 0)
+                ) { response in
+                    switch response.status {
+                    case .ok, .created, .noContent:
+                        break
+                    default:
+                        let url = components.url?.absoluteString ?? "unknown"
+                        let reason = await ErrorResponse.fromResponseBody(response.body)?.jsonString
+                        throw Error.invalidStatus(url: url, response.status, reason: reason)
+                    }
+
+                    guard descriptor.digest == response.headers.first(name: "Docker-Content-Digest") else {
+                        let required = response.headers.first(name: "Docker-Content-Digest") ?? ""
+                        throw ContainerizationError(.internalError, message: "digest mismatch \(descriptor.digest) != \(required)")
+                    }
+                }
+                
+                // If the PUT succeeds without throwing, we break out of our smart retry loop
+                break 
+                
+            } catch {
+                // Intercept the failure. If we haven't hit our max retries, loop again to generate a new POST session.
+                if retryCount < maxRetries {
+                    retryCount += 1
+                    try await Task.sleep(nanoseconds: retryInterval)
+                    continue
+                } else {
+                    throw error
+                }
             }
         }
     }
