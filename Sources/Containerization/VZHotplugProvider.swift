@@ -48,32 +48,32 @@ final class VZHotplugProvider: HotplugProvider, @unchecked Sendable {
     /// Names for the disks attached while the machine runs, which the guest
     /// numbers apart from the ones it booted with.
     private let allocator: any AddressAllocator<Character>
-    private let _mounts: Mutex<[String: [AttachedFilesystem]]>
+    private let _storage: Mutex<MachineAttachments>
     private let _records: Mutex<[String: [HotplugRecord]]>
     private let logger: Logger?
 
     init(
         vm: VZVirtualMachine,
         queue: DispatchQueue,
-        initialMounts: [String: [AttachedFilesystem]],
+        initialStorage: MachineAttachments,
         logger: Logger?
     ) {
         self.vm = vm
         self.queue = queue
         self.allocator = Character.blockDeviceTagAllocator()
-        self._mounts = Mutex(initialMounts)
+        self._storage = Mutex(initialStorage)
         self._records = Mutex([:])
         self.logger = logger
     }
 
-    var mounts: [String: [AttachedFilesystem]] {
-        _mounts.withLock { $0 }
+    var storage: MachineAttachments {
+        _storage.withLock { $0 }
     }
 
-    func withMountRegistry<T: Sendable>(
-        _ body: (inout sending [String: [AttachedFilesystem]]) throws -> sending T
+    func withStorage<T: Sendable>(
+        _ body: (inout sending MachineAttachments) throws -> sending T
     ) rethrows -> T {
-        try _mounts.withLock(body)
+        try _storage.withLock(body)
     }
 
     // MARK: - HotplugProvider conformance
@@ -133,13 +133,14 @@ final class VZHotplugProvider: HotplugProvider, @unchecked Sendable {
         }
     }
 
-    func registerMounts(id: String, rootfs: AttachedFilesystem, additionalMounts: [Mount]) throws {
-        var attached: [AttachedFilesystem] = [rootfs]
+    func registerMounts(id: String, rootfs: AttachedFilesystem, writableLayer: AttachedFilesystem?, additionalMounts: [Mount]) throws {
+        var mounts: [AttachedFilesystem] = []
         for mount in additionalMounts {
-            attached.append(try AttachedFilesystem(mount: mount, allocator: allocator))
+            mounts.append(try AttachedFilesystem(mount: mount, allocator: allocator))
         }
-        _mounts.withLock {
-            $0[id, default: []].append(contentsOf: attached)
+        let container = ContainerAttachments(rootfs: rootfs, writableLayer: writableLayer, mounts: mounts)
+        _storage.withLock {
+            $0.containers[id] = container
         }
     }
 
@@ -176,7 +177,7 @@ final class VZHotplugProvider: HotplugProvider, @unchecked Sendable {
             try? allocator.release(record.letter)
         }
 
-        _ = _mounts.withLock { $0.removeValue(forKey: id) }
+        _ = _storage.withLock { $0.containers.removeValue(forKey: id) }
     }
 
     /// Virtualization shares directories through devices fixed at boot, so a

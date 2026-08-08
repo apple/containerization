@@ -19,6 +19,16 @@
 /// Conforming types implement the mechanics of hotplugging block devices and
 /// virtiofs shares into a running VM.
 public protocol HotplugProvider: Sendable {
+    /// The machine's attached storage.
+    ///
+    /// A provider holds the machine's whole registry, seeded with what the
+    /// machine booted with, so a device taken while it runs is registered
+    /// alongside the rest and a container reads one registry either way.
+    var storage: MachineAttachments { get }
+
+    /// Mutate the storage registry.
+    func withStorage<T: Sendable>(_ body: (inout sending MachineAttachments) throws -> sending T) rethrows -> T
+
     /// Hotplug a block device into the running VM.
     /// - Parameters:
     ///   - block: The mount configuration for the block device

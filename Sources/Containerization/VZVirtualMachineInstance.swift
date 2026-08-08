@@ -29,9 +29,16 @@ public final class VZVirtualMachineInstance: Sendable {
     public typealias Agent = Vminitd
 
     /// The machine's attached storage.
+    ///
+    /// Where a hotplug provider is installed it holds the registry, so a disk
+    /// taken while the machine runs is registered with the ones it booted
+    /// with. The machine's own copy answers only where there is no provider.
     private let _storage: Mutex<MachineAttachments>
     public var storage: MachineAttachments {
-        _storage.withLock { $0 }
+        if let hotplugProvider {
+            return hotplugProvider.storage
+        }
+        return _storage.withLock { $0 }
     }
 
     /// The underlying Virtualization framework virtual machine.
@@ -42,7 +49,10 @@ public final class VZVirtualMachineInstance: Sendable {
 
     /// Mutate the storage registry.
     public func withStorage<T: Sendable>(_ body: (inout sending MachineAttachments) throws -> sending T) rethrows -> T {
-        try _storage.withLock(body)
+        if let hotplugProvider {
+            return try hotplugProvider.withStorage(body)
+        }
+        return try _storage.withLock(body)
     }
 
     /// Serialize VM operations with the instance lock.
@@ -146,7 +156,7 @@ public final class VZVirtualMachineInstance: Sendable {
             self.hotplugProvider = VZHotplugProvider(
                 vm: self.vm,
                 queue: self.queue,
-                initialMounts: mountAttachments,
+                initialStorage: mountAttachments,
                 logger: logger
             )
         }
