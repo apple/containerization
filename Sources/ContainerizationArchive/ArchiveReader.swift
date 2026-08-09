@@ -398,10 +398,16 @@ extension ArchiveReader {
     }
 
     private func setFileAttributes(fd: Int32, entry: WriteEntry) {
-        fchmod(fd, entry.permissions & 0o777)
+        // Ownership must be set before the permission mode: Darwin's fchown clears
+        // the set-user-ID and set-group-ID bits, even when chowning to the file's
+        // existing owner/group, so applying it after fchmod would silently drop
+        // those bits.
         if let owner = entry.owner, let group = entry.group {
             fchown(fd, owner, group)
         }
+        // Mask to the POSIX permission field (0o7777: owner/group/other rwx plus
+        // set-user-ID, set-group-ID, and sticky), excluding unrelated file-type bits.
+        fchmod(fd, entry.permissions & 0o7777)
     }
 
     private static func copyDataReaderToFd(dataReader: ArchiveEntryReader, fileFd: Int32, memberPath: FilePath) throws {
