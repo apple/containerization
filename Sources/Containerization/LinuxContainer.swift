@@ -1356,6 +1356,7 @@ extension LinuxContainer {
 
             try await withThrowingTaskGroup(of: Void.self) { group in
                 group.addTask {
+                    defer { metadataCont.finish() }
                     try await state.vm.withAgent { agent in
                         guard let vminitd = agent as? Vminitd else {
                             throw ContainerizationError(.unsupported, message: "copyOut requires Vminitd agent")
