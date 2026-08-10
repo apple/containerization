@@ -641,8 +641,8 @@ extension LinuxContainer {
             let vm = try await self.vmm.create(config: creationConfig)
             let relayManager = UnixSocketRelayManager(vm: vm, log: self.logger)
 
-            try await vm.start()
             do {
+                try await vm.start()
                 let mountsForAgent = containerMounts
                 try await vm.withAgent { agent in
                     try await agent.standardSetup()
