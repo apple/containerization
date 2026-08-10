@@ -15,10 +15,74 @@ on:
         description: Version of containerization 
         default: test
 
-jobs: 
-  buildAndTest: 
+jobs:
+  swift-version:
+    name: Determine Swift version
+    if: github.repository == 'apple/containerization'
+    runs-on: ubuntu-24.04
+    outputs:
+      image: ${{ steps.version.outputs.image }}
+    steps:
+      - name: Checkout .swift-version
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6
+        with:
+          sparse-checkout: .swift-version
+          sparse-checkout-cone-mode: false
+
+      - name: Read Swift version
+        id: version
+        run: echo "image=swift:$(cat .swift-version)-noble" >> "$GITHUB_OUTPUT"
+
+  # Build the guest initfs (vminitd/vmexec compiled static-musl, then packed
+  # into initfs.ext4 + a rootfs tar) inside a GitHub-native Swift Linux
+  # container (Docker-backed) — NOT via apple/container, which isn't available
+  # on GitHub runners. The macOS job below consumes these as an artifact and
+  # creates the vminit:latest image natively with cctl. The container job is
+  # unprivileged, so build-initfs.sh uses its `mke2fs -d` fallback (no loop
+  # mount / no CAP_SYS_ADMIN needed).
+  buildGuest:
+    name: Build guest initfs
+    if: github.repository == 'apple/containerization'
+    needs: swift-version
+    timeout-minutes: 30
+    runs-on: ubuntu-24.04
+    container: ${{ needs.swift-version.outputs.image }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6
+        with:
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        run: apt-get update && apt-get install -y curl make e2fsprogs libarchive-dev libbz2-dev liblzma-dev libssl-dev
+
+      - name: Install Static Linux SDK
+        run: make -C vminitd linux-sdk
+
+      - name: Build vminitd (static musl, aarch64)
+        # Force aarch64 even though this runner is x86_64: the macOS buildAndTest
+        # job boots arm64 VZ VMs, so vminitd (PID 1) must be an aarch64 binary or
+        # the guest fails to exec and the integration boot hangs. The Static Linux
+        # SDK cross-targets both arches from any host (same mechanism dist-x86_64
+        # uses in reverse).
+        run: make -C vminitd MUSL_ARCH=aarch64 BUILD_CONFIGURATION=${{ inputs.release && 'release' || 'debug' }}
+
+      - name: Build initfs.ext4
+        run: ./scripts/build-initfs.sh --vminitd vminitd/bin/vminitd --vmexec vminitd/bin/vmexec --ext4 bin/initfs.ext4 --tar bin/init.rootfs.tar.gz
+
+      - name: Upload guest initfs
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6
+        with:
+          name: initfs
+          path: |
+            bin/initfs.ext4
+            bin/init.rootfs.tar.gz
+          if-no-files-found: error
+
+  buildAndTest:
     name: Build and Test repo
     if: github.repository == 'apple/containerization'
+    needs: buildGuest
     timeout-minutes: 60
     runs-on: [self-hosted, macos, tahoe, ARM64]
     permissions:
@@ -32,11 +96,6 @@ jobs:
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6
         with:
           fetch-depth: 0
-
-      - name: Activate Swiftly
-        run: |
-          source ~/.swiftly/env.sh
-          cat ~/.swiftly/env.sh
 
       - name: Check formatting
         run: | 
@@ -57,11 +116,15 @@ jobs:
         env:
           BUILD_CONFIGURATION: ${{ inputs.release && 'release' || 'debug' }}
 
-      - name: Make vminitd image
+      - name: Download guest initfs
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7
+        with:
+          name: initfs
+          path: bin
+
+      - name: Make vminit image
         run: |
-          source ~/.swiftly/env.sh
-          make -C vminitd swift linux-sdk
-          make init
+          make init-image
         env:
           BUILD_CONFIGURATION: ${{ inputs.release && 'release' || 'debug' }}
 

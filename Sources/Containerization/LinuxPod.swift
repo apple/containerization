@@ -83,6 +83,16 @@ public final class LinuxPod: Sendable {
         public var sysctl: [String: String] = [:]
         /// The mounts for the container.
         public var mounts: [Mount] = LinuxContainer.defaultMounts()
+        /// Paths inside the container that vmexec hides from the workload.
+        /// Defaults to the OCI standard set (``LinuxContainer/defaultMaskedPaths()``),
+        /// matching the restricted capability baseline. Set to `[]` to opt out,
+        /// or append to extend it.
+        public var maskedPaths: [String] = LinuxContainer.defaultMaskedPaths()
+        /// Paths inside the container that vmexec marks read-only.
+        /// Defaults to the OCI standard set (``LinuxContainer/defaultReadonlyPaths()``),
+        /// matching the restricted capability baseline. Set to `[]` to opt out,
+        /// or append to extend it.
+        public var readonlyPaths: [String] = LinuxContainer.defaultReadonlyPaths()
         /// The Unix domain socket relays to setup for the container.
         public var sockets: [UnixSocketConfiguration] = []
         /// The DNS configuration for the container.
@@ -102,6 +112,10 @@ public final class LinuxPod: Sendable {
         public enum Source: Sendable {
             /// A network block device (NBD) volume.
             case nbd(url: URL, timeout: TimeInterval? = nil, readOnly: Bool = false)
+            /// A disk-image file on the host, attached as a virtio-block device.
+            case diskImage(path: URL, readOnly: Bool = false)
+            /// An in-memory (tmpfs) volume mounted inside the guest.
+            case tmpfs(sizeBytes: UInt64? = nil)
         }
 
         /// The logical name of this volume. Containers reference this name
@@ -131,6 +145,20 @@ public final class LinuxPod: Sendable {
                     destination: LinuxPod.guestVolumePath(name),
                     options: readOnly ? ["ro"] : [],
                     runtimeOptions: runtimeOptions
+                )
+            case .diskImage(let path, let readOnly):
+                return Mount.block(
+                    format: self.format,
+                    source: path.absolutePath(),
+                    destination: LinuxPod.guestVolumePath(name),
+                    options: readOnly ? ["ro"] : []
+                )
+            case .tmpfs(let sizeBytes):
+                return Mount.any(
+                    type: "tmpfs",
+                    source: "tmpfs",
+                    destination: LinuxPod.guestVolumePath(name),
+                    options: sizeBytes.map { ["size=\($0)"] } ?? []
                 )
             }
         }
@@ -167,6 +195,8 @@ public final class LinuxPod: Sendable {
         var phase: Phase
         var containers: [String: PodContainer]
         var pauseProcess: LinuxProcess?
+        // Whether the unified virtiofs share is mounted at `/run/virtiofs` in the guest
+        var unifiedVirtiofsMounted: Bool = false
     }
 
     private enum Phase: Sendable {
@@ -281,6 +311,8 @@ public final class LinuxPod: Sendable {
 
         // Linux toggles
         spec.linux?.sysctl = config.sysctl
+        spec.linux?.maskedPaths = config.maskedPaths
+        spec.linux?.readonlyPaths = config.readonlyPaths
 
         // If the rootfs was requested as read-only, set it in the OCI spec.
         // We let the OCI runtime remount as ro, instead of doing it originally.
@@ -395,11 +427,70 @@ extension LinuxPod {
                         mount.destination = Self.guestRootfsPath(id)
                         try await agent.mount(mount)
 
+                        // Filter out shared mounts — those are handled separately as
+                        // pod volume bind mounts. Without it here, a container added to an
+                        // already-created would add a duplicated mount into the shared VM.
+                        let nonSharedMounts = fileMountContext.transformedMounts.filter {
+                            if case .shared = $0.runtimeOptions { return false }
+                            return true
+                        }
                         try vm.registerMounts(
                             id: id,
                             rootfs: attachment,
-                            additionalMounts: fileMountContext.transformedMounts
+                            additionalMounts: nonSharedMounts
                         )
+
+                        // Mount this container's additional virtiofs shares in the
+                        // guest. create() does this for boot-time containers (the
+                        // /run/virtiofs loop); the hotplug path must do the same or
+                        // the container's bind mounts from /run/virtiofs/<tag> fail
+                        // with ENOENT.
+                        //
+                        // Derive the tags from the additional mounts directly rather
+                        // than from vm.mounts[id], so this is independent of the
+                        // rootfs (which may be virtiofs or virtio-blk) and of mount
+                        // ordering. The rootfs is mounted at /run/container/<id>/rootfs
+                        // and is never consumed from /run/virtiofs.
+                        let newVirtiofsTags = try virtioFSMounts.map { try hashFilePath(path: $0.source) }
+                        if !newVirtiofsTags.isEmpty {
+                            try await agent.mkdir(path: "/run/virtiofs", all: true, perms: 0o755)
+                            if vm.virtiofsLayout == .perTag {
+                                // Tags already mounted in the guest at boot or by a
+                                // prior hotplug (i.e. present on another container).
+                                let alreadyMounted = Set(
+                                    vm.mounts
+                                        .filter { $0.key != id }
+                                        .values.flatMap { $0 }
+                                        .filter { $0.type == "virtiofs" }
+                                        .map { $0.source }
+                                )
+                                var seen: Set<String> = []
+                                for tag in newVirtiofsTags
+                                where !alreadyMounted.contains(tag) && seen.insert(tag).inserted {
+                                    let dest = "/run/virtiofs/\(tag)"
+                                    try await agent.mkdir(path: dest, all: true, perms: 0o755)
+                                    try await agent.mount(
+                                        ContainerizationOCI.Mount(
+                                            type: "virtiofs",
+                                            source: tag,
+                                            destination: dest,
+                                            options: []
+                                        ))
+                                }
+                            } else if !state.unifiedVirtiofsMounted && vm.virtiofsLayout == .unified {
+                                // Unified layout: one /run/virtiofs mount for the
+                                // VM's lifetime, so mount it only if nothing has
+                                // mounted it at boot or on an earlier hotplug.
+                                try await agent.mount(
+                                    ContainerizationOCI.Mount(
+                                        type: "virtiofs",
+                                        source: "virtiofs",
+                                        destination: "/run/virtiofs",
+                                        options: []
+                                    ))
+                                state.unifiedVirtiofsMounted = true
+                            }
+                        }
 
                         if fileMountContext.hasFileMounts {
                             let containerMounts = vm.mounts[id] ?? []
@@ -511,6 +602,19 @@ extension LinuxPod {
                 mountsByID[self.id] = podVolumeMounts
             }
 
+            // Capture into an immutable `let` so the value is safely usable
+            // from the concurrent `withAgent` closure below. The container
+            // path makes the same decision in LinuxContainer.create — CH
+            // only attaches a virtiofs device when shares are configured,
+            // so mounting an unbacked /run/virtiofs would fail with EINVAL
+            // on the CH backend.
+            let hasVirtiofsMount = mountsByID.values.contains { mounts in
+                mounts.contains { mount in
+                    if case .virtiofs = mount.runtimeOptions { return true }
+                    return false
+                }
+            }
+
             var vmConfig = VMConfiguration(
                 cpus: self.config.cpus,
                 memoryInBytes: self.config.memoryInBytes,
@@ -534,16 +638,41 @@ extension LinuxPod {
                 try await vm.withAgent { agent in
                     try await agent.standardSetup()
 
-                    // Mount the unified virtiofs share at /run/virtiofs
-                    // All virtiofs directories appear as subdirectories here
-                    try await agent.mkdir(path: "/run/virtiofs", all: true, perms: 0o755)
-                    try await agent.mount(
-                        ContainerizationOCI.Mount(
-                            type: "virtiofs",
-                            source: "virtiofs",
-                            destination: "/run/virtiofs",
-                            options: []
-                        ))
+                    // Mount the unified virtiofs share at /run/virtiofs only
+                    // when at least one container has a virtiofs mount. VZ
+                    // tolerates the unbacked mount; CH does not.
+                    if hasVirtiofsMount {
+                        try await agent.mkdir(path: "/run/virtiofs", all: true, perms: 0o755)
+                        if vm.virtiofsLayout == .perTag {
+                            // CH backend: one virtio-fs device per source-hash
+                            // tag, so mount each tag separately at
+                            // /run/virtiofs/<tag>. See LinuxContainer for the
+                            // VZ vs. CH model split.
+                            var seenTags: Set<String> = []
+                            for (_, attached) in vm.mounts {
+                                for entry in attached where entry.type == "virtiofs" {
+                                    guard seenTags.insert(entry.source).inserted else { continue }
+                                    let dest = "/run/virtiofs/\(entry.source)"
+                                    try await agent.mkdir(path: dest, all: true, perms: 0o755)
+                                    try await agent.mount(
+                                        ContainerizationOCI.Mount(
+                                            type: "virtiofs",
+                                            source: entry.source,
+                                            destination: dest,
+                                            options: []
+                                        ))
+                                }
+                            }
+                        } else {
+                            try await agent.mount(
+                                ContainerizationOCI.Mount(
+                                    type: "virtiofs",
+                                    source: "virtiofs",
+                                    destination: "/run/virtiofs",
+                                    options: []
+                                ))
+                        }
+                    }
 
                     // Create pause container if PID namespace sharing is enabled
                     if shareProcessNamespace {
@@ -636,7 +765,7 @@ extension LinuxPod {
                                 type: volume.format,
                                 source: attachment.source,
                                 destination: guestPath,
-                                options: []
+                                options: attachment.options
                             ))
                     }
 
@@ -687,6 +816,7 @@ extension LinuxPod {
                 }
 
                 state.pauseProcess = pauseProcessHolder.withLock { $0 }
+                state.unifiedVirtiofsMounted = hasVirtiofsMount && vm.virtiofsLayout == .unified
 
                 // Apply file mount context updates.
                 let updates = fileMountContextUpdates.withLock { $0 }

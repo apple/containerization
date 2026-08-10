@@ -1,0 +1,24 @@
+#!/bin/bash
+# Wrapper that dispatches to `zig c++ -target x86_64-linux-gnu.2.35`.
+# Mirrors x86_64-linux-musl-g++ but pins a glibc 2.35 baseline.
+#
+# See x86_64-linux-gnu-gcc for the rationale behind intercepting
+# `-print-prog-name=ld`.
+case " $* " in
+    *" -print-prog-name=ld "*)
+        echo /usr/local/bin/x86_64-linux-gnu-ld
+        exit 0
+        ;;
+esac
+
+# Filters out `--target=<rust-triple>` args that cc-rs adds — cc-rs
+# emits the Rust-form triple (x86_64-unknown-linux-gnu) which Zig
+# can't parse. We always pass our own -target below.
+args=()
+for arg in "$@"; do
+    case "$arg" in
+        --target=*) ;;
+        *) args+=("$arg") ;;
+    esac
+done
+exec /opt/zig/zig c++ -target x86_64-linux-gnu.2.35 "${args[@]}"

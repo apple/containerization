@@ -198,7 +198,7 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
 
             try await self.vm.start(queue: self.queue)
 
-            let agent = try Vminitd(
+            let agent = try await Vminitd(
                 connection: try await self.vm.waitForAgent(queue: self.queue),
                 group: self.group
             )
@@ -267,7 +267,7 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
                     port: Vminitd.port
                 )
                 let handle = try conn.dupHandle()
-                return try Vminitd(connection: handle, group: self.group)
+                return try await Vminitd(connection: handle, group: self.group)
             } catch {
                 if let err = error as? ContainerizationError {
                     throw err
@@ -588,38 +588,6 @@ extension VZVirtualMachineInstance.Configuration {
         }
 
         return (attachmentsByID, storageDeviceCount)
-    }
-}
-
-extension Kernel {
-    func linuxCommandline(initialFilesystem: Mount) -> String {
-        var args = self.commandLine.kernelArgs
-
-        args.append("init=/sbin/vminitd")
-        // rootfs is always set as ro.
-        args.append("ro")
-
-        switch initialFilesystem.type {
-        case "virtiofs":
-            args.append(contentsOf: [
-                "rootfstype=virtiofs",
-                "root=rootfs",
-            ])
-        case "ext4":
-            args.append(contentsOf: [
-                "rootfstype=ext4",
-                "root=/dev/vda",
-            ])
-        default:
-            fatalError("unsupported initfs filesystem \(initialFilesystem.type)")
-        }
-
-        if self.commandLine.initArgs.count > 0 {
-            args.append("--")
-            args.append(contentsOf: self.commandLine.initArgs)
-        }
-
-        return args.joined(separator: " ")
     }
 }
 

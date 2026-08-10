@@ -15,9 +15,9 @@
 //===----------------------------------------------------------------------===//
 
 /// NOTE: This binary implements a very small subset of the OCI runtime spec, mostly just
-/// the process configurations. Mounts are somewhat functional, but masked and read only paths
-/// aren't checked today. Today the namespaces are also ignored, and we always spawn a new pid
-/// and mount namespace.
+/// the process configurations. Mounts, masked paths, and read-only paths are enforced.
+/// The `network` namespace is currently ignored and we always spawn a new pid and mount
+/// namespace.
 
 import ArgumentParser
 import ContainerizationError

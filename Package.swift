@@ -34,15 +34,16 @@ let package = Package(
         .library(name: "ContainerizationExtras", targets: ["ContainerizationExtras"]),
         .library(name: "ContainerizationArchive", targets: ["ContainerizationArchive"]),
         .library(name: "VminitdCore", targets: ["VminitdCore", "Cgroup", "LCShim"]),
+        .library(name: "CloudHypervisor", targets: ["CloudHypervisor"]),
         .executable(name: "cctl", targets: ["cctl"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-log.git", from: "1.10.1"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.7.0"),
-        .package(url: "https://github.com/apple/swift-collections.git", from: "1.1.4"),
+        .package(url: "https://github.com/apple/swift-collections.git", from: "1.2.0"),
         .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
         .package(url: "https://github.com/grpc/grpc-swift-2.git", from: "2.3.0"),
-        .package(url: "https://github.com/grpc/grpc-swift-nio-transport.git", from: "2.4.4"),
+        .package(url: "https://github.com/grpc/grpc-swift-nio-transport.git", from: "2.9.0"),
         .package(url: "https://github.com/grpc/grpc-swift-protobuf.git", from: "2.2.0"),
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.36.0"),
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.80.0"),
@@ -65,12 +66,15 @@ let package = Package(
                 .product(name: "GRPCNIOTransportHTTP2", package: "grpc-swift-nio-transport"),
                 .product(name: "GRPCProtobuf", package: "grpc-swift-protobuf"),
                 .product(name: "_NIOFileSystem", package: "swift-nio"),
+                "CloudHypervisor",
                 "ContainerizationArchive",
                 "ContainerizationOCI",
                 "ContainerizationOS",
                 "ContainerizationIO",
                 "ContainerizationExtras",
                 "ContainerizationEXT4",
+                "ContainerizationNetlink",
+                "CShim",
             ],
             exclude: [
                 "../Containerization/SandboxContext/SandboxContext.proto"
@@ -91,7 +95,7 @@ let package = Package(
         ),
         .testTarget(
             name: "ContainerizationUnitTests",
-            dependencies: ["Containerization"],
+            dependencies: ["Containerization", "CloudHypervisor"],
             path: "Tests/ContainerizationTests",
             resources: [
                 .copy("ImageTests/Resources/scratch.tar"),
@@ -102,6 +106,7 @@ let package = Package(
             name: "ContainerizationEXT4",
             dependencies: [
                 "ContainerizationArchive",
+                .product(name: "OrderedCollections", package: "swift-collections"),
                 .product(name: "SystemPackage", package: "swift-system"),
                 "ContainerizationOS",
             ],
@@ -261,6 +266,30 @@ let package = Package(
             name: "CShim"
         ),
         .target(
+            name: "CloudHypervisor",
+            dependencies: [
+                .product(name: "AsyncHTTPClient", package: "async-http-client"),
+                .product(name: "Logging", package: "swift-log"),
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "NIOHTTP1", package: "swift-nio"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+            ],
+            exclude: [
+                "README.md"
+            ]
+        ),
+        .testTarget(
+            name: "CloudHypervisorTests",
+            dependencies: [
+                "CloudHypervisor",
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "NIOHTTP1", package: "swift-nio"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+            ]
+        ),
+        .target(
             name: "LCShim",
             path: "vminitd/Sources/LCShim"
         ),
@@ -297,7 +326,6 @@ let package = Package(
     ]
 )
 
-#if os(macOS)
 package.targets.append(
     .executableTarget(
         name: "containerization-integration",
@@ -311,4 +339,3 @@ package.targets.append(
         path: "Sources/Integration"
     )
 )
-#endif

@@ -41,8 +41,6 @@ extension Application {
         @Argument(help: "Registry server name")
         var server: String
 
-        @Flag(help: "Use plain text http to authenticate") var http: Bool = false
-
         func run() async throws {
             var username = self.username
             var password = ""
@@ -65,10 +63,9 @@ extension Application {
             }
 
             let server = Reference.resolveDomain(domain: self.server)
-            let scheme = http ? "http" : "https"
             let client = RegistryClient(
                 host: server,
-                scheme: scheme,
+                scheme: "https",
                 authentication: BasicAuthentication(username: username, password: password),
                 retryOptions: .init(
                     maxRetries: 10,

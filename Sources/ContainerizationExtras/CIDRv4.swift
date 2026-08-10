@@ -112,3 +112,11 @@ extension CIDRv4: Codable {
         try container.encode(description)
     }
 }
+
+extension CIDRv4 {
+    /// The gateway address of the network. Conventionally the first usable
+    /// address in the subnet (`lower + 1`).
+    public var gateway: IPv4Address {
+        IPv4Address(self.lower.value + 1)
+    }
+}

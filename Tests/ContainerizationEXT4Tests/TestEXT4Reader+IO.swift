@@ -617,10 +617,10 @@ struct EXT4PathIOTests {
         let tree = EXT4.FileTree(EXT4.RootInode, "/")
 
         let dirPtr = EXT4.Ptr(EXT4.FileTree.FileTreeNode(inode: 3, name: "dir", parent: tree.root))
-        tree.root.pointee.children.append(dirPtr)
+        tree.root.pointee.addChild(dirPtr)
 
         let filePtr = EXT4.Ptr(EXT4.FileTree.FileTreeNode(inode: 4, name: "file", parent: dirPtr))
-        dirPtr.pointee.children.append(filePtr)
+        dirPtr.pointee.addChild(filePtr)
 
         #expect(dirPtr.pointee.path == FilePath("/dir"))
         #expect(filePtr.pointee.path == FilePath("/dir/file"))
@@ -631,10 +631,10 @@ struct EXT4PathIOTests {
         let tree = EXT4.FileTree(EXT4.RootInode, ".")
 
         let dirPtr = EXT4.Ptr(EXT4.FileTree.FileTreeNode(inode: 3, name: "dir", parent: tree.root))
-        tree.root.pointee.children.append(dirPtr)
+        tree.root.pointee.addChild(dirPtr)
 
         let filePtr = EXT4.Ptr(EXT4.FileTree.FileTreeNode(inode: 4, name: "file", parent: dirPtr))
-        dirPtr.pointee.children.append(filePtr)
+        dirPtr.pointee.addChild(filePtr)
 
         #expect(dirPtr.pointee.path == FilePath("dir"))
         #expect(filePtr.pointee.path == FilePath("dir/file"))
@@ -645,7 +645,7 @@ struct EXT4PathIOTests {
         let tree = EXT4.FileTree(EXT4.RootInode, "dir")
 
         let filePtr = EXT4.Ptr(EXT4.FileTree.FileTreeNode(inode: 3, name: "file", parent: tree.root))
-        tree.root.pointee.children.append(filePtr)
+        tree.root.pointee.addChild(filePtr)
 
         #expect(filePtr.pointee.path == FilePath("dir/file"))
     }

@@ -1,0 +1,31 @@
+#!/bin/bash
+# Wrapper that dispatches to `zig cc -target x86_64-linux-gnu.2.35`.
+# Mirrors x86_64-linux-musl-gcc but pins a glibc 2.35 baseline; the
+# resulting binaries run on any host with glibc >= 2.35.
+#
+# Intercepts `-print-prog-name=ld` and returns our cross-ld wrapper —
+# libtool uses that query to discover the linker before probing it
+# with `-m elf_x86_64` to decide whether shared library builds are
+# supported. zig cc passes the query through to the host `/usr/bin/ld`,
+# which is aarch64-only and rejects the x86_64 emulation mode, causing
+# libtool to silently disable shared-lib emission. Pointing libtool at
+# our ld.lld-backed wrapper makes the probe succeed.
+case " $* " in
+    *" -print-prog-name=ld "*)
+        echo /usr/local/bin/x86_64-linux-gnu-ld
+        exit 0
+        ;;
+esac
+
+# Filters out `--target=<rust-triple>` args that cc-rs (Rust build
+# scripts like libseccomp-sys, capng-sys) adds — cc-rs emits the
+# Rust-form triple (x86_64-unknown-linux-gnu) which Zig can't parse.
+# We always pass our own -target below, so cc-rs's is redundant.
+args=()
+for arg in "$@"; do
+    case "$arg" in
+        --target=*) ;;
+        *) args+=("$arg") ;;
+    esac
+done
+exec /opt/zig/zig cc -target x86_64-linux-gnu.2.35 "${args[@]}"

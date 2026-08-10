@@ -350,7 +350,7 @@ public struct ContainerManager: Sendable {
 
     private func unpack(image: Image, destination: URL, size: UInt64, progress: ProgressHandler? = nil) async throws -> Mount {
         do {
-            let unpacker = EXT4Unpacker(blockSizeInBytes: size)
+            let unpacker = EXT4Unpacker(capacityInBytes: size)
             return try await unpacker.unpack(image, for: .current, at: destination, progress: progress)
         } catch let err as ContainerizationError {
             if err.code == .exists {
@@ -378,13 +378,6 @@ public struct ContainerManager: Sendable {
             destination: "/",
             options: []
         )
-    }
-}
-
-extension CIDRv4 {
-    /// The gateway address of the network.
-    public var gateway: IPv4Address {
-        IPv4Address(self.lower.value + 1)
     }
 }
 

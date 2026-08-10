@@ -67,6 +67,16 @@ public final class LinuxContainer: Container, Sendable {
         public var sockets: [UnixSocketConfiguration] = []
         /// The mounts for the container.
         public var mounts: [Mount] = LinuxContainer.defaultMounts()
+        /// Paths inside the container that vmexec hides from the workload.
+        /// Defaults to the OCI standard set (``LinuxContainer/defaultMaskedPaths()``),
+        /// matching the restricted capability baseline. Set to `[]` to opt out,
+        /// or append to extend it.
+        public var maskedPaths: [String] = LinuxContainer.defaultMaskedPaths()
+        /// Paths inside the container that vmexec marks read-only.
+        /// Defaults to the OCI standard set (``LinuxContainer/defaultReadonlyPaths()``),
+        /// matching the restricted capability baseline. Set to `[]` to opt out,
+        /// or append to extend it.
+        public var readonlyPaths: [String] = LinuxContainer.defaultReadonlyPaths()
         /// The DNS configuration for the container.
         public var dns: DNS?
         /// The hosts to add to /etc/hosts for the container.
@@ -100,6 +110,8 @@ public final class LinuxContainer: Container, Sendable {
             interfaces: [any Interface] = [],
             sockets: [UnixSocketConfiguration] = [],
             mounts: [Mount] = LinuxContainer.defaultMounts(),
+            maskedPaths: [String] = LinuxContainer.defaultMaskedPaths(),
+            readonlyPaths: [String] = LinuxContainer.defaultReadonlyPaths(),
             dns: DNS? = nil,
             hosts: Hosts? = nil,
             virtualization: Bool = false,
@@ -117,6 +129,8 @@ public final class LinuxContainer: Container, Sendable {
             self.interfaces = interfaces
             self.sockets = sockets
             self.mounts = mounts
+            self.maskedPaths = maskedPaths
+            self.readonlyPaths = readonlyPaths
             self.dns = dns
             self.hosts = hosts
             self.virtualization = virtualization
@@ -394,6 +408,8 @@ public final class LinuxContainer: Container, Sendable {
 
         // Linux toggles.
         spec.linux?.sysctl = config.sysctl
+        spec.linux?.maskedPaths = config.maskedPaths
+        spec.linux?.readonlyPaths = config.readonlyPaths
 
         // If the rootfs was requested as read-only, set it in the OCI spec.
         // We let the OCI runtime remount as ro, instead of doing it originally.
@@ -435,6 +451,44 @@ public final class LinuxContainer: Container, Sendable {
             .any(type: "tmpfs", source: "tmpfs", destination: "/dev/shm", options: defaultOptions + ["mode=1777", "size=65536k"]),
             .any(type: "cgroup2", source: "none", destination: "/sys/fs/cgroup", options: defaultOptions),
             .any(type: "devpts", source: "devpts", destination: "/dev/pts", options: ["nosuid", "noexec", "newinstance", "gid=5", "mode=0620", "ptmxmode=0666"]),
+        ]
+    }
+
+    /// The default set of paths to mask inside a container, matching the OCI
+    /// runtime spec defaults that runc and other production runtimes apply.
+    /// Each path is hidden from the workload (replaced by `/dev/null` for files
+    /// or an empty tmpfs for directories) by `vmexec` after `pivot_root`.
+    ///
+    /// Applied by default (see ``Configuration/maskedPaths``); set
+    /// `config.maskedPaths = []` to opt out, or append to extend the set.
+    public static func defaultMaskedPaths() -> [String] {
+        [
+            "/proc/asound",
+            "/proc/acpi",
+            "/proc/kcore",
+            "/proc/keys",
+            "/proc/latency_stats",
+            "/proc/timer_list",
+            "/proc/timer_stats",
+            "/proc/sched_debug",
+            "/proc/scsi",
+            "/sys/firmware",
+            "/sys/devices/virtual/powercap",
+        ]
+    }
+
+    /// The default set of paths to mark read-only inside a container, matching
+    /// the OCI runtime spec defaults that runc and other production runtimes apply.
+    ///
+    /// Applied by default (see ``Configuration/readonlyPaths``); set
+    /// `config.readonlyPaths = []` to opt out, or append to extend the set.
+    public static func defaultReadonlyPaths() -> [String] {
+        [
+            "/proc/bus",
+            "/proc/fs",
+            "/proc/irq",
+            "/proc/sys",
+            "/proc/sysrq-trigger",
         ]
     }
 
@@ -589,18 +643,57 @@ extension LinuxContainer {
 
             try await vm.start()
             do {
+                let mountsForAgent = containerMounts
                 try await vm.withAgent { agent in
                     try await agent.standardSetup()
 
-                    // Mount the unified virtiofs share at /run/virtiofs
-                    // All virtiofs directories appear as subdirectories here
-                    try await agent.mount(
-                        ContainerizationOCI.Mount(
-                            type: "virtiofs",
-                            source: "virtiofs",
-                            destination: "/run/virtiofs",
-                            options: []
-                        ))
+                    // Mount the unified virtiofs share at /run/virtiofs only
+                    // when at least one of the container's mounts is virtiofs
+                    // — the bind-mount transform below derives its sources
+                    // from /run/virtiofs/{tag}, so the unified share is only
+                    // load-bearing when there are virtiofs mounts. The macOS
+                    // VZ backend always exposes the virtiofs device (even
+                    // with zero shares), but the cloud-hypervisor backend
+                    // only spawns virtiofsd when shares exist; mounting an
+                    // unbacked tag fails with EINVAL.
+                    let hasVirtiofsMount = mountsForAgent.contains { mount in
+                        if case .virtiofs = mount.runtimeOptions { return true }
+                        return false
+                    }
+                    if hasVirtiofsMount {
+                        // VZ exposes ONE virtio-fs device with tag "virtiofs"
+                        // and multiple sources as subdirs (VZMultipleDirectoryShare).
+                        // The CH backend exposes one device per source-hash
+                        // tag instead, so the guest must mount each tag
+                        // separately at /run/virtiofs/<tag>. The bind-mount
+                        // transform below uses /run/virtiofs/<tag> in both
+                        // cases, so this branch is only about how /run/virtiofs
+                        // gets populated.
+                        if vm.virtiofsLayout == .perTag {
+                            try await agent.mkdir(path: "/run/virtiofs", all: true, perms: 0o755)
+                            let virtiofsAttachments = (vm.mounts[self.id] ?? []).filter { $0.type == "virtiofs" }
+                            let uniqueTags = Set(virtiofsAttachments.map(\.source))
+                            for tag in uniqueTags {
+                                let dest = "/run/virtiofs/\(tag)"
+                                try await agent.mkdir(path: dest, all: true, perms: 0o755)
+                                try await agent.mount(
+                                    ContainerizationOCI.Mount(
+                                        type: "virtiofs",
+                                        source: tag,
+                                        destination: dest,
+                                        options: []
+                                    ))
+                            }
+                        } else {
+                            try await agent.mount(
+                                ContainerizationOCI.Mount(
+                                    type: "virtiofs",
+                                    source: "virtiofs",
+                                    destination: "/run/virtiofs",
+                                    options: []
+                                ))
+                        }
+                    }
 
                     guard let attachments = vm.mounts[self.id] else {
                         throw ContainerizationError(.notFound, message: "rootfs mount not found")
