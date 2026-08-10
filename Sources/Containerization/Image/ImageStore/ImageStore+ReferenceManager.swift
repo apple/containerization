@@ -49,7 +49,7 @@ extension ImageStore {
 
         private func save(_ state: State) throws {
             let statePath = self.path.appendingPathComponent("state.json")
-            try JSONEncoder().encode(state).write(to: statePath)
+            try JSONEncoder().encode(state).write(to: statePath, options: .atomic)
         }
 
         public func delete(reference: String) throws {
