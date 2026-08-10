@@ -24,7 +24,7 @@ The project is built via `make`, not directly with `swift build`. Two Swift pack
 - `make protos` — regenerates `Sources/Containerization/SandboxContext/SandboxContext.{pb,grpc}.swift` from the `.proto`. Touch this whenever the proto changes; never hand-edit the generated files.
 - `make init` / `make init-image` — `init` compiles the guest and builds `bin/initfs.ext4` (+ a rootfs tar) inside the dev container via `scripts/build-initfs.sh` (mkfs + loop mount, with a `mke2fs -d` fallback), then `init-image` creates the `vminit:latest` OCI image from the tar with the native `cctl` (`cctl rootfs create --rootfs <tar> --image vminit:latest`). CI splits these: a Linux container job builds the initfs artifact, the macOS job runs `init-image`. Building the guest on macOS requires the apple/`container` CLI — there is no host Swiftly / Static Linux SDK setup step anymore.
 
-`WARNINGS_AS_ERRORS=true` is the default for both packages. Don't disable it casually — CI builds with it on.
+`WARNINGS_AS_ERRORS=true` is the default for both packages. Don't disable it casually — CI builds with it on. It is enforced *per target* via `.treatAllWarnings(as: .error)` in both `Package.swift` files, not by a global `-Xswiftc -warnings-as-errors`: a global flag also reaches package dependencies, which SwiftPM's swiftbuild build system (the default since Swift 6.5) compiles with `-suppress-warnings`, and `swiftc` rejects that pair — the build then fails inside third-party modules before any of our code compiles. `WARNINGS_AS_ERRORS=false` relaxes it by passing `-Xswiftc -no-warnings-as-errors`.
 
 ## Architecture
 

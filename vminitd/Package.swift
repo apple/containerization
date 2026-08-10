@@ -69,3 +69,12 @@ let package = Package(
         ),
     ]
 )
+
+// Warnings are errors in this package's own targets. Same reasoning as the root
+// package: a global `-Xswiftc -warnings-as-errors` also lands on package
+// dependencies, which SwiftPM's swiftbuild build system compiles with
+// `-suppress-warnings`, and swiftc refuses that combination. `CVersion` is
+// C-only, so there is nothing for a Swift setting to apply to.
+for target in package.targets where target.name != "CVersion" {
+    target.swiftSettings = (target.swiftSettings ?? []) + [.treatAllWarnings(as: .error)]
+}

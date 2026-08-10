@@ -17,7 +17,12 @@ WARNINGS_AS_ERRORS ?= true
 export GIT_COMMIT := $(shell git rev-parse HEAD)
 export GIT_TAG := $(shell git describe --tags --exact-match 2>/dev/null || echo "")
 export BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
-SWIFT_WARNING_CONFIG := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors)
+# Warnings-as-errors is set per target in Package.swift; see the comment there.
+# Passing it globally would also apply it to package dependencies, which the
+# swiftbuild build system compiles with `-suppress-warnings` — a combination
+# swiftc rejects outright.
+SWIFT_WARNING_CONFIG := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),,-Xswiftc -no-warnings-as-errors)
+
 # MUSL_ARCH selects which Static Linux SDK triple to build against
 # ($(MUSL_ARCH)-swift-linux-musl). Defaults to the host architecture
 # so the in-tree aarch64 flow works unchanged, but callers can override

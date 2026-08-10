@@ -48,7 +48,7 @@ jobs:
         run: make containerization
 
       - name: Build vminitd (glibc)
-        run: make -C vminitd SWIFT_CONFIGURATION="--disable-automatic-resolution -Xswiftc -warnings-as-errors"
+        run: make -C vminitd SWIFT_CONFIGURATION="--disable-automatic-resolution"
 
       - name: Install Static Linux SDK
         run: make -C vminitd linux-sdk
@@ -57,4 +57,4 @@ jobs:
         run: make -C vminitd
 
       - name: Run unit tests
-        run: swift test --disable-automatic-resolution -Xswiftc -warnings-as-errors
+        run: swift test --disable-automatic-resolution

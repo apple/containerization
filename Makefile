@@ -22,7 +22,15 @@ WARNINGS_AS_ERRORS ?= true
 SCRATCH_ROOT ?=
 SCRATCH_PATH ?= $(if $(SCRATCH_ROOT),$(SCRATCH_ROOT)/build-containerization)
 SWIFT_SCRATCH_FLAGS := $(if $(SCRATCH_PATH),--scratch-path $(SCRATCH_PATH))
-SWIFT_CONFIGURATION := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors) --disable-automatic-resolution $(SWIFT_SCRATCH_FLAGS)
+# Warnings-as-errors lives in Package.swift (`.treatAllWarnings(as: .error)`,
+# applied per target) rather than here. A global `-Xswiftc -warnings-as-errors`
+# also reaches package dependencies, which SwiftPM's swiftbuild build system
+# (the default since Swift 6.5) compiles with `-suppress-warnings` — swiftc
+# rejects that pair and the build dies inside third-party modules. Setting
+# WARNINGS_AS_ERRORS=false relaxes the per-target setting with an explicit
+# `-no-warnings-as-errors`, which has no such conflict.
+SWIFT_CONFIGURATION := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),,-Xswiftc -no-warnings-as-errors) --disable-automatic-resolution $(SWIFT_SCRATCH_FLAGS)
+
 
 # Commonly used locations
 UNAME_S := $(shell uname -s)

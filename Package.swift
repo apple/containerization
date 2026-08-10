@@ -339,3 +339,22 @@ package.targets.append(
         path: "Sources/Integration"
     )
 )
+
+// Warnings are errors in this package's own targets.
+//
+// This is expressed per target rather than as a global `-Xswiftc
+// -warnings-as-errors`, which is what the Makefile used to pass. SwiftPM's
+// swiftbuild build system — the default since Swift 6.5 — compiles package
+// *dependencies* with `-suppress-warnings`, and swiftc rejects that alongside
+// `-warnings-as-errors` ("conflicting options"). A global flag therefore fails
+// the build inside third-party modules before any of our code is compiled,
+// while a per-target setting leaves dependencies alone.
+//
+// Applied in a loop so a target added later is covered without anyone
+// remembering to opt in. `make ... WARNINGS_AS_ERRORS=false` still relaxes it,
+// by passing `-Xswiftc -no-warnings-as-errors` — which does not conflict with
+// `-suppress-warnings`.
+let cOnlyTargets: Set<String> = ["CShim", "CArchive", "LCShim"]
+for target in package.targets where !cOnlyTargets.contains(target.name) {
+    target.swiftSettings = (target.swiftSettings ?? []) + [.treatAllWarnings(as: .error)]
+}
