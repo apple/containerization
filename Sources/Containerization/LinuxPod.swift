@@ -1189,6 +1189,35 @@ extension LinuxPod {
         }
     }
 
+    /// Take a container out of the pod, so its name is free to place again.
+    ///
+    /// Stopping a container tears down what it was running and keeps its
+    /// place; the name still answers for it, and placing another container
+    /// under it is refused. Removal is the separate act the runtime
+    /// specification names for giving the place up, taken once the container
+    /// has stopped. A container that is running keeps its place and this
+    /// call refuses it.
+    /// https://github.com/kubernetes/cri-api/blob/master/pkg/apis/runtime/v1/api.proto
+    public func removeContainer(_ containerID: String) async throws {
+        try await self.state.withLock { state in
+            guard let container = state.containers[containerID] else {
+                throw ContainerizationError(
+                    .notFound,
+                    message: "container \(containerID) not found in pod"
+                )
+            }
+            switch container.state {
+            case .registered, .stopped, .errored:
+                state.containers[containerID] = nil
+            default:
+                throw ContainerizationError(
+                    .invalidState,
+                    message: "container \(containerID) must stop before it is removed"
+                )
+            }
+        }
+    }
+
     /// Stop the pod's VM and all containers.
     public func stop() async throws {
         try await self.state.withLock { state in
