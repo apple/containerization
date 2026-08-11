@@ -96,6 +96,80 @@ extension IntegrationSuite {
         }
     }
 
+    func testPodRestartStoppedContainer() async throws {
+        let id = "test-pod-restart-stopped-container"
+
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        // The holder keeps the machine up while the other member is stopped and
+        // restarted, the way a sibling holds a live pod up.
+        try await pod.addContainer("holder", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "holder")) { config in
+            config.process.arguments = ["/bin/sleep", "600"]
+        }
+        try await pod.addContainer("restarted", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "restarted")) { config in
+            config.process.arguments = ["/bin/sleep", "600"]
+        }
+
+        try await pod.create()
+        try await pod.startContainer("holder")
+        try await pod.startContainer("restarted")
+
+        // Prove the restart reuses the member's rootfs rather than attaching a
+        // fresh one: a file written before the stop is read back after.
+        let marker = try await pod.execInContainer("restarted", processID: "mark") { config in
+            config.arguments = ["/bin/sh", "-c", "echo kept > /marker"]
+        }
+        try await marker.start()
+        let markerStatus = try await marker.wait()
+        try await marker.delete()
+        guard markerStatus.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "marker write status \(markerStatus) != 0")
+        }
+
+        // Stop one member. Its process is torn down and its guest rootfs
+        // unmounted, while its block devices stay attached and its mount
+        // registry entry stays: stopping keeps the member's place, removal is
+        // what gives it up. The machine stays up because the holder is still
+        // running.
+        try await pod.stopContainer("restarted")
+
+        // Start it again into the running machine. This is the resume path: the
+        // rootfs is re-attached and the mounts re-registered, reusing the shares
+        // that persisted, and a fresh process is started on the reused rootfs.
+        try await pod.startContainer("restarted")
+
+        // The restarted member is alive, and the marker written before the stop
+        // is still there: the same rootfs came back.
+        let buffer = BufferWriter()
+        let exec = try await pod.execInContainer("restarted", processID: "exec1") { config in
+            config.arguments = ["/bin/cat", "/marker"]
+            config.stdout = buffer
+        }
+        try await exec.start()
+        let status = try await exec.wait()
+        try await exec.delete()
+
+        try await pod.killContainer("restarted", signal: .kill)
+        try await pod.waitContainer("restarted")
+        try await pod.killContainer("holder", signal: .kill)
+        try await pod.waitContainer("holder")
+        try await pod.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "exec after restart status \(status) != 0")
+        }
+
+        guard String(data: buffer.data, encoding: .utf8) == "kept\n" else {
+            throw IntegrationError.assert(
+                msg: "marker after restart should have read 'kept' != '\(String(data: buffer.data, encoding: .utf8) ?? "")'")
+        }
+    }
+
     func testPodSharedSwap() async throws {
         let id = "test-pod-shared-swap"
 
