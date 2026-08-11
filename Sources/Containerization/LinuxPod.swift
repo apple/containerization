@@ -396,6 +396,37 @@ public final class LinuxPod: Sendable {
         return spec
     }
 
+    /// Re-mount a stopped member's rootfs so a fresh process can run on it. The
+    /// member kept its block devices across the stop, stopContainer leaves them
+    /// attached and the storage entry intact, so only the guest rootfs
+    /// mount was torn down and re-establishing it is all a restart needs. The
+    /// block, its image, and its shares are unchanged.
+    private static func remountRootfs(
+        containerID: String,
+        container: PodContainer,
+        vm: any VirtualMachineInstance,
+        agent: any VirtualMachineAgent
+    ) async throws {
+        guard let attached = vm.storage.containers[containerID] else {
+            throw ContainerizationError(
+                .invalidState,
+                message: "container \(containerID) has no registered rootfs to re-mount"
+            )
+        }
+        if let writableAttachment = attached.writableLayer {
+            try await agent.mountOverlayRootfs(
+                containerID: containerID,
+                rootfsAttachment: attached.rootfs,
+                writableAttachment: writableAttachment,
+                rootfsPath: Self.guestRootfsPath(containerID)
+            )
+        } else {
+            var mount = attached.rootfs.to
+            mount.destination = Self.guestRootfsPath(containerID)
+            try await agent.mount(mount)
+        }
+    }
+
     static func guestRootfsPath(_ containerID: String) -> String {
         "/run/container/\(containerID)/rootfs"
     }
@@ -990,15 +1021,33 @@ extension LinuxPod {
                 )
             }
 
-            guard container.state == .created else {
+            guard container.state == .created || container.state == .stopped else {
                 throw ContainerizationError(
                     .invalidState,
-                    message: "container \(containerID) must be in created state to start"
+                    message: "container \(containerID) must be in created or stopped state to start"
                 )
             }
 
             let agent = try await createdState.vm.dialAgent()
             do {
+                // A member that ran and then stopped kept its place: its block
+                // devices are still attached and registered, but stopContainer
+                // unmounted its rootfs. Re-mount it the way boot did before
+                // starting a fresh process on it, the runtime's "start a new task
+                // on the container, reusing its rootfs" for a pod member.
+                // Re-mounting leaves the member created, exactly as a freshly
+                // placed one, so a failure before the process starts is cleaned
+                // up by the same stopContainer path.
+                if container.state == .stopped {
+                    try await Self.remountRootfs(
+                        containerID: containerID,
+                        container: container,
+                        vm: createdState.vm,
+                        agent: agent
+                    )
+                    state.containers[containerID]?.state = .created
+                }
+
                 var spec = self.generateRuntimeSpec(containerID: containerID, config: container.config, rootfs: container.rootfs, writableLayer: container.writableLayer)
                 // We don't need the rootfs, nor do OCI runtimes want it included.
                 // Also filter out file mount holding directories - we mount those separately under /run.
@@ -1135,34 +1184,33 @@ extension LinuxPod {
                 return
             }
 
-            // Handle containers that were hotplugged but never started
-            if container.state == .created {
-                // Release the hotplug device and virtiofs shares
-                try? await createdState.vm.releaseHotplug(id: containerID)
-                try? await createdState.vm.releaseVirtioFS(id: containerID)
-
-                container.state = .stopped
-                state.containers[containerID] = container
-                return
-            }
-
-            guard container.state == .started, let process = container.process else {
+            guard container.state == .created || container.state == .started else {
                 throw ContainerizationError(
                     .invalidState,
-                    message: "container \(containerID) must be in started state to stop"
+                    message: "container \(containerID) must be in created or started state to stop"
                 )
             }
 
             do {
                 // Check if the vm is even still running
                 if createdState.vm.state == .stopped {
+                    container.process = nil
                     container.state = .stopped
                     state.containers[containerID] = container
                     return
                 }
 
-                try await process.kill(.kill)
-                try await process.wait(timeoutInSeconds: 3)
+                // Stopping keeps the member's place: the process is torn down and
+                // the rootfs unmounted, but the block devices stay attached and
+                // the storage entry is kept, so the member can be started
+                // again by re-mounting. Detaching the devices is removeContainer's
+                // job, the separate act the runtime specification names for giving
+                // the place up.
+                // https://github.com/kubernetes/cri-api/blob/master/pkg/apis/runtime/v1/api.proto
+                if let process = container.process {
+                    try await process.kill(.kill)
+                    try await process.wait(timeoutInSeconds: 3)
+                }
 
                 let hasWritableLayer = container.writableLayer != nil
                 try await createdState.vm.withAgent { agent in
@@ -1181,21 +1229,15 @@ extension LinuxPod {
                     }
                 }
 
-                // Release the hotplug device and virtiofs shares so they can be reused by new containers
-                try await createdState.vm.releaseHotplug(id: containerID)
-                try await createdState.vm.releaseVirtioFS(id: containerID)
-
                 // Clean up the process resources
-                try await process.delete()
+                if let process = container.process {
+                    try await process.delete()
+                }
 
                 container.process = nil
                 container.state = .stopped
                 state.containers[containerID] = container
             } catch {
-                // Try to release the hotplug device and virtiofs shares even on error
-                try? await createdState.vm.releaseHotplug(id: containerID)
-                try? await createdState.vm.releaseVirtioFS(id: containerID)
-
                 container.state = .errored
                 container.process = nil
                 state.containers[containerID] = container
@@ -1224,6 +1266,14 @@ extension LinuxPod {
             }
             switch container.state {
             case .registered, .stopped, .errored:
+                // Giving the place up detaches the member's block devices and
+                // clears its storage entry, the resources stopContainer
+                // keeps so a stopped member can start again. A member removed
+                // before the machine booted never took a device.
+                if case .created(let createdState) = state.phase {
+                    try? await createdState.vm.releaseHotplug(id: containerID)
+                    try? await createdState.vm.releaseVirtioFS(id: containerID)
+                }
                 state.containers[containerID] = nil
             default:
                 throw ContainerizationError(
