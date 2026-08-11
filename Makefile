@@ -28,11 +28,16 @@ SWIFT_CONFIGURATION := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -
 UNAME_S := $(shell uname -s)
 UNAME_M := $(shell uname -m)
 KERNEL_ARCH := $(if $(filter $(UNAME_M),aarch64 arm64),arm64,$(UNAME_M))
-# Candidate kernel filenames in bin/ (compiled vmlinuz first, kata-fetched vmlinux fallback).
+# Candidate kernels for `make integration`, in preference order: the in-repo
+# kernel built by `make -C kernel` first, then the kata-fetched kernel under
+# bin/ as a fallback. The in-repo kernel is built from the config this repo
+# carries, so a configuration change made here is the one integration boots
+# wherever that kernel exists; a checkout without one still runs on the
+# fetched default.
 ifeq ($(KERNEL_ARCH),x86_64)
-KERNEL_CANDIDATES := bin/vmlinuz-x86_64 bin/vmlinux-x86_64
+KERNEL_CANDIDATES := kernel/vmlinuz-x86_64 bin/vmlinuz-x86_64 bin/vmlinux-x86_64
 else
-KERNEL_CANDIDATES := bin/vmlinux-$(KERNEL_ARCH)
+KERNEL_CANDIDATES := kernel/vmlinux-$(KERNEL_ARCH) bin/vmlinux-$(KERNEL_ARCH)
 endif
 # In-repo KVM-capable kernel built by `make -C kernel` (vmlinuz for x86_64 bzImage,
 # vmlinux for arm64 Image). linux-integration requires this; the kata-fetched
