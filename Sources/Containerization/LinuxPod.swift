@@ -457,10 +457,15 @@ extension LinuxPod {
                             if vm.virtiofsLayout == .perTag {
                                 // Tags already mounted in the guest at boot or by a
                                 // prior hotplug (i.e. present on another container).
+                                // Only additional mounts put their tags under
+                                // /run/virtiofs; a virtiofs rootfs is mounted at the
+                                // container's own rootfs path, so its entry (the
+                                // first) says nothing about /run/virtiofs and would
+                                // wrongly satisfy a tag another container binds from.
                                 let alreadyMounted = Set(
                                     vm.mounts
                                         .filter { $0.key != id }
-                                        .values.flatMap { $0 }
+                                        .values.flatMap { $0.dropFirst() }
                                         .filter { $0.type == "virtiofs" }
                                         .map { $0.source }
                                 )
@@ -647,10 +652,14 @@ extension LinuxPod {
                             // CH backend: one virtio-fs device per source-hash
                             // tag, so mount each tag separately at
                             // /run/virtiofs/<tag>. See LinuxContainer for the
-                            // VZ vs. CH model split.
+                            // VZ vs. CH model split. /run/virtiofs carries the
+                            // tags containers bind additional mounts from; a
+                            // virtiofs rootfs (each container's first entry) is
+                            // mounted at the container's own rootfs path and
+                            // takes no bind, so its tag stays out.
                             var seenTags: Set<String> = []
                             for (_, attached) in vm.mounts {
-                                for entry in attached where entry.type == "virtiofs" {
+                                for entry in attached.dropFirst() where entry.type == "virtiofs" {
                                     guard seenTags.insert(entry.source).inserted else { continue }
                                     let dest = "/run/virtiofs/\(entry.source)"
                                     try await agent.mkdir(path: dest, all: true, perms: 0o755)

@@ -671,7 +671,12 @@ extension LinuxContainer {
                         // gets populated.
                         if vm.virtiofsLayout == .perTag {
                             try await agent.mkdir(path: "/run/virtiofs", all: true, perms: 0o755)
-                            let virtiofsAttachments = (vm.mounts[self.id] ?? []).filter { $0.type == "virtiofs" }
+                            // Additional mounts bind from /run/virtiofs/<tag>; the
+                            // rootfs and writable layer (the leading entries) are
+                            // mounted at the container's own paths directly, so
+                            // their tags stay out.
+                            let leadingEntries = self.writableLayer != nil ? 2 : 1
+                            let virtiofsAttachments = (vm.mounts[self.id] ?? []).dropFirst(leadingEntries).filter { $0.type == "virtiofs" }
                             let uniqueTags = Set(virtiofsAttachments.map(\.source))
                             for tag in uniqueTags {
                                 let dest = "/run/virtiofs/\(tag)"
