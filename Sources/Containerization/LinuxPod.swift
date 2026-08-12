@@ -446,24 +446,28 @@ extension LinuxPod {
                         // the container's bind mounts from /run/virtiofs/<tag> fail
                         // with ENOENT.
                         //
-                        // Derive the tags from the additional mounts directly rather
-                        // than from vm.mounts[id], so this is independent of the
-                        // rootfs (which may be virtiofs or virtio-blk) and of mount
-                        // ordering. The rootfs is mounted at /run/container/<id>/rootfs
-                        // and is never consumed from /run/virtiofs.
+                        // Derive the new tags from the additional mounts being added;
+                        // the machine's storage names what is already shared.
                         let newVirtiofsTags = try virtioFSMounts.map { try hashFilePath(path: $0.source) }
                         if !newVirtiofsTags.isEmpty {
                             try await agent.mkdir(path: "/run/virtiofs", all: true, perms: 0o755)
                             if vm.virtiofsLayout == .perTag {
                                 // Tags already mounted in the guest at boot or by a
-                                // prior hotplug (i.e. present on another container).
-                                let alreadyMounted = Set(
-                                    vm.mounts
-                                        .filter { $0.key != id }
-                                        .values.flatMap { $0 }
-                                        .filter { $0.type == "virtiofs" }
-                                        .map { $0.source }
-                                )
+                                // prior hotplug (i.e. present on another container or
+                                // a machine volume).
+                                let alreadyMounted: Set<String> = {
+                                    var mounted = Set(
+                                        vm.storage.containers
+                                            .filter { $0.key != id }
+                                            .values.flatMap { $0.all }
+                                            .filter { $0.type == "virtiofs" }
+                                            .map { $0.source })
+                                    mounted.formUnion(
+                                        vm.storage.volumes.values
+                                            .filter { $0.type == "virtiofs" }
+                                            .map { $0.source })
+                                    return mounted
+                                }()
                                 var seen: Set<String> = []
                                 for tag in newVirtiofsTags
                                 where !alreadyMounted.contains(tag) && seen.insert(tag).inserted {
@@ -493,7 +497,7 @@ extension LinuxPod {
                         }
 
                         if fileMountContext.hasFileMounts {
-                            let containerMounts = vm.mounts[id] ?? []
+                            let containerMounts = vm.storage.containers[id]?.mounts ?? []
                             try await updatedFileMountContext.mountHoldingDirectories(
                                 vmMounts: containerMounts,
                                 agent: agent
@@ -557,20 +561,23 @@ extension LinuxPod {
         try await self.state.withLock { state in
             try state.phase.validateForCreate()
 
-            // Build mountsByID for all containers.
+            // Build the machine's storage from its containers.
             // Strip "ro" from rootfs options - we handle readonly via the OCI spec's
             // root.readonly field and remount in vmexec after setup is complete.
             // Use transformedMounts from fileMountContext (file mounts become directory shares).
-            var mountsByID: [String: [Mount]] = [:]
+            var machineStorage = MachineMounts()
             for (id, container) in state.containers {
                 var modifiedRootfs = container.rootfs
                 modifiedRootfs.options.removeAll(where: { $0 == "ro" })
-                // Filter out shared mounts — those are handled separately as pod volume bind mounts.
+                // Shared mounts are handled separately as pod volume bind mounts.
                 let containerMounts = container.fileMountContext.transformedMounts.filter {
                     if case .shared = $0.runtimeOptions { return false }
                     return true
                 }
-                mountsByID[id] = [modifiedRootfs] + containerMounts
+                machineStorage.containers[id] = ContainerMounts(
+                    rootfs: modifiedRootfs,
+                    mounts: containerMounts
+                )
             }
 
             // Validate pod volume names are unique.
@@ -597,9 +604,8 @@ extension LinuxPod {
                     }
                 }
             }
-            let podVolumeMounts = self.config.volumes.map { $0.toMount() }
-            if !podVolumeMounts.isEmpty {
-                mountsByID[self.id] = podVolumeMounts
+            for volume in self.config.volumes {
+                machineStorage.volumes[volume.name] = volume.toMount()
             }
 
             // Capture into an immutable `let` so the value is safely usable
@@ -608,18 +614,16 @@ extension LinuxPod {
             // only attaches a virtiofs device when shares are configured,
             // so mounting an unbacked /run/virtiofs would fail with EINVAL
             // on the CH backend.
-            let hasVirtiofsMount = mountsByID.values.contains { mounts in
-                mounts.contains { mount in
-                    if case .virtiofs = mount.runtimeOptions { return true }
-                    return false
-                }
+            let hasVirtiofsMount = machineStorage.ordered.contains { mount in
+                if case .virtiofs = mount.runtimeOptions { return true }
+                return false
             }
 
             var vmConfig = VMConfiguration(
                 cpus: self.config.cpus,
                 memoryInBytes: self.config.memoryInBytes,
                 interfaces: self.config.interfaces,
-                mountsByID: mountsByID,
+                storage: machineStorage,
                 bootLog: self.config.bootLog,
                 nestedVirtualization: self.config.virtualization
             )
@@ -649,19 +653,17 @@ extension LinuxPod {
                             // /run/virtiofs/<tag>. See LinuxContainer for the
                             // VZ vs. CH model split.
                             var seenTags: Set<String> = []
-                            for (_, attached) in vm.mounts {
-                                for entry in attached where entry.type == "virtiofs" {
-                                    guard seenTags.insert(entry.source).inserted else { continue }
-                                    let dest = "/run/virtiofs/\(entry.source)"
-                                    try await agent.mkdir(path: dest, all: true, perms: 0o755)
-                                    try await agent.mount(
-                                        ContainerizationOCI.Mount(
-                                            type: "virtiofs",
-                                            source: entry.source,
-                                            destination: dest,
-                                            options: []
-                                        ))
-                                }
+                            for entry in vm.storage.ordered where entry.type == "virtiofs" {
+                                guard seenTags.insert(entry.source).inserted else { continue }
+                                let dest = "/run/virtiofs/\(entry.source)"
+                                try await agent.mkdir(path: dest, all: true, perms: 0o755)
+                                try await agent.mount(
+                                    ContainerizationOCI.Mount(
+                                        type: "virtiofs",
+                                        source: entry.source,
+                                        destination: dest,
+                                        options: []
+                                    ))
                             }
                         } else {
                             try await agent.mount(
@@ -728,10 +730,10 @@ extension LinuxPod {
 
                     // Mount all container rootfs
                     for (_, container) in containers {
-                        guard let attachments = vm.mounts[container.id], let rootfsAttachment = attachments.first else {
+                        guard let attached = vm.storage.containers[container.id] else {
                             throw ContainerizationError(.notFound, message: "rootfs mount not found for container \(container.id)")
                         }
-                        var rootfs = rootfsAttachment.to
+                        var rootfs = attached.rootfs.to
                         rootfs.destination = Self.guestRootfsPath(container.id)
                         try await agent.mount(rootfs)
                     }
@@ -740,7 +742,7 @@ extension LinuxPod {
                     for (id, container) in containers {
                         if container.fileMountContext.hasFileMounts {
                             var ctx = container.fileMountContext
-                            let containerMounts = vm.mounts[id] ?? []
+                            let containerMounts = vm.storage.containers[id]?.mounts ?? []
                             try await ctx.mountHoldingDirectories(
                                 vmMounts: containerMounts,
                                 agent: agent
@@ -750,15 +752,13 @@ extension LinuxPod {
                     }
 
                     // Mount pod-level volumes.
-                    let podVolumeAttachments = vm.mounts[self.id] ?? []
-                    for (index, volume) in self.config.volumes.enumerated() {
-                        guard index < podVolumeAttachments.count else {
+                    for volume in self.config.volumes {
+                        guard let attachment = vm.storage.volumes[volume.name] else {
                             throw ContainerizationError(
                                 .notFound,
                                 message: "attached filesystem not found for pod volume \"\(volume.name)\""
                             )
                         }
-                        let attachment = podVolumeAttachments[index]
                         let guestPath = Self.guestVolumePath(volume.name)
                         try await agent.mount(
                             ContainerizationOCI.Mount(
@@ -864,10 +864,10 @@ extension LinuxPod {
                 // We don't need the rootfs, nor do OCI runtimes want it included.
                 // Also filter out file mount holding directories - we mount those separately under /run.
                 // Transform virtiofs mounts to bind mounts from /run/virtiofs/{tag}
-                let containerMounts = createdState.vm.mounts[containerID] ?? []
+                let containerMounts = createdState.vm.storage.containers[containerID]?.mounts ?? []
                 let holdingTags = container.fileMountContext.holdingDirectoryTags
                 var mounts: [ContainerizationOCI.Mount] =
-                    containerMounts.dropFirst()
+                    containerMounts
                     .filter { !holdingTags.contains($0.source) }
                     .map { attached -> ContainerizationOCI.Mount in
                         if attached.type == "virtiofs" {

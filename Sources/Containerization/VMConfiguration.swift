@@ -72,9 +72,9 @@ public struct VMConfiguration: Sendable {
     public var memoryInBytes: UInt64
     /// The network interfaces to attach.
     public var interfaces: [any Interface]
-    /// Mounts organized by metadata ID (e.g. container ID).
-    /// Each ID maps to an array of mounts for that workload.
-    public var mountsByID: [String: [Mount]]
+    /// The storage the machine carries: each container's mounts by role,
+    /// and the volumes its containers share.
+    public var storage: MachineMounts
     /// Optional destination for serial boot logs.
     public var bootLog: BootLog?
     /// Enable nested virtualization support. If the VirtualMachineManager
@@ -89,14 +89,14 @@ public struct VMConfiguration: Sendable {
         cpus: Int = 4,
         memoryInBytes: UInt64 = 1024 * 1024 * 1024,
         interfaces: [any Interface] = [],
-        mountsByID: [String: [Mount]] = [:],
+        storage: MachineMounts = MachineMounts(),
         bootLog: BootLog? = nil,
         nestedVirtualization: Bool = false
     ) {
         self.cpus = cpus
         self.memoryInBytes = memoryInBytes
         self.interfaces = interfaces
-        self.mountsByID = mountsByID
+        self.storage = storage
         self.bootLog = bootLog
         self.nestedVirtualization = nestedVirtualization
     }

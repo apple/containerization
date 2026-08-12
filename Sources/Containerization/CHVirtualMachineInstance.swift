@@ -46,7 +46,7 @@ public final class CHVirtualMachineInstance: Sendable {
     public struct Configuration: Sendable {
         public var cpus: Int
         public var memoryInBytes: UInt64
-        public var mountsByID: [String: [Mount]]
+        public var storage: MachineMounts
         public var interfaces: [any Interface]
         public var kernel: Kernel?
         public var initialFilesystem: Mount?
@@ -56,7 +56,7 @@ public final class CHVirtualMachineInstance: Sendable {
         public init() {
             self.cpus = 4
             self.memoryInBytes = 1024 * 1024 * 1024
-            self.mountsByID = [:]
+            self.storage = MachineMounts()
             self.interfaces = []
         }
     }
@@ -65,8 +65,8 @@ public final class CHVirtualMachineInstance: Sendable {
     /// `start()`'s `VmConfig.disks` ordering matches the allocator letters.
     struct BootDisk: Sendable {
         let mount: Mount
-        let containerId: String?  // nil for rootfs
-        let letter: Character
+        let chId: String
+        let readonly: Bool
     }
 
     // MARK: - State
@@ -76,8 +76,8 @@ public final class CHVirtualMachineInstance: Sendable {
         _state.withLock { $0 }
     }
 
-    public var mounts: [String: [AttachedFilesystem]] {
-        hotplug.mounts
+    public var storage: MachineAttachments {
+        hotplug.storage
     }
 
     /// Cloud-hypervisor exposes one virtio-fs device per source-hash tag, so
@@ -167,9 +167,9 @@ public final class CHVirtualMachineInstance: Sendable {
         )
         self.workDir = workDir
 
-        // 2. Block allocator + boot inventory. Walks rootfs first, then
-        //    mountsByID sorted by container id, allocating disk letters in
-        //    that order. The same allocator is later handed to the hotplug
+        // 2. Block allocator + boot inventory. Walks rootfs first, then the
+        //    machine's storage in its device order, allocating disk letters
+        //    as it goes. The same allocator is later handed to the hotplug
         //    provider so runtime add-disk picks up where boot wiring left off.
         let allocator = Character.blockDeviceTagAllocator()
         let inventory = try config.bootInventory(allocator: allocator)
@@ -201,14 +201,14 @@ public final class CHVirtualMachineInstance: Sendable {
             logger: logger ?? Logger(label: "CloudHypervisor.Client")
         )
 
-        // 5. Hotplug provider — owns the mount registry, seeded with the
+        // 5. Hotplug provider — owns the machine's storage, seeded with the
         //    boot inventory so registerMounts can append to it.
         self.hotplug = CHHotplugProvider(
             client: self.client,
             workDir: workDir,
             virtiofsdBinary: virtiofsdBinary,
             allocator: allocator,
-            initialMounts: inventory.attachments,
+            initialStorage: inventory.attachments,
             logger: logger
         )
 
@@ -222,11 +222,11 @@ public final class CHVirtualMachineInstance: Sendable {
         self._stdioPool = Mutex([:])
     }
 
-    /// Mutate the mount registry. Forwards to the hotplug provider, which
+    /// Mutate the storage registry. Forwards to the hotplug provider, which
     /// owns the registry. Kept on the instance for parity with the macOS
-    /// path's `withMountRegistry` API.
-    func withMountRegistry<T: Sendable>(_ body: (inout sending [String: [AttachedFilesystem]]) throws -> sending T) rethrows -> T {
-        try hotplug.withMountRegistry(body)
+    /// path's `withStorage` API.
+    func withStorage<T: Sendable>(_ body: (inout sending MachineAttachments) throws -> sending T) rethrows -> T {
+        try hotplug.withStorage(body)
     }
 }
 
@@ -510,34 +510,46 @@ extension CHVirtualMachineInstance {
             throw ContainerizationError(.invalidArgument, message: "initialFilesystem is required for cloud-hypervisor backend")
         }
 
-        // Disks: rootfs forced read-only at the device level; container disks
+        // Disks: rootfs forced read-only at the device level; other disks
         // honor their `ro` option through chDiskConfig.
         var disks: [CloudHypervisor.DiskConfig] = []
         for bd in bootDisks {
-            let chId = bd.containerId.map { "blk-\($0)-\(bd.letter)" } ?? "rootfs"
-            if var disk = bd.mount.chDiskConfig(id: chId) {
-                if bd.containerId == nil {
+            if var disk = bd.mount.chDiskConfig(id: bd.chId) {
+                if bd.readonly {
                     disk.readonly = true
                 }
                 disks.append(disk)
             }
         }
 
-        // Virtiofs: group all .virtiofs mounts in mountsByID by source-hash
-        // tag, spawn one virtiofsd per tag, build matching FsConfigs.
-        var byTag: [String: (mounts: [Mount], owners: [String])] = [:]
-        for cid in config.mountsByID.keys.sorted() {
-            guard let mounts = config.mountsByID[cid] else { continue }
-            for mount in mounts {
-                guard case .virtiofs = mount.runtimeOptions else { continue }
-                let tag = try hashFilePath(path: mount.source)
-                var entry = byTag[tag] ?? (mounts: [], owners: [])
-                entry.mounts.append(mount)
-                if !entry.owners.contains(cid) {
-                    entry.owners.append(cid)
+        // Virtiofs: group all virtiofs mounts in the machine's storage by
+        // source-hash tag, spawn one virtiofsd per tag, build matching
+        // FsConfigs. A volume's tag is the machine's own, held for its
+        // lifetime.
+        var byTag: [String: (mounts: [Mount], owners: [String], machineHeld: Bool)] = [:]
+        func groupVirtiofs(_ mount: Mount, owner: String?) throws {
+            guard case .virtiofs = mount.runtimeOptions else { return }
+            let tag = try hashFilePath(path: mount.source)
+            var entry = byTag[tag] ?? (mounts: [], owners: [], machineHeld: false)
+            entry.mounts.append(mount)
+            if let owner {
+                if !entry.owners.contains(owner) {
+                    entry.owners.append(owner)
                 }
-                byTag[tag] = entry
+            } else {
+                entry.machineHeld = true
             }
+            byTag[tag] = entry
+        }
+        for cid in config.storage.containers.keys.sorted() {
+            guard let container = config.storage.containers[cid] else { continue }
+            for mount in container.all {
+                try groupVirtiofs(mount, owner: cid)
+            }
+        }
+        for name in config.storage.volumes.keys.sorted() {
+            guard let mount = config.storage.volumes[name] else { continue }
+            try groupVirtiofs(mount, owner: nil)
         }
 
         var fsConfigs: [CloudHypervisor.FsConfig] = []
@@ -569,7 +581,8 @@ extension CHVirtualMachineInstance {
                 tag: tag,
                 process: process,
                 chDeviceId: chDeviceId,
-                ownerIds: entry.owners
+                ownerIds: entry.owners,
+                machineHeld: entry.machineHeld
             )
 
             fsConfigs.append(
@@ -714,40 +727,46 @@ extension CHVirtualMachineInstance {
 // MARK: - Boot inventory
 
 extension CHVirtualMachineInstance.Configuration {
-    /// Walks boot-time mounts in deterministic order (rootfs first, then
-    /// `mountsByID` sorted by container id, then each container's mounts in
-    /// input order), allocating disk letters for virtio-blk mounts and seeding
-    /// the per-container `AttachedFilesystem` registry.
+    /// Walks boot-time storage in the machine's device order (rootfs first,
+    /// then containers sorted by id, each in role order, then volumes sorted
+    /// by name), allocating disk letters for virtio-blk mounts and seeding
+    /// the machine's `AttachedFilesystem` registry.
     ///
     /// The allocator is shared with the runtime hotplug provider, so block
     /// hotplug picks up at the next free letter after boot.
     func bootInventory(
         allocator: any AddressAllocator<Character>
-    ) throws -> (attachments: [String: [AttachedFilesystem]], bootDisks: [CHVirtualMachineInstance.BootDisk]) {
+    ) throws -> (attachments: MachineAttachments, bootDisks: [CHVirtualMachineInstance.BootDisk]) {
         var bootDisks: [CHVirtualMachineInstance.BootDisk] = []
-        var attachments: [String: [AttachedFilesystem]] = [:]
 
-        // Rootfs is not part of mountsByID. If it's a block device, it claims
-        // the first letter (vda) so the kernel cmdline `root=/dev/vda` is right.
+        // The rootfs is the machine's own, not part of its containers'
+        // storage. If it's a block device, it claims the first letter (vda)
+        // so the kernel cmdline `root=/dev/vda` is right.
         if let rootfs = self.initialFilesystem, rootfs.isBlock {
-            let letter = try allocator.allocate()
-            bootDisks.append(.init(mount: rootfs, containerId: nil, letter: letter))
+            _ = try allocator.allocate()
+            bootDisks.append(.init(mount: rootfs, chId: "rootfs", readonly: true))
         }
 
-        for cid in self.mountsByID.keys.sorted() {
-            guard let mounts = self.mountsByID[cid] else { continue }
-            var perContainer: [AttachedFilesystem] = []
-            for mount in mounts {
-                let attached = try AttachedFilesystem(mount: mount, allocator: allocator)
-                if mount.isBlock, let letter = attached.source.last {
-                    bootDisks.append(.init(mount: mount, containerId: cid, letter: letter))
-                }
-                perContainer.append(attached)
+        func attach(_ mount: Mount, chId: (Character) -> String) throws -> AttachedFilesystem {
+            let attached = try AttachedFilesystem(mount: mount, allocator: allocator)
+            if mount.isBlock, let letter = attached.source.last {
+                bootDisks.append(.init(mount: mount, chId: chId(letter), readonly: false))
             }
-            attachments[cid] = perContainer
+            return attached
         }
 
-        return (attachments, bootDisks)
+        var containers: [String: ContainerAttachments] = [:]
+        for cid in self.storage.containers.keys.sorted() {
+            guard let container = self.storage.containers[cid] else { continue }
+            containers[cid] = try container.map { try attach($0, chId: { "blk-\(cid)-\($0)" }) }
+        }
+        var volumes: [String: AttachedFilesystem] = [:]
+        for name in self.storage.volumes.keys.sorted() {
+            guard let mount = self.storage.volumes[name] else { continue }
+            volumes[name] = try attach(mount, chId: { "vol-\(name)-\($0)" })
+        }
+
+        return (MachineAttachments(containers: containers, volumes: volumes), bootDisks)
     }
 }
 #endif

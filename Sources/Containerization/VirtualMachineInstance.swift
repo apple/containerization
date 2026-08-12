@@ -44,7 +44,8 @@ public protocol VirtualMachineInstance: Sendable {
     // The state of the virtual machine.
     var state: VirtualMachineInstanceState { get }
 
-    var mounts: [String: [AttachedFilesystem]] { get }
+    /// The machine's attached storage.
+    var storage: MachineAttachments { get }
 
     /// How this VMM exposes virtiofs devices to the guest. Defaults to
     /// `.unified` (the VZ-shaped behavior); CH overrides to `.perTag`.
@@ -73,7 +74,7 @@ public protocol VirtualMachineInstance: Sendable {
     func hotplug(_ block: Mount, id: String) async throws -> AttachedFilesystem
 
     /// Register mounts for a container after hotplug.
-    /// This is used to add the rootfs and additional mounts to the VM's mount registry
+    /// This is used to add the rootfs and additional mounts to the machine's storage
     /// so they can be found when building the container's OCI spec.
     /// - Parameter id: The container ID
     /// - Parameter rootfs: The rootfs attachment from hotplug

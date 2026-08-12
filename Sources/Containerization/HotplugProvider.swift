@@ -26,7 +26,7 @@ public protocol HotplugProvider: Sendable {
     /// - Returns: The attached filesystem with the device path in the guest
     func hotplug(_ block: Mount, id: String) async throws -> AttachedFilesystem
 
-    /// Register mounts for a container in the VM's mount registry.
+    /// Register mounts for a container in the machine's storage.
     /// - Parameters:
     ///   - id: The container ID
     ///   - rootfs: The rootfs attachment from hotplug

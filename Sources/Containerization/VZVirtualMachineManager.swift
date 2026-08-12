@@ -76,7 +76,7 @@ public struct VZVirtualMachineManager: VirtualMachineManager {
                 instanceConfig.rosetta = self.rosetta
                 instanceConfig.nestedVirtualization = useNestedVirtualization
 
-                instanceConfig.mountsByID = vmConfig.mountsByID
+                instanceConfig.storage = vmConfig.storage
                 instanceConfig.extensions = vmConfig.extensions
             })
     }

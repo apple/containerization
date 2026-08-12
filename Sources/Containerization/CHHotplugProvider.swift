@@ -27,8 +27,8 @@ import Synchronization
 ///
 /// Handles both block (`vm.add-disk`) and virtiofs (`vm.add-fs`, with one
 /// `virtiofsd` per unique source-hash tag) hotplug, plus the matching
-/// `vm.remove-device` teardown. Owns the per-VM mount registry so
-/// `CHVirtualMachineInstance.mounts` can forward to it.
+/// `vm.remove-device` teardown. Owns the machine's storage so
+/// `CHVirtualMachineInstance.storage` can forward to it.
 final class CHHotplugProvider: HotplugProvider {
     struct HotplugRecord: Sendable {
         let chDeviceId: String
@@ -50,7 +50,7 @@ final class CHHotplugProvider: HotplugProvider {
     private let workDir: URL
     private let virtiofsdBinaryOverride: URL?
     private let allocator: any AddressAllocator<Character>
-    private let _mounts: Mutex<[String: [AttachedFilesystem]]>
+    private let _storage: Mutex<MachineAttachments>
     private let _records: Mutex<[String: [HotplugRecord]]>
     private let _tags: Mutex<[String: VirtiofsdTagState]>
     /// Serializes per-tag virtiofsd spawn so a concurrent hotplug for the
@@ -65,14 +65,14 @@ final class CHHotplugProvider: HotplugProvider {
         workDir: URL,
         virtiofsdBinary: URL?,
         allocator: any AddressAllocator<Character>,
-        initialMounts: [String: [AttachedFilesystem]],
+        initialStorage: MachineAttachments,
         logger: Logger?
     ) {
         self.client = client
         self.workDir = workDir
         self.virtiofsdBinaryOverride = virtiofsdBinary
         self.allocator = allocator
-        self._mounts = Mutex(initialMounts)
+        self._storage = Mutex(initialStorage)
         self._records = Mutex([:])
         self._tags = Mutex([:])
         self.spawnLock = AsyncLock()
@@ -81,14 +81,14 @@ final class CHHotplugProvider: HotplugProvider {
 
     // MARK: - Read accessors
 
-    var mounts: [String: [AttachedFilesystem]] {
-        _mounts.withLock { $0 }
+    var storage: MachineAttachments {
+        _storage.withLock { $0 }
     }
 
-    func withMountRegistry<T: Sendable>(
-        _ body: (inout sending [String: [AttachedFilesystem]]) throws -> sending T
+    func withStorage<T: Sendable>(
+        _ body: (inout sending MachineAttachments) throws -> sending T
     ) rethrows -> T {
-        try _mounts.withLock(body)
+        try _storage.withLock(body)
     }
 
     // MARK: - HotplugProvider conformance
@@ -151,12 +151,13 @@ final class CHHotplugProvider: HotplugProvider {
     }
 
     func registerMounts(id: String, rootfs: AttachedFilesystem, additionalMounts: [Mount]) throws {
-        var attached: [AttachedFilesystem] = [rootfs]
+        var mounts: [AttachedFilesystem] = []
         for mount in additionalMounts {
-            attached.append(try AttachedFilesystem(mount: mount, allocator: allocator))
+            mounts.append(try AttachedFilesystem(mount: mount, allocator: allocator))
         }
-        _mounts.withLock {
-            $0[id, default: []].append(contentsOf: attached)
+        let container = ContainerAttachments(rootfs: rootfs, mounts: mounts)
+        _storage.withLock {
+            $0.containers[id] = container
         }
     }
 
@@ -190,19 +191,10 @@ final class CHHotplugProvider: HotplugProvider {
             }
         }
 
-        // Drop block-derived AttachedFilesystem entries for `id`. Block entries
-        // are the ones whose source was rewritten to "/dev/vd<letter>" by
-        // `hotplug(_:)` (or by AttachedFilesystem(mount:allocator:) for an
-        // additionalMount of type virtio-blk).
-        _mounts.withLock { state in
-            guard var perID = state[id] else { return }
-            perID.removeAll { $0.source.hasPrefix("/dev/vd") }
-            if perID.isEmpty {
-                state.removeValue(forKey: id)
-            } else {
-                state[id] = perID
-            }
-        }
+        // The container's devices are gone, so the container leaves the
+        // registry with them; its shares are released separately and their
+        // processes reference-counted through `_tags`.
+        _ = _storage.withLock { $0.containers.removeValue(forKey: id) }
     }
 
     func hotplugVirtioFS(_ mounts: [Mount], id: String) async throws {
@@ -226,7 +218,7 @@ final class CHHotplugProvider: HotplugProvider {
             let chDeviceId = try await ensureVirtiofsDevice(tag: tag, source: source, readonly: readonly)
             // Record once per tag for this container. The AttachedFilesystem
             // entries for these mounts are written by registerMounts (the sole
-            // _mounts writer), so we do NOT touch _mounts here.
+            // registry writer), so we do NOT touch the storage here.
             _records.withLock {
                 $0[id, default: []].append(HotplugRecord(chDeviceId: chDeviceId, kind: .virtiofs(tag: tag)))
             }
@@ -338,16 +330,17 @@ final class CHHotplugProvider: HotplugProvider {
             try? FileManager.default.removeItem(at: socket)
         }
 
-        // Drop virtiofs AttachedFilesystem entries for `id`. AttachedFilesystem
-        // sets `type = mount.type` which for a `.virtiofs` mount is "virtiofs".
-        _mounts.withLock { state in
-            guard var perID = state[id] else { return }
-            perID.removeAll { $0.type == "virtiofs" }
-            if perID.isEmpty {
-                state.removeValue(forKey: id)
-            } else {
-                state[id] = perID
+        // Drop the container's virtiofs entries. A container whose rootfs is
+        // itself a share leaves the registry whole; one that keeps block
+        // devices keeps its entry with the share entries dropped.
+        _storage.withLock { state in
+            guard var container = state.containers[id] else { return }
+            if container.rootfs.type == "virtiofs" {
+                state.containers.removeValue(forKey: id)
+                return
             }
+            container.mounts.removeAll { $0.type == "virtiofs" }
+            state.containers[id] = container
         }
     }
 
@@ -358,15 +351,21 @@ final class CHHotplugProvider: HotplugProvider {
     /// is the user-supplied `FsConfig.id` (which `vm.remove-device` keys on).
     /// `ownerIds` are the container ids that count toward this tag's refcount;
     /// each gets a `HotplugRecord` so `releaseVirtioFS(id:)` walks them
-    /// uniformly.
+    /// uniformly. `machineHeld` adds one reference nothing releases, for a
+    /// share the machine itself owns (a volume).
     func recordBootTimeVirtiofs(
         tag: String,
         process: VirtiofsdProcess,
         chDeviceId: String,
-        ownerIds: [String]
+        ownerIds: [String],
+        machineHeld: Bool
     ) {
         _tags.withLock {
-            $0[tag] = VirtiofsdTagState(process: process, refcount: ownerIds.count, chDeviceId: chDeviceId)
+            $0[tag] = VirtiofsdTagState(
+                process: process,
+                refcount: ownerIds.count + (machineHeld ? 1 : 0),
+                chDeviceId: chDeviceId
+            )
         }
         _records.withLock { records in
             for id in ownerIds {

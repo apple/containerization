@@ -28,10 +28,10 @@ import Synchronization
 public final class VZVirtualMachineInstance: Sendable {
     public typealias Agent = Vminitd
 
-    /// Attached mounts on the virtual machine, organized by metadata ID.
-    private let _mounts: Mutex<[String: [AttachedFilesystem]]>
-    public var mounts: [String: [AttachedFilesystem]] {
-        _mounts.withLock { $0 }
+    /// The machine's attached storage.
+    private let _storage: Mutex<MachineAttachments>
+    public var storage: MachineAttachments {
+        _storage.withLock { $0 }
     }
 
     /// The underlying Virtualization framework virtual machine.
@@ -40,9 +40,9 @@ public final class VZVirtualMachineInstance: Sendable {
     /// The dispatch queue used for VZ operations.
     public var vmQueue: DispatchQueue { queue }
 
-    /// Mutate the mount registry.
-    public func withMountRegistry<T: Sendable>(_ body: (inout sending [String: [AttachedFilesystem]]) throws -> sending T) rethrows -> T {
-        try _mounts.withLock(body)
+    /// Mutate the storage registry.
+    public func withStorage<T: Sendable>(_ body: (inout sending MachineAttachments) throws -> sending T) rethrows -> T {
+        try _storage.withLock(body)
     }
 
     /// Serialize VM operations with the instance lock.
@@ -73,8 +73,9 @@ public final class VZVirtualMachineInstance: Sendable {
         public var rosetta: Bool
         /// Toggle nested virtualization support.
         public var nestedVirtualization: Bool
-        /// Mount attachments organized by metadata ID.
-        public var mountsByID: [String: [Mount]]
+        /// The machine's storage: each container's mounts by role, and the
+        /// volumes its containers share.
+        public var storage: MachineMounts
         /// Network interface attachments.
         public var interfaces: [any Interface]
         /// Kernel image.
@@ -91,7 +92,7 @@ public final class VZVirtualMachineInstance: Sendable {
             self.memoryInBytes = 1024.mib()
             self.rosetta = false
             self.nestedVirtualization = false
-            self.mountsByID = [:]
+            self.storage = MachineMounts()
             self.interfaces = []
         }
     }
@@ -132,7 +133,7 @@ public final class VZVirtualMachineInstance: Sendable {
 
         let allocator = Character.blockDeviceTagAllocator()
         let (mountAttachments, _) = try config.mountAttachments(allocator: allocator)
-        self._mounts = Mutex(mountAttachments)
+        self._storage = Mutex(mountAttachments)
 
         self.vm = VZVirtualMachine(
             configuration: try config.toVZ(allocator: allocator),
@@ -153,7 +154,7 @@ public protocol VZInstanceExtension: Sendable {
         _ config: inout VZVirtualMachineConfiguration,
         allocator: any AddressAllocator<Character>,
         storageDeviceCount: Int,
-        mountsByID: [String: [Mount]]
+        storage: MachineMounts
     ) throws
 
     /// Called after the VZVirtualMachine is created but before start.
@@ -168,7 +169,7 @@ extension VZInstanceExtension {
         _ config: inout VZVirtualMachineConfiguration,
         allocator: any AddressAllocator<Character>,
         storageDeviceCount: Int,
-        mountsByID: [String: [Mount]]
+        storage: MachineMounts
     ) throws {}
 
     public func didCreate(_ instance: VZVirtualMachineInstance) throws {}
@@ -477,35 +478,33 @@ extension VZVirtualMachineInstance.Configuration {
 
         // Track used virtiofs tags to avoid creating duplicate VZ devices.
         // The same source directory mounted to multiple destinations shares one device.
+        // The walk is the machine's device order, matching the addresses
+        // `mountAttachments` hands out walking the same way.
         var usedVirtioFSTags: Set<String> = []
-        for (_, mounts) in self.mountsByID {
-            for mount in mounts {
-                if case .virtiofs = mount.runtimeOptions {
-                    let tag = try hashFilePath(path: mount.source)
-                    if usedVirtioFSTags.contains(tag) {
-                        continue
-                    }
-                    usedVirtioFSTags.insert(tag)
+        for mount in self.storage.ordered {
+            if case .virtiofs = mount.runtimeOptions {
+                let tag = try hashFilePath(path: mount.source)
+                if usedVirtioFSTags.contains(tag) {
+                    continue
                 }
-                try mount.configure(config: &config)
+                usedVirtioFSTags.insert(tag)
             }
+            try mount.configure(config: &config)
         }
 
         // Create the unified virtiofs device with VZMultipleDirectoryShare
         // This device hosts all virtiofs shares and supports runtime updates
         var directories: [String: VZSharedDirectory] = [:]
-        for (_, mounts) in self.mountsByID {
-            for mount in mounts {
-                guard case .virtiofs(_) = mount.runtimeOptions else { continue }
-                guard FileManager.default.fileExists(atPath: mount.source) else {
-                    throw ContainerizationError(.notFound, message: "directory \(mount.source) does not exist")
-                }
-                let name = try hashFilePath(path: mount.source)
-                directories[name] = VZSharedDirectory(
-                    url: URL(fileURLWithPath: mount.source),
-                    readOnly: mount.options.contains("ro")
-                )
+        for mount in self.storage.ordered {
+            guard case .virtiofs(_) = mount.runtimeOptions else { continue }
+            guard FileManager.default.fileExists(atPath: mount.source) else {
+                throw ContainerizationError(.notFound, message: "directory \(mount.source) does not exist")
             }
+            let name = try hashFilePath(path: mount.source)
+            directories[name] = VZSharedDirectory(
+                url: URL(fileURLWithPath: mount.source),
+                readOnly: mount.options.contains("ro")
+            )
         }
         let multiShare = VZMultipleDirectoryShare(directories: directories)
         let virtiofsDevice = VZVirtioFileSystemDeviceConfiguration(tag: "virtiofs")
@@ -527,7 +526,7 @@ extension VZVirtualMachineInstance.Configuration {
         config.platform = platform
 
         for ext in self.extensions.compactMap({ $0 as? any VZInstanceExtension }) {
-            try ext.configureVZ(&config, allocator: allocator, storageDeviceCount: storageDeviceCount, mountsByID: self.mountsByID)
+            try ext.configureVZ(&config, allocator: allocator, storageDeviceCount: storageDeviceCount, storage: self.storage)
         }
 
         try config.validate()
@@ -535,7 +534,7 @@ extension VZVirtualMachineInstance.Configuration {
     }
 
     func mountAttachments(allocator: any AddressAllocator<Character>) throws -> (
-        attachments: [String: [AttachedFilesystem]], storageDeviceCount: Int
+        attachments: MachineAttachments, storageDeviceCount: Int
     ) {
         var storageDeviceCount = 0
 
@@ -548,21 +547,28 @@ extension VZVirtualMachineInstance.Configuration {
             }
         }
 
-        var attachmentsByID: [String: [AttachedFilesystem]] = [:]
-
-        for (id, mounts) in self.mountsByID {
-            var attachments: [AttachedFilesystem] = []
-            for mount in mounts {
-                let attached = try AttachedFilesystem(mount: mount, allocator: allocator)
-                attachments.append(attached)
-                if mount.isBlock {
-                    storageDeviceCount += 1
-                }
+        // The machine's device order: addresses are handed out in the same
+        // walk `makeConfiguration` creates the devices in.
+        func attach(_ mount: Mount) throws -> AttachedFilesystem {
+            let attached = try AttachedFilesystem(mount: mount, allocator: allocator)
+            if mount.isBlock {
+                storageDeviceCount += 1
             }
-            attachmentsByID[id] = attachments
+            return attached
         }
 
-        return (attachmentsByID, storageDeviceCount)
+        var containers: [String: ContainerAttachments] = [:]
+        for id in self.storage.containers.keys.sorted() {
+            guard let container = self.storage.containers[id] else { continue }
+            containers[id] = try container.map(attach)
+        }
+        var volumes: [String: AttachedFilesystem] = [:]
+        for name in self.storage.volumes.keys.sorted() {
+            guard let mount = self.storage.volumes[name] else { continue }
+            volumes[name] = try attach(mount)
+        }
+
+        return (MachineAttachments(containers: containers, volumes: volumes), storageDeviceCount)
     }
 }
 

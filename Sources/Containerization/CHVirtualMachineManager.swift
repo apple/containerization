@@ -99,7 +99,7 @@ public struct CHVirtualMachineManager: VirtualMachineManager {
         instanceConfig.cpus = vmConfig.cpus
         instanceConfig.memoryInBytes = vmConfig.memoryInBytes
         instanceConfig.interfaces = vmConfig.interfaces
-        instanceConfig.mountsByID = vmConfig.mountsByID
+        instanceConfig.storage = vmConfig.storage
         instanceConfig.bootLog = vmConfig.bootLog
         instanceConfig.extensions = vmConfig.extensions
         instanceConfig.kernel = kernel

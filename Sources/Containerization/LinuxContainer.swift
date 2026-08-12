@@ -537,24 +537,14 @@ extension LinuxContainer {
     }
 
     private func mountRootfs(
-        attachments: [AttachedFilesystem],
+        attached: ContainerAttachments,
         rootfsPath: String,
         agent: VirtualMachineAgent
     ) async throws {
-        guard let rootfsAttachment = attachments.first else {
-            throw ContainerizationError(.notFound, message: "rootfs mount not found")
-        }
+        let rootfsAttachment = attached.rootfs
 
-        if self.writableLayer != nil {
+        if let writableAttachment = attached.writableLayer {
             // Set up overlayfs with image as lower layer and writable layer as upper.
-            guard attachments.count >= 2 else {
-                throw ContainerizationError(
-                    .notFound,
-                    message: "writable layer mount not found"
-                )
-            }
-            let writableAttachment = attachments[1]
-
             let lowerPath = "/run/container/\(self.id)/lower"
             let upperMountPath = "/run/container/\(self.id)/upper"
             let upperPath = "/run/container/\(self.id)/upper/diff"
@@ -623,17 +613,18 @@ extension LinuxContainer {
             // This is dumb, but alas.
             let fileMountContextHolder = Mutex<FileMountContext>(fileMountContext)
 
-            // Build the list of mounts to attach to the VM.
-            var containerMounts = [modifiedRootfs] + fileMountContext.transformedMounts
-            if let writableLayer = self.writableLayer {
-                containerMounts.insert(writableLayer, at: 1)
-            }
+            // Build the container's storage to attach to the VM.
+            let containerStorage = ContainerMounts(
+                rootfs: modifiedRootfs,
+                writableLayer: self.writableLayer,
+                mounts: fileMountContext.transformedMounts
+            )
 
             let vmConfig = VMConfiguration(
                 cpus: vmCpus,
                 memoryInBytes: vmMemory,
                 interfaces: self.interfaces,
-                mountsByID: [self.id: containerMounts],
+                storage: MachineMounts(containers: [self.id: containerStorage]),
                 bootLog: self.config.bootLog,
                 nestedVirtualization: self.config.virtualization
             )
@@ -643,7 +634,7 @@ extension LinuxContainer {
 
             do {
                 try await vm.start()
-                let mountsForAgent = containerMounts
+                let storageForAgent = containerStorage
                 try await vm.withAgent { agent in
                     try await agent.standardSetup()
 
@@ -656,7 +647,7 @@ extension LinuxContainer {
                     // with zero shares), but the cloud-hypervisor backend
                     // only spawns virtiofsd when shares exist; mounting an
                     // unbacked tag fails with EINVAL.
-                    let hasVirtiofsMount = mountsForAgent.contains { mount in
+                    let hasVirtiofsMount = storageForAgent.all.contains { mount in
                         if case .virtiofs = mount.runtimeOptions { return true }
                         return false
                     }
@@ -671,7 +662,7 @@ extension LinuxContainer {
                         // gets populated.
                         if vm.virtiofsLayout == .perTag {
                             try await agent.mkdir(path: "/run/virtiofs", all: true, perms: 0o755)
-                            let virtiofsAttachments = (vm.mounts[self.id] ?? []).filter { $0.type == "virtiofs" }
+                            let virtiofsAttachments = (vm.storage.containers[self.id]?.all ?? []).filter { $0.type == "virtiofs" }
                             let uniqueTags = Set(virtiofsAttachments.map(\.source))
                             for tag in uniqueTags {
                                 let dest = "/run/virtiofs/\(tag)"
@@ -695,18 +686,17 @@ extension LinuxContainer {
                         }
                     }
 
-                    guard let attachments = vm.mounts[self.id] else {
+                    guard let attached = vm.storage.containers[self.id] else {
                         throw ContainerizationError(.notFound, message: "rootfs mount not found")
                     }
                     let rootfsPath = Self.guestRootfsPath(self.id)
-                    try await self.mountRootfs(attachments: attachments, rootfsPath: rootfsPath, agent: agent)
+                    try await self.mountRootfs(attached: attached, rootfsPath: rootfsPath, agent: agent)
 
                     // Mount file mount holding directories under /run.
                     if fileMountContext.hasFileMounts {
-                        let containerMounts = vm.mounts[self.id] ?? []
                         var ctx = fileMountContextHolder.withLock { $0 }
                         try await ctx.mountHoldingDirectories(
-                            vmMounts: containerMounts,
+                            vmMounts: attached.mounts,
                             agent: agent
                         )
                         fileMountContextHolder.withLock { $0 = ctx }
@@ -764,15 +754,12 @@ extension LinuxContainer {
             let agent = try await createdState.vm.dialAgent()
             do {
                 var spec = self.generateRuntimeSpec()
-                // We don't need the rootfs (or writable layer), nor do OCI runtimes want it included.
-                // Also filter out file mount holding directories. We'll mount those separately under /run.
+                // Filter out file mount holding directories. We'll mount those separately under /run.
                 // Transform virtiofs mounts to bind mounts from /run/virtiofs/{tag}
-                let containerMounts = createdState.vm.mounts[self.id] ?? []
+                let containerMounts = createdState.vm.storage.containers[self.id]?.mounts ?? []
                 let holdingTags = createdState.fileMountContext.holdingDirectoryTags
-                // Drop rootfs, and writable layer if present.
-                let mountsToSkip = self.writableLayer != nil ? 2 : 1
                 var mounts: [ContainerizationOCI.Mount] =
-                    containerMounts.dropFirst(mountsToSkip)
+                    containerMounts
                     .filter { !holdingTags.contains($0.source) }
                     .map { attached -> ContainerizationOCI.Mount in
                         if attached.type == "virtiofs" {
