@@ -135,7 +135,19 @@ struct IntegrationSuite: AsyncParsableCommand {
         FileManager.default.uniqueTemporaryDirectory(create: true)
     }()
 
+    /// The scratch directory of the test running on this task. The runner
+    /// creates one per test and deletes it when the test finishes, so a
+    /// test's clones and layers hold disk only while it runs.
+    @TaskLocal static var currentTestDir: URL?
+
     static var testDir: URL {
+        currentTestDir ?? _testDir
+    }
+
+    /// The run-shared directory holding unpacked images, which every test's
+    /// bootstrap clones from. It lives for the whole run and is removed at
+    /// the end.
+    static var imageCacheDir: URL {
         _testDir
     }
 
@@ -233,7 +245,7 @@ struct IntegrationSuite: AsyncParsableCommand {
         let platform = Platform(arch: "arm64", os: "linux", variant: "v8")
 
         // Unpack to shared location with coordination to prevent concurrent unpacks
-        let fsPath = Self.testDir.appending(component: image.digest)
+        let fsPath = Self.imageCacheDir.appending(component: image.digest)
         let fs = try await Self.unpackCoordinator.unpack(key: fsPath.absolutePath()) {
             do {
                 let unpacker = EXT4Unpacker(capacityInBytes: 2.gib())
@@ -248,29 +260,6 @@ struct IntegrationSuite: AsyncParsableCommand {
                     )
                 }
                 throw err
-            }
-        }
-
-        // Reap any per-test artifacts left over from prior tests. With
-        // `--max-concurrency 1` (linux-integration default) this runs after
-        // the previous test has fully completed, so it's race-free; on
-        // macOS where tests can run in parallel we just keep all files —
-        // disk usage isn't a concern there. Each per-test bootstrap clones
-        // a ~2GB rootfs and a ~512MB initfs, so without reaping the dev
-        // container fills its CoW layer in ~10 tests.
-        if self.maxConcurrency == 1 {
-            // contentsOfDirectory reports paths under /private, while testDir is
-            // built from FileManager's /var view of the same directory, so both
-            // sides are resolved before comparing.
-            let preserve = fsPath.resolvingSymlinksInPathWithPrivate().absolutePath()
-            if let entries = try? FileManager.default.contentsOfDirectory(
-                at: Self.testDir,
-                includingPropertiesForKeys: nil
-            ) {
-                for url in entries
-                where url.resolvingSymlinksInPathWithPrivate().absolutePath() != preserve {
-                    try? FileManager.default.removeItem(at: url)
-                }
             }
         }
 
@@ -658,11 +647,14 @@ struct IntegrationSuite: AsyncParsableCommand {
             for _ in 0..<maxConcurrency {
                 group.addTask { @Sendable in
                     while let job = jobQueue.pop() {
+                        let scratch = FileManager.default.uniqueTemporaryDirectory(create: true)
                         do {
                             log.info("test \(job.name) started...")
 
                             let started = Date().timeIntervalSinceReferenceDate
-                            try await job.work()
+                            try await Self.$currentTestDir.withValue(scratch) {
+                                try await job.work()
+                            }
                             let lasted = Date().timeIntervalSinceReferenceDate - started
 
                             log.info("✅ test \(job.name) complete in \(lasted)s.")
@@ -673,6 +665,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                         } catch {
                             log.error("❌ test \(job.name) failed: \(error)")
                         }
+                        try? FileManager.default.removeItem(at: scratch)
                     }
                 }
             }

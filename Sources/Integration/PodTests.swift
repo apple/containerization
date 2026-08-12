@@ -2228,10 +2228,9 @@ extension IntegrationSuite {
     /// (directory-share) rootfs. Assumes a single-layer image (the alpine
     /// image used by the suite) so no OCI whiteout processing is required.
     ///
-    /// The extracted dir lives under `Self.testDir`; do NOT `defer`-remove it
-    /// here — virtiofsd shares it for the whole test. It is swept by
-    /// `bootstrap`'s `maxConcurrency == 1` reaper on the next test and by the
-    /// suite-end `removeItem(at: Self.testDir)`.
+    /// The extracted dir lives under the test's scratch directory; do NOT
+    /// `defer`-remove it here — virtiofsd shares it for the whole test. The
+    /// runner removes the scratch directory when the test finishes.
     private func unpackRootfsDirectory(_ image: Containerization.Image, testID: String) async throws -> Containerization.Mount {
         let dir = Self.testDir.appending(component: "\(testID)-rootfs-dir")
         try? FileManager.default.removeItem(at: dir)
