@@ -564,6 +564,9 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("pod writable layer", testPodWritableLayer),
             Test("pod hotplug block rootfs", testPodHotplugBlockRootfs),
             Test("pod hotplug writable layer", testPodHotplugWritableLayer),
+            Test("pod hotplug virtiofs share", testPodHotplugVirtiofsShare),
+            Test("pod hotplug virtiofs same share", testPodHotplugVirtiofsSameShare),
+            Test("pod hotplug virtiofs share lifecycle", testPodHotplugVirtiofsShareLifecycle),
             Test("pod container PID namespace isolation", testPodContainerPIDNamespaceIsolation),
             Test("pod container independent resource limits", testPodContainerIndependentResourceLimits),
             Test("pod shared PID namespace", testPodSharedPIDNamespace),
@@ -650,8 +653,8 @@ struct IntegrationSuite: AsyncParsableCommand {
             ] + macOS26Tests()
         let tests: [Test] = crossPlatformTests + macOSOnlyTests
         #else
-        // A directory share is fixed at boot on VZ, so only the backend that
-        // adds one to a running machine is held to it.
+        // A virtiofs rootfs rides its own device, which cloud-hypervisor alone
+        // adds to a running machine.
         let linuxOnlyTests: [Test] = [
             Test("pod hotplug virtiofs rootfs", testPodHotplugVirtiofsRootfs)
         ]

@@ -23,7 +23,7 @@ import Logging
 import Synchronization
 @preconcurrency import Virtualization
 
-/// Attaches block devices to a running virtual machine.
+/// Attaches block devices and directory shares to a running virtual machine.
 ///
 /// Virtualization's storage devices are fixed once a machine boots, but its USB
 /// controller takes devices while it runs, and mass storage is one of the
@@ -31,6 +31,11 @@ import Synchronization
 /// SCSI disk, so it is named from a separate run of letters to the virtio-blk
 /// devices the machine booted with.
 /// https://developer.apple.com/documentation/virtualization/vzusbcontroller
+///
+/// Directory shares ride the machine's one virtiofs device, whose share is
+/// replaceable while the machine runs, so a directory is exported by setting a
+/// share that carries it alongside the ones already exported.
+/// https://developer.apple.com/documentation/virtualization/vzvirtiofilesystemdevice/share
 @available(macOS 15.0, *)
 final class VZHotplugProvider: HotplugProvider, @unchecked Sendable {
     /// A disk attached to the running machine, kept so it can be detached.
@@ -50,6 +55,10 @@ final class VZHotplugProvider: HotplugProvider, @unchecked Sendable {
     private let allocator: any AddressAllocator<Character>
     private let _storage: Mutex<MachineAttachments>
     private let _records: Mutex<[String: [HotplugRecord]]>
+    /// The virtiofs tags exported for each container while the machine runs.
+    /// The machine keeps what it booted with; what these record leaves with
+    /// the containers that asked for it.
+    private let _shareRecords: Mutex<[String: Set<String>]>
     private let logger: Logger?
 
     init(
@@ -63,6 +72,7 @@ final class VZHotplugProvider: HotplugProvider, @unchecked Sendable {
         self.allocator = Character.blockDeviceTagAllocator()
         self._storage = Mutex(initialStorage)
         self._records = Mutex([:])
+        self._shareRecords = Mutex([:])
         self.logger = logger
     }
 
@@ -180,17 +190,147 @@ final class VZHotplugProvider: HotplugProvider, @unchecked Sendable {
         _ = _storage.withLock { $0.containers.removeValue(forKey: id) }
     }
 
-    /// Virtualization shares directories through devices fixed at boot, so a
-    /// share cannot be added to a machine that is already running.
+    /// Export directories to the running machine.
+    ///
+    /// The machine's virtiofs device takes a replacement share while it runs,
+    /// so a directory is exported by setting a share that carries it alongside
+    /// the ones already exported. A directory the machine already exports is
+    /// taken as it is, the way a booted share is.
+    /// https://developer.apple.com/documentation/virtualization/vzvirtiofilesystemdevice/share
     func hotplugVirtioFS(_ mounts: [Mount], id: String) async throws {
-        guard !mounts.isEmpty else { return }
-        throw ContainerizationError(
-            .unsupported,
-            message: "a directory share cannot be added to a running machine"
-        )
+        let virtiofs = mounts.filter {
+            if case .virtiofs = $0.runtimeOptions { return true }
+            return false
+        }
+        guard !virtiofs.isEmpty else { return }
+
+        // Group by tag: several mounts of one source directory share an export.
+        var additions: [String: DirectoryExport] = [:]
+        for mount in virtiofs {
+            guard FileManager.default.fileExists(atPath: mount.source) else {
+                throw ContainerizationError(.notFound, message: "directory \(mount.source) does not exist")
+            }
+            let tag = try hashFilePath(path: mount.source)
+            if additions[tag] == nil {
+                additions[tag] = DirectoryExport(
+                    path: mount.source,
+                    readOnly: mount.options.contains("ro")
+                )
+            }
+        }
+
+        try await mergeShare(additions)
+
+        _shareRecords.withLock { $0[id, default: []].formUnion(additions.keys) }
     }
 
-    func releaseVirtioFS(id: String) async throws {}
+    /// Withdraw the directories exported for a container while the machine
+    /// runs, keeping every directory another container still references and
+    /// everything the machine booted with.
+    func releaseVirtioFS(id: String) async throws {
+        let dropped: Set<String> = _shareRecords.withLock { records in
+            records.removeValue(forKey: id) ?? []
+        }
+        guard !dropped.isEmpty else { return }
+
+        let heldByRecords: Set<String> = _shareRecords.withLock { Set($0.values.flatMap { $0 }) }
+        let heldByRegistry: Set<String> = _storage.withLock { storage in
+            var held = Set(
+                storage.containers.filter { $0.key != id }
+                    .values.flatMap { $0.all }
+                    .filter { $0.type == "virtiofs" }
+                    .map { $0.source })
+            held.formUnion(
+                storage.volumes.values
+                    .filter { $0.type == "virtiofs" }
+                    .map { $0.source })
+            return held
+        }
+        let removable = dropped.subtracting(heldByRecords).subtracting(heldByRegistry)
+        guard !removable.isEmpty else { return }
+
+        do {
+            try await withdrawShare(removable)
+        } catch {
+            logger?.error(
+                "failed to withdraw directory shares from the running machine",
+                metadata: ["id": "\(id)", "error": "\(error)"]
+            )
+        }
+    }
+
+    /// What a directory export is made from, carried onto the machine's queue
+    /// where the Virtualization objects for it are built.
+    private struct DirectoryExport: Sendable {
+        let path: String
+        let readOnly: Bool
+    }
+
+    /// The machine's virtiofs device, which every share rides. The device is
+    /// a Virtualization object, so this is callable only on the machine's own
+    /// queue.
+    private static func shareDevice(of vm: VZVirtualMachine) -> VZVirtioFileSystemDevice? {
+        vm.directorySharingDevices
+            .compactMap { $0 as? VZVirtioFileSystemDevice }
+            .first { $0.tag == "virtiofs" }
+    }
+
+    /// Set a share on the machine's virtiofs device carrying the current
+    /// directories plus `additions`, leaving an already-exported tag as it is.
+    /// The device is a Virtualization object, touched only inside a block
+    /// dispatched to the machine's own queue.
+    private func mergeShare(_ additions: [String: DirectoryExport]) async throws {
+        nonisolated(unsafe) let vm = self.vm
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            queue.async {
+                guard let device = Self.shareDevice(of: vm) else {
+                    continuation.resume(
+                        throwing: ContainerizationError(
+                            .unsupported,
+                            message: "the machine has no directory sharing device to export through"
+                        ))
+                    return
+                }
+                let current = (device.share as? VZMultipleDirectoryShare)?.directories ?? [:]
+                var updated = current
+                for (tag, export) in additions where updated[tag] == nil {
+                    updated[tag] = VZSharedDirectory(
+                        url: URL(fileURLWithPath: export.path),
+                        readOnly: export.readOnly
+                    )
+                }
+                if updated.count != current.count {
+                    device.share = VZMultipleDirectoryShare(directories: updated)
+                }
+                continuation.resume()
+            }
+        }
+    }
+
+    /// Set a share on the machine's virtiofs device carrying the current
+    /// directories minus `tags`. The device is a Virtualization object,
+    /// touched only inside a block dispatched to the machine's own queue.
+    private func withdrawShare(_ tags: Set<String>) async throws {
+        nonisolated(unsafe) let vm = self.vm
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            queue.async {
+                guard let device = Self.shareDevice(of: vm) else {
+                    continuation.resume(
+                        throwing: ContainerizationError(
+                            .unsupported,
+                            message: "the machine has no directory sharing device to withdraw from"
+                        ))
+                    return
+                }
+                let current = (device.share as? VZMultipleDirectoryShare)?.directories ?? [:]
+                let updated = current.filter { !tags.contains($0.key) }
+                if updated.count != current.count {
+                    device.share = VZMultipleDirectoryShare(directories: updated)
+                }
+                continuation.resume()
+            }
+        }
+    }
 }
 
 #endif
