@@ -2049,6 +2049,133 @@ extension IntegrationSuite {
         return socketPath
     }
 
+    #if os(macOS)
+    /// Boot a pod with the reclaim loop on a fast cadence, run an
+    /// anonymous-memory fill that holds long enough for several looks and
+    /// frees by exiting, and return the reclaimer's report of what it saw
+    /// and did.
+    private func reclaimReport(id: String) async throws -> MemoryReclaimer.Report? {
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 2048.mib()
+            config.bootLog = bs.bootLog
+            config.proactiveMemoryReclaim = true
+            config.memoryReclaimInterval = .seconds(1)
+        }
+
+        try await pod.addContainer("filler", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "filler")) { config in
+            config.process.arguments = [
+                "/bin/sh", "-c",
+                "awk 'BEGIN{ b=sprintf(\"%01000000d\",0); while(length(b)<700000000) b=b b; t=systime(); while(systime()<t+8){} }'; sleep infinity",
+            ]
+        }
+
+        do {
+            try await pod.create()
+            try await pod.startContainer("filler")
+
+            // The holder builds, holds for eight seconds, and frees; give
+            // the loop time to follow it through both states.
+            try await Task.sleep(for: .seconds(25))
+            let report = try await pod.memoryReclaimReport()
+
+            try await pod.killContainer("filler", signal: .kill)
+            _ = try await pod.waitContainer("filler")
+            try await pod.stop()
+            return report
+        } catch {
+            try? await pod.stop()
+            throw error
+        }
+    }
+
+    /// The host keeps holding what a guest workload used after the workload
+    /// frees it, when nothing asks for it back. This is the environment
+    /// check the reclaim pair rests on: a fall here means the host was under
+    /// pressure and the active test's fall proves nothing.
+    /// The reclaim loop follows the guest through a fill-and-free: it sees
+    /// the fill, raises the machine's size for it, and asks for the freed
+    /// memory back afterwards. The reclaimer's report carries each step, so
+    /// the whole sample-policy-apply cycle is asserted deterministically.
+    /// What macOS then does with the pages the balloon takes is the
+    /// platform's side of the contract; the host's free-memory ledger is too
+    /// noisy on a live machine to assert it per run.
+    func testPodReclaimFollowsTheGuest() async throws {
+        let report = try await reclaimReport(id: "test-pod-reclaim-follows")
+        guard let report else {
+            throw IntegrationError.assert(msg: "no reclaim report from a pod with reclaim on")
+        }
+        guard report.failures == 0 else {
+            throw IntegrationError.assert(msg: "reclaim looks or applies failed: \(report)")
+        }
+        guard report.maxAnon >= 500.mib() else {
+            throw IntegrationError.assert(
+                msg: "the loop never saw the fill: \(report)")
+        }
+        guard report.applies >= 2 else {
+            throw IntegrationError.assert(
+                msg: "the loop did not follow the fill and the free with targets: \(report)")
+        }
+        guard let target = report.target, target <= 512.mib() else {
+            throw IntegrationError.assert(
+                msg: "the loop did not ask for the freed memory back: \(report)")
+        }
+    }
+
+    /// A guest that is using its memory keeps it under proactive reclaim:
+    /// the loop sees what the holder holds and never asks for a size below
+    /// it.
+    func testPodReclaimBusy() async throws {
+        let id = "test-pod-reclaim-busy"
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 2048.mib()
+            config.bootLog = bs.bootLog
+            config.proactiveMemoryReclaim = true
+            config.memoryReclaimInterval = .seconds(1)
+        }
+
+        try await pod.addContainer("holder", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "holder")) { config in
+            config.process.arguments = [
+                "/usr/bin/awk",
+                "BEGIN{ b=sprintf(\"%01000000d\",0); while(length(b)<300000000) b=b b; while(1){} }",
+            ]
+        }
+
+        do {
+            try await pod.create()
+            try await pod.startContainer("holder")
+
+            // Let the holder build its anonymous buffer, then give the loop
+            // time to look at it holding.
+            try await Task.sleep(for: .seconds(20))
+            let report = try await pod.memoryReclaimReport()
+
+            try await pod.killContainer("holder", signal: .kill)
+            _ = try await pod.waitContainer("holder")
+            try await pod.stop()
+
+            guard let report, report.failures == 0 else {
+                throw IntegrationError.assert(
+                    msg: "reclaim looks or applies failed: \(String(describing: report))")
+            }
+            guard report.maxAnon >= 200.mib() else {
+                throw IntegrationError.assert(
+                    msg: "the loop never saw the holder: \(report)")
+            }
+            guard (report.target ?? 2048.mib()) >= report.maxAnon else {
+                throw IntegrationError.assert(
+                    msg: "the loop asked a busy guest to hold less than it uses: \(report)")
+            }
+        } catch {
+            try? await pod.stop()
+            throw error
+        }
+    }
+    #endif
+
     func testPodSysctl() async throws {
         let id = "test-pod-sysctl"
 

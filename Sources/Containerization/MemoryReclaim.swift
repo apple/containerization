@@ -83,10 +83,24 @@ public struct MemoryReclaimPolicy: Sendable {
 /// Tracks a machine across looks so refaults can be compared against the
 /// previous reading rather than treated as an absolute.
 public actor MemoryReclaimer {
+    /// What the reclaimer has done so far: how often it looked at the guest,
+    /// how often it asked the machine for a new size, how often a look or an
+    /// ask failed, and the size it last asked for.
+    public struct Report: Sendable {
+        public var looks: Int = 0
+        public var applies: Int = 0
+        public var failures: Int = 0
+        public var target: UInt64?
+        public var lastAnon: UInt64 = 0
+        public var maxAnon: UInt64 = 0
+        public var lastRefaultAnon: UInt64 = 0
+    }
+
     private let policy: MemoryReclaimPolicy
     private let ceiling: UInt64
     private var lastRefaultAnon: UInt64?
     private var current: UInt64
+    private var report = Report()
 
     public init(policy: MemoryReclaimPolicy = .init(), ceiling: UInt64) {
         self.policy = policy
@@ -94,15 +108,29 @@ public actor MemoryReclaimer {
         self.current = ceiling
     }
 
+    public func currentReport() -> Report {
+        report
+    }
+
     /// Fold in one reading and return the size to ask for, or nil when it has
     /// not changed enough to be worth asking.
     public func step(memory: ContainerStatistics.MemoryStatistics) -> UInt64? {
+        step(anon: memory.anon, refaultAnon: memory.workingsetRefaultAnon)
+    }
+
+    /// Fold in one reading and return the size to ask for, or nil when it has
+    /// not changed enough to be worth asking.
+    /// - Parameters:
+    ///   - anon: Anonymous memory the guest holds.
+    ///   - refaultAnon: The guest's running count of anonymous pages fetched
+    ///     back after reclaim.
+    public func step(anon: UInt64, refaultAnon: UInt64) -> UInt64? {
         let refaulted =
-            lastRefaultAnon.map { memory.workingsetRefaultAnon > $0 } ?? false
-        lastRefaultAnon = memory.workingsetRefaultAnon
+            lastRefaultAnon.map { refaultAnon > $0 } ?? false
+        lastRefaultAnon = refaultAnon
 
         let target = policy.nextTarget(
-            anon: memory.anon,
+            anon: anon,
             refaulted: refaulted,
             current: current,
             ceiling: ceiling
@@ -114,6 +142,40 @@ public actor MemoryReclaimer {
         }
         current = target
         return target
+    }
+}
+
+extension MemoryReclaimer {
+    /// Look at the guest on a cadence until cancelled: sample what it holds,
+    /// fold the reading in, and apply the size that comes out.
+    ///
+    /// A sample or apply that fails leaves the machine as it was; the next
+    /// look starts fresh.
+    public func run(
+        interval: Duration,
+        sample: @Sendable () async throws -> (anon: UInt64, refaultAnon: UInt64),
+        apply: @Sendable (UInt64) async throws -> Void
+    ) async {
+        while !Task.isCancelled {
+            do {
+                try await Task.sleep(for: interval)
+                let (anon, refaultAnon) = try await sample()
+                report.looks += 1
+                report.lastAnon = anon
+                report.maxAnon = max(report.maxAnon, anon)
+                report.lastRefaultAnon = refaultAnon
+                if let target = step(anon: anon, refaultAnon: refaultAnon) {
+                    report.target = target
+                    try await apply(target)
+                    report.applies += 1
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                report.failures += 1
+                continue
+            }
+        }
     }
 }
 
