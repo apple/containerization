@@ -350,7 +350,7 @@ public struct ContainerManager: Sendable {
                     format: "ext4",
                     source: destination.absolutePath(),
                     destination: "/",
-                    options: []
+                    options: ["discard"]
                 )
             }
             throw err
@@ -364,11 +364,14 @@ public struct ContainerManager: Sendable {
         }
         let filesystem = try EXT4.Formatter(FilePath(path), minDiskSize: size)
         try filesystem.close()
+        // The filesystem lives in a sparse file that only gives freed blocks
+        // back to the host when the guest discards them, so the mount asks
+        // for continuous discard from birth.
         return .block(
             format: "ext4",
             source: path,
             destination: "/",
-            options: []
+            options: ["discard"]
         )
     }
 }
