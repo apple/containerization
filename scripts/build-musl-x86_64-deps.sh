@@ -78,7 +78,7 @@ fi
 # zlib — provides libz.a. Its configure does not take --host, so the
 # CC env var is what selects the cross compiler.
 ZLIB_VERSION=1.3.1
-fetch_extract "https://zlib.net/fossils/zlib-${ZLIB_VERSION}.tar.gz" zlib.tar.gz
+fetch_extract "https://github.com/madler/zlib/releases/download/v${ZLIB_VERSION}/zlib-${ZLIB_VERSION}.tar.gz" zlib.tar.gz
 (
     cd "zlib-${ZLIB_VERSION}"
     if ! ./configure --static --prefix="${PREFIX}"; then
