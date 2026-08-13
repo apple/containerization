@@ -721,7 +721,26 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
     public func filesystemOperation(request: Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest, context: GRPCCore.ServerContext)
         async throws -> Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse
     {
-        let path = FilePath(request.path)
+        // A request that names a container targets that container's root
+        // filesystem. The rootfs is mounted in the container's own namespace,
+        // where this process holds no path to it, so the container's view is
+        // reached through the init process's proc entry: the kernel resolves
+        // /proc/<pid>/root through the pid's namespace, and the trailing dot
+        // makes the magic link a traversed component rather than the opened
+        // one, which the O_NOFOLLOW below would refuse.
+        // https://man7.org/linux/man-pages/man5/proc_pid_root.5.html
+        let path: FilePath
+        if !request.containerID.isEmpty {
+            guard let container = await self.state.containers[request.containerID] else {
+                throw RPCError(code: .notFound, message: "container \(request.containerID) not found")
+            }
+            guard let pid = await container.pid else {
+                throw RPCError(code: .failedPrecondition, message: "container \(request.containerID) has no running init process")
+            }
+            path = FilePath("/proc/\(pid)/root/.")
+        } else {
+            path = FilePath(request.path)
+        }
 
         log.debug(
             "filesystemOperation",
@@ -761,7 +780,8 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             case .trim(let params):
                 switch params.schedule {
                 case .oneShot:
-                    try trimFilesystem(fd: fd)
+                    let trimmed = try trimFilesystem(fd: fd)
+                    return .with { $0.trim = .with { $0.trimmedBytes = trimmed } }
                 case .none:
                     throw RPCError(code: .invalidArgument, message: "trim schedule must be specified")
                 }
@@ -804,7 +824,14 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         var min_len: UInt64
     }
 
-    private func trimFilesystem(fd: Int32) throws {
+    /// Discard the filesystem's free blocks, answering with the bytes it
+    /// reported discarding.
+    ///
+    /// The ioctl writes the count back into the range it was given, which is
+    /// the filesystem's own account of what the trim returned and the only
+    /// one there is.
+    /// https://man7.org/linux/man-pages/man2/ioctl_fitrim.2.html
+    private func trimFilesystem(fd: Int32) throws -> UInt64 {
         let FITRIM: UInt = 0xC018_5879
         var trange = fitrim_range(start: 0, len: UInt64.max, min_len: 0)
         let rc: CInt = ioctl(fd, FITRIM, &trange)
@@ -812,6 +839,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             let error = swiftErrno("ioctl(FITRIM)")
             throw RPCError(code: .internalError, message: "trim failed", cause: error)
         }
+        return trange.len
     }
 
     public func umount(request: Com_Apple_Containerization_Sandbox_V3_UmountRequest, context: GRPCCore.ServerContext)

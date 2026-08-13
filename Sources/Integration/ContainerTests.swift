@@ -137,6 +137,41 @@ extension IntegrationSuite {
         }
     }
 
+    /// A trim answers with the bytes the filesystem discarded, which is the
+    /// whole of what a caller reclaiming space has to go on: the operation
+    /// itself succeeds either way, so a count that never leaves the guest
+    /// reads exactly like a filesystem with nothing to give back.
+    func testContainerTrimReportsBytes() async throws {
+        let id = "test-container-trim-reports-bytes"
+        let bs = try await bootstrap(id)
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/sh", "-c", "sleep 30"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // A filesystem carries free space from the moment it is made, and
+            // the first discard covers all of it, so a container that reached
+            // this point has blocks to report whatever it has written.
+            let trimmed = try await container.trimRootfs()
+
+            try await container.kill(.kill)
+            _ = try await container.wait()
+            try await container.stop()
+
+            guard trimmed > 0 else {
+                throw IntegrationError.assert(msg: "trim reported \(trimmed) bytes")
+            }
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
     func testProcessEchoHi() async throws {
         let id = "test-process-echo-hi"
         let bs = try await bootstrap(id)

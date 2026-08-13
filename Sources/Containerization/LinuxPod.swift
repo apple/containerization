@@ -1134,6 +1134,25 @@ extension LinuxPod {
         }
     }
 
+    /// Discard the free blocks of a container's root filesystem, so a sparse
+    /// file backing it can give them back to the host. Returns the number of
+    /// bytes the filesystem reported trimmed.
+    @discardableResult
+    public func trimContainer(_ containerID: String) async throws -> UInt64 {
+        try await self.state.withLock { state in
+            let createdState = try state.phase.createdState("trimContainer")
+            guard let container = state.containers[containerID], container.state == .started else {
+                throw ContainerizationError(
+                    .notFound,
+                    message: "container \(containerID) not found or not started"
+                )
+            }
+            return try await createdState.vm.withAgent { agent in
+                try await agent.trimContainerRootfs(containerID: containerID)
+            }
+        }
+    }
+
     /// Wait for a container to exit. Returns the exit code.
     @discardableResult
     public func waitContainer(_ containerID: String, timeoutInSeconds: Int64? = nil) async throws -> ExitStatus {

@@ -221,6 +221,19 @@ extension Vminitd: VirtualMachineAgent {
             })
     }
 
+    /// Discard the free blocks of a container's root filesystem. The rootfs is
+    /// mounted in the container's own namespace, so the request names the
+    /// container and the guest reaches its view of the filesystem itself.
+    /// Returns the number of bytes the filesystem reported trimmed.
+    public func trimContainerRootfs(containerID: String) async throws -> UInt64 {
+        let response = try await client.filesystemOperation(
+            .with {
+                $0.operation = FilesystemOperation.trim.toProtoOperation()
+                $0.containerID = containerID
+            })
+        return response.trim.trimmedBytes
+    }
+
     public func createProcess(
         id: String,
         containerID: String?,

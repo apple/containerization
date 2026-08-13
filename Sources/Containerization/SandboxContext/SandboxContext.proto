@@ -309,7 +309,12 @@ message FiTrimResult {
 }
 
 message FilesystemOperationRequest {
+  // The filesystem to operate on: a path in the init namespace, or a
+  // container whose root filesystem is the target. A container's rootfs
+  // is mounted in its own namespace, so naming the container is how a
+  // caller reaches it after the container has pivoted.
   string path = 1;
+  string container_id = 5;
   oneof operation {
     FiTrimParams trim = 2;
     FiFreezeParams freeze = 3;

@@ -1126,7 +1126,13 @@ public nonisolated struct Com_Apple_Containerization_Sandbox_V3_FilesystemOperat
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
+  /// The filesystem to operate on: a path in the init namespace, or a
+  /// container whose root filesystem is the target. A container's rootfs
+  /// is mounted in its own namespace, so naming the container is how a
+  /// caller reaches it after the container has pivoted.
   public var path: String = String()
+
+  public var containerID: String = String()
 
   public var operation: Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest.OneOf_Operation? = nil
 
@@ -3453,7 +3459,7 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_FiTrimResult: SwiftP
 
 nonisolated extension Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FilesystemOperationRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{1}trim\0\u{1}freeze\0\u{1}thaw\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{1}trim\0\u{1}freeze\0\u{1}thaw\0\u{3}container_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3501,6 +3507,7 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_FilesystemOperationR
           self.operation = .thaw(v)
         }
       }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.containerID) }()
       default: break
       }
     }
@@ -3529,11 +3536,15 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_FilesystemOperationR
     }()
     case nil: break
     }
+    if !self.containerID.isEmpty {
+      try visitor.visitSingularStringField(value: self.containerID, fieldNumber: 5)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest, rhs: Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest) -> Bool {
     if lhs.path != rhs.path {return false}
+    if lhs.containerID != rhs.containerID {return false}
     if lhs.operation != rhs.operation {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true

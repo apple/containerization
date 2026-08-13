@@ -966,6 +966,19 @@ extension LinuxContainer {
         }
     }
 
+    /// Discard the free blocks of the container's root filesystem, so a sparse
+    /// file backing it can give them back to the host. Returns the number of
+    /// bytes the filesystem reported trimmed.
+    @discardableResult
+    public func trimRootfs() async throws -> UInt64 {
+        try await self.state.withLock {
+            let state = try $0.startedState("trim")
+            return try await state.vm.withAgent { agent in
+                try await agent.trimContainerRootfs(containerID: self.id)
+            }
+        }
+    }
+
     /// Wait for the container to exit. Returns the exit code.
     @discardableResult
     public func wait(timeoutInSeconds: Int64? = nil) async throws -> ExitStatus {

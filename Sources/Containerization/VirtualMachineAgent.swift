@@ -42,6 +42,10 @@ public protocol VirtualMachineAgent: Sendable {
     func close() async throws
     // Perform a filesystem operation on the given path.
     func filesystemOperation(operation: FilesystemOperation, path: String) async throws
+    /// Discard the free blocks of a container's root filesystem, which is
+    /// mounted in the container's own namespace where a path cannot name it.
+    /// Returns the number of bytes the filesystem reported trimmed.
+    func trimContainerRootfs(containerID: String) async throws -> UInt64
 
     // POSIX-y
     func getenv(key: String) async throws -> String
@@ -89,6 +93,10 @@ public protocol VirtualMachineAgent: Sendable {
 extension VirtualMachineAgent {
     public func closeProcessStdin(id: String, containerID: String?) async throws {
         throw ContainerizationError(.unsupported, message: "closeProcessStdin")
+    }
+
+    public func trimContainerRootfs(containerID: String) async throws -> UInt64 {
+        throw ContainerizationError(.unsupported, message: "trimContainerRootfs")
     }
 
     public func configureHosts(config: Hosts, location: String) async throws {
