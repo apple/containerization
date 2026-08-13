@@ -1154,6 +1154,15 @@ public nonisolated struct Com_Apple_Containerization_Sandbox_V3_FilesystemOperat
     set {operation = .thaw(newValue)}
   }
 
+  public var containerID: String {
+    get {_containerID ?? String()}
+    set {_containerID = newValue}
+  }
+  /// Returns true if `containerID` has been explicitly set.
+  public var hasContainerID: Bool {self._containerID != nil}
+  /// Clears the value of `containerID`. Subsequent reads from it will return its default value.
+  public mutating func clearContainerID() {self._containerID = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Operation: Equatable, Sendable {
@@ -1164,6 +1173,8 @@ public nonisolated struct Com_Apple_Containerization_Sandbox_V3_FilesystemOperat
   }
 
   public init() {}
+
+  fileprivate var _containerID: String? = nil
 }
 
 public nonisolated struct Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse: Sendable {
@@ -3453,7 +3464,7 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_FiTrimResult: SwiftP
 
 nonisolated extension Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FilesystemOperationRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{1}trim\0\u{1}freeze\0\u{1}thaw\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{1}trim\0\u{1}freeze\0\u{1}thaw\0\u{1}containerID\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3501,6 +3512,7 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_FilesystemOperationR
           self.operation = .thaw(v)
         }
       }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self._containerID) }()
       default: break
       }
     }
@@ -3529,12 +3541,16 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_FilesystemOperationR
     }()
     case nil: break
     }
+    try { if let v = self._containerID {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 5)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest, rhs: Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest) -> Bool {
     if lhs.path != rhs.path {return false}
     if lhs.operation != rhs.operation {return false}
+    if lhs._containerID != rhs._containerID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
