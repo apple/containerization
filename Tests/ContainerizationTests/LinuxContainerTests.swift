@@ -23,6 +23,15 @@ import Testing
 
 struct LinuxContainerTests {
 
+    @Test func outboundSocketPathUsesContainerMountNamespace() {
+        let path = LinuxContainer.guestSocketSourcePath(
+            URL(filePath: "/dev/shm/relay.sock"),
+            containerPID: 42
+        )
+
+        #expect(path.path == "/proc/42/root/dev/shm/relay.sock")
+    }
+
     @Test func processInitFromImageConfigWithAllFields() {
         let imageConfig = ImageConfig(
             user: "appuser",

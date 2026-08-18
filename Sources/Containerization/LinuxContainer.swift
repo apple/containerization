@@ -713,8 +713,11 @@ extension LinuxContainer {
                         fileMountContextHolder.withLock { $0 = ctx }
                     }
 
-                    // Start up our friendly unix socket relays.
-                    for socket in self.config.sockets {
+                    // Sockets relayed into the container must be staged before the
+                    // container process starts so their bind mounts can be added to
+                    // the runtime spec. Outbound relays are started after the process
+                    // exists, when its mount namespace is available.
+                    for socket in self.config.sockets where socket.direction == .into {
                         try await self.relayUnixSocket(
                             socket: socket,
                             relayManager: relayManager,
@@ -835,6 +838,18 @@ extension LinuxContainer {
                     logger: self.logger
                 )
                 try await process.start()
+
+                // Resolve outbound sockets through the running container's mount
+                // namespace. Looking beneath the static rootfs cannot see tmpfs or
+                // other mounts created by the OCI runtime.
+                for socket in self.config.sockets where socket.direction == .outOf {
+                    try await self.relayUnixSocket(
+                        socket: socket,
+                        relayManager: createdState.relayManager,
+                        agent: agent,
+                        containerPID: process.pid
+                    )
+                }
 
                 state = .started(.init(createdState, process: process))
             } catch {
@@ -1146,7 +1161,8 @@ extension LinuxContainer {
     private func relayUnixSocket(
         socket: UnixSocketConfiguration,
         relayManager: UnixSocketRelayManager,
-        agent: any VirtualMachineAgent
+        agent: any VirtualMachineAgent,
+        containerPID: Int32? = nil
     ) async throws {
         guard let relayAgent = agent as? SocketRelayAgent else {
             throw ContainerizationError(
@@ -1156,7 +1172,6 @@ extension LinuxContainer {
         }
 
         var socket = socket
-        let rootInGuest = URL(filePath: self.root)
 
         let port: UInt32
         if socket.direction == .into {
@@ -1165,12 +1180,22 @@ extension LinuxContainer {
             port = self.hostVsockPorts.allocate()
             socket.destination = URL(filePath: Self.guestSocketStagingPath(socket.id))
         } else {
+            guard let containerPID, containerPID > 0 else {
+                throw ContainerizationError(
+                    .invalidState,
+                    message: "cannot start outbound socket relay before the container process"
+                )
+            }
             port = self.guestVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
-            socket.source = rootInGuest.appending(path: socket.source.path)
+            socket.source = Self.guestSocketSourcePath(socket.source, containerPID: containerPID)
         }
 
         try await relayManager.start(port: port, socket: socket)
         try await relayAgent.relaySocket(port: port, configuration: socket)
+    }
+
+    static func guestSocketSourcePath(_ source: URL, containerPID: Int32) -> URL {
+        URL(filePath: "/proc/\(containerPID)/root").appending(path: source.path)
     }
 
     /// Default chunk size for file transfers (1MiB).
