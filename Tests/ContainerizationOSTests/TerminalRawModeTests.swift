@@ -64,6 +64,7 @@ struct TerminalRawModeTests {
 
         let attrs = try termiosAttributes(of: child.handle.fileDescriptor)
         #expect(!has(tcflag_t(ICANON), in: attrs.c_lflag), "setraw must clear canonical mode")
-        #expect(has(tcflag_t(OPOST), in: attrs.c_oflag), "setraw must preserve OPOST for CRLF output translation")
+        #expect(has(tcflag_t(OPOST), in: attrs.c_oflag), "setraw must preserve OPOST for output post-processing")
+        #expect(has(tcflag_t(ONLCR), in: attrs.c_oflag), "setraw must preserve ONLCR for CRLF output translation")
     }
 }
