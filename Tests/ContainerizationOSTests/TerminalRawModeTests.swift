@@ -35,8 +35,8 @@ struct TerminalRawModeTests {
         return attrs
     }
 
-    private func has(_ flag: tcflag_t, in attributes: termios) -> Bool {
-        attributes.c_lflag & flag != 0
+    private func has(_ flag: tcflag_t, in flags: tcflag_t) -> Bool {
+        flags & flag != 0
     }
 
     @Test("pty slave is in canonical mode before raw-mode setup")
@@ -49,7 +49,7 @@ struct TerminalRawModeTests {
 
         // A freshly allocated pty slave is canonical by default (ICANON set).
         let attrs = try termiosAttributes(of: child.handle.fileDescriptor)
-        #expect(has(tcflag_t(ICANON), in: attrs))
+        #expect(has(tcflag_t(ICANON), in: attrs.c_lflag))
     }
 
     @Test("setraw clears ICANON and preserves OPOST")
@@ -63,7 +63,7 @@ struct TerminalRawModeTests {
         try child.setraw()
 
         let attrs = try termiosAttributes(of: child.handle.fileDescriptor)
-        #expect(!has(tcflag_t(ICANON), in: attrs), "setraw must clear canonical mode")
-        #expect(attrs.c_oflag & tcflag_t(OPOST) != 0, "setraw must preserve OPOST for CRLF output translation")
+        #expect(!has(tcflag_t(ICANON), in: attrs.c_lflag), "setraw must clear canonical mode")
+        #expect(has(tcflag_t(OPOST), in: attrs.c_oflag), "setraw must preserve OPOST for CRLF output translation")
     }
 }
