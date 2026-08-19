@@ -14,6 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import ContainerizationOS
 import FoundationEssentials
 import LCShim
 
@@ -54,6 +55,12 @@ class Console {
             throw App.Errno(stage: "open_pts")
         }
         defer { _ = _close(slaveFD) }
+
+        // Put the pty slave into raw mode so the tty line discipline does not
+        // buffer or truncate large output writes (the container's stdout goes
+        // through this slave). `Terminal.setraw()` applies cfmakeraw and keeps
+        // OPOST, so newline translation to CRLF on output is preserved.
+        try Terminal(descriptor: slaveFD, setInitState: false).setraw()
 
         for fd: Int32 in 0...2 {
             guard dup3(slaveFD, fd, 0) != -1 else {
