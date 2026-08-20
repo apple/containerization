@@ -627,9 +627,9 @@ extension LinuxPod {
             let creationConfig = StandardVMConfig(configuration: vmConfig)
             let vm = try await self.vmm.create(config: creationConfig)
             let relayManager = UnixSocketRelayManager(vm: vm)
-            try await vm.start()
 
             do {
+                try await vm.start()
                 let containers = state.containers
                 let shareProcessNamespace = self.config.shareProcessNamespace
                 let pauseProcessHolder = Mutex<LinuxProcess?>(nil)
