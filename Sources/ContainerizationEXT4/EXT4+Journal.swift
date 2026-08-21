@@ -126,17 +126,22 @@ extension EXT4.Formatter {
 
     private func zeroJournalBlocks(count: UInt32) throws {
         guard count > 0 else { return }
-        let chunkSize = 1.mib()
         // Safe: both operands are UInt32, so their product peaks at ~17 TiB, which fits
         // in Int64 (the width of Int on all 64-bit Apple platforms).
-        let totalBytes = Int(count) * Int(self.blockSize)
-        let zeroBuf = [UInt8](repeating: 0, count: min(Int(chunkSize), totalBytes))
-        var remaining = totalBytes
-        while remaining > 0 {
-            let toWrite = min(zeroBuf.count, remaining)
-            try self.handle.write(contentsOf: zeroBuf[0..<toWrite])
-            remaining -= toWrite
-        }
+        let totalBytes = UInt64(count) * UInt64(self.blockSize)
+        // A journal block holding no transaction reads as zero, and so does a
+        // hole, so the span is sought over rather than written. An image
+        // formatted at the capacity a container's filesystem is given takes a
+        // gigabyte of journal, and writing it spent a gigabyte of the host's
+        // disk on every image unpacked before it held anything.
+        //
+        // The last block is written rather than sought over, so a journal that
+        // does not fit in the image still fails here at the I/O layer, which is
+        // what writing the whole span gave and what the journal inode's extent
+        // is written on the strength of.
+        let end = self.pos + totalBytes
+        try self.handle.seek(toOffset: end - UInt64(self.blockSize))
+        try self.handle.write(contentsOf: [UInt8](repeating: 0, count: Int(self.blockSize)))
     }
 
     private func setupJournalInode(startBlock: UInt32, blockCount: UInt32) throws {

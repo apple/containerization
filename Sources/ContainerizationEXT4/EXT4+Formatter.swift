@@ -1023,11 +1023,14 @@ extension EXT4 {
             }
             let tableSize: UInt64 = UInt64(EXT4.InodeSize) * blockGroups * inodesPerGroup
             let rest = tableSize - UInt64(self.inodes.count) * EXT4.InodeSize
-            let zeroBlock = Array<UInt8>.init(repeating: 0, count: Int(self.blockSize))
-            for _ in 0..<(rest / self.blockSize) {
-                try self.handle.write(contentsOf: zeroBlock)
-            }
-            try self.handle.write(contentsOf: Array<UInt8>.init(repeating: 0, count: Int(rest % self.blockSize)))
+            // The inodes past the ones written are free, and the table reads as
+            // zero for the whole span they cover. A hole reads as zero as well,
+            // so the span is skipped rather than written: the bytes a reader
+            // sees are the same, and the blocks a filesystem holding the image
+            // gives up to them are not. The bitmaps of the groups past the ones
+            // holding content are placed by the same seek, and what follows here
+            // writes at a higher offset, so the file still reaches its length.
+            try self.handle.seek(toOffset: self.pos + rest)
             return inodeTableOffset
         }
 
