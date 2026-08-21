@@ -138,18 +138,31 @@ extension UnixSocketRelay {
         state.withLock {
             $0.listener = listener
             $0.t = Task {
-                do {
-                    defer { try? listener.finish() }
-                    for await connection in listener {
+                defer { try? listener.finish() }
+                for await connection in listener {
+                    do {
                         try await self.handleGuestVsockConn(
                             vsockConn: connection,
                             hostConnectionPath: hostPath,
                             port: self.port,
                             log: self.log
                         )
+                    } catch {
+                        // What the host end cannot serve is this connection's
+                        // failure and not the relay's. Closing the connection
+                        // hands the caller the refusal it can act on, where
+                        // giving up the loop would leave the socket in place
+                        // with nothing behind it, and every later caller
+                        // waiting on a relay that stopped listening.
+                        try? connection.close()
+                        self.log?.error(
+                            "failed to relay a guest connection",
+                            metadata: [
+                                "vport": "\(self.port)",
+                                "path": "\(hostPath.path)",
+                                "error": "\(error)",
+                            ])
                     }
-                } catch {
-                    self.log?.error("failed to setup relay between vsock \(self.port) and \(hostPath.path): \(error)")
                 }
             }
         }
@@ -199,7 +212,14 @@ extension UnixSocketRelay {
                 "hostFd": "\(hostSocket.fileDescriptor)",
                 "guestFd": "\(vsockConn.fileDescriptor)",
             ])
-        try hostSocket.connect()
+        // The socket outlives this scope only when it is handed to the relay,
+        // so a connect that never gets there closes it on the way out.
+        do {
+            try hostSocket.connect()
+        } catch {
+            try? hostSocket.close()
+            throw error
+        }
 
         do {
             try await self.relay(
