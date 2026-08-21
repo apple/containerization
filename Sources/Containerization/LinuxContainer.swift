@@ -870,17 +870,20 @@ extension LinuxContainer {
                     // For every interface asked for:
                     // 1. Add the address requested
                     // 2. Online the adapter
-                    // 3. For the first interface, add the default route
+                    // 3. For the first interface with a static address, add the default route
                     var defaultRouteSet = false
                     for (index, i) in self.interfaces.enumerated() {
                         let name = "eth\(index)"
+                        let setDefaultRoute = !defaultRouteSet && i.ipv4Address != nil
                         try await agent.setupInterface(
                             i,
                             name: name,
-                            setDefaultRoute: !defaultRouteSet,
+                            setDefaultRoute: setDefaultRoute,
                             logger: self.logger
                         )
-                        defaultRouteSet = true
+                        if setDefaultRoute {
+                            defaultRouteSet = true
+                        }
                     }
 
                     // Setup /etc/resolv.conf and /etc/hosts if asked for.
