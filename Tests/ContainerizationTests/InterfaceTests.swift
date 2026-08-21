@@ -39,6 +39,13 @@ struct InterfaceTests {
         #expect(i.mtu == 1500)
     }
 
+    @Test func interfaceProtocolAllowsNoV4Address() throws {
+        let i = V4OnlyInterface(ipv4Address: nil, ipv4Gateway: nil, macAddress: nil)
+        #expect(i.ipv4Address == nil)
+        #expect(i.ipv4Gateway == nil)
+        #expect(i.mtu == 1500)
+    }
+
     @Test func natInterfaceRoundTripsV6Fields() throws {
         let nat = NATInterface(
             ipv4Address: try CIDRv4("10.0.0.2/24"),
