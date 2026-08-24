@@ -42,7 +42,6 @@ struct FileHandleNetworkInterfaceTests {
     }
 
     @Test func defaultsToDynamicAddress() throws {
-        guard #available(macOS 26, *) else { return }
         let socket = try makeDatagramSocketPair()
         let iface = FileHandleNetworkInterface(fileHandle: socket.local)
 
@@ -56,7 +55,6 @@ struct FileHandleNetworkInterfaceTests {
     }
 
     @Test func roundTripsStaticConfiguration() throws {
-        guard #available(macOS 26, *) else { return }
         let socket = try makeDatagramSocketPair()
         let cidr = try CIDRv4("192.168.64.3/24")
         let gateway = try IPv4Address("192.168.64.1")
@@ -73,8 +71,29 @@ struct FileHandleNetworkInterfaceTests {
         #expect(iface.macAddress == mac)
     }
 
+    /// A reduced guest MTU is the whole reason `mtu` is stored rather than inherited from
+    /// the `Interface` default: a gateway whose link MTU is lower than the guest's silently
+    /// drops full-size frames.
+    @Test func carriesAReducedGuestMTU() throws {
+        let socket = try makeDatagramSocketPair()
+        let iface: any Interface = FileHandleNetworkInterface(fileHandle: socket.local, mtu: 1400)
+
+        #expect(iface.mtu == 1400)
+    }
+
+    @Test func mtuIsIndependentOfTheHostSideAttachment() throws {
+        let socket = try makeDatagramSocketPair()
+        let iface = FileHandleNetworkInterface(fileHandle: socket.local, mtu: 1400)
+
+        // The guest link drops to 1400 while the attachment keeps the framework default,
+        // which rejects anything below 1500.
+        let device = try iface.device()
+        let attachment = try #require(device.attachment as? VZFileHandleNetworkDeviceAttachment)
+        #expect(iface.mtu == 1400)
+        #expect(attachment.maximumTransmissionUnit == 1500)
+    }
+
     @Test func deviceAttachesFileHandleAndSetsMac() throws {
-        guard #available(macOS 26, *) else { return }
         let socket = try makeDatagramSocketPair()
         let mac = try MACAddress("02:42:ac:11:00:02")
         let iface = FileHandleNetworkInterface(fileHandle: socket.local, macAddress: mac)

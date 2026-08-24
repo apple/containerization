@@ -26,30 +26,43 @@ import Virtualization
 /// it might be an entirely simulated network, a virtual network such as a VPN, or a
 /// bridge onto a host physical network.
 ///
+/// `fileHandle` must wrap a *connected* `AF_UNIX` datagram socket carrying one Ethernet
+/// frame per datagram. On platforms without automatic binding for unix datagram sockets,
+/// including macOS, the socket also has to be bound to a local path of its own, or the
+/// service has no address to send frames back to. Tuning `SO_SNDBUF` / `SO_RCVBUF` only
+/// becomes relevant when raising the attachment MTU above its 1500-byte default.
+///
 /// Supply `ipv4Address` and `ipv4Gateway` when the guest address is known up front and
-/// should be configured statically. Leave them nil when the address is assigned out of
-/// band, for instance by a DHCP server reachable through the file handle.
-@available(macOS 26, *)
+/// should be configured statically. They may be left nil only when something inside the
+/// guest configures the interface instead: host-side setup for an address-less interface
+/// brings the link up without assigning an address, and `vminitd` does not run a DHCP
+/// client, so a guest that needs one has to supply it.
+///
+/// `mtu` configures the guest link. It is independent of the host-side attachment MTU,
+/// which stays at the framework default because `VZFileHandleNetworkDeviceAttachment`
+/// rejects values below 1500.
 public final class FileHandleNetworkInterface: Interface, Sendable {
     public let fileHandle: FileHandle
     public let ipv4Address: CIDRv4?
     public let ipv4Gateway: IPv4Address?
     public let macAddress: MACAddress?
+    public let mtu: UInt32
 
     public init(
         fileHandle: FileHandle,
         ipv4Address: CIDRv4? = nil,
         ipv4Gateway: IPv4Address? = nil,
-        macAddress: MACAddress? = nil
+        macAddress: MACAddress? = nil,
+        mtu: UInt32 = 1500
     ) {
         self.fileHandle = fileHandle
         self.ipv4Address = ipv4Address
         self.ipv4Gateway = ipv4Gateway
         self.macAddress = macAddress
+        self.mtu = mtu
     }
 }
 
-@available(macOS 26, *)
 extension FileHandleNetworkInterface: VZInterface {
     public func device() throws -> VZVirtioNetworkDeviceConfiguration {
         let config = VZVirtioNetworkDeviceConfiguration()
