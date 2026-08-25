@@ -15,10 +15,20 @@
 //===----------------------------------------------------------------------===//
 
 import ContainerizationError
+import ContainerizationOS
 import Crypto
 import Foundation
 
 public final class LocalContent: Content {
+    /// Maximum size of a document (image manifest, index, or config) that will be
+    /// read whole out of the content store by ``data()`` or ``decode()``.
+    ///
+    /// This matches the 4 MiB response buffer `RegistryClient` already enforces
+    /// for the same documents fetched over HTTP, so a document that is readable
+    /// from a registry is readable from disk and vice versa. Layer blobs are not
+    /// read through these methods; they are streamed or copied.
+    public static let maxDecodedSize = Int(4.mib())
+
     public let path: URL
     private let file: FileHandle
 
@@ -55,7 +65,30 @@ public final class LocalContent: Content {
     }
 
     public func data() throws -> Data {
-        try Data(contentsOf: self.path)
+        try self.boundedContents()
+    }
+
+    /// Read the entire file through the already-open descriptor, refusing
+    /// anything larger than ``maxDecodedSize``.
+    ///
+    /// Reading through the open descriptor rather than re-opening the path
+    /// deliberately keeps the limit check and the read on the same inode.
+    /// ``size()`` uses `attributesOfItem`, which does not traverse symlinks,
+    /// while `Data(contentsOf:)` does — so checking the size of a path and then
+    /// reading it could be defeated by a symlink at the blob name. Reading one
+    /// byte past the limit and comparing is also cheaper than a stat plus a
+    /// second open.
+    private func boundedContents() throws -> Data {
+        let limit = Self.maxDecodedSize
+        try self.file.seek(toOffset: 0)
+        let data = try self.file.read(upToCount: limit + 1) ?? Data()
+        try self.file.seek(toOffset: 0)
+        guard data.count <= limit else {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "content at \(self.path.absolutePath()) exceeds the \(limit) byte limit for documents read from the content store")
+        }
+        return data
     }
 
     public func size() throws -> UInt64 {
@@ -67,9 +100,7 @@ public final class LocalContent: Content {
     }
 
     public func decode<T>() throws -> T where T: Decodable {
-        let json = JSONDecoder()
-        let data = try Data(contentsOf: self.path)
-        return try json.decode(T.self, from: data)
+        try JSONDecoder().decode(T.self, from: self.boundedContents())
     }
 
     deinit {

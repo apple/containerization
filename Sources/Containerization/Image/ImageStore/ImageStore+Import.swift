@@ -87,10 +87,11 @@ extension ImageStore {
 
         private func getManifestContent<T: Sendable & Codable>(descriptor: Descriptor) async throws -> T {
             do {
-                if let content = try await self.contentStore.get(digest: descriptor.digest.trimmingDigestPrefix) {
+                let encoded = try descriptor.digest.validatedDigestEncoding()
+                if let content = try await self.contentStore.get(digest: descriptor.digest) {
                     return try content.decode()
                 }
-                if let content = try? LocalContent(path: ingestDir.appending(path: descriptor.digest.trimmingDigestPrefix)) {
+                if let content = try? LocalContent(path: ingestDir.appending(path: encoded)) {
                     return try content.decode()
                 }
                 return try await self.client.fetch(name: name, descriptor: descriptor)
@@ -142,8 +143,9 @@ extension ImageStore {
         }
 
         private func fetch(_ descriptor: Descriptor) async throws {
+            let encoded = try descriptor.digest.validatedDigestEncoding()
             if let found = try await self.contentStore.get(digest: descriptor.digest) {
-                try FileManager.default.copyItem(at: found.path, to: ingestDir.appendingPathComponent(descriptor.digest.trimmingDigestPrefix))
+                try FileManager.default.copyItem(at: found.path, to: ingestDir.appendingPathComponent(encoded))
                 await progress?([
                     // Count the size of the blob
                     .addSize(descriptor.size),

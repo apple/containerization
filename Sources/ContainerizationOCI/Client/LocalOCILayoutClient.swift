@@ -122,7 +122,8 @@ package final class LocalOCILayoutClient: ContentClient {
 
         let (id, dir) = try await self.cs.newIngestSession()
         do {
-            let into = dir.appendingPathComponent(descriptor.digest.trimmingDigestPrefix)
+            let expected = try ParsedDigest(parsingPathComponent: descriptor.digest)
+            let into = try expected.path(in: dir)
             guard FileManager.default.createFile(atPath: into.path, contents: nil) else {
                 throw Error.cannotCreateFile
             }
@@ -138,9 +139,16 @@ package final class LocalOCILayoutClient: ContentClient {
                 try fd.write(contentsOf: buffer.readableBytesView)
                 hasher.update(data: buffer.readableBytesView)
             }
+            let actual = ParsedDigest(hasher.finalize())
+            guard actual == expected else {
+                throw ContainerizationError(
+                    .internalError,
+                    message: "content digest mismatch writing \(descriptor.digest), wrote \(wrote) bytes hashing to \(actual)")
+            }
             try await self.cs.completeIngestSession(id)
         } catch {
-            try await self.cs.cancelIngestSession(id)
+            try? await self.cs.cancelIngestSession(id)
+            throw error
         }
     }
 }
@@ -158,7 +166,7 @@ extension LocalOCILayoutClient {
         guard fm.fileExists(atPath: ociLayoutFile.absolutePath()) else {
             throw ContainerizationError(.notFound, message: ociLayoutFile.absolutePath())
         }
-        var data = try Data(contentsOf: ociLayoutFile)
+        var data = try Self.readControlFile(at: ociLayoutFile)
         let ociLayout = try decoder.decode([String: String].self, from: data)
         guard ociLayout[Self.ociLayoutVersionString] != nil else {
             throw ContainerizationError(.empty, message: "missing key \(Self.ociLayoutVersionString) in \(ociLayoutFile.absolutePath())")
@@ -168,9 +176,28 @@ extension LocalOCILayoutClient {
         guard fm.fileExists(atPath: indexFile.absolutePath()) else {
             throw ContainerizationError(.notFound, message: indexFile.absolutePath())
         }
-        data = try Data(contentsOf: indexFile)
+        data = try Self.readControlFile(at: indexFile)
         let index = try decoder.decode(ContainerizationOCI.Index.self, from: data)
         return index
+    }
+
+    /// Read a layout control file, refusing an oversized one.
+    ///
+    /// `oci-layout` and `index.json` are read straight out of a caller-supplied
+    /// directory before any digest in them has been looked at, so an unbounded
+    /// read here is a memory-exhaustion primitive reachable from
+    /// `ImageStore.load(from:)`.
+    private static func readControlFile(at url: URL) throws -> Data {
+        let limit = LocalContent.maxDecodedSize
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        let data = try handle.read(upToCount: limit + 1) ?? Data()
+        guard data.count <= limit else {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "\(url.absolutePath()) exceeds the \(limit) byte limit for OCI layout control files")
+        }
+        return data
     }
 
     package func createOCILayoutStructure(directory: URL, manifests: [Descriptor]) throws {
