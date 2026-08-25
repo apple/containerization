@@ -35,26 +35,6 @@ package final class LocalOCILayoutClient: ContentClient {
         return c
     }
 
-    private func calculateFileDigest(at url: URL) throws -> SHA256Digest {
-        let fileHandle = try FileHandle(forReadingFrom: url)
-        defer {
-            try? fileHandle.close()
-        }
-
-        var hasher = SHA256()
-        let chunkSize = Int(getpagesize()) * 1024
-
-        while true {
-            let chunk = fileHandle.readData(ofLength: chunkSize)
-            if chunk.isEmpty {
-                break
-            }
-            hasher.update(data: chunk)
-        }
-
-        return hasher.finalize()
-    }
-
     package func fetch<T: Codable>(name: String, descriptor: Descriptor) async throws -> T {
         let c = try await self._fetch(digest: descriptor.digest)
         return try c.decode()
@@ -65,44 +45,13 @@ package final class LocalOCILayoutClient: ContentClient {
         let fileManager = FileManager.default
         let filePath = file.absolutePath()
 
-        do {
-            let src = c.path
-            try fileManager.copyItem(at: src, to: file)
+        let (size, digest) = try ContentWriter.copy(from: c.path, destination: file)
 
-            if let progress, let fileSize = fileManager.fileSize(atPath: filePath) {
-                await progress([
-                    .addSize(fileSize)
-                ])
-            }
-        } catch let error as NSError {
-            guard error.code == NSFileWriteFileExistsError else {
-                throw error
-            }
-
-            do {
-                let expectedDigest = try c.digest()
-                let existingDigest = try calculateFileDigest(at: file)
-
-                guard existingDigest.digestString == expectedDigest.digestString else {
-                    throw ContainerizationError(
-                        .internalError,
-                        message:
-                            "file \(filePath) exists but contains different content, expected digest: \(expectedDigest.digestString), existing digest: \(existingDigest.digestString)"
-                    )
-                }
-
-                if let progress, let fileSize = fileManager.fileSize(atPath: filePath) {
-                    await progress([
-                        .addSize(fileSize)
-                    ])
-                }
-            } catch {
-                throw error
-            }
+        if let progress, let fileSize = fileManager.fileSize(atPath: filePath) {
+            await progress([
+                .addSize(fileSize)
+            ])
         }
-
-        let size = try Int64(c.size())
-        let digest = try c.digest()
         return (size, digest)
     }
 
@@ -143,7 +92,7 @@ package final class LocalOCILayoutClient: ContentClient {
             guard actual == expected else {
                 throw ContainerizationError(
                     .internalError,
-                    message: "content digest mismatch writing \(descriptor.digest), wrote \(wrote) bytes hashing to \(actual)")
+                    message: "content digest mismatch")
             }
             try await self.cs.completeIngestSession(id)
         } catch {

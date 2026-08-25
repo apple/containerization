@@ -172,7 +172,7 @@ extension ImageStore {
             let tempFile = ingestDir.appendingPathComponent(id)
             let (_, digest) = try await client.fetchBlob(name: name, descriptor: descriptor, into: tempFile, progress: progress)
             guard digest.digestString == descriptor.digest else {
-                throw ContainerizationError(.internalError, message: "digest mismatch expected \(descriptor.digest), got \(digest.digestString)")
+                throw ContainerizationError(.internalError, message: "digest mismatch")
             }
             do {
                 try fm.moveItem(at: tempFile, to: ingestDir.appendingPathComponent(digest.encoded))
@@ -196,7 +196,7 @@ extension ImageStore {
                 ])
             }
             guard result.digest.digestString == descriptor.digest else {
-                throw ContainerizationError(.internalError, message: "digest mismatch expected \(descriptor.digest), got \(result.digest.digestString)")
+                throw ContainerizationError(.internalError, message: "digest mismatch")
             }
             return data
         }

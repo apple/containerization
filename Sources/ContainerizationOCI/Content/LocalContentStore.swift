@@ -186,6 +186,10 @@ public actor LocalContentStore: ContentStore {
             let fileManager = FileManager.default
             do {
                 try tempDigests.forEach {
+                    let values = try $0.resourceValues(forKeys: [.isSymbolicLinkKey])
+                    guard values.isSymbolicLink != true else {
+                        throw ContainerizationError(.invalidArgument, message: "refusing to ingest symlink at \($0.path)")
+                    }
                     let digest = $0.lastPathComponent
                     let target = self._blobPath.appendingPathComponent(digest)
                     // only ingest if not exists

@@ -33,11 +33,23 @@ public final class LocalContent: Content {
     private let file: FileHandle
 
     public init(path: URL) throws {
-        guard FileManager.default.fileExists(atPath: path.path) else {
+        // Open with O_NOFOLLOW and verify the target is a regular file.
+        let fd = open(path.path, O_RDONLY | O_NOFOLLOW)
+        guard fd >= 0 else {
             throw ContainerizationError(.notFound, message: "content at path \(path.absolutePath())")
         }
 
-        self.file = try FileHandle(forReadingFrom: path)
+        var st = stat()
+        guard fstat(fd, &st) == 0 else {
+            close(fd)
+            throw ContainerizationError(.internalError, message: "failed to stat \(path.absolutePath())")
+        }
+        guard (st.st_mode & S_IFMT) == S_IFREG else {
+            close(fd)
+            throw ContainerizationError(.internalError, message: "refusing to read non-regular file at \(path.absolutePath())")
+        }
+
+        self.file = FileHandle(fileDescriptor: fd)
         self.path = path
     }
 
@@ -92,11 +104,11 @@ public final class LocalContent: Content {
     }
 
     public func size() throws -> UInt64 {
-        let fileAttrs = try FileManager.default.attributesOfItem(atPath: self.path.absolutePath())
-        if let size = fileAttrs[FileAttributeKey.size] as? UInt64 {
-            return size
+        var st = stat()
+        guard fstat(self.file.fileDescriptor, &st) == 0 else {
+            throw ContainerizationError(.internalError, message: "could not determine file size for \(path.absolutePath())")
         }
-        throw ContainerizationError(.internalError, message: "could not determine file size for \(path.absolutePath())")
+        return UInt64(st.st_size)
     }
 
     public func decode<T>() throws -> T where T: Decodable {
