@@ -89,6 +89,11 @@ public struct EXT4Unpacker: Unpacker {
         // pass share the same decompressed file.
         var resolvedLayers: [(file: URL, filter: ContainerizationArchive.Filter)] = []
         var decompressedFiles: [URL] = []
+        defer {
+            for file in decompressedFiles {
+                ArchiveReader.cleanUpDecompressedZstd(file)
+            }
+        }
         for layer in manifest.layers {
             try Task.checkCancellation()
             let content = try await image.getContent(digest: layer.digest)
@@ -99,11 +104,6 @@ public struct EXT4Unpacker: Unpacker {
                 resolvedLayers.append((file: decompressed, filter: .none))
             } else {
                 resolvedLayers.append((file: content.path, filter: compression))
-            }
-        }
-        defer {
-            for file in decompressedFiles {
-                ArchiveReader.cleanUpDecompressedZstd(file)
             }
         }
 
