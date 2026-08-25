@@ -1264,7 +1264,7 @@ extension EXT4 {
             guard self.inodes[Int(inode) - 1].pointee.linksCount > 0 else {
                 return
             }
-            guard let nameData = name.data(using: .utf8) else {
+            guard let nameData = name.data(using: .utf8), nameData.count <= UInt8.max else {
                 throw Error.invalidName(name)
             }
             let directoryEntrySize = MemoryLayout<DirectoryEntry>.size
