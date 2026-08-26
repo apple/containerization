@@ -147,6 +147,7 @@ let package = Package(
             name: "ContainerizationArchive",
             dependencies: [
                 .product(name: "SystemPackage", package: "swift-system"),
+                .product(name: "libzstd", package: "zstd"),
                 "CArchive",
                 "ContainerizationExtras",
                 "ContainerizationOS",

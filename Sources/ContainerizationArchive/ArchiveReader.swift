@@ -61,32 +61,24 @@ public final class ArchiveReader {
     /// Note: This method must be used when it is known that the archive at the specified URL follows the specified
     /// `Format` and `Filter`.
     public convenience init(format: Format, filter: Filter, file: URL) throws {
-        // If filter is zstd, decompress it and use filter .none
-        let fileToRead: URL
-        let tempFile: URL?
-        let actualFilter: Filter
-
         if filter == .zstd {
-            let decompressed = try Self.decompressZstd(file)
-            tempFile = decompressed
-            fileToRead = decompressed
-            actualFilter = .none
+            try self.init(format: format, zstdFile: file)
         } else {
-            tempFile = nil
-            fileToRead = file
-            actualFilter = filter
+            let fileHandle = try FileHandle(forReadingFrom: file)
+            try self.init(format: format, filter: filter, fileHandle: fileHandle)
         }
+    }
 
-        do {
-            let fileHandle = try FileHandle(forReadingFrom: fileToRead)
-            try self.init(format: format, filter: actualFilter, fileHandle: fileHandle)
-        } catch {
-            if let tempFile {
-                try? FileManager.default.removeItem(at: tempFile.deletingLastPathComponent())
-            }
-            throw error
-        }
-        self.tempDecompressedFile = tempFile
+    private init(format: Format, zstdFile: URL) throws {
+        self.underlying = archive_read_new()
+        self.fileHandle = nil
+
+        try archive_read_set_format(underlying, format.code)
+            .checkOk(elseThrow: .unableToSetFormat(format.code, format))
+
+        let source = try FileHandle(forReadingFrom: zstdFile)
+        try ZstdArchiveSource.open(archive: underlying, source: source)
+            .checkOk(elseThrow: { .unableToOpenArchive($0) })
     }
 
     /// Initializes an `ArchiveReader` to read from the provided file descriptor with an explicit `Format` and `Filter`.

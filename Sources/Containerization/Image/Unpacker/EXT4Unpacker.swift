@@ -84,27 +84,13 @@ public struct EXT4Unpacker: Unpacker {
         )
         defer { try? filesystem.close() }
 
-        // Resolve layer paths upfront. When progress reporting is enabled and a layer
-        // uses zstd, decompress once so both the size-scanning pass and the unpack
-        // pass share the same decompressed file.
+        // Resolve layer paths upfront.
         var resolvedLayers: [(file: URL, filter: ContainerizationArchive.Filter)] = []
-        var decompressedFiles: [URL] = []
-        defer {
-            for file in decompressedFiles {
-                ArchiveReader.cleanUpDecompressedZstd(file)
-            }
-        }
         for layer in manifest.layers {
             try Task.checkCancellation()
             let content = try await image.getContent(digest: layer.digest)
             let compression = try compressionFilter(for: layer.mediaType)
-            if progress != nil && compression == .zstd {
-                let decompressed = try ArchiveReader.decompressZstd(content.path)
-                decompressedFiles.append(decompressed)
-                resolvedLayers.append((file: decompressed, filter: .none))
-            } else {
-                resolvedLayers.append((file: content.path, filter: compression))
-            }
+            resolvedLayers.append((file: content.path, filter: compression))
         }
 
         if let progress {
