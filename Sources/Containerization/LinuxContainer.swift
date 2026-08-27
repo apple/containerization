@@ -853,6 +853,7 @@ extension LinuxContainer {
 
                 state = .started(.init(createdState, process: process))
             } catch {
+                try? await createdState.relayManager.stopAll()
                 try? await agent.close()
                 try? await createdState.vm.stop()
                 state.setErrored(error: error)
@@ -1187,15 +1188,19 @@ extension LinuxContainer {
                 )
             }
             port = self.guestVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
-            socket.source = Self.guestSocketSourcePath(socket.source, containerPID: containerPID)
         }
 
         try await relayManager.start(port: port, socket: socket)
-        try await relayAgent.relaySocket(port: port, configuration: socket)
-    }
-
-    static func guestSocketSourcePath(_ source: URL, containerPID: Int32) -> URL {
-        URL(filePath: "/proc/\(containerPID)/root").appending(path: source.path)
+        do {
+            try await relayAgent.relaySocket(
+                port: port,
+                configuration: socket,
+                containerPID: containerPID
+            )
+        } catch {
+            try? await relayManager.stop(socket: socket)
+            throw error
+        }
     }
 
     /// Default chunk size for file transfers (1MiB).

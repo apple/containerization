@@ -515,10 +515,9 @@ extension LinuxPod {
                             )
                         }
 
-                        for socket in config.sockets {
+                        for socket in config.sockets where socket.direction == .into {
                             try await self.relayUnixSocket(
                                 socket: socket,
-                                containerID: id,
                                 relayManager: createdState.relayManager,
                                 agent: agent
                             )
@@ -773,10 +772,9 @@ extension LinuxPod {
 
                     // Start up unix socket relays for each container
                     for (_, container) in containers {
-                        for socket in container.config.sockets {
+                        for socket in container.config.sockets where socket.direction == .into {
                             try await self.relayUnixSocket(
                                 socket: socket,
-                                containerID: container.id,
                                 relayManager: relayManager,
                                 agent: agent
                             )
@@ -972,10 +970,27 @@ extension LinuxPod {
                 )
                 try await process.start()
 
+                for socket in container.config.sockets where socket.direction == .outOf {
+                    try await self.relayUnixSocket(
+                        socket: socket,
+                        relayManager: createdState.relayManager,
+                        agent: agent,
+                        containerPID: process.pid
+                    )
+                }
+
                 container.process = process
                 container.state = .started
                 state.containers[containerID] = container
             } catch {
+                if let container = state.containers[containerID] {
+                    for socket in container.config.sockets where socket.direction == .outOf {
+                        try? await createdState.relayManager.stop(socket: socket)
+                        if let relayAgent = agent as? SocketRelayAgent {
+                            try? await relayAgent.stopSocketRelay(configuration: socket)
+                        }
+                    }
+                }
                 try? await agent.close()
                 throw error
             }
@@ -1312,7 +1327,7 @@ extension LinuxPod {
         try await self.state.withLock { state in
             let createdState = try state.phase.createdState("relayUnixSocket")
 
-            guard let _ = state.containers[containerID] else {
+            guard let container = state.containers[containerID] else {
                 throw ContainerizationError(
                     .notFound,
                     message: "container \(containerID) not found in pod"
@@ -1322,9 +1337,9 @@ extension LinuxPod {
             try await createdState.vm.withAgent { agent in
                 try await self.relayUnixSocket(
                     socket: socket,
-                    containerID: containerID,
                     relayManager: createdState.relayManager,
-                    agent: agent
+                    agent: agent,
+                    containerPID: container.process?.pid
                 )
             }
         }
@@ -1332,9 +1347,9 @@ extension LinuxPod {
 
     private func relayUnixSocket(
         socket: UnixSocketConfiguration,
-        containerID: String,
         relayManager: UnixSocketRelayManager,
-        agent: any VirtualMachineAgent
+        agent: any VirtualMachineAgent,
+        containerPID: Int32? = nil
     ) async throws {
         guard let relayAgent = agent as? SocketRelayAgent else {
             throw ContainerizationError(
@@ -1345,9 +1360,6 @@ extension LinuxPod {
 
         var socket = socket
 
-        // Adjust paths to be relative to the container's rootfs
-        let rootInGuest = URL(filePath: Self.guestRootfsPath(containerID))
-
         let port: UInt32
         if socket.direction == .into {
             // Held for the lifetime of the relay, so it is deliberately never
@@ -1355,11 +1367,25 @@ extension LinuxPod {
             port = self.hostVsockPorts.allocate()
             socket.destination = URL(filePath: Self.guestSocketStagingPath(socket.id))
         } else {
+            guard let containerPID, containerPID > 0 else {
+                throw ContainerizationError(
+                    .invalidState,
+                    message: "cannot start outbound socket relay before the container process"
+                )
+            }
             port = self.guestVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
-            socket.source = rootInGuest.appending(path: socket.source.path)
         }
 
         try await relayManager.start(port: port, socket: socket)
-        try await relayAgent.relaySocket(port: port, configuration: socket)
+        do {
+            try await relayAgent.relaySocket(
+                port: port,
+                configuration: socket,
+                containerPID: containerPID
+            )
+        } catch {
+            try? await relayManager.stop(socket: socket)
+            throw error
+        }
     }
 }

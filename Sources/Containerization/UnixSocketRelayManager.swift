@@ -66,8 +66,20 @@ extension UnixSocketRelayManager {
     }
 
     func stopAll() async throws {
-        for (_, relay) in relays {
-            try relay.stop()
+        let relays = Array(self.relays.values)
+        self.relays.removeAll()
+
+        var firstError: Error?
+        for relay in relays {
+            do {
+                try relay.stop()
+            } catch {
+                firstError = firstError ?? error
+            }
+        }
+
+        if let firstError {
+            throw firstError
         }
     }
 }
