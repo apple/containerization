@@ -447,6 +447,7 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("container bootlog using filehandle", testBootLogFileHandle),
             Test("process delete idempotency", testProcessDeleteIdempotency),
             Test("multiple execs without delete", testMultipleExecsWithoutDelete),
+            Test("sequential execs reuse stdio ports", testSequentialExecsReuseStdioPorts),
 
             // Capabilities
             Test("container capabilities sys admin", testCapabilitiesSysAdmin),

@@ -146,8 +146,9 @@ public final class LinuxContainer: Container, Sendable {
 
     // Ports to be allocated from for stdio and for
     // unix socket relays that are sharing a guest
-    // uds to the host.
-    private let hostVsockPorts: Atomic<UInt32>
+    // uds to the host. Released ports are reused — see
+    // `VsockPortAllocator` for why that matters.
+    private let hostVsockPorts: VsockPortAllocator
     // Ports we request the guest to allocate for unix socket relays from
     // the host.
     private let guestVsockPorts: Atomic<UInt32>
@@ -365,7 +366,7 @@ public final class LinuxContainer: Container, Sendable {
         }
         self.id = id
         self.vmm = vmm
-        self.hostVsockPorts = Atomic<UInt32>(0x1000_0000)
+        self.hostVsockPorts = VsockPortAllocator(base: 0x1000_0000)
         self.guestVsockPorts = Atomic<UInt32>(0x1000_0000)
         self.logger = logger
         self.config = configuration
@@ -827,6 +828,7 @@ extension LinuxContainer {
                     containerID: self.id,
                     spec: spec,
                     io: stdio,
+                    portAllocator: self.hostVsockPorts,
                     ociRuntimePath: self.config.ociRuntimePath,
                     agent: agent,
                     vm: createdState.vm,
@@ -1011,6 +1013,7 @@ extension LinuxContainer {
                 containerID: self.id,
                 spec: spec,
                 io: stdio,
+                portAllocator: self.hostVsockPorts,
                 ociRuntimePath: self.config.ociRuntimePath,
                 agent: agent,
                 vm: startedState.vm,
@@ -1048,6 +1051,7 @@ extension LinuxContainer {
                 containerID: self.id,
                 spec: spec,
                 io: stdio,
+                portAllocator: self.hostVsockPorts,
                 ociRuntimePath: self.config.ociRuntimePath,
                 agent: agent,
                 vm: state.vm,
@@ -1156,7 +1160,9 @@ extension LinuxContainer {
 
         let port: UInt32
         if socket.direction == .into {
-            port = self.hostVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
+            // Held for the lifetime of the relay, so it is deliberately never
+            // released — the relay manager outlives this call.
+            port = self.hostVsockPorts.allocate()
             socket.destination = URL(filePath: Self.guestSocketStagingPath(socket.id))
         } else {
             port = self.guestVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
@@ -1204,8 +1210,13 @@ extension LinuxContainer {
                 )
             }
 
-            let port = self.hostVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
+            let port = self.hostVsockPorts.allocate()
+            // Deferred LIFO: hand the listener back before the port number, so
+            // a caller that reuses the number immediately finds the port free
+            // to listen on again.
+            defer { self.hostVsockPorts.release(port) }
             let listener = try state.vm.listen(port)
+            defer { try? listener.finish() }
 
             try await withThrowingTaskGroup(of: Void.self) { group in
                 group.addTask {
@@ -1348,8 +1359,11 @@ extension LinuxContainer {
             }
 
             let guestPath = URL(filePath: self.root).appending(path: source.path)
-            let port = self.hostVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
+            let port = self.hostVsockPorts.allocate()
+            // Deferred LIFO: listener back first, then the port number.
+            defer { self.hostVsockPorts.release(port) }
             let listener = try state.vm.listen(port)
+            defer { try? listener.finish() }
 
             let (metadataStream, metadataCont) = AsyncStream.makeStream(of: Vminitd.CopyMetadata.self)
 
@@ -1490,34 +1504,31 @@ func sortMountsByDestinationDepth(_ mounts: [ContainerizationOCI.Mount]) -> [Con
 
 struct IOUtil {
     static func setup(
-        portAllocator: borrowing Atomic<UInt32>,
+        portAllocator: VsockPortAllocator,
         stdin: ReaderStream?,
         stdout: Writer?,
         stderr: Writer?
     ) -> LinuxProcess.Stdio {
         var stdinSetup: LinuxProcess.StdioReaderSetup? = nil
         if let reader = stdin {
-            let ret = portAllocator.wrappingAdd(1, ordering: .relaxed)
             stdinSetup = .init(
-                port: ret.oldValue,
+                port: portAllocator.allocate(),
                 reader: reader
             )
         }
 
         var stdoutSetup: LinuxProcess.StdioSetup? = nil
         if let writer = stdout {
-            let ret = portAllocator.wrappingAdd(1, ordering: .relaxed)
             stdoutSetup = LinuxProcess.StdioSetup(
-                port: ret.oldValue,
+                port: portAllocator.allocate(),
                 writer: writer
             )
         }
 
         var stderrSetup: LinuxProcess.StdioSetup? = nil
         if let writer = stderr {
-            let ret = portAllocator.wrappingAdd(1, ordering: .relaxed)
             stderrSetup = LinuxProcess.StdioSetup(
-                port: ret.oldValue,
+                port: portAllocator.allocate(),
                 writer: writer
             )
         }
