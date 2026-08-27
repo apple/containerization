@@ -92,34 +92,11 @@ struct ImageHeaderScanTimingTest {
 
         print("\n--- \(label) ---\n")
 
-        // For zstd, pre-decompress once (matching the production code path in EXT4Unpacker).
-        let scanFile: URL
-        let scanFilter: ContainerizationArchive.Filter
-        var decompressedFile: URL?
-        if compression == .zstd {
-            var decompressed: URL = url
-            let decompressDuration = try clock.measure {
-                decompressed = try ArchiveReader.decompressZstd(url)
-            }
-            scanFile = decompressed
-            scanFilter = .none
-            decompressedFile = decompressed
-            print("  Zstd decompress:      \(decompressDuration)")
-        } else {
-            scanFile = url
-            scanFilter = compression
-        }
-        defer {
-            if let decompressedFile {
-                ArchiveReader.cleanUpDecompressedZstd(decompressedFile)
-            }
-        }
-
         // 1. Header scan only
         var scannedTotals: (size: Int64, items: Int) = (0, 0)
         let scanDuration = try clock.measure {
             scannedTotals = try EXT4.Formatter.scanArchiveHeaders(
-                format: .paxRestricted, filter: scanFilter, file: scanFile)
+                format: .paxRestricted, filter: compression, file: url)
         }
         print("  Scanned total size:   \(formatBytes(scannedTotals.size)) (\(scannedTotals.items) items)")
         print("  Header scan:          \(scanDuration)")

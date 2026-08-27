@@ -19,6 +19,7 @@ import ContainerizationError
 import ContainerizationOS
 import Foundation
 import SystemPackage
+import libzstd
 
 /// A protocol for reading data in chunks, compatible with both `InputStream` and zero-allocation archive readers.
 public protocol ReadableStream {
@@ -54,8 +55,8 @@ public final class ArchiveReader {
     var underlying: OpaquePointer?
     /// The file handle associated with the archive file being read.
     let fileHandle: FileHandle?
-    /// Temporary decompressed file URL if the input was zstd-compressed
-    private var tempDecompressedFile: URL?
+    private var tempFile: URL?
+    private var streamFailure: CInt = ARCHIVE_OK
 
     /// Initializes an `ArchiveReader` to read from a specified file URL with an explicit `Format` and `Filter`.
     /// Note: This method must be used when it is known that the archive at the specified URL follows the specified
@@ -101,70 +102,42 @@ public final class ArchiveReader {
     /// Initialize the `ArchiveReader` to read from a specified file URL
     /// by trying to auto determine the archives `Format` and `Filter`.
     public init(file: URL) throws {
+        let handle = try FileHandle(forReadingFrom: file)
+        let isZstd = try Self.isZstdFrame(handle)
+        try handle.seek(toOffset: 0)
+
         self.underlying = archive_read_new()
+        self.fileHandle = isZstd ? nil : handle
 
-        // Try to decompress as zstd first, fall back to original if it fails
-        let fileToRead: URL
-        if let decompressed = try? Self.decompressZstd(file) {
-            self.tempDecompressedFile = decompressed
-            fileToRead = decompressed
-        } else {
-            fileToRead = file
-        }
-
-        let fileHandle = try FileHandle(forReadingFrom: fileToRead)
-        self.fileHandle = fileHandle
         try archive_read_support_filter_all(underlying)
             .checkOk(elseThrow: .failedToDetectFilter)
         try archive_read_support_format_all(underlying)
             .checkOk(elseThrow: .failedToDetectFormat)
-        let fd = fileHandle.fileDescriptor
-        try archive_read_open_fd(underlying, fd, 4096)
-            .checkOk(elseThrow: { .unableToOpenArchive($0) })
+        if isZstd {
+            try ZstdArchiveSource.open(archive: underlying, source: handle)
+                .checkOk(elseThrow: { .unableToOpenArchive($0) })
+        } else {
+            try archive_read_open_fd(underlying, handle.fileDescriptor, 4096)
+                .checkOk(elseThrow: { .unableToOpenArchive($0) })
+        }
     }
 
-    /// Decompress a zstd file to a temporary location
-    public static func decompressZstd(_ source: URL) throws -> URL {
-        guard let tempDir = createTemporaryDirectory(baseName: "zstd-decompress") else {
-            throw ArchiveError.failedToDetectFormat
+    private static func isZstdFrame(_ handle: FileHandle) throws -> Bool {
+        let magicSize = MemoryLayout<UInt32>.size
+        guard let prefix = try handle.read(upToCount: magicSize), prefix.count == magicSize else {
+            return false
         }
-        let tempFile = tempDir.appendingPathComponent(
-            source.deletingPathExtension().lastPathComponent
-        )
-
-        do {
-            let srcPath = source.path
-            let srcFd = open(srcPath, O_RDONLY)
-            guard srcFd >= 0 else { throw ArchiveError.failedToDetectFormat }
-            defer { close(srcFd) }
-
-            let dstFd = open(tempFile.path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
-            guard dstFd >= 0 else { throw ArchiveError.failedToDetectFormat }
-            defer { close(dstFd) }
-
-            guard zstd_decompress_fd(srcFd, dstFd) == 0 else {
-                throw ArchiveError.failedToDetectFormat
-            }
-        } catch {
-            try? FileManager.default.removeItem(at: tempDir)
-            throw error
-        }
-        return tempFile
-    }
-
-    /// Clean up the temporary directory created by `decompressZstd`.
-    /// The decompressed file is placed inside a unique temporary directory,
-    /// so removing that directory cleans up everything.
-    public static func cleanUpDecompressedZstd(_ file: URL) {
-        try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
+        let magic = UInt32(littleEndian: prefix.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) })
+        return magic == UInt32(ZSTD_MAGICNUMBER)
+            || (magic & UInt32(ZSTD_MAGIC_SKIPPABLE_MASK)) == UInt32(ZSTD_MAGIC_SKIPPABLE_START)
     }
 
     deinit {
         archive_read_free(underlying)
         try? fileHandle?.close()
 
-        if let tempFile = tempDecompressedFile {
-            Self.cleanUpDecompressedZstd(tempFile)
+        if let tempFile {
+            try? FileManager.default.removeItem(at: tempFile.deletingLastPathComponent())
         }
     }
 }
@@ -254,10 +227,7 @@ extension ArchiveReader {
             try? FileManager.default.removeItem(at: tempDir)
             throw error
         }
-        // Register for cleanup in deinit (only needed when the zstd path didn't already set it)
-        if self.tempDecompressedFile == nil {
-            self.tempDecompressedFile = url
-        }
+        self.tempFile = url
     }
 
     /// Extracts the contents of an archive to the provided directory.
