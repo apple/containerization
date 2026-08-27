@@ -233,7 +233,9 @@ struct IntegrationSuite: AsyncParsableCommand {
         let platform = Platform(arch: "arm64", os: "linux", variant: "v8")
 
         // Unpack to shared location with coordination to prevent concurrent unpacks
-        let fsPath = Self.testDir.appending(component: image.digest)
+        // OCI digests include a `sha256:` prefix. Keep it out of the host
+        // filesystem name used for the disposable ext4 image.
+        let fsPath = Self.testDir.appending(component: image.digest.trimmingDigestPrefix)
         let fs = try await Self.unpackCoordinator.unpack(key: fsPath.absolutePath()) {
             do {
                 let unpacker = EXT4Unpacker(capacityInBytes: 2.gib())
@@ -259,12 +261,12 @@ struct IntegrationSuite: AsyncParsableCommand {
         // a ~2GB rootfs and a ~512MB initfs, so without reaping the dev
         // container fills its CoW layer in ~10 tests.
         if self.maxConcurrency == 1 {
-            let preserve = fsPath.absolutePath()
+            let preserve = fsPath.lastPathComponent
             if let entries = try? FileManager.default.contentsOfDirectory(
                 at: Self.testDir,
                 includingPropertiesForKeys: nil
             ) {
-                for url in entries where url.absolutePath() != preserve {
+                for url in entries where url.lastPathComponent != preserve {
                     try? FileManager.default.removeItem(at: url)
                 }
             }
