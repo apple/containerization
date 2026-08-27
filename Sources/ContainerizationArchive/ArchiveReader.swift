@@ -163,7 +163,7 @@ extension ArchiveReader: Sequence {
         public mutating func next() -> (WriteEntry, Data)? {
             let entry = WriteEntry()
             let result = archive_read_next_header2(reader.underlying, entry.underlying)
-            if result == ARCHIVE_EOF {
+            guard result == ARCHIVE_OK || result == ARCHIVE_WARN else {
                 return nil
             }
             let data = reader.readDataForEntry(entry)
@@ -186,7 +186,7 @@ extension ArchiveReader: Sequence {
         public mutating func next() -> (WriteEntry, ArchiveEntryReader)? {
             let entry = WriteEntry()
             let result = archive_read_next_header2(reader.underlying, entry.underlying)
-            if result == ARCHIVE_EOF {
+            guard result == ARCHIVE_OK || result == ARCHIVE_WARN else {
                 return nil
             }
             let streamReader = ArchiveEntryReader(reader: reader)
@@ -278,7 +278,11 @@ extension ArchiveReader {
     /// reopen the archive.
     public func extractFile(path: String) throws -> (WriteEntry, Data) {
         let entry = WriteEntry()
-        while archive_read_next_header2(self.underlying, entry.underlying) != ARCHIVE_EOF {
+        while true {
+            let result = archive_read_next_header2(self.underlying, entry.underlying)
+            guard result == ARCHIVE_OK || result == ARCHIVE_WARN else {
+                break
+            }
             guard let entryPath = entry.path else { continue }
             let trimCharSet = CharacterSet(charactersIn: "./")
             let trimmedEntry = entryPath.trimmingCharacters(in: trimCharSet)

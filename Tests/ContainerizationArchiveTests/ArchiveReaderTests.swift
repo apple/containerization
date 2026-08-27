@@ -711,4 +711,34 @@ struct ArchiveReaderTests {
         let testContent = try String(contentsOf: testFile, encoding: .utf8)
         #expect(testContent == "Hello from zstd compressed archive", "Content should match")
     }
+
+    @Test func truncatedArchiveStopsIterating() throws {
+        let directory = try createExtractionDirectory(name: "truncated").deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let archive = try Self.writeTruncatedArchive(in: directory)
+
+        let reader = try ArchiveReader(format: .paxRestricted, filter: .gzip, file: archive)
+        var iterator = reader.makeStreamingIterator()
+
+        #expect(iterator.next() != nil)
+        #expect(iterator.next() == nil)
+    }
+
+    static func writeTruncatedArchive(in directory: URL) throws -> URL {
+        let full = directory.appendingPathComponent("full.tar.gz")
+        let writer = try ArchiveWriter(format: .paxRestricted, filter: .gzip, file: full)
+        let data = Data(count: 2 * 1024 * 1024)
+        let entry = WriteEntry()
+        entry.path = "foo"
+        entry.fileType = .regular
+        entry.permissions = 0o644
+        entry.size = numericCast(data.count)
+        try writer.writeEntry(entry: entry, data: data)
+        try writer.finishEncoding()
+
+        let bytes = try Data(contentsOf: full)
+        let truncated = directory.appendingPathComponent("truncated.tar.gz")
+        try bytes.prefix(bytes.count / 2).write(to: truncated)
+        return truncated
+    }
 }
