@@ -18,8 +18,12 @@ import ContainerizationExtras
 
 /// A network interface.
 public protocol Interface: Sendable {
-    /// The interface IPv4 address and subnet prefix length, as a CIDR address.
+    /// The interface IPv4 address and subnet prefix length, as a CIDR address, or nil
+    /// when the address is configured from inside the guest rather than by the host.
     /// Example: `192.168.64.3/24`
+    ///
+    /// Leaving this nil brings the link up without assigning an address. Setting
+    /// ``ipv6Address`` while this is nil is not supported.
     var ipv4Address: CIDRv4? { get }
 
     /// The IPv4 gateway address for the default route, or nil for no IPv4 default route.
