@@ -458,6 +458,9 @@ struct IntegrationSuite: AsyncParsableCommand {
             // Masked / read-only paths
             Test("container default masked and read-only paths", testDefaultMaskedAndReadonlyPaths),
 
+            // Namespaces
+            Test("container exec joins init namespaces", testExecJoinsInitNamespaces),
+
             // Stat / Copy
             Test("container stat", testStat),
             Test("container copy in", testCopyIn),

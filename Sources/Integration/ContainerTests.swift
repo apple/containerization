@@ -5365,6 +5365,87 @@ extension IntegrationSuite {
         }
     }
 
+    func testExecJoinsInitNamespaces() async throws {
+        let id = "test-exec-joins-init-namespaces"
+
+        // An exec must land in exactly the namespaces the container's init
+        // process is in. The namespace identity check (`/proc/self/ns/*` vs
+        // `/proc/1/ns/*`, PID 1 being the container init as seen from inside
+        // its own PID namespace) is the real invariant: it catches any
+        // namespace the exec path forgets, not just the one that regressed.
+        //
+        // `kernel.shm_rmid_forced` is asserted alongside it because it is what
+        // consumers actually observe. IPC-namespaced sysctls are resolved
+        // against the *reading* process's IPC namespace, so an exec left in the
+        // guest's root IPC namespace reads the guest default (0) rather than
+        // the value applied to the container — the shape of the CRI conformance
+        // failure "should support safe sysctls", which reads such a sysctl back
+        // over ExecSync.
+        //
+        // `net` is expected to match too: LinuxContainer declares no network
+        // namespace, so both sides sit in the guest root netns today, and
+        // asserting it guards the exec path if that ever changes.
+        let probe = """
+            exec 2>&1
+            set -u
+            fail=0
+            for ns in ipc uts mnt pid cgroup net; do
+                mine=$(readlink /proc/self/ns/$ns)
+                init=$(readlink /proc/1/ns/$ns)
+                if [ "$mine" != "$init" ]; then
+                    echo "NS-FAIL: $ns exec=$mine init=$init"
+                    fail=1
+                fi
+            done
+            shm=$(cat /proc/sys/kernel/shm_rmid_forced)
+            if [ "$shm" != "1" ]; then
+                echo "SYSCTL-FAIL: kernel.shm_rmid_forced=$shm expected 1"
+                fail=1
+            fi
+            [ "$fail" -eq 0 ] || exit 1
+            echo "NS-OK"
+            """
+
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.sysctl = [
+                "kernel.shm_rmid_forced": "1"
+            ]
+            config.process.arguments = ["/bin/sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let buffer = BufferWriter()
+            let exec = try await container.exec("ns-probe") { config in
+                config.arguments = ["/bin/sh", "-c", probe]
+                config.stdout = buffer
+            }
+
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            let output = String(data: buffer.data, encoding: .utf8) ?? "<non-utf8 output>"
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "exec namespace probe failed (exit \(status.exitCode)): \(output)")
+            }
+            guard output.contains("NS-OK") else {
+                throw IntegrationError.assert(msg: "expected NS-OK sentinel, got: \(output)")
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
     func testNoNewPrivileges() async throws {
         let id = "test-no-new-privileges"
 
