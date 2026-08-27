@@ -906,6 +906,13 @@ extension IntegrationSuite {
             config.cpus = 2
             config.memoryInBytes = 512.mib()
             config.pidsLimit = 64
+            config.mounts.append(
+                .any(
+                    type: "none",
+                    source: "/sys/fs/cgroup",
+                    destination: "/alternate-cgroup",
+                    options: ["bind", "rw"]
+                ))
             config.bootLog = bs.bootLog
         }
 
@@ -1003,6 +1010,50 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "pids.max '\(pidsLimit)' != expected '\(expectedPids)'")
             }
 
+            // A workload must not be able to weaken its own PID ceiling. The
+            // management agent applies resources from a separate mount
+            // namespace, so the container-visible cgroup filesystem can and
+            // should be read-only.
+            for (processID, attemptedLimit) in [("raise-pids", "65"), ("unlimit-pids", "max")] {
+                for (pathID, path) in [
+                    ("canonical", "/sys/fs/cgroup/pids.max"),
+                    ("bind-alias", "/alternate-cgroup/pids.max"),
+                ] {
+                    let mutationError = BufferWriter()
+                    let mutationExec = try await container.exec("\(processID)-\(pathID)") { config in
+                        config.arguments = ["sh", "-c", "echo \(attemptedLimit) > \(path)"]
+                        config.stderr = mutationError
+                    }
+                    try await mutationExec.start()
+                    status = try await mutationExec.wait()
+                    try await mutationExec.delete()
+                    guard status.exitCode != 0 else {
+                        throw IntegrationError.assert(
+                            msg: "workload unexpectedly changed \(path) to \(attemptedLimit)"
+                        )
+                    }
+                }
+
+                let verifyBuffer = BufferWriter()
+                let verifyExec = try await container.exec("verify-\(processID)") { config in
+                    config.arguments = ["cat", "/sys/fs/cgroup/pids.max"]
+                    config.stdout = verifyBuffer
+                }
+                try await verifyExec.start()
+                status = try await verifyExec.wait()
+                try await verifyExec.delete()
+                guard status.exitCode == 0 else {
+                    throw IntegrationError.assert(msg: "verify-\(processID) status \(status) != 0")
+                }
+                let observedLimit = String(data: verifyBuffer.data, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard observedLimit == expectedPids else {
+                    throw IntegrationError.assert(
+                        msg: "pids.max '\(observedLimit ?? "<invalid>")' changed after rejected write"
+                    )
+                }
+            }
+
             try await sleepExec.delete()
 
             try await container.kill(.kill)
@@ -1014,12 +1065,341 @@ extension IntegrationSuite {
         }
     }
 
+    func testPidsLimitExhaustion() async throws {
+        let id = "test-pids-limit-exhaustion"
+        let limit: UInt64 = 8
+        let extraMarker = "/tmp/pids-extra-marker"
+        let forkMarker = "/tmp/pids-fork-marker"
+
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "infinity"]
+            config.pidsLimit = Int64(limit)
+            config.bootLog = bs.bootLog
+        }
+
+        var sleepers: [LinuxProcess] = []
+
+        func terminate(_ process: LinuxProcess) async {
+            try? await process.kill(.kill)
+            _ = try? await process.wait(timeoutInSeconds: 5)
+            try? await process.delete()
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // The init process plus these seven direct sleep execs hold the
+            // cgroup exactly at pids.max without an unbounded fork workload.
+            for index in 0..<7 {
+                let process = try await container.exec("pids-sleeper-\(index)") { config in
+                    config.arguments = ["sleep", "infinity"]
+                }
+                try await process.start()
+                sleepers.append(process)
+            }
+
+            let cappedStats = try await Timeout.run(for: .seconds(5)) {
+                try await container.statistics(categories: .process)
+            }
+            guard let cappedPids = cappedStats.process else {
+                throw IntegrationError.assert(msg: "missing process statistics at pids.max")
+            }
+            guard cappedPids.current == limit, cappedPids.limit == limit else {
+                throw IntegrationError.assert(
+                    msg: "expected process statistics \(limit)/\(limit), got \(cappedPids.current)/\(cappedPids.limit)"
+                )
+            }
+
+            // Repeated admission attempts must fail promptly and must never
+            // execute the requested workload marker.
+            for index in 0..<3 {
+                let denied = try await container.exec("pids-denied-\(index)") { config in
+                    config.arguments = ["sh", "-c", "touch \(extraMarker)"]
+                }
+
+                var startError: Error?
+                do {
+                    try await Timeout.run(for: .seconds(5)) {
+                        try await denied.start()
+                    }
+                } catch {
+                    startError = error
+                }
+
+                guard let startError else {
+                    _ = try? await denied.wait(timeoutInSeconds: 5)
+                    try? await denied.delete()
+                    throw IntegrationError.assert(msg: "process admission unexpectedly succeeded at pids.max")
+                }
+                guard !(startError is CancellationError) else {
+                    try? await denied.delete()
+                    throw IntegrationError.assert(msg: "process admission did not fail within five seconds")
+                }
+                try await denied.delete()
+            }
+
+            // Signal, wait, and delete are management-plane RPCs. They must
+            // remain responsive while the workload cgroup is full.
+            let released = sleepers.removeLast()
+            try await Timeout.run(for: .seconds(5)) {
+                try await released.kill(.kill)
+            }
+            _ = try await Timeout.run(for: .seconds(5)) {
+                try await released.wait(timeoutInSeconds: 5)
+            }
+            try await Timeout.run(for: .seconds(5)) {
+                try await released.delete()
+            }
+
+            let extraMarkerCheck = try await container.exec("check-extra-marker") { config in
+                config.arguments = ["test", "!", "-e", extraMarker]
+            }
+            try await extraMarkerCheck.start()
+            var status = try await extraMarkerCheck.wait(timeoutInSeconds: 5)
+            try await extraMarkerCheck.delete()
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "a denied process executed its marker")
+            }
+
+            // With seven resident processes, the shell itself occupies the
+            // eighth slot. Its single bounded background fork must fail.
+            let forkError = BufferWriter()
+            let forkProbe = try await container.exec("pids-fork-probe") { config in
+                config.arguments = [
+                    "sh",
+                    "-c",
+                    "(touch \(forkMarker)) & child=$!; wait \"$child\"",
+                ]
+                config.stderr = forkError
+            }
+            try await forkProbe.start()
+            status = try await forkProbe.wait(timeoutInSeconds: 5)
+            try await forkProbe.delete()
+            guard status.exitCode != 0 else {
+                throw IntegrationError.assert(msg: "fork unexpectedly succeeded at pids.max")
+            }
+
+            let forkMarkerCheck = try await container.exec("check-fork-marker") { config in
+                config.arguments = ["test", "!", "-e", forkMarker]
+            }
+            try await forkMarkerCheck.start()
+            status = try await forkMarkerCheck.wait(timeoutInSeconds: 5)
+            try await forkMarkerCheck.delete()
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "the exhausted fork executed its marker")
+            }
+
+            let eventsBuffer = BufferWriter()
+            let eventsProbe = try await container.exec("check-pids-events") { config in
+                config.arguments = ["cat", "/sys/fs/cgroup/pids.events"]
+                config.stdout = eventsBuffer
+            }
+            try await eventsProbe.start()
+            status = try await eventsProbe.wait(timeoutInSeconds: 5)
+            try await eventsProbe.delete()
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "failed to read pids.events")
+            }
+            let events = String(data: eventsBuffer.data, encoding: .utf8) ?? ""
+            let maxEvents =
+                events
+                .split(separator: "\n")
+                .first { $0.hasPrefix("max ") }?
+                .split(separator: " ")
+                .last
+                .flatMap { UInt64($0) }
+            guard let maxEvents, maxEvents > 0 else {
+                throw IntegrationError.assert(msg: "pids.events did not record exhaustion: \(events)")
+            }
+
+            // Successful admission after one slot is released proves the
+            // failed attempts did not strand guest-side process records.
+            let recoveryProbe = try await container.exec("pids-recovery-probe") { config in
+                config.arguments = ["/bin/true"]
+            }
+            try await recoveryProbe.start()
+            status = try await recoveryProbe.wait(timeoutInSeconds: 5)
+            try await recoveryProbe.delete()
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "management recovery probe failed: \(status)")
+            }
+
+            let recoveredStats = try await Timeout.run(for: .seconds(5)) {
+                try await container.statistics(categories: .process)
+            }
+            guard let recoveredPids = recoveredStats.process, recoveredPids.current <= limit,
+                recoveredPids.limit == limit
+            else {
+                throw IntegrationError.assert(msg: "invalid process statistics after recovery")
+            }
+
+            for process in sleepers.reversed() {
+                await terminate(process)
+            }
+            sleepers.removeAll()
+
+            try await container.kill(.kill)
+            try await container.wait(timeoutInSeconds: 5)
+            try await container.stop()
+        } catch {
+            for process in sleepers.reversed() {
+                await terminate(process)
+            }
+            try? await container.kill(.kill)
+            _ = try? await container.wait(timeoutInSeconds: 5)
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testZeroPidsLimitFailsClosed() async throws {
+        let id = "test-zero-pids-limit"
+        let bs = try await bootstrap(id)
+        let markerBuffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["echo", "unexpected-zero-pids-start"]
+            config.process.stdout = markerBuffer
+            config.pidsLimit = 0
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        var startError: Error?
+        do {
+            try await Timeout.run(for: .seconds(5)) {
+                try await container.start()
+            }
+        } catch {
+            startError = error
+        }
+
+        guard let startError else {
+            try? await container.kill(.kill)
+            _ = try? await container.wait(timeoutInSeconds: 5)
+            try? await container.stop()
+            throw IntegrationError.assert(msg: "container started with pidsLimit 0")
+        }
+        guard !(startError is CancellationError) else {
+            throw IntegrationError.assert(msg: "pidsLimit 0 startup did not fail within five seconds")
+        }
+        let startFailure = String(describing: startError)
+        guard
+            startFailure.contains("clone3(CLONE_INTO_CGROUP)")
+                && (startFailure.contains("Code=11") || startFailure.contains("errno 11")
+                    || startFailure.contains("Resource temporarily unavailable"))
+        else {
+            throw IntegrationError.assert(
+                msg: "pidsLimit 0 failed for an unexpected reason: \(startFailure)"
+            )
+        }
+        guard markerBuffer.data.isEmpty else {
+            throw IntegrationError.assert(msg: "pidsLimit 0 workload executed before rejection")
+        }
+    }
+
+    func testPidsControllerUnavailableFailsClosed() async throws {
+        let kernelArguments = ["cgroup_disable=pids"]
+
+        // Establish that this exact kernel boot really removed the controller;
+        // otherwise a passing startup failure would be ambiguous fixture noise.
+        let controlID = "test-pids-controller-control"
+        let controlBootstrap = try await bootstrap(controlID, kernelArguments: kernelArguments)
+        let controllersBuffer = BufferWriter()
+        let control = try LinuxContainer(
+            controlID,
+            rootfs: controlBootstrap.rootfs,
+            vmm: controlBootstrap.vmm
+        ) { config in
+            config.process.arguments = ["sleep", "infinity"]
+            config.bootLog = controlBootstrap.bootLog
+        }
+
+        do {
+            try await control.create()
+            try await control.start()
+
+            // No PID limit was requested, so disabling the controller must not
+            // break ordinary exec compatibility.
+            let controllersProbe = try await control.exec("read-controllers") { config in
+                config.arguments = ["cat", "/sys/fs/cgroup/cgroup.controllers"]
+                config.stdout = controllersBuffer
+            }
+            try await controllersProbe.start()
+            let status = try await controllersProbe.wait(timeoutInSeconds: 5)
+            try await controllersProbe.delete()
+            try await control.kill(.kill)
+            try await control.wait(timeoutInSeconds: 5)
+            try await control.stop()
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "controller control exited with \(status)")
+            }
+        } catch {
+            try? await control.stop()
+            throw error
+        }
+
+        let controllers = String(data: controllersBuffer.data, encoding: .utf8) ?? ""
+        guard !controllers.split(whereSeparator: { $0.isWhitespace }).contains("pids") else {
+            throw IntegrationError.assert(msg: "test kernel still exposes the pids controller: \(controllers)")
+        }
+
+        let blockedID = "test-pids-controller-blocked"
+        let blockedBootstrap = try await bootstrap(blockedID, kernelArguments: kernelArguments)
+        let markerBuffer = BufferWriter()
+        let blocked = try LinuxContainer(
+            blockedID,
+            rootfs: blockedBootstrap.rootfs,
+            vmm: blockedBootstrap.vmm
+        ) { config in
+            config.process.arguments = ["echo", "unexpected-pids-start"]
+            config.process.stdout = markerBuffer
+            config.pidsLimit = 8
+            config.bootLog = blockedBootstrap.bootLog
+        }
+
+        try await blocked.create()
+        var startError: Error?
+        do {
+            try await Timeout.run(for: .seconds(5)) {
+                try await blocked.start()
+            }
+        } catch {
+            startError = error
+        }
+
+        guard let startError else {
+            try? await blocked.kill(.kill)
+            _ = try? await blocked.wait(timeoutInSeconds: 5)
+            try? await blocked.stop()
+            throw IntegrationError.assert(msg: "container started without the requested pids controller")
+        }
+        guard !(startError is CancellationError) else {
+            throw IntegrationError.assert(msg: "controller-unavailable startup did not fail within five seconds")
+        }
+        let startFailure = String(describing: startError)
+        guard
+            startFailure.contains("pids.max")
+                && (startFailure.contains("errno 2") || startFailure.contains("Code=2")
+                    || startFailure.contains("No such file or directory"))
+        else {
+            throw IntegrationError.assert(
+                msg: "controller-unavailable startup failed for an unexpected reason: \(startFailure)"
+            )
+        }
+        guard markerBuffer.data.isEmpty else {
+            throw IntegrationError.assert(msg: "workload executed before PID resource application failed")
+        }
+    }
+
     func testMemoryEventsOOMKill() async throws {
         let id = "test-memory-events-oom-kill"
 
         let bs = try await bootstrap(id)
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["sleep", "infinity"]
+            config.memoryInBytes = 64.mib()
             config.bootLog = bs.bootLog
         }
 
@@ -1029,11 +1409,11 @@ extension IntegrationSuite {
 
             // Run a process that will exceed the memory limit and get OOM-killed
             let exec = try await container.exec("oom-trigger") { config in
-                // First set a 2MB memory limit on the container's cgroup, then allocate more
                 config.arguments = [
-                    "sh",
-                    "-c",
-                    "echo 2097152 > /sys/fs/cgroup/memory.max && dd if=/dev/zero of=/dev/null bs=100M",
+                    "dd",
+                    "if=/dev/zero",
+                    "of=/dev/null",
+                    "bs=100M",
                 ]
             }
 

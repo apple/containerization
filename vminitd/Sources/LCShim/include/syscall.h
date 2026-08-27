@@ -99,6 +99,11 @@ int CZ_pidfd_open(pid_t pid, unsigned int flags);
 #endif
 int CZ_pidfd_getfd(int pidfd, int targetfd, unsigned int flags);
 
+// Fork a child directly into the supplied cgroup v2 directory. This keeps
+// pids.max admission atomic; moving an already-forked process through
+// cgroup.procs is explicitly allowed to exceed the limit.
+pid_t CZ_clone_into_cgroup(int cgroup_fd);
+
 int CZ_prctl_set_no_new_privs();
 
 #endif

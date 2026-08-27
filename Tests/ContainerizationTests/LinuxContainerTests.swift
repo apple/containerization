@@ -127,6 +127,42 @@ struct LinuxContainerTests {
         #expect(pod.readonlyPaths == expectedReadonly)
     }
 
+    @Test func finitePidsLimitMakesCgroupMountsReadOnly() throws {
+        for mounts in [LinuxContainer.defaultMounts(), LinuxContainer.defaultOCIMounts()] {
+            let cgroupMount = mounts.first { $0.destination == "/sys/fs/cgroup" }
+            #expect(cgroupMount?.type == "cgroup2")
+            #expect(cgroupMount?.options.contains("ro") == false)
+
+            let finite = LinuxContainer.mountsEnforcingPidsLimit(mounts, pidsLimit: 64)
+            let finiteCgroupMount = finite.first { $0.destination == "/sys/fs/cgroup" }
+            #expect(finiteCgroupMount?.options.contains("ro") == true)
+            #expect(finiteCgroupMount?.options.contains("rw") == false)
+
+            let omitted = LinuxContainer.mountsEnforcingPidsLimit(mounts, pidsLimit: nil)
+            let unlimited = LinuxContainer.mountsEnforcingPidsLimit(mounts, pidsLimit: -1)
+            #expect(omitted.first { $0.destination == "/sys/fs/cgroup" }?.options.contains("ro") == false)
+            #expect(unlimited.first { $0.destination == "/sys/fs/cgroup" }?.options.contains("ro") == false)
+        }
+
+        let custom = Mount.any(
+            type: "cgroup2",
+            source: "none",
+            destination: "/alternate-cgroup",
+            options: ["rw"]
+        )
+        let hardenedCustom = LinuxContainer.mountsEnforcingPidsLimit([custom], pidsLimit: 1)
+        #expect(hardenedCustom[0].options == ["ro"])
+
+        let bindAlias = Mount.any(
+            type: "none",
+            source: "/sys/fs/cgroup",
+            destination: "/alternate-cgroup",
+            options: ["bind", "rw"]
+        )
+        let hardenedAlias = LinuxContainer.mountsEnforcingPidsLimit([bindAlias], pidsLimit: 1)
+        #expect(hardenedAlias[0].options == ["bind", "ro"])
+    }
+
     @Test func pidsLimitPreservesOmissionAndOCIValues() {
         let omitted = LinuxContainer.Configuration()
         let omittedFromInitializer = LinuxContainer.Configuration(

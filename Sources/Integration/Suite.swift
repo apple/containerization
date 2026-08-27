@@ -195,7 +195,10 @@ struct IntegrationSuite: AsyncParsableCommand {
 
     static let eventLoop = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
 
-    func bootstrap(_ testID: String) async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image, bootLog: BootLog) {
+    func bootstrap(
+        _ testID: String,
+        kernelArguments: [String] = []
+    ) async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image, bootLog: BootLog) {
         let reference = "ghcr.io/linuxcontainers/alpine:3.20"
         let store = Self.imageStore
 
@@ -217,7 +220,13 @@ struct IntegrationSuite: AsyncParsableCommand {
             }
         }()
 
-        let testKernel = Kernel(path: .init(filePath: kernel), platform: .linuxArm)
+        var commandLine = Kernel.CommandLine(debug: false, panic: 0)
+        commandLine.kernelArgs.append(contentsOf: kernelArguments)
+        let testKernel = Kernel(
+            path: .init(filePath: kernel),
+            platform: .linuxArm,
+            commandline: commandLine
+        )
         // Intentionally NOT adding `debug` or `earlycon=pl011,...` here.
         // Both look free, but each costs real wall-clock per VM boot:
         //   * `debug` floods printk through hvc0 (which CH writes to the
@@ -440,6 +449,9 @@ struct IntegrationSuite: AsyncParsableCommand {
             // Statistics / cgroups / memory
             Test("container statistics", testContainerStatistics),
             Test("container cgroup limits", testCgroupLimits),
+            Test("container zero pids limit", testZeroPidsLimitFailsClosed),
+            Test("container pids exhaustion", testPidsLimitExhaustion),
+            Test("container pids controller unavailable", testPidsControllerUnavailableFailsClosed),
             Test("container memory events OOM kill", testMemoryEventsOOMKill),
 
             // Console / boot / lifecycle
