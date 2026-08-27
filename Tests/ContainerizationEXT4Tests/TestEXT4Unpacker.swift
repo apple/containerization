@@ -14,6 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import ContainerizationArchive
 import Foundation
 import SystemPackage
 import Testing
@@ -23,6 +24,7 @@ import Testing
 struct Ext4UnpackerTests {
     // alpine image
     let indexSHA: String = "ad59e9f71edceca7b1ac7c642410858489b743c97233b0a26a5e2098b1443762"
+    let layerSHA: String = "c6b39de5b33961661dc939b997cc1d30cda01e38005a6c6625fd9c7e748bab44"
     let fsPath = FilePath(
         FileManager.default.uniqueTemporaryDirectory()
             .appendingPathComponent("ext4.unpacked.oci.img.delme", isDirectory: false))
@@ -101,5 +103,24 @@ struct Ext4UnpackerTests {
                     "lib",
                     "sbin",
                 ]))
+    }
+
+    @Test func truncatedArchiveFailsUnpack() async throws {
+        guard let layer = Bundle.module.url(forResource: layerSHA, withExtension: nil) else {
+            throw NSError(domain: "layer blob not found", code: 1)
+        }
+
+        let directory = FileManager.default.uniqueTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let bytes = try Data(contentsOf: layer)
+        let truncated = directory.appendingPathComponent("truncated.tar.gz")
+        try bytes.prefix(bytes.count / 2).write(to: truncated)
+
+        let formatter = try EXT4.Formatter(FilePath(directory.appendingPathComponent("rootfs.ext4").path))
+        await #expect(throws: (any Error).self) {
+            try await formatter.unpack(source: truncated, format: .paxRestricted, compression: .gzip)
+        }
+        try? formatter.close()
     }
 }

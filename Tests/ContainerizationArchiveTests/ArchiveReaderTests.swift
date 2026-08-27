@@ -724,6 +724,50 @@ struct ArchiveReaderTests {
         #expect(iterator.next() == nil)
     }
 
+    @Test func truncatedArchiveFailsExtractFile() throws {
+        let directory = try createExtractionDirectory(name: "truncated-file").deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let archive = try Self.writeTruncatedArchive(in: directory)
+
+        let reader = try ArchiveReader(format: .paxRestricted, filter: .gzip, file: archive)
+
+        #expect(throws: (any Error).self) {
+            try reader.extractFile(path: "foo")
+        }
+    }
+
+    @Test func truncatedArchiveFailsExtractContents() throws {
+        let extractDirectory = try createExtractionDirectory(name: "truncated-contents")
+        let directory = extractDirectory.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let archive = try Self.writePartialBlockArchive(in: directory)
+
+        let reader = try ArchiveReader(format: .paxRestricted, filter: .none, file: archive)
+
+        #expect(throws: (any Error).self) {
+            try reader.extractContents(to: extractDirectory)
+        }
+    }
+
+    static func writePartialBlockArchive(in directory: URL) throws -> URL {
+        let blockSize = 512
+        let full = directory.appendingPathComponent("full.tar")
+        let writer = try ArchiveWriter(format: .paxRestricted, filter: .none, file: full)
+        let data = Data(count: blockSize)
+        let entry = WriteEntry()
+        entry.path = "foo"
+        entry.fileType = .regular
+        entry.permissions = 0o644
+        entry.size = numericCast(data.count)
+        try writer.writeEntry(entry: entry, data: data)
+        try writer.finishEncoding()
+
+        let bytes = try Data(contentsOf: full)
+        let truncated = directory.appendingPathComponent("truncated.tar")
+        try bytes.prefix(blockSize * 2 + blockSize / 2).write(to: truncated)
+        return truncated
+    }
+
     static func writeTruncatedArchive(in directory: URL) throws -> URL {
         let full = directory.appendingPathComponent("full.tar.gz")
         let writer = try ArchiveWriter(format: .paxRestricted, filter: .gzip, file: full)

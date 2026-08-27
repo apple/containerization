@@ -77,6 +77,7 @@ extension EXT4.Formatter {
                 totalSize += Int64(size)
             }
         }
+        try reader.throwIfStreamFailed()
         return (size: totalSize, items: totalItems)
     }
 
@@ -163,6 +164,7 @@ extension EXT4.Formatter {
                 await progress([.addItems(1)])
             }
         }
+        try reader.throwIfStreamFailed()
         guard hardlinks.acyclic else {
             throw UnpackError.circularLinks
         }
