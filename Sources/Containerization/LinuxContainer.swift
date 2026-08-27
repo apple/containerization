@@ -57,6 +57,10 @@ public final class LinuxContainer: Container, Sendable {
         public var cpus: Int = 4
         /// The memory in bytes to give to the container.
         public var memoryInBytes: UInt64 = 1024.mib()
+        /// The optional maximum number of processes for the container.
+        ///
+        /// OCI semantics are preserved: `-1` means unlimited and `0` is a valid limit.
+        public var pidsLimit: Int64?
         /// The hostname for the container.
         public var hostname: String?
         /// The system control options for the container.
@@ -105,6 +109,7 @@ public final class LinuxContainer: Container, Sendable {
             process: LinuxProcessConfiguration,
             cpus: Int = 4,
             memoryInBytes: UInt64 = 1024.mib(),
+            pidsLimit: Int64? = nil,
             hostname: String? = nil,
             sysctl: [String: String] = [:],
             interfaces: [any Interface] = [],
@@ -124,6 +129,7 @@ public final class LinuxContainer: Container, Sendable {
             self.process = process
             self.cpus = cpus
             self.memoryInBytes = memoryInBytes
+            self.pidsLimit = pidsLimit
             self.hostname = hostname
             self.sysctl = sysctl
             self.interfaces = interfaces
@@ -355,6 +361,12 @@ public final class LinuxContainer: Container, Sendable {
                 message: "container id length \(id.count) exceeds maximum of \(Self.maxIDLength) characters"
             )
         }
+        if let pidsLimit = configuration.pidsLimit, pidsLimit < -1 {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "pidsLimit must be greater than or equal to -1"
+            )
+        }
         if let writableLayer {
             guard writableLayer.isBlock else {
                 throw ContainerizationError(
@@ -426,7 +438,8 @@ public final class LinuxContainer: Container, Sendable {
             cpu: LinuxCPU(
                 quota: Int64(config.cpus * 100_000),
                 period: 100_000
-            )
+            ),
+            pids: config.pidsLimit.map { LinuxPids(limit: $0) }
         )
 
         spec.linux?.namespaces = [

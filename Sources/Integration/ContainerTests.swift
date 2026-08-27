@@ -905,6 +905,7 @@ extension IntegrationSuite {
             config.process.arguments = ["sleep", "infinity"]
             config.cpus = 2
             config.memoryInBytes = 512.mib()
+            config.pidsLimit = 64
             config.bootLog = bs.bootLog
         }
 
@@ -979,6 +980,27 @@ extension IntegrationSuite {
             let expectedCpu = "200000 100000"  // 2 CPUs: quota=200000, period=100000
             guard cpuLimit == expectedCpu else {
                 throw IntegrationError.assert(msg: "cpu.max '\(cpuLimit)' != expected '\(expectedCpu)'")
+            }
+
+            // Verify PID limit
+            let pidsBuffer = BufferWriter()
+            let pidsExec = try await container.exec("check-pids") { config in
+                config.arguments = ["cat", "/sys/fs/cgroup/pids.max"]
+                config.stdout = pidsBuffer
+            }
+            try await pidsExec.start()
+            status = try await pidsExec.wait()
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "check-pids status \(status) != 0")
+            }
+            try await pidsExec.delete()
+
+            guard let pidsLimit = String(data: pidsBuffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                throw IntegrationError.assert(msg: "failed to parse pids.max")
+            }
+            let expectedPids = "64"
+            guard pidsLimit == expectedPids else {
+                throw IntegrationError.assert(msg: "pids.max '\(pidsLimit)' != expected '\(expectedPids)'")
             }
 
             try await sleepExec.delete()

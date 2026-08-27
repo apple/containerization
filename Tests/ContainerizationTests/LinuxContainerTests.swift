@@ -14,12 +14,19 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import ContainerizationError
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
 import Testing
 
 @testable import Containerization
+
+private struct StubVirtualMachineManager: VirtualMachineManager {
+    func create(config: some VMCreationConfig) throws -> any VirtualMachineInstance {
+        fatalError("not used")
+    }
+}
 
 struct LinuxContainerTests {
 
@@ -118,5 +125,43 @@ struct LinuxContainerTests {
         }
         #expect(pod.maskedPaths == expectedMasked)
         #expect(pod.readonlyPaths == expectedReadonly)
+    }
+
+    @Test func pidsLimitPreservesOmissionAndOCIValues() {
+        let omitted = LinuxContainer.Configuration()
+        let omittedFromInitializer = LinuxContainer.Configuration(
+            process: LinuxProcessConfiguration(arguments: ["/bin/sh"])
+        )
+        let zero = LinuxContainer.Configuration(
+            process: LinuxProcessConfiguration(arguments: ["/bin/sh"]),
+            pidsLimit: 0
+        )
+        let unlimited = LinuxContainer.Configuration(
+            process: LinuxProcessConfiguration(arguments: ["/bin/sh"]),
+            pidsLimit: -1
+        )
+
+        #expect(omitted.pidsLimit == nil)
+        #expect(omittedFromInitializer.pidsLimit == nil)
+        #expect(zero.pidsLimit == 0)
+        #expect(unlimited.pidsLimit == -1)
+    }
+
+    @Test func pidsLimitRejectsValuesBelowUnlimitedSentinel() {
+        let rootfs = Mount.any(type: "none", source: "none", destination: "/")
+
+        for pidsLimit in [-2, Int64.min] {
+            var configuration = LinuxContainer.Configuration()
+            configuration.pidsLimit = pidsLimit
+
+            #expect(throws: ContainerizationError.self) {
+                _ = try LinuxContainer(
+                    "invalid-pids-limit",
+                    rootfs: rootfs,
+                    vmm: StubVirtualMachineManager(),
+                    configuration: configuration
+                )
+            }
+        }
     }
 }
