@@ -92,7 +92,7 @@ struct DigestValidationTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let path = try ParsedDigest(parsing: Self.valid).path(in: root)
-        #expect(path.deletingLastPathComponent().standardizedFileURL.resolvingSymlinksInPath() == root.standardizedFileURL.resolvingSymlinksInPath())
+        #expect(path.deletingLastPathComponent().standardizedFileURL.resolvingSymlinksInPath().path == root.standardizedFileURL.resolvingSymlinksInPath().path)
         #expect(path.lastPathComponent == Self.validHex)
     }
 
