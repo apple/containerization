@@ -315,6 +315,7 @@ message FilesystemOperationRequest {
     FiFreezeParams freeze = 3;
     FiThawParams thaw = 4;
   }
+  optional string containerID = 5;
 }
 
 message FilesystemOperationResponse {

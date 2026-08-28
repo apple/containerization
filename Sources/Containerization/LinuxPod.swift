@@ -1285,8 +1285,7 @@ extension LinuxPod {
                 guard let vminitd = agent as? Vminitd else {
                     throw ContainerizationError(.unsupported, message: "filesystemOperation requires Vminitd agent")
                 }
-                let guestPath = URL(filePath: Self.guestRootfsPath(containerID)).appending(path: path).path
-                try await vminitd.filesystemOperation(operation: operation, path: guestPath)
+                try await vminitd.filesystemOperation(operation: operation, path: path, containerID: containerID)
             }
         }
     }

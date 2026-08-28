@@ -1134,8 +1134,7 @@ extension LinuxContainer {
                 guard let vminitd = agent as? Vminitd else {
                     throw ContainerizationError(.unsupported, message: "filesystemOperation requires Vminitd agent")
                 }
-                let guestPath = URL(filePath: Self.guestRootfsPath(self.id)).appending(path: path).path
-                try await vminitd.filesystemOperation(operation: operation, path: guestPath)
+                try await vminitd.filesystemOperation(operation: operation, path: path, containerID: self.id)
             }
         }
     }

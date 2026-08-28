@@ -4319,15 +4319,23 @@ extension IntegrationSuite {
                 config.arguments = ["/bin/sh", "-c", "echo hello > /data/hello.txt"]
             }
             try await writeExec.start()
-            let writeStatus = try await writeExec.wait()
-            try await writeExec.delete()
-            guard writeStatus.exitCode == 0 else {
-                throw IntegrationError.assert(msg: "write exec failed with status \(writeStatus)")
+
+            do {
+                let status = try await writeExec.wait(timeoutInSeconds: 1)
+                throw IntegrationError.assert(msg: "write unexpectedly completed while filesystem was frozen with status \(status)")
+            } catch let error as ContainerizationError where error.code == .timeout {
+                // The write must remain blocked until the filesystem is thawed.
             }
 
             try FileManager.default.copyItem(at: diskImageURL, to: cloneImageURL)
 
             try await writerContainer.filesystemOperation(operation: .thaw, path: "/data")
+
+            let writeStatus = try await writeExec.wait()
+            try await writeExec.delete()
+            guard writeStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "write exec failed with status \(writeStatus)")
+            }
 
             try await writerContainer.kill(.kill)
             _ = try await writerContainer.wait()
