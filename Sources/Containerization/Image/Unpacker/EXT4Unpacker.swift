@@ -47,18 +47,25 @@ public struct EXT4Unpacker: Unpacker {
         at path: URL
     ) async throws {
         let cleanedPath = try prepareUnpackPath(path: path)
+        var unpacked = false
+        defer {
+            if !unpacked {
+                try? FileManager.default.removeItem(atPath: cleanedPath)
+            }
+        }
         let filesystem = try EXT4.Formatter(
             FilePath(cleanedPath),
             minDiskSize: capacityInBytes,
             journal: journal
         )
-        defer { try? filesystem.close() }
 
         try await filesystem.unpack(
             source: archive,
             format: .paxRestricted,
             compression: compression
         )
+        try filesystem.close()
+        unpacked = true
     }
 
     /// Returns a `Mount` point after unpacking the image into a filesystem.
@@ -74,6 +81,12 @@ public struct EXT4Unpacker: Unpacker {
         progress: ProgressHandler? = nil
     ) async throws -> Mount {
         let cleanedPath = try prepareUnpackPath(path: path)
+        var unpacked = false
+        defer {
+            if !unpacked {
+                try? FileManager.default.removeItem(atPath: cleanedPath)
+            }
+        }
         let manifest = try await image.manifest(for: platform)
         let filesystem = try EXT4.Formatter(
             FilePath(
@@ -82,7 +95,6 @@ public struct EXT4Unpacker: Unpacker {
             minDiskSize: capacityInBytes,
             journal: journal
         )
-        defer { try? filesystem.close() }
 
         // Resolve layer paths upfront.
         var resolvedLayers: [(file: URL, filter: ContainerizationArchive.Filter)] = []
@@ -125,6 +137,8 @@ public struct EXT4Unpacker: Unpacker {
             try await filesystem.unpack(reader: reader, progress: progress)
         }
 
+        try filesystem.close()
+        unpacked = true
         return .block(
             format: "ext4",
             source: cleanedPath,

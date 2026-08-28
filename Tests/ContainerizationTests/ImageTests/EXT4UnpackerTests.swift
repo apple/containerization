@@ -22,10 +22,8 @@ import Testing
 @testable import Containerization
 @testable import ContainerizationEXT4
 
-/// Confirms that the `journal` configuration passed into `EXT4Unpacker.init` is actually
-/// threaded through to the `EXT4.Formatter` it constructs, for both `unpack` overloads.
 @Suite
-struct EXT4UnpackerJournalTests {
+struct EXT4UnpackerTests {
     private let minDiskSize: UInt64 = 16.mib()
 
     @Test func unpackArchiveAppliesJournalConfig() async throws {
@@ -55,6 +53,24 @@ struct EXT4UnpackerJournalTests {
 
         let reader = try EXT4.EXT4Reader(blockDevice: FilePath(outputPath.absolutePath()))
         #expect(reader.superBlock.featureCompat & EXT4.CompatFeature.hasJournal.rawValue == 0)
+    }
+
+    @Test func failedUnpackRemovesTheImage() async throws {
+        let archive = try makeArchive()
+        let work = archive.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: work) }
+
+        let bytes = try Data(contentsOf: archive)
+        let truncated = work.appendingPathComponent("ext4-unpacker-truncated.tar", isDirectory: false)
+        try bytes.prefix(bytes.count / 2).write(to: truncated)
+
+        let outputPath = work.appendingPathComponent("ext4-unpacker-truncated.img", isDirectory: false)
+        let unpacker = EXT4Unpacker(capacityInBytes: minDiskSize)
+        await #expect(throws: (any Error).self) {
+            try await unpacker.unpack(archive: truncated, compression: .none, at: outputPath)
+        }
+
+        #expect(!FileManager.default.fileExists(atPath: outputPath.path))
     }
 
     // MARK: - Helpers
