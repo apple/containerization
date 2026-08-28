@@ -19,8 +19,18 @@ import Foundation
 import Logging
 
 package actor UnixSocketRelayManager {
+    private struct RelayKey: Hashable {
+        let owner: String?
+        let socketID: String
+    }
+
+    private struct ManagedRelay {
+        let socket: UnixSocketConfiguration
+        let relay: UnixSocketRelay
+    }
+
     private let vm: any VirtualMachineInstance
-    private var relays: [String: UnixSocketRelay]
+    private var relays: [RelayKey: ManagedRelay]
     private let log: Logger?
 
     init(vm: any VirtualMachineInstance, log: Logger? = nil) {
@@ -31,8 +41,9 @@ package actor UnixSocketRelayManager {
 }
 
 extension UnixSocketRelayManager {
-    func start(port: UInt32, socket: UnixSocketConfiguration) async throws {
-        guard relays[socket.id] == nil else {
+    func start(port: UInt32, socket: UnixSocketConfiguration, owner: String? = nil) async throws {
+        let key = RelayKey(owner: owner, socketID: socket.id)
+        guard relays[key] == nil else {
             throw ContainerizationError(
                 .invalidState,
                 message: "socket relay \(socket.id) already started"
@@ -47,32 +58,47 @@ extension UnixSocketRelayManager {
         )
 
         do {
-            relays[socket.id] = relay
+            relays[key] = ManagedRelay(socket: socket, relay: relay)
             try await relay.start()
         } catch {
-            relays.removeValue(forKey: socket.id)
+            relays.removeValue(forKey: key)
             throw error
         }
     }
 
-    func stop(socket: UnixSocketConfiguration) async throws {
-        guard let storedRelay = relays.removeValue(forKey: socket.id) else {
+    func stop(socket: UnixSocketConfiguration, owner: String? = nil) async throws {
+        let key = RelayKey(owner: owner, socketID: socket.id)
+        guard let storedRelay = relays.removeValue(forKey: key) else {
             throw ContainerizationError(
                 .notFound,
                 message: "failed to stop socket relay"
             )
         }
-        try storedRelay.stop()
+        try storedRelay.relay.stop()
+    }
+
+    func sockets(owner: String) -> [UnixSocketConfiguration] {
+        relays.compactMap { key, relay in
+            key.owner == owner ? relay.socket : nil
+        }
+    }
+
+    func stopAll(owner: String) async throws {
+        let keys = relays.keys.filter { $0.owner == owner }
+        try stop(keys: keys)
     }
 
     func stopAll() async throws {
-        let relays = Array(self.relays.values)
-        self.relays.removeAll()
+        try stop(keys: Array(relays.keys))
+    }
+
+    private func stop(keys: [RelayKey]) throws {
+        let relays = keys.compactMap { self.relays.removeValue(forKey: $0) }
 
         var firstError: Error?
         for relay in relays {
             do {
-                try relay.stop()
+                try relay.relay.stop()
             } catch {
                 firstError = firstError ?? error
             }

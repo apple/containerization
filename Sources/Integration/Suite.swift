@@ -607,6 +607,10 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("unix socket out of guest tmpfs", testUnixSocketOutOfGuestTmpfs),
                 Test("unix socket relay rollback", testUnixSocketRelayRollback),
                 Test("pod unix socket into guest symlink", testPodUnixSocketIntoGuestSymlink),
+                Test("pod unix socket out of guest tmpfs", testPodUnixSocketOutOfGuestTmpfsStopsWithContainer),
+                Test("pod unix socket first relay rollback", testPodUnixSocketFirstRelayFailureRollsBackProcess),
+                Test("pod unix socket later relay rollback", testPodUnixSocketLaterRelayFailureRollsBackProcess),
+                Test("pod unix socket guest relay rollback", testPodUnixSocketGuestRelayFailureStopsHostRelay),
 
                 // High-concurrency stdio (exceeds CH's prebound stdio pool size)
                 Test("multiple concurrent processes", testMultipleConcurrentProcesses),

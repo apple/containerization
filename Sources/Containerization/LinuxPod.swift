@@ -518,6 +518,7 @@ extension LinuxPod {
                         for socket in config.sockets where socket.direction == .into {
                             try await self.relayUnixSocket(
                                 socket: socket,
+                                containerID: id,
                                 relayManager: createdState.relayManager,
                                 agent: agent
                             )
@@ -775,6 +776,7 @@ extension LinuxPod {
                         for socket in container.config.sockets where socket.direction == .into {
                             try await self.relayUnixSocket(
                                 socket: socket,
+                                containerID: container.id,
                                 relayManager: relayManager,
                                 agent: agent
                             )
@@ -859,6 +861,9 @@ extension LinuxPod {
             }
 
             let agent = try await createdState.vm.dialAgent()
+            var process: LinuxProcess?
+            var processStarted = false
+            var startedRelays: [UnixSocketConfiguration] = []
             do {
                 var spec = self.generateRuntimeSpec(containerID: containerID, config: container.config, rootfs: container.rootfs)
                 // We don't need the rootfs, nor do OCI runtimes want it included.
@@ -957,7 +962,7 @@ extension LinuxPod {
                     stderr: container.config.process.stderr
                 )
 
-                let process = LinuxProcess(
+                let newProcess = LinuxProcess(
                     containerID,
                     containerID: containerID,
                     spec: spec,
@@ -968,31 +973,68 @@ extension LinuxPod {
                     vm: createdState.vm,
                     logger: self.logger
                 )
-                try await process.start()
+                process = newProcess
+                try await newProcess.start()
+                processStarted = true
 
                 for socket in container.config.sockets where socket.direction == .outOf {
                     try await self.relayUnixSocket(
                         socket: socket,
+                        containerID: containerID,
                         relayManager: createdState.relayManager,
                         agent: agent,
-                        containerPID: process.pid
+                        containerPID: newProcess.pid
                     )
+                    startedRelays.append(socket)
                 }
 
-                container.process = process
+                container.process = newProcess
                 container.state = .started
                 state.containers[containerID] = container
             } catch {
-                if let container = state.containers[containerID] {
-                    for socket in container.config.sockets where socket.direction == .outOf {
-                        try? await createdState.relayManager.stop(socket: socket)
-                        if let relayAgent = agent as? SocketRelayAgent {
-                            try? await relayAgent.stopSocketRelay(configuration: socket)
+                let startError = error
+                var rollbackError: Error?
+                for socket in startedRelays {
+                    do {
+                        try await createdState.relayManager.stop(socket: socket, owner: containerID)
+                    } catch {
+                        rollbackError = rollbackError ?? error
+                    }
+                    if let relayAgent = agent as? SocketRelayAgent {
+                        do {
+                            try await relayAgent.stopSocketRelay(configuration: socket)
+                        } catch {
+                            rollbackError = rollbackError ?? error
                         }
                     }
                 }
+                if let process {
+                    if processStarted {
+                        do {
+                            try await process.kill(.kill)
+                            _ = try await process.wait(timeoutInSeconds: 3)
+                        } catch {
+                            rollbackError = rollbackError ?? error
+                        }
+                    }
+                    do {
+                        try await process.delete()
+                    } catch {
+                        rollbackError = rollbackError ?? error
+                    }
+                }
                 try? await agent.close()
-                throw error
+                container.process = nil
+                container.state = .errored
+                state.containers[containerID] = container
+                if let rollbackError {
+                    throw ContainerizationError(
+                        .internalError,
+                        message: "failed to roll back container \(containerID) after start error: \(startError)",
+                        cause: rollbackError
+                    )
+                }
+                throw startError
             }
         }
     }
@@ -1016,6 +1058,18 @@ extension LinuxPod {
 
             // Handle containers that were hotplugged but never started
             if container.state == .created {
+                if createdState.vm.state == .stopped {
+                    try? await createdState.relayManager.stopAll(owner: containerID)
+                } else {
+                    try await createdState.vm.withAgent { agent in
+                        try await self.stopUnixSocketRelays(
+                            containerID: containerID,
+                            relayManager: createdState.relayManager,
+                            agent: agent
+                        )
+                    }
+                }
+
                 // Release the hotplug device and virtiofs shares
                 try? await createdState.vm.releaseHotplug(id: containerID)
                 try? await createdState.vm.releaseVirtioFS(id: containerID)
@@ -1032,17 +1086,36 @@ extension LinuxPod {
                 )
             }
 
-            do {
-                // Check if the vm is even still running
-                if createdState.vm.state == .stopped {
-                    container.state = .stopped
-                    state.containers[containerID] = container
-                    return
-                }
+            // Check if the vm is even still running
+            if createdState.vm.state == .stopped {
+                try? await createdState.relayManager.stopAll(owner: containerID)
+                container.process = nil
+                container.state = .stopped
+                state.containers[containerID] = container
+                return
+            }
 
+            var firstError: Error?
+            do {
+                try await createdState.vm.withAgent { agent in
+                    try await self.stopUnixSocketRelays(
+                        containerID: containerID,
+                        relayManager: createdState.relayManager,
+                        agent: agent
+                    )
+                }
+            } catch {
+                firstError = error
+            }
+
+            do {
                 try await process.kill(.kill)
                 try await process.wait(timeoutInSeconds: 3)
+            } catch {
+                firstError = firstError ?? error
+            }
 
+            do {
                 try await createdState.vm.withAgent { agent in
                     // Unmount the rootfs
                     try await agent.umount(
@@ -1050,27 +1123,37 @@ extension LinuxPod {
                         flags: 0
                     )
                 }
+            } catch {
+                firstError = firstError ?? error
+            }
 
-                // Release the hotplug device and virtiofs shares so they can be reused by new containers
+            // Release the hotplug device and virtiofs shares so they can be reused by new containers
+            do {
                 try await createdState.vm.releaseHotplug(id: containerID)
+            } catch {
+                firstError = firstError ?? error
+            }
+            do {
                 try await createdState.vm.releaseVirtioFS(id: containerID)
+            } catch {
+                firstError = firstError ?? error
+            }
 
-                // Clean up the process resources
+            // Clean up the process resources
+            do {
                 try await process.delete()
+            } catch {
+                firstError = firstError ?? error
+            }
 
-                container.process = nil
+            container.process = nil
+            if let firstError {
+                container.state = .errored
+                state.containers[containerID] = container
+                throw firstError
+            } else {
                 container.state = .stopped
                 state.containers[containerID] = container
-            } catch {
-                // Try to release the hotplug device and virtiofs shares even on error
-                try? await createdState.vm.releaseHotplug(id: containerID)
-                try? await createdState.vm.releaseVirtioFS(id: containerID)
-
-                container.state = .errored
-                container.process = nil
-                state.containers[containerID] = container
-
-                throw error
             }
         }
     }
@@ -1337,6 +1420,7 @@ extension LinuxPod {
             try await createdState.vm.withAgent { agent in
                 try await self.relayUnixSocket(
                     socket: socket,
+                    containerID: containerID,
                     relayManager: createdState.relayManager,
                     agent: agent,
                     containerPID: container.process?.pid
@@ -1347,6 +1431,7 @@ extension LinuxPod {
 
     private func relayUnixSocket(
         socket: UnixSocketConfiguration,
+        containerID: String,
         relayManager: UnixSocketRelayManager,
         agent: any VirtualMachineAgent,
         containerPID: Int32? = nil
@@ -1376,7 +1461,7 @@ extension LinuxPod {
             port = self.guestVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
         }
 
-        try await relayManager.start(port: port, socket: socket)
+        try await relayManager.start(port: port, socket: socket, owner: containerID)
         do {
             try await relayAgent.relaySocket(
                 port: port,
@@ -1384,8 +1469,42 @@ extension LinuxPod {
                 containerPID: containerPID
             )
         } catch {
-            try? await relayManager.stop(socket: socket)
+            try? await relayManager.stop(socket: socket, owner: containerID)
             throw error
+        }
+    }
+
+    private func stopUnixSocketRelays(
+        containerID: String,
+        relayManager: UnixSocketRelayManager,
+        agent: any VirtualMachineAgent
+    ) async throws {
+        guard let relayAgent = agent as? SocketRelayAgent else {
+            throw ContainerizationError(
+                .unsupported,
+                message: "VirtualMachineAgent does not support relaySocket surface"
+            )
+        }
+
+        let sockets = await relayManager.sockets(owner: containerID)
+        var firstError: Error?
+
+        do {
+            try await relayManager.stopAll(owner: containerID)
+        } catch {
+            firstError = error
+        }
+
+        for socket in sockets {
+            do {
+                try await relayAgent.stopSocketRelay(configuration: socket)
+            } catch {
+                firstError = firstError ?? error
+            }
+        }
+
+        if let firstError {
+            throw firstError
         }
     }
 }
