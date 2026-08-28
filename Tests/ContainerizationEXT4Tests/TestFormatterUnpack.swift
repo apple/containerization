@@ -452,6 +452,134 @@ struct UnpackProgressTest {
         #expect(try reader.stat("/var/lib/data/file.txt").inode.mode.isReg())
         #expect(try reader.readFile(at: "/var/lib/data/file.txt") == payload)
     }
+
+    @Test func unpackRejectsPathTraversalInEntryPath() async throws {
+        let tempDir = FileManager.default.uniqueTemporaryDirectory()
+        let archivePath = tempDir.appendingPathComponent("traversal.tar.gz", isDirectory: false)
+        let fsPath = FilePath(tempDir.appendingPathComponent("traversal.ext4.img", isDirectory: false))
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let archiver = try ArchiveWriter(
+            configuration: ArchiveWriterConfiguration(format: .paxRestricted, filter: .gzip))
+        try archiver.open(file: archivePath)
+        try archiver.writeEntry(
+            entry: WriteEntry.file(path: "../../etc/passwd", permissions: 0o644), data: nil)
+        try archiver.finishEncoding()
+
+        let formatter = try EXT4.Formatter(fsPath)
+        await #expect(throws: UnpackError.self) {
+            try await formatter.unpack(source: archivePath)
+        }
+    }
+
+    @Test func unpackRejectsPathTraversalInHardlinkTarget() async throws {
+        let tempDir = FileManager.default.uniqueTemporaryDirectory()
+        let archivePath = tempDir.appendingPathComponent("traversal-hardlink.tar.gz", isDirectory: false)
+        let fsPath = FilePath(tempDir.appendingPathComponent("traversal-hardlink.ext4.img", isDirectory: false))
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let archiver = try ArchiveWriter(
+            configuration: ArchiveWriterConfiguration(format: .paxRestricted, filter: .gzip))
+        try archiver.open(file: archivePath)
+        try archiver.writeEntry(
+            entry: WriteEntry.hardlink(path: "/bin/app", target: "../../etc/shadow"), data: nil)
+        try archiver.finishEncoding()
+
+        let formatter = try EXT4.Formatter(fsPath)
+        await #expect(throws: UnpackError.self) {
+            try await formatter.unpack(source: archivePath)
+        }
+    }
+
+    @Test func unpackToleratesLeadingDotSlashAndTrailingSlash() async throws {
+        let tempDir = FileManager.default.uniqueTemporaryDirectory()
+        let archivePath = tempDir.appendingPathComponent("stylistic.tar.gz", isDirectory: false)
+        let fsPath = FilePath(tempDir.appendingPathComponent("stylistic.ext4.img", isDirectory: false))
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let archiver = try ArchiveWriter(
+            configuration: ArchiveWriterConfiguration(format: .paxRestricted, filter: .gzip))
+        try archiver.open(file: archivePath)
+        try archiver.writeEntry(entry: WriteEntry.dir(path: "./etc/", permissions: 0o755), data: nil)
+        try archiver.writeEntry(
+            entry: WriteEntry.file(path: "./etc/hosts", permissions: 0o644), data: nil)
+        try archiver.finishEncoding()
+
+        let formatter = try EXT4.Formatter(fsPath)
+        try await formatter.unpack(source: archivePath)  // must not throw
+        try formatter.close()
+
+        let reader = try EXT4.EXT4Reader(blockDevice: fsPath)
+        #expect(try reader.stat("/etc").inode.mode.isDir())
+        #expect(try reader.stat("/etc/hosts").inode.mode.isReg())
+    }
+
+    @Test func unpackResolvesHarmlessInternalDotDot() async throws {
+        // "foo/../bar" never actually leaves the image root once resolved; it should
+        // land at "/bar", not be rejected outright.
+        let tempDir = FileManager.default.uniqueTemporaryDirectory()
+        let archivePath = tempDir.appendingPathComponent("internal-dotdot.tar.gz", isDirectory: false)
+        let fsPath = FilePath(tempDir.appendingPathComponent("internal-dotdot.ext4.img", isDirectory: false))
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let archiver = try ArchiveWriter(
+            configuration: ArchiveWriterConfiguration(format: .paxRestricted, filter: .gzip))
+        try archiver.open(file: archivePath)
+        try archiver.writeEntry(
+            entry: WriteEntry.file(path: "foo/../bar/baz", permissions: 0o644), data: nil)
+        try archiver.finishEncoding()
+
+        let formatter = try EXT4.Formatter(fsPath)
+        try await formatter.unpack(source: archivePath)  // must not throw
+        try formatter.close()
+
+        let reader = try EXT4.EXT4Reader(blockDevice: fsPath)
+        #expect(try reader.stat("/bar/baz").inode.mode.isReg())
+        #expect(throws: (any Error).self) {
+            try reader.stat("/foo")
+        }
+    }
+
+    @Test func unpackRejectsDotDotEscapingBeyondPrefix() async throws {
+        // "foo/../../etc/passwd" only has one real component to cancel against, so
+        // the second ".." is a genuine attempt to escape above the image root.
+        let tempDir = FileManager.default.uniqueTemporaryDirectory()
+        let archivePath = tempDir.appendingPathComponent("escape-beyond-prefix.tar.gz", isDirectory: false)
+        let fsPath = FilePath(tempDir.appendingPathComponent("escape-beyond-prefix.ext4.img", isDirectory: false))
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let archiver = try ArchiveWriter(
+            configuration: ArchiveWriterConfiguration(format: .paxRestricted, filter: .gzip))
+        try archiver.open(file: archivePath)
+        try archiver.writeEntry(
+            entry: WriteEntry.file(path: "foo/../../etc/passwd", permissions: 0o644), data: nil)
+        try archiver.finishEncoding()
+
+        let formatter = try EXT4.Formatter(fsPath)
+        await #expect(throws: UnpackError.self) {
+            try await formatter.unpack(source: archivePath)
+        }
+    }
+
+    @Test func unpackRejectsAlreadyAbsoluteTraversal() async throws {
+        // A leading "/" must not let lexical normalization silently clamp the escape away.
+        let tempDir = FileManager.default.uniqueTemporaryDirectory()
+        let archivePath = tempDir.appendingPathComponent("absolute-traversal.tar.gz", isDirectory: false)
+        let fsPath = FilePath(tempDir.appendingPathComponent("absolute-traversal.ext4.img", isDirectory: false))
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let archiver = try ArchiveWriter(
+            configuration: ArchiveWriterConfiguration(format: .paxRestricted, filter: .gzip))
+        try archiver.open(file: archivePath)
+        try archiver.writeEntry(
+            entry: WriteEntry.file(path: "/../../etc/passwd", permissions: 0o644), data: nil)
+        try archiver.finishEncoding()
+
+        let formatter = try EXT4.Formatter(fsPath)
+        await #expect(throws: UnpackError.self) {
+            try await formatter.unpack(source: archivePath)
+        }
+    }
 }
 
 extension ContainerizationArchive.WriteEntry {
