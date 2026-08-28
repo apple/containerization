@@ -284,7 +284,7 @@ extension IntegrationSuite {
 
                         var hasher = SHA256()
                         hasher.update(data: buffer.data)
-                        let hash = hasher.finalize().digestString.trimmingDigestPrefix
+                        let hash = hasher.finalize().encoded
                         guard hash == expected else {
                             throw IntegrationError.assert(
                                 msg: "process \(idx) output \(hash) != expected \(expected)")

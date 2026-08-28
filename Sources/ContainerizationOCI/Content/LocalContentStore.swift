@@ -56,9 +56,11 @@ public actor LocalContentStore: ContentStore {
     ///
     /// - Parameters:
     ///   - digest: The string digest of the content.
+    /// - Throws: `.invalidArgument` if `digest` is not a well formed digest. A
+    ///   malformed digest is a different outcome from a miss, so it must not be
+    ///   reported as `nil`.
     public func get(digest: String) throws -> Content? {
-        let d = digest.trimmingDigestPrefix
-        let path = self._blobPath.appendingPathComponent(d)
+        let path = try ParsedDigest(parsingPathComponent: digest).path(in: self._blobPath)
         do {
             return try LocalContent(path: path)
         } catch let err as ContainerizationError {
@@ -90,30 +92,46 @@ public actor LocalContentStore: ContentStore {
     public func delete(keeping: [String]) async throws -> ([String], UInt64) {
         let fileManager = FileManager.default
         let all = try fileManager.contentsOfDirectory(at: self._blobPath, includingPropertiesForKeys: nil)
-        let allDigests = Set(all.map { $0.lastPathComponent })
-        let toDelete = allDigests.subtracting(keeping)
-        return try await self.delete(digests: Array(toDelete))
+        // Blobs are named by their hex encoding, so accept either spelling in the
+        // keep set. Comparing an unnormalized `sha256:<hex>` against the on-disk
+        // `<hex>` would treat a referenced blob as orphaned and delete it. Names
+        // that are not digests are kept verbatim: an entry may legitimately name a
+        // non-digest file the caller wants to retain.
+        let keep = Set(keeping.map { (try? ParsedDigest(parsingPathComponent: $0).encoded) ?? $0 })
+        let toDelete = all.filter { !keep.contains($0.lastPathComponent) }
+        // These paths come from a directory listing, so they are single components
+        // by construction, and they may legitimately not be digests: an
+        // interrupted ingest can leave a UUID named file behind that still needs
+        // reclaiming.
+        return try await self.deleteFiles(at: toDelete)
     }
 
     /// Delete a specific set of content.
     ///
     /// - Parameters:
     ///   - digests: Array of strings denoting the digests of the content to delete.
+    /// - Throws: `.invalidArgument` if any entry is not a well formed digest.
     @discardableResult
     public func delete(digests: [String]) async throws -> ([String], UInt64) {
+        let paths = try digests.map {
+            try ParsedDigest(parsingPathComponent: $0).path(in: self._blobPath)
+        }
+        return try await self.deleteFiles(at: paths)
+    }
+
+    private func deleteFiles(at paths: [URL]) async throws -> ([String], UInt64) {
         let store = AsyncStore<([String], UInt64)>()
         try await self._lock.withLock { context in
             let fileManager = FileManager.default
             var deleted: [String] = []
             var deletedBytes: UInt64 = 0
-            for toDelete in digests {
-                let p = self._blobPath.appendingPathComponent(toDelete)
-                guard let content = try? LocalContent(path: p) else {
+            for path in paths {
+                guard let content = try? LocalContent(path: path) else {
                     continue
                 }
                 deletedBytes += try content.size()
-                try fileManager.removeItem(at: p)
-                deleted.append(toDelete)
+                try fileManager.removeItem(at: path)
+                deleted.append(path.lastPathComponent)
             }
             await store.set((deleted, deletedBytes))
         }
@@ -168,6 +186,10 @@ public actor LocalContentStore: ContentStore {
             let fileManager = FileManager.default
             do {
                 try tempDigests.forEach {
+                    let values = try $0.resourceValues(forKeys: [.isSymbolicLinkKey])
+                    guard values.isSymbolicLink != true else {
+                        throw ContainerizationError(.invalidArgument, message: "refusing to ingest symlink at \($0.path)")
+                    }
                     let digest = $0.lastPathComponent
                     let target = self._blobPath.appendingPathComponent(digest)
                     // only ingest if not exists

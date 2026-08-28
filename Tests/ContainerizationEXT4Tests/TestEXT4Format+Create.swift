@@ -77,4 +77,33 @@ struct Ext4FormatCreateTests {
             try formatter.create(path: FilePath("/parent/file"), mode: EXT4.Inode.Mode(.S_IFREG, 0o755), buf: nil)
         }  // should create /parent automatically
     }
+
+    @Test func nameExceedingMaxLengthRejected() throws {
+        let fsPath = FilePath(
+            FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: false))
+        defer { try? FileManager.default.removeItem(at: fsPath.url) }
+
+        let formatter = try EXT4.Formatter(fsPath, minDiskSize: 32.kib())
+        defer { try? formatter.close() }
+        let tooLongName = String(repeating: "a", count: Int(UInt8.max) + 1)  // 256 bytes
+        try formatter.create(path: FilePath("/\(tooLongName)"), mode: EXT4.Inode.Mode(.S_IFREG, 0o755), buf: nil)
+        #expect(throws: EXT4.Formatter.Error.invalidName("\(tooLongName)")) {
+            try formatter.close()
+        }
+    }
+
+    @Test func nameAtMaxLengthAccepted() throws {
+        let fsPath = FilePath(
+            FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: false))
+        defer { try? FileManager.default.removeItem(at: fsPath.url) }
+
+        let formatter = try EXT4.Formatter(fsPath, minDiskSize: 32.kib())
+        let maxLengthName = String(repeating: "a", count: Int(UInt8.max))  // 255 bytes
+        try formatter.create(path: FilePath("/\(maxLengthName)"), mode: EXT4.Inode.Mode(.S_IFREG, 0o755), buf: nil)
+        #expect(throws: Never.self) {
+            try formatter.close()
+        }
+    }
 }

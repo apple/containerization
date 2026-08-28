@@ -79,6 +79,42 @@ struct TestEXT4ExtendedAttribute {
         #expect(attrs.isEmpty)
     }
 
+    @Test func writeThrowsWhenXattrNameExceedsSingleByte() {
+        let longName = String(repeating: "a", count: Int(UInt8.max) + 1)
+        let blockSize = 4096
+        var state = EXT4.FileXattrsState(
+            inode: 1, inodeXattrCapacity: EXT4.InodeExtraSize, blockCapacity: UInt32(blockSize))
+        // A 256-byte name does not fit in the 96-byte inline area, so it lands in the block list.
+        try! state.add(EXT4.ExtendedAttribute(name: longName, value: [1, 2, 3]))
+        var blockAttrBuffer: [UInt8] = .init(repeating: 0, count: blockSize)
+        #expect(throws: EXT4.FileXattrsState.Error.self) {
+            try state.writeBlockAttributes(buffer: &blockAttrBuffer)
+        }
+    }
+
+    @Test func writeAcceptsXattrNameAtByteLimit() {
+        let maxName = String(repeating: "a", count: Int(UInt8.max))
+        let blockSize = 4096
+        var state = EXT4.FileXattrsState(
+            inode: 1, inodeXattrCapacity: EXT4.InodeExtraSize, blockCapacity: UInt32(blockSize))
+        try! state.add(EXT4.ExtendedAttribute(name: maxName, value: [1, 2, 3]))
+        var blockAttrBuffer: [UInt8] = .init(repeating: 0, count: blockSize)
+        #expect(throws: Never.self) {
+            try state.writeBlockAttributes(buffer: &blockAttrBuffer)
+        }
+    }
+
+    @Test func writeThrowsWhenXattrNameIsEmpty() {
+        var state = EXT4.FileXattrsState(
+            inode: 1, inodeXattrCapacity: EXT4.InodeExtraSize, blockCapacity: 4096)
+        // A short empty-name attribute fits the inline area, so it lands in the inline list.
+        try! state.add(EXT4.ExtendedAttribute(name: "", value: [1, 2, 3]))
+        var inlineAttrBuffer: [UInt8] = .init(repeating: 0, count: Int(EXT4.InodeExtraSize))
+        #expect(throws: EXT4.FileXattrsState.Error.self) {
+            try state.writeInlineAttributes(buffer: &inlineAttrBuffer)
+        }
+    }
+
     @Test func encodeDecodeAttributes() {
         let xattrs: [String: Data] = [
             "foo.bar": Data([1, 2, 3]),
