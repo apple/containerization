@@ -15,7 +15,7 @@
 //===----------------------------------------------------------------------===//
 
 import ContainerizationError
-import Crypto
+@preconcurrency import Crypto
 import Foundation
 import Testing
 

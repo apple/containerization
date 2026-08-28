@@ -16,7 +16,7 @@
 
 import ContainerizationExtras
 import ContainerizationOCI
-import Crypto
+@preconcurrency import Crypto
 import Foundation
 import NIO
 import Testing

@@ -17,7 +17,7 @@
 import ContainerizationError
 import ContainerizationExtras
 import ContainerizationOCI
-import Crypto
+@preconcurrency import Crypto
 import Foundation
 import Testing
 
