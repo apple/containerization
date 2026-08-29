@@ -32,8 +32,9 @@ struct ArpHardware {
     static let ARPHRD_ETHER: UInt16 = 1
 }
 
-struct NetlinkProtocol {
-    static let NETLINK_ROUTE: Int32 = 0
+public struct NetlinkProtocol {
+    public static let NETLINK_ROUTE: Int32 = 0
+    public static let NETLINK_NETFILTER: Int32 = 12
 }
 
 struct NetlinkType {
@@ -67,6 +68,10 @@ struct NetlinkFlags {
     static let NLM_F_EXCL: UInt16 = 0x200
     static let NLM_F_CREATE: UInt16 = 0x400
     static let NLM_F_APPEND: UInt16 = 0x800
+}
+
+struct NetlinkAttributeFlags {
+    static let NLA_F_NESTED: UInt16 = 0x8000
 }
 
 struct NetlinkScope {
@@ -541,25 +546,22 @@ struct RouteInfo: Bindable, Equatable {
     }
 }
 
-/// A route information.
-public struct RTAttribute: Bindable, Equatable {
-    package static let size = 4
+package protocol NetlinkAttribute: Bindable {
+    var len: UInt16 { get set }
+    var type: UInt16 { get set }
+}
 
-    public var len: UInt16
-    public var type: UInt16
-    public var paddedLen: Int { Int(((len + 3) >> 2) << 2) }
+extension NetlinkAttribute {
+    package static var size: Int { 4 }
 
-    init(len: UInt16 = 0, type: UInt16 = 0) {
-        self.len = len
-        self.type = type
-    }
+    package var paddedLen: Int { Int(((len + 3) >> 2) << 2) }
 
     package func appendBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
         guard let offset = buffer.copyIn(as: UInt16.self, value: len, offset: offset) else {
-            throw BindError.sendMarshalFailure(type: "RTAttribute", field: "len")
+            throw BindError.sendMarshalFailure(type: String(describing: Self.self), field: "len")
         }
         guard let offset = buffer.copyIn(as: UInt16.self, value: type, offset: offset) else {
-            throw BindError.sendMarshalFailure(type: "RTAttribute", field: "type")
+            throw BindError.sendMarshalFailure(type: String(describing: Self.self), field: "type")
         }
 
         return offset
@@ -567,16 +569,27 @@ public struct RTAttribute: Bindable, Equatable {
 
     package mutating func bindBuffer(_ buffer: inout [UInt8], offset: Int) throws -> Int {
         guard let (offset, value) = buffer.copyOut(as: UInt16.self, offset: offset) else {
-            throw BindError.recvMarshalFailure(type: "RTAttribute", field: "len")
+            throw BindError.recvMarshalFailure(type: String(describing: Self.self), field: "len")
         }
         len = value
 
         guard let (offset, value) = buffer.copyOut(as: UInt16.self, offset: offset) else {
-            throw BindError.recvMarshalFailure(type: "RTAttribute", field: "type")
+            throw BindError.recvMarshalFailure(type: String(describing: Self.self), field: "type")
         }
         type = value
 
         return offset
+    }
+}
+
+/// A route information.
+public struct RTAttribute: NetlinkAttribute, Equatable {
+    public var len: UInt16
+    public var type: UInt16
+
+    init(len: UInt16 = 0, type: UInt16 = 0) {
+        self.len = len
+        self.type = type
     }
 }
 
