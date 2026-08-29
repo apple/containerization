@@ -364,6 +364,12 @@ message ConfigureDnsRequest {
   optional string domain = 3;
   repeated string searchDomains = 4;
   repeated string options = 5;
+  repeated DnsRedirectTarget redirectTargets = 6;
+}
+
+message DnsRedirectTarget {
+  string ip = 1;
+  uint32 port = 2;
 }
 
 message ConfigureDnsResponse {}

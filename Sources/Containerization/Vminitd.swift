@@ -468,6 +468,12 @@ extension Vminitd {
             .with {
                 $0.location = location
                 $0.nameservers = config.nameservers
+                $0.redirectTargets = config.redirectTargets.map { entry in
+                    .with {
+                        $0.ip = entry.ip
+                        $0.port = UInt32(entry.port)
+                    }
+                }
                 if let domain = config.domain {
                     $0.domain = domain
                 }

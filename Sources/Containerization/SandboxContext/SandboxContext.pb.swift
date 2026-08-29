@@ -1376,11 +1376,27 @@ public nonisolated struct Com_Apple_Containerization_Sandbox_V3_ConfigureDnsRequ
 
   public var options: [String] = []
 
+  public var redirectTargets: [Com_Apple_Containerization_Sandbox_V3_DnsRedirectTarget] = []
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
   fileprivate var _domain: String? = nil
+}
+
+public nonisolated struct Com_Apple_Containerization_Sandbox_V3_DnsRedirectTarget: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var ip: String = String()
+
+  public var port: UInt32 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
 }
 
 public nonisolated struct Com_Apple_Containerization_Sandbox_V3_ConfigureDnsResponse: Sendable {
@@ -3866,7 +3882,7 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_IpRouteAddDefaultRes
 
 nonisolated extension Com_Apple_Containerization_Sandbox_V3_ConfigureDnsRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ConfigureDnsRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}location\0\u{1}nameservers\0\u{1}domain\0\u{1}searchDomains\0\u{1}options\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}location\0\u{1}nameservers\0\u{1}domain\0\u{1}searchDomains\0\u{1}options\0\u{1}redirectTargets\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3879,6 +3895,7 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_ConfigureDnsRequest:
       case 3: try { try decoder.decodeSingularStringField(value: &self._domain) }()
       case 4: try { try decoder.decodeRepeatedStringField(value: &self.searchDomains) }()
       case 5: try { try decoder.decodeRepeatedStringField(value: &self.options) }()
+      case 6: try { try decoder.decodeRepeatedMessageField(value: &self.redirectTargets) }()
       default: break
       }
     }
@@ -3904,6 +3921,9 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_ConfigureDnsRequest:
     if !self.options.isEmpty {
       try visitor.visitRepeatedStringField(value: self.options, fieldNumber: 5)
     }
+    if !self.redirectTargets.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.redirectTargets, fieldNumber: 6)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -3913,6 +3933,42 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_ConfigureDnsRequest:
     if lhs._domain != rhs._domain {return false}
     if lhs.searchDomains != rhs.searchDomains {return false}
     if lhs.options != rhs.options {return false}
+    if lhs.redirectTargets != rhs.redirectTargets {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Com_Apple_Containerization_Sandbox_V3_DnsRedirectTarget: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".DnsRedirectTarget"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}ip\0\u{1}port\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.ip) }()
+      case 2: try { try decoder.decodeSingularUInt32Field(value: &self.port) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.ip.isEmpty {
+      try visitor.visitSingularStringField(value: self.ip, fieldNumber: 1)
+    }
+    if self.port != 0 {
+      try visitor.visitSingularUInt32Field(value: self.port, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_DnsRedirectTarget, rhs: Com_Apple_Containerization_Sandbox_V3_DnsRedirectTarget) -> Bool {
+    if lhs.ip != rhs.ip {return false}
+    if lhs.port != rhs.port {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
