@@ -16,6 +16,9 @@
 
 SWIFT = /usr/bin/swift
 
+UNAME_M := $(shell uname -m)
+KERNEL_ARCH := $(if $(filter $(UNAME_M),aarch64 arm64),arm64,$(UNAME_M))
+
 .PHONY: all build clean run
 
 all: run
@@ -41,4 +44,4 @@ fmt:
 	$(SWIFT) format --in-place --recursive Sources/
 fetch-default-kernel:
 	$(MAKE) -C ../.. fetch-default-kernel
-	cp -L ../../.local/vmlinux ./vmlinux
+	cp -L ../../.local/vmlinux-$(KERNEL_ARCH) ./vmlinux-$(KERNEL_ARCH)

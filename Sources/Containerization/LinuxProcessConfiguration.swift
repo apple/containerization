@@ -376,8 +376,12 @@ public struct LinuxProcessConfiguration: Sendable {
     /// process and its children cannot gain additional privileges via setuid/setgid binaries
     /// or file capabilities.
     public var noNewPrivileges: Bool = false
-    /// The Linux capabilities for the container process.
-    public var capabilities: LinuxCapabilities = .allCapabilities
+    /// The Linux capabilities for the container process. Defaults to
+    /// ``LinuxCapabilities/defaultOCICapabilities`` — the restricted baseline used by
+    /// runc/containerd, which excludes privileged capabilities such as `CAP_SYS_ADMIN`.
+    /// Callers that require additional capabilities (for example, privileged containers)
+    /// must opt in explicitly, e.g. by setting ``LinuxCapabilities/allCapabilities``.
+    public var capabilities: LinuxCapabilities = .defaultOCICapabilities
     /// Whether to allocate a pseudo terminal for the process. If you'd like interactive
     /// behavior and are planning to use a terminal for stdin/out/err on the client side,
     /// this should likely be set to true.
@@ -398,7 +402,7 @@ public struct LinuxProcessConfiguration: Sendable {
         user: ContainerizationOCI.User = .init(),
         rlimits: [LinuxRLimit] = [],
         noNewPrivileges: Bool = false,
-        capabilities: LinuxCapabilities = .allCapabilities,
+        capabilities: LinuxCapabilities = .defaultOCICapabilities,
         terminal: Bool = false,
         stdin: ReaderStream? = nil,
         stdout: Writer? = nil,

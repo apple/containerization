@@ -43,6 +43,7 @@ actor VsockProxy {
 
     private var listener: Socket?
     private var task: Task<(), Never>?
+    private var connectionTasks: [UUID: Task<(), Never>] = [:]
 
     init(
         id: String,
@@ -97,6 +98,9 @@ extension VsockProxy {
             ])
 
         try listener.close()
+
+        for (_, t) in connectionTasks { t.cancel() }
+        connectionTasks.removeAll()
 
         if action == .dial {
             let fm = FileManager.default
@@ -153,7 +157,9 @@ extension VsockProxy {
         let task = Task {
             do {
                 for try await conn in stream {
-                    Task {
+                    let connID = UUID()
+                    let connTask = Task {
+                        defer { self.connectionTasks[connID] = nil }
                         log?.debug(
                             "accepting connection",
                             metadata: [
@@ -171,6 +177,8 @@ extension VsockProxy {
                             self.log?.error("failed to handle connection: \(error)")
                         }
                     }
+                    // Safe: actor serialization ensures this runs before connTask can execute its defer.
+                    connectionTasks[connID] = connTask
                 }
             } catch {
                 self.log?.error("failed to accept connection: \(error)")

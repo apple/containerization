@@ -23,9 +23,13 @@ import Synchronization
 
 public struct LogLevelOption: ParsableArguments {
     @Option(name: .long, help: "Set the log level (trace, debug, info, notice, warning, error, critical)")
-    var logLevel: String = "info"
+    public var logLevel: String = "info"
 
     public init() {}
+
+    public init(logLevel: String) {
+        self.logLevel = logLevel
+    }
 
     public func resolvedLogLevel() -> Logger.Level {
         switch logLevel.lowercased() {
@@ -83,15 +87,12 @@ private struct StderrLogHandler: LogHandler {
         set { metadata[key] = newValue }
     }
 
-    func log(
-        level: Logger.Level, message: Logger.Message, metadata: Logger.Metadata?,
-        source: String, file: String, function: String, line: UInt
-    ) {
+    func log(event: LogEvent) {
         var merged = self.metadata
-        metadata?.forEach { merged[$0] = $1 }
+        event.metadata?.forEach { merged[$0] = $1 }
         let metaStr = merged.isEmpty ? "" : " \(merged.map { "\($0): \($1)" }.sorted().joined(separator: ", "))"
         let ts = isoTimestamp()
-        let data = "\(ts) \(level) \(label):\(metaStr) \(message)\n".data(using: .utf8) ?? Data()
+        let data = "\(ts) \(event.level) \(label):\(metaStr) \(event.message)\n".data(using: .utf8) ?? Data()
         FileHandle.standardError.write(data)
     }
 

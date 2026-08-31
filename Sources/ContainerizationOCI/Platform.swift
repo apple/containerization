@@ -47,13 +47,25 @@ public struct Platform: Sendable, Equatable {
         return .init(arch: normalized.arch, os: "linux", variant: normalized.variant)
     }
 
-    /// The computed description, for example, `linux/arm64/v8`.
+    /// The computed description, for example, `linux/amd64` or `linux/arm/v7`.
+    ///
+    /// `arm64`'s only defined variant is `v8`, which `==` and `hash` already treat as
+    /// equivalent to a `nil` variant. The redundant `v8` is therefore omitted so that
+    /// two equal arm64 platforms (one with `variant == nil`, one with `"v8"`) describe
+    /// identically as `linux/arm64`, rather than drifting between `arm64` and
+    /// `arm64/v8`.
     public var description: String {
         let architecture = architecture
-        if let variant = variant {
+        if let variant, !Self.isRedundantVariant(variant, for: architecture) {
             return "\(os)/\(architecture)/\(variant)"
         }
         return "\(os)/\(architecture)"
+    }
+
+    /// Whether `variant` is the canonical default for `architecture` and can be omitted
+    /// from the rendered description without losing information.
+    private static func isRedundantVariant(_ variant: String, for architecture: String) -> Bool {
+        architecture == "arm64" && variant == "v8"
     }
 
     /// The CPU architecture, for example, `amd64` or `arm64`.
@@ -250,29 +262,33 @@ extension Platform: Hashable {
 
     /// `==` compares if **lhs** and **rhs** are the exact same platforms.
     public static func == (lhs: Platform, rhs: Platform) -> Bool {
+        guard lhs.os == rhs.os else {
+            return false
+        }
+        guard lhs.architecture == rhs.architecture else {
+            return false
+        }
+
         //  NOTE:
         //  If the platform struct was created by setting the fields directly and not using (from: String)
         //  then, there is a possibility that for arm64 architecture, the variant may be set to nil
         //  In that case, the variant should be assumed to v8
-        if lhs.architecture == "arm64" && rhs.architecture == "arm64" {
-            // The following checks effectively verify
-            // that one operand has nil value and other has "v8"
-            if lhs.variant == nil || rhs.variant == nil {
-                if lhs.variant == "v8" || rhs.variant == "v8" {
-                    return true
-                }
-            }
+        if lhs.architecture == "arm64" {
+            return (lhs.variant ?? "v8") == (rhs.variant ?? "v8")
         }
 
-        let osEqual = lhs.os == rhs.os
-        let archEqual = lhs.architecture == rhs.architecture
-        let variantEqual = lhs.variant == rhs.variant
-
-        return osEqual && archEqual && variantEqual
+        return lhs.variant == rhs.variant
     }
 
     public func hash(into hasher: inout Swift.Hasher) {
-        hasher.combine(description)
+        hasher.combine(os)
+        hasher.combine(architecture)
+        // arm64 with no variant is equivalent to arm64/v8 per the == implementation
+        if architecture == "arm64" {
+            hasher.combine(variant ?? "v8")
+        } else {
+            hasher.combine(variant)
+        }
     }
 }
 

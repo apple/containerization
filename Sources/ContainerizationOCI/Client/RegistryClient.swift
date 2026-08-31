@@ -56,6 +56,9 @@ public final class RegistryClient: ContentClient {
     )
 
     let client: HTTPClient
+    /// Client used solely for the token exchange with an authorization server. Redirects are
+    /// disallowed so that a redirect cannot move a credential-bearing request to another host.
+    let tokenClient: HTTPClient
     let proxyURL: URL?
     let base: URLComponents
     let clientID: String
@@ -126,15 +129,23 @@ public final class RegistryClient: ContentClient {
             httpConfiguration.tlsConfiguration = tlsConfiguration
         }
 
-        if let logger {
-            self.client = HTTPClient(eventLoopGroupProvider: .singleton, configuration: httpConfiguration, backgroundActivityLogger: logger)
-        } else {
-            self.client = HTTPClient(eventLoopGroupProvider: .singleton, configuration: httpConfiguration)
+        func makeClient(_ configuration: HTTPClient.Configuration) -> HTTPClient {
+            guard let logger else {
+                return HTTPClient(eventLoopGroupProvider: .singleton, configuration: configuration)
+            }
+            return HTTPClient(eventLoopGroupProvider: .singleton, configuration: configuration, backgroundActivityLogger: logger)
         }
+
+        self.client = makeClient(httpConfiguration)
+
+        var tokenConfiguration = httpConfiguration
+        tokenConfiguration.redirectConfiguration = .disallow
+        self.tokenClient = makeClient(tokenConfiguration)
     }
 
     deinit {
         _ = client.shutdown()
+        _ = tokenClient.shutdown()
     }
 
     func host() -> String {
@@ -156,16 +167,7 @@ public final class RegistryClient: ContentClient {
         request.method = method
 
         var currentToken: TokenResponse?
-        let token: String? = try await {
-            if let basicAuth = authentication {
-                return try await basicAuth.token()
-            }
-            return nil
-        }()
-
-        if let token {
-            request.headers.add(name: "Authorization", value: "\(token)")
-        }
+        var attemptedBasicAuth = false
 
         // Add any arbitrary headers
         headers?.forEach { (k, v) in request.headers.add(name: k, value: v) }
@@ -176,11 +178,27 @@ public final class RegistryClient: ContentClient {
             do {
                 let _response = try await client.execute(request, deadline: .distantFuture)
                 response = _response
+                if base.scheme != "https", !_response.headers[TokenRequest.authenticateHeaderName].isEmpty {
+                    throw Error.insecureCredentialExchange(message: "registry \(host()) issued an authentication challenge over an insecure connection")
+                }
                 if _response.status == .unauthorized || _response.status == .forbidden {
                     let authHeader = _response.headers[TokenRequest.authenticateHeaderName]
+                    let challenges = Self.parseWWWAuthenticateHeaders(headers: authHeader)
+
+                    if !challenges.contains(where: { $0.type == "Bearer" }), challenges.contains(where: { $0.type == "Basic" }) {
+                        guard !attemptedBasicAuth, let basicAuth = authentication as? BasicAuthentication else {
+                            throw Error.invalidStatus(url: path, _response.status, reason: "access denied or wrong credentials")
+                        }
+                        attemptedBasicAuth = true
+                        request.headers.replaceOrAdd(name: "Authorization", value: try await basicAuth.token())
+                        continue
+                    }
+
                     let tokenRequest: TokenRequest
                     do {
                         tokenRequest = try self.createTokenRequest(parsing: authHeader)
+                    } catch let error as RegistryClient.Error {
+                        throw error
                     } catch {
                         // The server did not tell us how to authenticate our requests,
                         // Or we do not support scheme the server is requesting for.
@@ -210,11 +228,6 @@ public final class RegistryClient: ContentClient {
                         throw err
                     }
 
-                    continue
-                } else if _response.status == .badRequest && request.headers.contains(name: "Authorization") {
-                    // Retry without basic auth
-                    request.headers.remove(name: "Authorization")
-                    retryCount += 1
                     continue
                 }
                 guard let retryOptions = self.retryOptions else {

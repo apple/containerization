@@ -16,13 +16,13 @@
 
 import AsyncHTTPClient
 import ContainerizationError
+import ContainerizationExtras
 import Foundation
+import NIOHTTP1
 
 struct TokenRequest {
     public static let authenticateHeaderName = "WWW-Authenticate"
 
-    /// The credentials that will be used in the authentication header when fetching the token.
-    let authentication: Authentication?
     /// The realm against which the token should be requested.
     let realm: String
     /// The name of the service which hosts the resource.
@@ -39,15 +39,13 @@ struct TokenRequest {
         service: String,
         clientId: String,
         scope: String?,
-        offlineToken: Bool = false,
-        authentication: Authentication? = nil
+        offlineToken: Bool = false
     ) {
         self.realm = realm
         self.service = service
         self.offlineToken = offlineToken
         self.clientId = clientId
         self.scope = scope
-        self.authentication = authentication
     }
 }
 
@@ -139,6 +137,7 @@ extension RegistryClient {
         guard var components = URLComponents(string: request.realm) else {
             throw ContainerizationError(.invalidArgument, message: "cannot create URL from \(request.realm)")
         }
+        try validateRealm(components)
         components.queryItems = [
             URLQueryItem(name: "client_id", value: request.clientId),
             URLQueryItem(name: "service", value: request.service),
@@ -152,12 +151,75 @@ extension RegistryClient {
         if request.offlineToken {
             components.queryItems?.append(URLQueryItem(name: "offline_token", value: "true"))
         }
-        var response: TokenResponse = try await requestJSON(components: components, headers: [])
+        guard let url = components.url?.absoluteString else {
+            throw ContainerizationError(.invalidArgument, message: "invalid url \(components.path)")
+        }
+
+        var tokenHTTPRequest = HTTPClientRequest(url: url)
+        if let credentials = try await authentication?.token() {
+            tokenHTTPRequest.headers.add(name: "Authorization", value: credentials)
+        }
+        let httpResponse = try await tokenClient.execute(tokenHTTPRequest, deadline: .distantFuture)
+
+        guard !(300..<400).contains(httpResponse.status.code) else {
+            throw Error.insecureCredentialExchange(message: "authorization server \(request.realm) redirected the token request")
+        }
+        guard httpResponse.headers[TokenRequest.authenticateHeaderName].isEmpty else {
+            throw Error.insecureCredentialExchange(message: "authorization server \(request.realm) issued its own authentication challenge")
+        }
+        guard httpResponse.status == .ok else {
+            let reason = await ErrorResponse.fromResponseBody(httpResponse.body)?.jsonString
+            throw Error.invalidStatus(url: url, httpResponse.status, reason: reason)
+        }
+
+        let body = try await httpResponse.body.collect(upTo: self.bufferSize)
+        var response = try JSONDecoder().decode(TokenResponse.self, from: body)
         response.scope = scope
         return response
     }
 
+    /// Credentials and bearer tokens are only ever exchanged with an authorization server that
+    /// the registry itself demonstrably controls, over TLS.
+    internal func validateRealm(_ realm: URLComponents) throws {
+        guard let registryHost = base.host, let realmHost = realm.host else {
+            throw Error.insecureCredentialExchange(message: "cannot determine registry or authorization server host")
+        }
+        guard base.scheme == "https", realm.scheme == "https" else {
+            throw Error.insecureCredentialExchange(message: "token exchange between \(registryHost) and \(realmHost) requires https on both endpoints")
+        }
+
+        let registryDomain = Self.registrableDomain(registryHost)
+        let realmDomain = Self.registrableDomain(realmHost)
+        if registryDomain != nil || realmDomain != nil {
+            guard let registryDomain, let realmDomain, registryDomain == realmDomain else {
+                throw Error.insecureCredentialExchange(message: "authorization server \(realmHost) is not in the same registrable domain as registry \(registryHost)")
+            }
+            return
+        }
+
+        guard registryHost.lowercased() == realmHost.lowercased(), base.port ?? 443 == realm.port ?? 443 else {
+            throw Error.insecureCredentialExchange(message: "authorization server \(realmHost) does not match registry \(registryHost)")
+        }
+    }
+
+    /// The last two labels of a fully qualified host name, or `nil` if the host is unqualified or
+    /// an IP literal. No public suffix list is consulted, so hosts sharing a multi-label public
+    /// suffix (`foo.co.uk`, `bar.co.uk`) compare as related.
+    private static func registrableDomain(_ host: String) -> String? {
+        if host.contains(":") || (try? IPv4Address(host)) != nil {
+            return nil
+        }
+        let labels = host.lowercased().split(separator: ".", omittingEmptySubsequences: true)
+        guard labels.count >= 2 else {
+            return nil
+        }
+        return labels.suffix(2).joined(separator: ".")
+    }
+
     internal func createTokenRequest(parsing authenticateHeaders: [String]) throws -> TokenRequest {
+        guard base.scheme == "https" else {
+            throw Error.insecureCredentialExchange(message: "registry \(host()) requested authentication over an insecure connection")
+        }
         let parsedHeaders = Self.parseWWWAuthenticateHeaders(headers: authenticateHeaders)
         let bearerChallenge = parsedHeaders.first { $0.type == "Bearer" }
         guard let bearerChallenge else {
@@ -170,7 +232,7 @@ extension RegistryClient {
             throw ContainerizationError(.invalidArgument, message: "cannot parse service from \(TokenRequest.authenticateHeaderName) header")
         }
         let scope = bearerChallenge.scope
-        let tokenRequest = TokenRequest(realm: realm, service: service, clientId: self.clientID, scope: scope, authentication: self.authentication)
+        let tokenRequest = TokenRequest(realm: realm, service: service, clientId: self.clientID, scope: scope)
         return tokenRequest
     }
 

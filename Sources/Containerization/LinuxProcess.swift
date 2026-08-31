@@ -125,7 +125,9 @@ public final class LinuxProcess: Sendable {
 
 extension LinuxProcess {
     func setupIO(listeners: [VsockListener?]) async throws -> [FileHandle?] {
-        let handles = try await Timeout.run(seconds: 3) {
+        let ioTimeout: UInt32 = 30
+
+        let handles = try await Timeout.run(seconds: ioTimeout) {
             try await withThrowingTaskGroup(of: (Int, FileHandle?).self) { group in
                 var results = [FileHandle?](repeating: nil, count: 3)
 

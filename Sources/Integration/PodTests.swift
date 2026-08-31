@@ -16,11 +16,15 @@
 
 import ArgumentParser
 import Containerization
+import ContainerizationArchive
+import ContainerizationEXT4
 import ContainerizationError
+import ContainerizationExtras
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
 import Logging
+import SystemPackage
 
 extension IntegrationSuite {
     /// Clone a rootfs mount to a new location for use by a container in a pod
@@ -2087,4 +2091,285 @@ extension IntegrationSuite {
             }
         }
     }
+
+    #if os(macOS)
+    @available(macOS 26.0, *)
+    func testPodIPv6AddressAdd() async throws {
+        let id = "test-pod-ipv6-address"
+        let bs = try await bootstrap(id)
+
+        var network = try VmnetNetwork(prefixV6: try CIDRv6("fd00::/64"))
+        defer {
+            try? network.releaseInterface(id)
+        }
+
+        guard let interface = try network.createInterface(id) else {
+            throw IntegrationError.assert(msg: "failed to create network interface")
+        }
+
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+            config.interfaces = [interface]
+        }
+
+        try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
+            config.process.arguments = ["/bin/sleep", "100"]
+        }
+
+        try await pod.create()
+        try await pod.startContainer("container1")
+
+        let buffer = BufferWriter()
+        let exec = try await pod.execInContainer("container1", processID: "check-v6") { config in
+            config.arguments = ["ip", "-6", "addr", "show", "eth0"]
+            config.stdout = buffer
+        }
+
+        try await exec.start()
+        let status = try await exec.wait()
+        try await exec.delete()
+
+        try await pod.killContainer("container1", signal: .kill)
+        try await pod.waitContainer("container1")
+        try await pod.stop()
+
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "ip -6 addr show failed with status \(status)")
+        }
+
+        guard let output = String(data: buffer.data, encoding: .utf8) else {
+            throw IntegrationError.assert(msg: "failed to convert output to UTF8")
+        }
+
+        guard output.contains("fd00::2") else {
+            throw IntegrationError.assert(
+                msg: "expected fd00::2 on eth0 inside pod container, got: \(output)")
+        }
+    }
+    #endif
+
+    func testPodFilesystemOperation() async throws {
+        let id = "test-pod-filesystem-operation"
+
+        let bs = try await bootstrap(id)
+
+        let diskImageURL = Self.testDir.appending(component: "\(id)-data.ext4")
+        try? FileManager.default.removeItem(at: diskImageURL)
+        let filesystem = try EXT4.Formatter(FilePath(diskImageURL.absolutePath()), minDiskSize: 64.mib())
+        try filesystem.close()
+
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
+            config.process.arguments = ["/bin/sleep", "1000"]
+            config.mounts.append(
+                Mount.block(
+                    format: "ext4",
+                    source: diskImageURL.absolutePath(),
+                    destination: "/data"
+                ))
+        }
+
+        do {
+            try await pod.create()
+            try await pod.startContainer("container1")
+
+            try await pod.filesystemOperation("container1", operation: .freeze, path: "/data")
+
+            let writeExec = try await pod.execInContainer("container1", processID: "write-hello") { config in
+                config.arguments = ["/bin/sh", "-c", "echo hello > /data/hello.txt"]
+            }
+            try await writeExec.start()
+
+            do {
+                let status = try await writeExec.wait(timeoutInSeconds: 1)
+                throw IntegrationError.assert(msg: "write unexpectedly completed while filesystem was frozen with status \(status)")
+            } catch let error as ContainerizationError where error.code == .timeout {
+                // The write must remain blocked until the filesystem is thawed.
+            }
+
+            try await pod.filesystemOperation("container1", operation: .thaw, path: "/data")
+
+            let writeStatus = try await writeExec.wait()
+            try await writeExec.delete()
+            guard writeStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "write exec failed with status \(writeStatus)")
+            }
+            try await pod.filesystemOperation("container1", operation: .trim, path: "/data")
+
+            let readBuffer = BufferWriter()
+            let readExec = try await pod.execInContainer("container1", processID: "read-hello") { config in
+                config.arguments = ["/bin/cat", "/data/hello.txt"]
+                config.stdout = readBuffer
+            }
+            try await readExec.start()
+            let readStatus = try await readExec.wait()
+            try await readExec.delete()
+            guard readStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "read exec failed with status \(readStatus)")
+            }
+
+            let readOutput = String(decoding: readBuffer.data, as: UTF8.self)
+            guard readOutput == "hello\n" else {
+                throw IntegrationError.assert(
+                    msg: "expected 'hello\\n' in /data/hello.txt, got: '\(readOutput)'"
+                )
+            }
+
+            try await pod.killContainer("container1", signal: .kill)
+            _ = try await pod.waitContainer("container1")
+            try await pod.stop()
+        } catch {
+            try? await pod.filesystemOperation("container1", operation: .thaw, path: "/data")
+            try? await pod.stop()
+            throw error
+        }
+    }
+
+    #if os(Linux)
+    /// Unpack an image's layers into a host directory to use as a virtiofs
+    /// (directory-share) rootfs. Assumes a single-layer image (the alpine
+    /// image used by the suite) so no OCI whiteout processing is required.
+    ///
+    /// The extracted dir lives under `Self.testDir`; do NOT `defer`-remove it
+    /// here — virtiofsd shares it for the whole test. It is swept by
+    /// `bootstrap`'s `maxConcurrency == 1` reaper on the next test and by the
+    /// suite-end `removeItem(at: Self.testDir)`.
+    private func unpackRootfsDirectory(_ image: Containerization.Image, testID: String) async throws -> Containerization.Mount {
+        let dir = Self.testDir.appending(component: "\(testID)-rootfs-dir")
+        try? FileManager.default.removeItem(at: dir)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let platform = Platform(arch: "arm64", os: "linux", variant: "v8")
+        let manifest = try await image.manifest(for: platform)
+        for layer in manifest.layers {
+            let content = try await image.getContent(digest: layer.digest)
+            let filter: ContainerizationArchive.Filter
+            switch layer.mediaType {
+            case MediaTypes.imageLayer, MediaTypes.dockerImageLayer:
+                filter = .none
+            case MediaTypes.imageLayerGzip, MediaTypes.dockerImageLayerGzip:
+                filter = .gzip
+            case MediaTypes.imageLayerZstd, MediaTypes.dockerImageLayerZstd:
+                filter = .zstd
+            default:
+                throw IntegrationError.assert(msg: "unsupported layer media type \(layer.mediaType)")
+            }
+            let reader = try ArchiveReader(format: .paxRestricted, filter: filter, file: content.path)
+            _ = try reader.extractContents(to: dir)
+        }
+
+        return .share(source: dir.absolutePath(), destination: "/")
+    }
+
+    /// Hotplug a container with a virtiofs (directory-share) rootfs into a
+    /// running pod VM, plus an additional virtiofs file-mount. CH-only: VZ has
+    /// no runtime hotplug.
+    func testPodHotplugVirtiofsRootfs() async throws {
+        let id = "test-pod-hotplug-virtiofs-rootfs"
+        let bs = try await bootstrap(id)
+
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        // Boot-time seed container (block rootfs) so the target container is
+        // added strictly on the post-create (hotplug) path.
+        try await pod.addContainer("seed", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "seed")) { config in
+            config.process.arguments = ["/bin/sleep", "infinity"]
+        }
+
+        try await pod.create()
+
+        // Also hotplug a virtiofs file-mount onto the container. This exercises
+        // the /run/virtiofs holding-dir path for an additional virtiofs share on
+        // a container whose rootfs is itself virtiofs — the combination the
+        // rootfs-agnostic newVirtiofsTags derivation must handle. cat'ing the
+        // mounted file also confirms the virtiofs rootfs itself is usable.
+        let mountContent = "hello from hotplugged virtiofs file mount"
+        let hostFile = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("hotplug-mount.txt")
+        try mountContent.write(to: hostFile, atomically: true, encoding: .utf8)
+
+        let virtiofsRootfs = try await unpackRootfsDirectory(bs.image, testID: id)
+        let buffer = BufferWriter()
+        try await pod.addContainer("hot", rootfs: virtiofsRootfs) { config in
+            config.process.arguments = ["/bin/cat", "/etc/hotplug-mount.txt"]
+            config.mounts.append(.share(source: hostFile.path, destination: "/etc/hotplug-mount.txt"))
+            config.process.stdout = buffer
+        }
+
+        do {
+            try await pod.startContainer("hot")
+            let status = try await pod.waitContainer("hot")
+
+            try await pod.stopContainer("hot")
+            try await pod.stop()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "hot container status \(status) != 0")
+            }
+            guard String(data: buffer.data, encoding: .utf8) == mountContent else {
+                throw IntegrationError.assert(
+                    msg: "expected '\(mountContent)', got '\(String(data: buffer.data, encoding: .utf8) ?? "nil")'")
+            }
+        } catch {
+            try? await pod.stop()
+            throw error
+        }
+    }
+
+    /// Hotplug a container with a block rootfs into a running pod VM. Guards
+    /// the existing block hotplug path against the registry-consolidation
+    /// change. CH-only.
+    func testPodHotplugBlockRootfs() async throws {
+        let id = "test-pod-hotplug-block-rootfs"
+        let bs = try await bootstrap(id)
+
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.bootLog = bs.bootLog
+        }
+
+        try await pod.addContainer("seed", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "seed")) { config in
+            config.process.arguments = ["/bin/sleep", "infinity"]
+        }
+
+        try await pod.create()
+
+        let buffer = BufferWriter()
+        try await pod.addContainer("hot", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "hot")) { config in
+            config.process.arguments = ["/bin/echo", "hello from block rootfs"]
+            config.process.stdout = buffer
+        }
+
+        do {
+            try await pod.startContainer("hot")
+            let status = try await pod.waitContainer("hot")
+
+            try await pod.stopContainer("hot")
+            try await pod.stop()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "hot container status \(status) != 0")
+            }
+            guard String(data: buffer.data, encoding: .utf8) == "hello from block rootfs\n" else {
+                throw IntegrationError.assert(
+                    msg: "expected 'hello from block rootfs', got '\(String(data: buffer.data, encoding: .utf8) ?? "nil")'")
+            }
+        } catch {
+            try? await pod.stop()
+            throw error
+        }
+    }
+    #endif
 }

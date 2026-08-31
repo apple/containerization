@@ -25,7 +25,6 @@ package final class UnixSocketRelay: Sendable {
     private let port: UInt32
     private let configuration: UnixSocketConfiguration
     private let vm: any VirtualMachineInstance
-    private let queue: DispatchQueue
     private let log: Logger?
     private let state: Mutex<State>
 
@@ -39,13 +38,11 @@ package final class UnixSocketRelay: Sendable {
         port: UInt32,
         socket: UnixSocketConfiguration,
         vm: any VirtualMachineInstance,
-        queue: DispatchQueue,
         log: Logger? = nil
     ) throws {
         self.port = port
         self.configuration = socket
         self.vm = vm
-        self.queue = queue
         self.log = log
         self.state = Mutex<State>(.init())
     }
@@ -224,7 +221,6 @@ extension UnixSocketRelay {
         let relay = BidirectionalRelay(
             fd1: hostFd,
             fd2: guestFd,
-            queue: queue,
             log: log
         )
 
@@ -232,6 +228,16 @@ extension UnixSocketRelay {
             $0.activeRelays[relayID] = relay
         }
 
-        relay.start()
+        do {
+            try relay.start()
+        } catch {
+            state.withLock { $0.activeRelays[relayID] = nil }
+            throw error
+        }
+
+        Task {
+            await relay.waitForCompletion()
+            state.withLock { $0.activeRelays[relayID] = nil }
+        }
     }
 }

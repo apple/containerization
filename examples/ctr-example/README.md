@@ -22,8 +22,10 @@ You should now see the `vmlinux` image in examples/ctr-example
 
 ### 2. Build/Run ctr-example
 
-From examples/ctr-example run
-`make all`
+From examples/ctr-example run:
+```bash
+make all
+```
 
 > [!WARNING]
 > If you get the following error, try building from the default macOS terminal:

@@ -166,6 +166,8 @@ extension EXT4 {
             if self.tree.lookup(path: link) != nil {
                 try self.unlink(path: link)
             }
+            // create all predecessors recursively
+            try self.create(path: parentPath, mode: Inode.Mode(.S_IFDIR, 0o755), recursion: true)
             guard let parentTreeNodePtr = self.tree.lookup(path: parentPath) else {
                 throw Error.notFound(parentPath)
             }
@@ -184,7 +186,7 @@ extension EXT4 {
                     blocks: nil,
                     link: targetNode.inode
                 ))
-            parentTreeNode.children.append(linkTreeNodePtr)
+            parentTreeNode.addChild(linkTreeNodePtr)
             parentTreeNodePtr.pointee = parentTreeNode
         }
 
@@ -252,9 +254,7 @@ extension EXT4 {
                 }
             }
             parentInodePtr.pointee = parentInode
-            parentNode.children.removeAll { childPtr in
-                childPtr.pointee.name == pathComponent
-            }
+            parentNode.removeChild(named: pathComponent)
             parentNodePtr.pointee = parentNode
 
             if let hardlink = pathNode.link {
@@ -410,7 +410,7 @@ extension EXT4 {
                         children: [],
                         blocks: (startBlock, endBlock)
                     ))
-                parentTreeNode.children.append(childTreeNodePtr)
+                parentTreeNode.addChild(childTreeNodePtr)
                 parentTreeNodePtr.pointee = parentTreeNode
             }
             childInode.mode = mode
@@ -936,7 +936,6 @@ extension EXT4 {
             if let config = journalConfig {
                 compatFeatures |= CompatFeature.hasJournal.rawValue
                 superblock.journalInum = EXT4.JournalInode
-                superblock.journalUUID = filesystemUUID
                 superblock.journalBlocks = journalInodeBlockBackup()
                 superblock.journalBackupType = 1  // s_jnl_backup_type: 1 = s_jnl_blocks[] holds a valid inode backup
                 if let mode = config.defaultMode {
@@ -1265,7 +1264,7 @@ extension EXT4 {
             guard self.inodes[Int(inode) - 1].pointee.linksCount > 0 else {
                 return
             }
-            guard let nameData = name.data(using: .utf8) else {
+            guard let nameData = name.data(using: .utf8), nameData.count <= UInt8.max else {
                 throw Error.invalidName(name)
             }
             let directoryEntrySize = MemoryLayout<DirectoryEntry>.size

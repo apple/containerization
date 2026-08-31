@@ -107,7 +107,7 @@ package final class MemoryMonitor: Sendable {
                 if events.high > highCountMax {
                     highCountMax = events.high
 
-                    let stats = try cgroupManager.stats()
+                    let stats = try cgroupManager.stats(.memory)
                     let currentUsage = stats.memory?.usage ?? 0
 
                     onThresholdExceeded(currentUsage, events.high)

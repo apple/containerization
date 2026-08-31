@@ -59,4 +59,49 @@ public struct Descriptor: Codable, Sendable, Equatable {
         self.platform = platform
         self.artifactType = artifactType
     }
+
+    enum CodingKeys: String, CodingKey {
+        case mediaType
+        case digest
+        case size
+        case urls
+        case annotations
+        case platform
+        case artifactType
+    }
+
+    /// Decodes a descriptor, rejecting any digest that is not a well formed
+    /// `sha256:<hex>` value.
+    ///
+    /// Descriptors are decoded straight from registry responses and from on-disk
+    /// image layouts, and their digests are used as content store path
+    /// components. Validating here means a manifest or index carrying a
+    /// traversing digest such as `sha256:../../etc/hosts` is rejected at the
+    /// trust boundary, before it can be written to the store and re-read later.
+    ///
+    /// The memberwise initializer is deliberately left non-throwing: every
+    /// in-project construction site passes a locally computed digest.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        let digest = try container.decode(String.self, forKey: .digest)
+        do {
+            _ = try ParsedDigest(parsing: digest)
+        } catch {
+            throw DecodingError.dataCorruptedError(forKey: .digest, in: container, debugDescription: "invalid content digest: \(error)")
+        }
+
+        let size = try container.decode(Int64.self, forKey: .size)
+        guard size >= 0 else {
+            throw DecodingError.dataCorruptedError(forKey: .size, in: container, debugDescription: "content size cannot be negative, got \(size)")
+        }
+
+        self.digest = digest
+        self.size = size
+        self.mediaType = try container.decode(String.self, forKey: .mediaType)
+        self.urls = try container.decodeIfPresent([String].self, forKey: .urls)
+        self.annotations = try container.decodeIfPresent([String: String].self, forKey: .annotations)
+        self.platform = try container.decodeIfPresent(Platform.self, forKey: .platform)
+        self.artifactType = try container.decodeIfPresent(String.self, forKey: .artifactType)
+    }
 }

@@ -31,6 +31,10 @@ import Musl
 @Suite("Socket SCM_RIGHTS tests")
 final class SocketTests {
 
+    // sendmsg() over a socketpair whose peer is closed must not kill the
+    // `swift test` process with SIGPIPE on Linux. See ignoreSIGPIPEForTests().
+    init() { ignoreSIGPIPEForTests() }
+
     /// Helper function to send a file descriptor via SCM_RIGHTS
     private func sendFileDescriptor(socket: Socket, fd: Int32) throws {
         var msg = msghdr()

@@ -1,0 +1,9 @@
+#!/bin/sh
+# Wrapper that points the autotools / libtool linker probe at
+# LLVM's lld, which can produce x86_64 ELF output on an aarch64
+# host. The system `/usr/bin/ld` on the dev image is aarch64-only
+# and rejects `-m elf_x86_64`, causing libtool to silently disable
+# shared-library builds. libtool searches PATH for `<host>-ld`
+# before falling back to plain `ld`; this wrapper satisfies the
+# search and unblocks shared-lib emission.
+exec ld.lld "$@"

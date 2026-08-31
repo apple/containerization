@@ -10,6 +10,7 @@ DerivedData/
 workdir/
 installer/
 .venv/
+.vscode/
 test_results/
 *.pid
 *.log
@@ -20,8 +21,9 @@ test_results/
 *.swp
 *.tar.gz
 *.tar.xz
-vmlinux
+vmlinux*
 
 # API docs for local preview only.
 _site/
 _serve/
+kernel/vmlinuz-x86_64

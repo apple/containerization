@@ -18,6 +18,11 @@ export GIT_COMMIT := $(shell git rev-parse HEAD)
 export GIT_TAG := $(shell git describe --tags --exact-match 2>/dev/null || echo "")
 export BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 SWIFT_WARNING_CONFIG := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors)
+# MUSL_ARCH selects which Static Linux SDK triple to build against
+# ($(MUSL_ARCH)-swift-linux-musl). Defaults to the host architecture
+# so the in-tree aarch64 flow works unchanged, but callers can override
+# (e.g. `make MUSL_ARCH=x86_64` for the dist-x86_64 cross-build path).
+ifndef MUSL_ARCH
 UNAME_M := $(shell uname -m)
 ifeq ($(UNAME_M),arm64)
 MUSL_ARCH := aarch64
@@ -25,6 +30,7 @@ else ifeq ($(UNAME_M),aarch64)
 MUSL_ARCH := aarch64
 else
 MUSL_ARCH := x86_64
+endif
 endif
 
 LIBC ?= musl
@@ -34,21 +40,26 @@ endif
 
 SWIFT_CONFIGURATION := $(SWIFT_SDK_FLAGS) $(SWIFT_WARNING_CONFIG) -Xlinker -s --disable-automatic-resolution
 
+SCRATCH_ROOT ?=
+SCRATCH_PATH ?= $(if $(SCRATCH_ROOT),$(SCRATCH_ROOT)/build-vminitd-$(LIBC))
+SWIFT_CONFIGURATION += $(if $(SCRATCH_PATH),--scratch-path $(SCRATCH_PATH))
+
 SWIFT_VERSION := 6.3.0
 SWIFT_SDK_URL := https://download.swift.org/swift-6.3-release/static-sdk/swift-6.3-RELEASE/swift-6.3-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz
 SWIFT_SDK_CHECKSUM := d2078b69bdeb5c31202c10e9d8a11d6f66f82938b51a4b75f032ccb35c4c286c
 SWIFT_SDK_PATH := /tmp/$(notdir $(SWIFT_SDK_URL))
 
+# vminitd is built inside the Linux dev container (see the root Makefile's
+# `vminitd` target, which routes through `linux_run` on macOS), so `swift`
+# is always the toolchain on PATH inside that container. The host no longer
+# needs Swiftly or a locally-installed Static Linux SDK.
 SYSTEM_TYPE := $(shell uname -s)
-ifeq ($(SYSTEM_TYPE),Darwin)
-SWIFTLY_URL := https://download.swift.org/swiftly/darwin/swiftly.pkg
-SWIFTLY_FILENAME := $(notdir $(SWIFTLY_URL))
-SWIFTLY_BIN_DIR ?= ~/.swiftly/bin
-SWIFT := $(SWIFTLY_BIN_DIR)/swift
-else
 SWIFT ?= swift
-endif
-BUILD_BIN_DIR := $(shell $(SWIFT) build -c $(BUILD_CONFIGURATION) $(SWIFT_CONFIGURATION) --show-bin-path)
+# Lazily evaluated (`=`, not `:=`) so `swift build --swift-sdk ... --show-bin-path`
+# only runs for the `all` target — which runs inside the Linux dev container
+# where the Static Linux SDK exists. Evaluating it at parse time would fail on a
+# macOS host (which no longer installs the SDK) for targets like `clean`.
+BUILD_BIN_DIR = $(shell $(SWIFT) build -c $(BUILD_CONFIGURATION) $(SWIFT_CONFIGURATION) --show-bin-path)
 
 ifeq ($(SYSTEM_TYPE),Darwin)
 MACOS_VERSION := $(shell sw_vers -productVersion)
@@ -58,38 +69,28 @@ endif
 
 .DEFAULT_GOAL := all
 
+# INSTALL_DIR is where built binaries land. Defaults to ./bin so the
+# in-tree aarch64 flow is unchanged. The dist-x86_64 cross-build
+# overrides this to keep its artifacts out of vminitd/bin/.
+INSTALL_DIR ?= ./bin
+
 .PHONY: all
-all: 
+all:
 	@echo Building vminitd and vmexec...
-	@mkdir -p ./bin/
-	@rm -f ./bin/vminitd
-	@rm -f ./bin/vmexec
+	@mkdir -p $(INSTALL_DIR)
+	@rm -f $(INSTALL_DIR)/vminitd
+	@rm -f $(INSTALL_DIR)/vmexec
 	@$(SWIFT) --version
 	@$(SWIFT) build -c $(BUILD_CONFIGURATION) $(SWIFT_CONFIGURATION)
-	@install "$(BUILD_BIN_DIR)/vminitd" ./bin/
-	@install "$(BUILD_BIN_DIR)/vmexec" ./bin/
-
-.PHONY: cross-prep
-cross-prep: swift linux-sdk
-
-.PHONY: swiftly
-swiftly:
-	@if ! command -v ${SWIFTLY_BIN_DIR}/swiftly > /dev/null 2>&1; then \
-		echo "Installing Swiftly..."; \
-		curl -o /var/tmp/$(SWIFTLY_FILENAME) $(SWIFTLY_URL) && \
-		installer -pkg /var/tmp/$(SWIFTLY_FILENAME) -target CurrentUserHomeDirectory && \
-		${SWIFTLY_BIN_DIR}/swiftly init --quiet-shell-followup --skip-install && \
-		. ~/.swiftly/env.sh && \
-		hash -r && \
-		rm /var/tmp/$(SWIFTLY_FILENAME); \
-	fi
-	
-.PHONY: swift
-swift: swiftly
-	@echo Installing Swift $(SWIFT_VERSION)...
-	@${SWIFTLY_BIN_DIR}/swiftly install $(SWIFT_VERSION)
+	@install "$(BUILD_BIN_DIR)/vminitd" $(INSTALL_DIR)/
+	@install "$(BUILD_BIN_DIR)/vmexec" $(INSTALL_DIR)/
 
 .PHONY: linux-sdk
+# Installs the Static Linux SDK into the active Swift toolchain. Used inside
+# plain Swift Linux containers that don't already bake in the SDK (e.g. the
+# `linux-build.yml` compile-check and the CI `buildGuest` job). The dev image
+# built by `make linux-image` installs the same SDK at image-build time, so it
+# does not need this target.
 linux-sdk:
 	@echo Installing Static Linux SDK...
 	@curl -L -o $(SWIFT_SDK_PATH) $(SWIFT_SDK_URL)
@@ -101,4 +102,4 @@ clean:
 	@echo Cleaning the vminitd build files...
 	@rm -f ./bin/vminitd
 	@rm -f ./bin/vmexec
-	@rm -rf .build
+	@rm -rf .build $(SCRATCH_PATH)

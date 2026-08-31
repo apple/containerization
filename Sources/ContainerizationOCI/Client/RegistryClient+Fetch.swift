@@ -54,9 +54,19 @@ extension RegistryClient {
                 throw Error.invalidStatus(url: url, response.status, reason: reason)
             }
 
-            guard let digest = response.headers.first(name: "Docker-Content-Digest") else {
+            guard let header = response.headers.first(name: "Docker-Content-Digest") else {
                 throw ContainerizationError(.invalidArgument, message: "missing required header Docker-Content-Digest")
             }
+
+            // This digest is registry supplied and goes straight into a
+            // `Descriptor`, from where it becomes a URL path segment on the
+            // follow-up GET and a content store path component once the blob
+            // lands. `Descriptor`'s decoder validates the digests that arrive in
+            // a manifest body; a digest that arrives in a header bypasses it, so
+            // it is checked here instead. The parsed value is used rather than
+            // the raw header so the descriptor cannot carry a spelling the
+            // parser would not itself produce.
+            let digest = try ParsedDigest(parsing: header).description
 
             guard let type = response.headers.first(name: "Content-Type") else {
                 throw ContainerizationError(.invalidArgument, message: "missing required header Content-Type")
@@ -66,8 +76,8 @@ extension RegistryClient {
                 throw ContainerizationError(.invalidArgument, message: "missing required header Content-Length")
             }
 
-            guard let size = Int64(sizeStr) else {
-                throw ContainerizationError(.invalidArgument, message: "cannot convert \(sizeStr) to Int64")
+            guard let size = Int64(sizeStr), size >= 0 else {
+                throw ContainerizationError(.invalidArgument, message: "invalid Content-Length \(sizeStr)")
             }
 
             return Descriptor(mediaType: type, digest: digest, size: size)

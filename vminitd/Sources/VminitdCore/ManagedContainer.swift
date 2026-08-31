@@ -44,6 +44,8 @@ public actor ManagedContainer {
         ociRuntimePath: String? = nil,
         log: Logger
     ) async throws {
+        try Self.validate(id: id)
+
         var cgroupsPath: String
         if let cgPath = spec.linux?.cgroupsPath {
             cgroupsPath = cgPath
@@ -164,6 +166,7 @@ extension ManagedContainer {
         stdio: HostStdio,
         process: ContainerizationOCI.Process
     ) throws {
+        try Self.validate(id: id)
         log.debug("creating exec process with \(process)")
 
         // Write the process config to the bundle, and pass this on
@@ -228,8 +231,8 @@ extension ManagedContainer {
         }
     }
 
-    func stats() throws -> Cgroup2Stats {
-        try self.cgroupManager.stats()
+    func stats(_ categories: Cgroup2StatsCategory = .all) throws -> Cgroup2Stats {
+        try self.cgroupManager.stats(categories)
     }
 
     func getMemoryEvents() throws -> MemoryEvents {
@@ -280,6 +283,16 @@ extension ContainerizationOCI.Bundle {
 extension ManagedContainer {
     static func craftBundlePath(id: String) -> URL {
         URL(fileURLWithPath: "/run/container").appending(path: id)
+    }
+
+    // Container and exec ids become single path components under the bundle.
+    static func validate(id: String) throws {
+        guard !id.isEmpty, id != ".", id != "..", !id.contains("/") else {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "invalid id \(id)"
+            )
+        }
     }
 }
 

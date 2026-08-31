@@ -1,0 +1,41 @@
+# virtiofsd patch — skip capability drop when --sandbox=none.
+#
+# virtiofsd 1.13.3 unconditionally calls capng::apply (capset(2)) at
+# startup when running as root. Inside apple/container's --virtualization
+# dev container the default seccomp profile blocks capset(2), so virtiofsd
+# fails with "failed to sync capabilities with the kernel" and
+# process::exit(1)s before binding its socket.
+#
+# We already pass --sandbox=none to virtiofsd from VirtiofsdProcess (same
+# rationale as why cloud-hypervisor runs with --seccomp false in the same
+# environment). This patch extends the existing upstream gate ("We don't
+# modify the capabilities if the user call us without any sandbox") so
+# that --sandbox=none also skips cap drop at uid==0, matching the user's
+# explicit opt-out from the sandbox.
+#
+# Applied automatically by `make build-virtiofsd` before `cargo build`.
+# Targets virtiofsd 1.13.3 (.local/virtiofsd).
+
+diff --git a/src/main.rs b/src/main.rs
+index 176e178..27dce55 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -858,8 +858,17 @@ fn main() {
+
+     // We don't modify the capabilities if the user call us without
+     // any sandbox (i.e. --sandbox=none) as unprivileged user
++    //
++    // CONTAINERIZATION-PATCH: also skip cap drop with --sandbox=none even
++    // when running as root. Inside apple/container's --virtualization dev
++    // container the seccomp profile blocks capset(2), so capng::apply
++    // fails with "failed to sync capabilities with the kernel" and
++    // virtiofsd process::exit(1)s before binding its socket. The
++    // user explicitly opted out of the sandbox; respect that and don't
++    // touch caps either. Same class of issue as why CH runs with
++    // --seccomp false in the same env.
+     let uid = unsafe { libc::geteuid() };
+-    if uid == 0 {
++    if uid == 0 && !matches!(opt.sandbox, SandboxMode::None) {
+         drop_capabilities(fs_cfg.inode_file_handles, opt.modcaps);
+     }
+

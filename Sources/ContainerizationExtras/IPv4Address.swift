@@ -39,7 +39,7 @@ public struct IPv4Address: Sendable, Hashable, CustomStringConvertible, Equatabl
         self.value =
             (UInt32(bytes[0]) << 24)
             | (UInt32(bytes[1]) << 16)
-            | (UInt32(bytes[2]) << 16)
+            | (UInt32(bytes[2]) << 8)
             | UInt32(bytes[3])
     }
 

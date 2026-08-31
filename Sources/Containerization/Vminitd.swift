@@ -20,9 +20,8 @@ import ContainerizationOCI
 import ContainerizationOS
 import Foundation
 import GRPCCore
-import GRPCNIOTransportCore
-import NIOCore
-import NIOPosix
+import GRPCNIOTransportHTTP2
+import NIO
 
 /// A remote connection into the vminitd Linux guest agent via a port (vsock).
 /// Used to modify the runtime environment of the Linux sandbox.
@@ -34,18 +33,24 @@ public struct Vminitd: Sendable {
     public let grpcClient: GRPCClient<HTTP2ClientTransport.WrappedChannel>
     private let connectionTask: Task<Void, Error>
 
-    public init(connection: FileHandle, group: any EventLoopGroup) throws {
-        let channel = try ClientBootstrap(group: group)
-            .channelInitializer { channel in
-                channel.eventLoop.makeCompletedFuture(withResultOf: {
-                    try channel.pipeline.syncOperations.addHandler(HTTP2ConnectBufferingHandler())
-                })
+    public init(connection: FileHandle, group: any EventLoopGroup) async throws {
+        let transport = try await HTTP2ClientTransport.WrappedChannel.wrapping(
+            config: .defaults { $0.connection.maxIdleTime = nil },
+            serviceConfig: .init()
+        ) { configure in
+            try await withCheckedThrowingContinuation { continuation in
+                ClientBootstrap(group: group)
+                    .channelInitializer { channel in
+                        configure(channel).map { configured in
+                            continuation.resume(returning: configured)
+                        }
+                    }
+                    .withConnectedSocket(connection.fileDescriptor)
+                    .whenFailure { error in
+                        continuation.resume(throwing: error)
+                    }
             }
-            .withConnectedSocket(connection.fileDescriptor).wait()
-        let transport = HTTP2ClientTransport.WrappedChannel.wrapping(
-            channel: channel,
-            config: .defaults { $0.connection.maxIdleTime = nil }
-        )
+        }
         let grpcClient = GRPCClient(transport: transport)
         self.grpcClient = grpcClient
         self.client = Com_Apple_Containerization_Sandbox_V3_SandboxContext.Client(wrapping: self.grpcClient)
@@ -124,7 +129,12 @@ extension Vminitd: VirtualMachineAgent {
                         pageFaults: protoStats.memory.pageFaults,
                         majorPageFaults: protoStats.memory.majorPageFaults,
                         inactiveFile: protoStats.memory.inactiveFile,
-                        anon: protoStats.memory.anon
+                        anon: protoStats.memory.anon,
+                        workingsetRefaultAnon: protoStats.memory.workingsetRefaultAnon,
+                        workingsetRefaultFile: protoStats.memory.workingsetRefaultFile,
+                        pgstealKswapd: protoStats.memory.pgstealKswapd,
+                        pgstealDirect: protoStats.memory.pgstealDirect,
+                        pgstealKhugepaged: protoStats.memory.pgstealKhugepaged
                     ) : nil,
                 cpu: categories.contains(.cpu) && protoStats.hasCpu
                     ? .init(
@@ -199,6 +209,18 @@ extension Vminitd: VirtualMachineAgent {
                 $0.path = path
                 $0.all = all
                 $0.perms = perms
+            })
+    }
+
+    /// Perform a filesystem operation on a path inside the sandbox's environment.
+    public func filesystemOperation(operation: FilesystemOperation, path: String, containerID: String? = nil) async throws {
+        _ = try await client.filesystemOperation(
+            .with {
+                $0.operation = operation.toProtoOperation()
+                $0.path = path
+                if let containerID {
+                    $0.containerID = containerID
+                }
             })
     }
 
@@ -392,33 +414,50 @@ extension Vminitd {
     }
 
     /// Add an IP address to the sandbox's network interfaces.
-    public func addressAdd(name: String, ipv4Address: CIDRv4) async throws {
+    public func addressAdd(name: String, address: InterfaceAddress) async throws {
         _ = try await client.ipAddrAdd(
             .with {
                 $0.interface = name
-                $0.ipv4Address = ipv4Address.description
+                $0.ipv4Address = address.ipv4Address.description
+                if let ipv6Address = address.ipv6Address {
+                    $0.ipv6Address = ipv6Address.description
+                }
             })
     }
 
-    /// Add a route in the sandbox's environment.
-    public func routeAddLink(name: String, dstIPv4Addr: IPv4Address, srcIPv4Addr: IPv4Address? = nil) async throws {
-        let dstCIDR = "\(dstIPv4Addr.description)/32"
+    /// Add a link-scoped route in the sandbox's environment, used to install an
+    /// on-link host route (a /32 for v4, /128 for v6) to a gateway that lives
+    /// outside the interface's subnet so the kernel will accept the default route.
+    /// `route.ipv4Destination`/`route.ipv6Destination` carry the
+    /// gateway address; the wire format is a CIDR string with the per-family host prefix appended.
+    public func routeAddLink(name: String, route: LinkRoute) async throws {
         _ = try await client.ipRouteAddLink(
             .with {
                 $0.interface = name
-                $0.dstIpv4Addr = dstCIDR
-                if let srcIPv4Addr {
-                    $0.srcIpv4Addr = srcIPv4Addr.description
+                if let ipv4Destination = route.ipv4Destination {
+                    $0.dstIpv4Addr = "\(ipv4Destination.description)/32"
+                }
+                if let ipv4Source = route.ipv4Source {
+                    $0.srcIpv4Addr = ipv4Source.description
+                }
+                if let ipv6Destination = route.ipv6Destination {
+                    $0.dstIpv6Addr = "\(ipv6Destination.description)/128"
+                }
+                if let ipv6Source = route.ipv6Source {
+                    $0.srcIpv6Addr = ipv6Source.description
                 }
             })
     }
 
     /// Set the default route in the sandbox's environment.
-    public func routeAddDefault(name: String, ipv4Gateway: IPv4Address?) async throws {
+    public func routeAddDefault(name: String, route: DefaultRoute) async throws {
         _ = try await client.ipRouteAddDefault(
             .with {
                 $0.interface = name
-                $0.ipv4Gateway = ipv4Gateway?.description ?? ""
+                $0.ipv4Gateway = route.ipv4Gateway?.description ?? ""
+                if let ipv6Gateway = route.ipv6Gateway {
+                    $0.ipv6Gateway = ipv6Gateway.description
+                }
             })
     }
 
@@ -589,5 +628,22 @@ extension StatCategory {
             categories.append(.memoryEvents)
         }
         return categories
+    }
+}
+
+extension FilesystemOperation {
+    /// Convert FilesystemOperation to proto oneof value.
+    fileprivate func toProtoOperation() -> Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest.OneOf_Operation {
+        switch self {
+        case .freeze:
+            return .freeze(.init())
+        case .thaw:
+            return .thaw(.init())
+        case .trim:
+            return .trim(
+                .with {
+                    $0.oneShot = .init()
+                })
+        }
     }
 }

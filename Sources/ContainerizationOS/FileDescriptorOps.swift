@@ -46,8 +46,7 @@ private let os_S_IFLNK = mode_t(Glibc.S_IFLNK)
 /// All operations use `openat`/`mkdirat`/`unlinkat` anchored to the supplied
 /// file descriptor, preventing path traversal and TOCTOU races. The type is
 /// never instantiated; it exists solely as a namespace.
-public struct FileDescriptorOps {
-    private init() {}
+public enum FileDescriptorOps {
 
     // MARK: - Nested types
 

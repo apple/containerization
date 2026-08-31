@@ -302,15 +302,17 @@ public struct ContainerManager: Sendable {
             if let imageConfig {
                 config.process = .init(from: imageConfig)
             }
-            if networking, let interface = try self.network?.createInterface(id) {
-                config.interfaces = [interface]
-                guard let gateway = interface.ipv4Gateway else {
-                    throw ContainerizationError(
-                        .invalidState,
-                        message: "missing ipv4 gateway for container \(id)"
-                    )
+            if networking {
+                if let interface = try self.network?.createInterface(id) {
+                    config.interfaces = [interface]
+                    guard let gateway = interface.ipv4Gateway else {
+                        throw ContainerizationError(
+                            .invalidState,
+                            message: "missing ipv4 gateway for container \(id)"
+                        )
+                    }
+                    config.dns = .init(nameservers: [gateway.description])
                 }
-                config.dns = .init(nameservers: [gateway.description])
             }
             config.bootLog = BootLog.file(path: self.containerRoot.appendingPathComponent(id).appendingPathComponent("bootlog.log"))
             try configuration(&config)
@@ -340,7 +342,7 @@ public struct ContainerManager: Sendable {
 
     private func unpack(image: Image, destination: URL, size: UInt64, progress: ProgressHandler? = nil) async throws -> Mount {
         do {
-            let unpacker = EXT4Unpacker(blockSizeInBytes: size)
+            let unpacker = EXT4Unpacker(capacityInBytes: size)
             return try await unpacker.unpack(image, for: .current, at: destination, progress: progress)
         } catch let err as ContainerizationError {
             if err.code == .exists {
@@ -371,10 +373,10 @@ public struct ContainerManager: Sendable {
     }
 }
 
-extension CIDRv4 {
+extension CIDRv6 {
     /// The gateway address of the network.
-    public var gateway: IPv4Address {
-        IPv4Address(self.lower.value + 1)
+    public var gateway: IPv6Address {
+        IPv6Address(self.lower.value + 1)
     }
 }
 

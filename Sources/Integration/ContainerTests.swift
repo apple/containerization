@@ -284,7 +284,7 @@ extension IntegrationSuite {
 
                         var hasher = SHA256()
                         hasher.update(data: buffer.data)
-                        let hash = hasher.finalize().digestString.trimmingDigestPrefix
+                        let hash = hasher.finalize().encoded
                         guard hash == expected else {
                             throw IntegrationError.assert(
                                 msg: "process \(idx) output \(hash) != expected \(expected)")
@@ -648,6 +648,7 @@ extension IntegrationSuite {
         }
     }
 
+    #if os(macOS)
     func testNestedVirtualizationEnabled() async throws {
         let id = "test-nested-virt"
 
@@ -849,6 +850,8 @@ extension IntegrationSuite {
                 msg: "process should have \(devConsole) in `mount` output")
         }
     }
+
+    #endif
 
     func testContainerStatistics() async throws {
         let id = "test-container-statistics"
@@ -1694,6 +1697,70 @@ extension IntegrationSuite {
         }
     }
 
+    func testDefaultMaskedAndReadonlyPaths() async throws {
+        let id = "test-masked-readonly-defaults"
+
+        // A default container (default capabilities + default masked/readonly
+        // paths) must have the OCI standard set enforced by vmexec without any
+        // opt-in. Probe from inside the guest:
+        //   1. readonlyPaths: writing under /proc/sys fails with EROFS. EROFS
+        //      (not EPERM) proves the read-only remount rather than a mere
+        //      capability denial — the default (restricted) caps already lack
+        //      CAP_SYS_ADMIN, so a writable /proc/sys would fail with EPERM.
+        //      The write is wrapped in a brace group so the shell's redirection
+        //      failure ("can't create ...: Read-only file system") is captured:
+        //      a trailing `2>&1` on the command misses it, because the failing
+        //      `>` redirection aborts before `2>&1` is applied.
+        //   2. maskedPaths: at least one default-masked path is mounted over
+        //      (visible in /proc/self/mountinfo). Checked via mountinfo rather
+        //      than reading the target, since some masked paths (e.g.
+        //      /proc/kcore) require CAP_SYS_RAWIO to read and would appear empty
+        //      even if masking were broken, yielding a false pass.
+        let probe = """
+            set -u
+            rerr=$( { echo x > /proc/sys/kernel/hostname; } 2>&1 )
+            case "$rerr" in
+                *"Read-only file system"*) ;;
+                *) echo "RO-FAIL: writing /proc/sys expected EROFS, got: ${rerr:-<write succeeded>}"; exit 1 ;;
+            esac
+            masked=0
+            for p in /proc/kcore /proc/keys /proc/scsi /proc/sched_debug /sys/firmware /sys/devices/virtual/powercap; do
+                grep -q " $p " /proc/self/mountinfo && masked=$((masked + 1))
+            done
+            if [ "$masked" -eq 0 ]; then
+                echo "MASK-FAIL: no default masked path mounted"
+                cat /proc/self/mountinfo
+                exit 1
+            fi
+            echo "MASKED-RO-OK masked=$masked"
+            """
+
+        let bs = try await bootstrap(id)
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            // Intentionally leave config.maskedPaths / readonlyPaths /
+            // process.capabilities untouched — the point is that the defaults
+            // are secure out of the box.
+            config.process.arguments = ["/bin/sh", "-c", probe]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        try await container.start()
+
+        let status = try await container.wait()
+        try await container.stop()
+
+        let output = String(data: buffer.data, encoding: .utf8) ?? "<non-utf8 output>"
+        guard status.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "default masked/readonly enforcement failed (exit \(status.exitCode)): \(output)")
+        }
+        guard output.contains("MASKED-RO-OK") else {
+            throw IntegrationError.assert(msg: "expected MASKED-RO-OK sentinel, got: \(output)")
+        }
+    }
+
     func testStat() async throws {
         let id = "test-stat"
 
@@ -1730,7 +1797,7 @@ extension IntegrationSuite {
             try await assertExec(container, id: "create-fifo", cmd: "mkfifo /tmp/test-fifo")
 
             let vsock = try await container.dialVsock(port: 1024)
-            let vminitd = try Vminitd(connection: vsock, group: Self.eventLoop)
+            let vminitd = try await Vminitd(connection: vsock, group: Self.eventLoop)
 
             let root = URL(filePath: container.root)
 
@@ -3188,6 +3255,7 @@ extension IntegrationSuite {
         }
     }
 
+    #if os(macOS)
     @available(macOS 26.0, *)
     func testInterfaceMTU() async throws {
         let id = "test-interface-mtu"
@@ -3246,6 +3314,8 @@ extension IntegrationSuite {
             throw error
         }
     }
+
+    #endif
 
     func testSingleFileMount() async throws {
         let id = "test-single-file-mount"
@@ -4215,6 +4285,239 @@ extension IntegrationSuite {
         }
     }
 
+    func testFrozenExt4Clone() async throws {
+        let id = "test-frozen-ext4-clone"
+        let bs = try await bootstrap(id)
+
+        let diskImageURL = Self.testDir.appending(component: "\(id)-data.ext4")
+        try? FileManager.default.removeItem(at: diskImageURL)
+
+        let filesystem = try EXT4.Formatter(FilePath(diskImageURL.absolutePath()), minDiskSize: 64.mib())
+        try filesystem.close()
+
+        let cloneImageURL = Self.testDir.appending(component: "\(id)-data-clone.ext4")
+        try? FileManager.default.removeItem(at: cloneImageURL)
+
+        let writerContainer = try LinuxContainer("\(id)-writer", rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/sleep", "1000"]
+            config.mounts.append(
+                Mount.block(
+                    format: "ext4",
+                    source: diskImageURL.absolutePath(),
+                    destination: "/data"
+                ))
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await writerContainer.create()
+            try await writerContainer.start()
+
+            try await writerContainer.filesystemOperation(operation: .freeze, path: "/data")
+
+            let writeExec = try await writerContainer.exec("write-hello") { config in
+                config.arguments = ["/bin/sh", "-c", "echo hello > /data/hello.txt"]
+            }
+            try await writeExec.start()
+
+            do {
+                let status = try await writeExec.wait(timeoutInSeconds: 1)
+                throw IntegrationError.assert(msg: "write unexpectedly completed while filesystem was frozen with status \(status)")
+            } catch let error as ContainerizationError where error.code == .timeout {
+                // The write must remain blocked until the filesystem is thawed.
+            }
+
+            try FileManager.default.copyItem(at: diskImageURL, to: cloneImageURL)
+
+            try await writerContainer.filesystemOperation(operation: .thaw, path: "/data")
+
+            let writeStatus = try await writeExec.wait()
+            try await writeExec.delete()
+            guard writeStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "write exec failed with status \(writeStatus)")
+            }
+
+            try await writerContainer.kill(.kill)
+            _ = try await writerContainer.wait()
+            try await writerContainer.stop()
+        } catch {
+            try? await writerContainer.filesystemOperation(operation: .thaw, path: "/data")
+            try? await writerContainer.stop()
+            throw error
+        }
+
+        let verifyContainer = try LinuxContainer("\(id)-reader", rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.mounts.append(
+                Mount.block(
+                    format: "ext4",
+                    source: cloneImageURL.absolutePath(),
+                    destination: "/data"
+                ))
+            config.process.arguments = ["/bin/sleep", "1000"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await verifyContainer.create()
+            try await verifyContainer.start()
+
+            let mountBuffer = BufferWriter()
+            let mountExec = try await verifyContainer.exec("verify-mount") { config in
+                config.arguments = ["/bin/sh", "-c", "grep ' /data ' /proc/mounts"]
+                config.stdout = mountBuffer
+            }
+            try await mountExec.start()
+            var status = try await mountExec.wait()
+            try await mountExec.delete()
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "failed to verify /data mount, status \(status)")
+            }
+
+            let mountOutput = String(decoding: mountBuffer.data, as: UTF8.self)
+            guard mountOutput.contains(" /data ") && mountOutput.contains(" ext4 ") else {
+                throw IntegrationError.assert(msg: "expected ext4 mount at /data, got: \(mountOutput)")
+            }
+
+            let lsBuffer = BufferWriter()
+            let lsExec = try await verifyContainer.exec("verify-no-hello") { config in
+                config.arguments = ["ls", "-1", "/data"]
+                config.stdout = lsBuffer
+            }
+            try await lsExec.start()
+            status = try await lsExec.wait()
+            try await lsExec.delete()
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ls /data failed with status \(status)")
+            }
+
+            let lsOutput = String(decoding: lsBuffer.data, as: UTF8.self)
+            let listedFiles = Set(lsOutput.split(whereSeparator: \.isNewline).map(String.init))
+            guard !listedFiles.contains("hello.txt") else {
+                throw IntegrationError.assert(msg: "expected cloned /data to not contain hello.txt, got: \(lsOutput)")
+            }
+
+            try await verifyContainer.kill(.kill)
+            _ = try await verifyContainer.wait()
+            try await verifyContainer.stop()
+        } catch {
+            try? await verifyContainer.stop()
+            throw error
+        }
+    }
+
+    func testTrimExt4Clone() async throws {
+        let id = "test-trim-ext4-clone"
+        let bs = try await bootstrap(id)
+
+        let diskImageURL = Self.testDir.appending(component: "\(id)-data.ext4")
+        try? FileManager.default.removeItem(at: diskImageURL)
+
+        let filesystem = try EXT4.Formatter(FilePath(diskImageURL.absolutePath()), minDiskSize: 64.mib())
+        try filesystem.close()
+
+        let cloneImageURL = Self.testDir.appending(component: "\(id)-data-clone.ext4")
+        try? FileManager.default.removeItem(at: cloneImageURL)
+
+        let writerContainer = try LinuxContainer("\(id)-writer", rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/sleep", "1000"]
+            config.mounts.append(
+                Mount.block(
+                    format: "ext4",
+                    source: diskImageURL.absolutePath(),
+                    destination: "/data"
+                ))
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await writerContainer.create()
+            try await writerContainer.start()
+
+            let writeExec = try await writerContainer.exec("write-temp") { config in
+                config.arguments = [
+                    "/bin/sh",
+                    "-c",
+                    "dd if=/dev/zero of=/data/trim.dat bs=1M count=8 status=none && sync && rm /data/trim.dat && sync",
+                ]
+            }
+            try await writeExec.start()
+            let writeStatus = try await writeExec.wait()
+            try await writeExec.delete()
+            guard writeStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "trim setup exec failed with status \(writeStatus)")
+            }
+
+            try await writerContainer.filesystemOperation(operation: .trim, path: "/data")
+
+            try FileManager.default.copyItem(at: diskImageURL, to: cloneImageURL)
+
+            try await writerContainer.kill(.kill)
+            _ = try await writerContainer.wait()
+            try await writerContainer.stop()
+        } catch {
+            try? await writerContainer.stop()
+            throw error
+        }
+
+        let verifyContainer = try LinuxContainer("\(id)-reader", rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.mounts.append(
+                Mount.block(
+                    format: "ext4",
+                    source: cloneImageURL.absolutePath(),
+                    destination: "/data"
+                ))
+            config.process.arguments = ["/bin/sleep", "1000"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await verifyContainer.create()
+            try await verifyContainer.start()
+
+            let mountBuffer = BufferWriter()
+            let mountExec = try await verifyContainer.exec("verify-mount") { config in
+                config.arguments = ["/bin/sh", "-c", "grep ' /data ' /proc/mounts"]
+                config.stdout = mountBuffer
+            }
+            try await mountExec.start()
+            var status = try await mountExec.wait()
+            try await mountExec.delete()
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "failed to verify /data mount, status \(status)")
+            }
+
+            let mountOutput = String(decoding: mountBuffer.data, as: UTF8.self)
+            guard mountOutput.contains(" /data ") && mountOutput.contains(" ext4 ") else {
+                throw IntegrationError.assert(msg: "expected ext4 mount at /data, got: \(mountOutput)")
+            }
+
+            let lsBuffer = BufferWriter()
+            let lsExec = try await verifyContainer.exec("verify-no-hello") { config in
+                config.arguments = ["ls", "-1", "/data"]
+                config.stdout = lsBuffer
+            }
+            try await lsExec.start()
+            status = try await lsExec.wait()
+            try await lsExec.delete()
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ls /data failed with status \(status)")
+            }
+
+            let lsOutput = String(decoding: lsBuffer.data, as: UTF8.self)
+            let listedFiles = Set(lsOutput.split(whereSeparator: \.isNewline).map(String.init))
+            guard !listedFiles.contains("trim.dat") else {
+                throw IntegrationError.assert(msg: "expected cloned /data to not contain trim.dat, got: \(lsOutput)")
+            }
+
+            try await verifyContainer.kill(.kill)
+            _ = try await verifyContainer.wait()
+            try await verifyContainer.stop()
+        } catch {
+            try? await verifyContainer.stop()
+            throw error
+        }
+    }
+
     func testUseInitBasic() async throws {
         let id = "test-use-init-basic"
 
@@ -4441,6 +4744,7 @@ extension IntegrationSuite {
         }
     }
 
+    #if os(macOS)
     @available(macOS 26.0, *)
     func testNetworkingDisabled() async throws {
         let id = "test-networking-disabled"
@@ -4549,6 +4853,449 @@ extension IntegrationSuite {
         }
     }
 
+    @available(macOS 26.0, *)
+    func testNetworkingEnabledIPv6() async throws {
+        let id = "test-networking-enabled-ipv6"
+        let bs = try await bootstrap(id)
+
+        let network = try VmnetNetwork()
+        var manager = try ContainerManager(vmm: bs.vmm, network: network)
+        defer {
+            try? manager.delete(id)
+        }
+
+        let buffer = BufferWriter()
+        let container = try await manager.create(
+            id,
+            image: bs.image,
+            rootfs: bs.rootfs
+        ) { config in
+            config.process.arguments = ["ip", "-6", "addr", "show", "eth0", "scope", "global"]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let status = try await container.wait()
+            try await container.stop()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ip -6 addr show failed with status \(status)")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert output to UTF8")
+            }
+
+            guard output.contains("inet6 fd") else {
+                throw IntegrationError.assert(
+                    msg: "expected a global-scope IPv6 address on eth0, got: \(output)")
+            }
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    @available(macOS 26.0, *)
+    func testIPv6AddressAdd() async throws {
+        let id = "test-ipv6-address"
+        let bs = try await bootstrap(id)
+
+        // Pin the v6 prefix so the allocator's first allocation yields fd00::2.
+        var network = try VmnetNetwork(prefixV6: try CIDRv6("fd00::/64"))
+        defer {
+            try? network.releaseInterface(id)
+        }
+
+        guard let interface = try network.createInterface(id) else {
+            throw IntegrationError.assert(msg: "failed to create network interface")
+        }
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.interfaces = [interface]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Check that the IPv6 address was assigned to eth0.
+            let exec = try await container.exec("check-ipv6") { config in
+                config.arguments = ["ip", "-6", "addr", "show", "eth0"]
+                config.stdout = buffer
+            }
+
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ip -6 addr show failed with status \(status)")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert output to UTF8")
+            }
+
+            guard output.contains("fd00::2") else {
+                throw IntegrationError.assert(
+                    msg: "expected fd00::2 in output, got: \(output)")
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    @available(macOS 26.0, *)
+    func testIPv6DefaultRoute() async throws {
+        let id = "test-ipv6-default-route"
+        let bs = try await bootstrap(id)
+
+        // Pin the network's v6 prefix so the gateway is deterministically fd00::1
+        // and the allocator's first allocation yields fd00::2.
+        var network = try VmnetNetwork(prefixV6: try CIDRv6("fd00::/64"))
+        defer {
+            try? network.releaseInterface(id)
+        }
+
+        guard let interface = try network.createInterface(id) else {
+            throw IntegrationError.assert(msg: "failed to create network interface")
+        }
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.interfaces = [interface]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Inspect IPv6 routes inside the container.
+            let exec = try await container.exec("check-v6-route") { config in
+                config.arguments = ["ip", "-6", "route", "show"]
+                config.stdout = buffer
+            }
+
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ip -6 route show failed with status \(status)")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert output to UTF8")
+            }
+
+            // The default v6 route must point at the gateway we configured, on eth0.
+            guard output.contains("default via fd00::1 dev eth0") else {
+                throw IntegrationError.assert(
+                    msg: "expected 'default via fd00::1 dev eth0' in v6 routes, got: \(output)")
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    @available(macOS 26.0, *)
+    func testIPv6GatewayOutsideSubnet() async throws {
+        let id = "test-ipv6-gateway-outside-subnet"
+        let bs = try await bootstrap(id)
+
+        // Address in fd00::/120, gateway in fd01::/120 — subnets don't overlap, so the
+        // LinuxContainer wiring must add a /128 link route to the gateway before the
+        // default route. The two prefixes are independent so we drive this directly
+        // via NATInterface rather than the VmnetNetwork allocator (which always
+        // derives the gateway from the network's own prefix).
+        let interface = NATInterface(
+            ipv4Address: try CIDRv4("192.0.2.2/24"),
+            ipv4Gateway: try IPv4Address("192.0.2.1"),
+            ipv6Address: try CIDRv6("fd00::2/120"),
+            ipv6Gateway: try IPv6Address("fd01::1"))
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.interfaces = [interface]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let exec = try await container.exec("check-v6-routes") { config in
+                config.arguments = ["ip", "-6", "route", "show"]
+                config.stdout = buffer
+            }
+
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ip -6 route show failed with status \(status)")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert output to UTF8")
+            }
+
+            // Both the link-scoped route to the gateway AND the default via that gateway
+            // must be present. Without the link route, the kernel would refuse the default.
+            // Match the link route on a line that starts with the gateway address (no "via")
+            // so it can't be satisfied by a substring of the default-via line.
+            let lines = output.split(separator: "\n").map(String.init)
+            let hasLinkRoute = lines.contains { $0.hasPrefix("fd01::1 ") && $0.contains("dev eth0") && !$0.contains("via") }
+            guard hasLinkRoute else {
+                throw IntegrationError.assert(
+                    msg: "expected an on-link route 'fd01::1 ... dev eth0' (no 'via') in v6 routes, got: \(output)")
+            }
+            guard output.contains("default via fd01::1 dev eth0") else {
+                throw IntegrationError.assert(
+                    msg: "expected 'default via fd01::1 dev eth0' in v6 routes, got: \(output)")
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    @available(macOS 26.0, *)
+    func testIPv6OnlyDefaultRoute() async throws {
+        let id = "test-ipv6-only-default-route"
+        let bs = try await bootstrap(id)
+
+        // Construct a NATInterface with a nil IPv4 gateway and a v6 gateway, so
+        // LinuxContainer takes the no-v4-gateway branch in setupInterface. The v4
+        // address comes from TEST-NET-1; nothing in the test traffics over v4.
+        let interface = NATInterface(
+            ipv4Address: try CIDRv4("192.0.2.2/24"),
+            ipv4Gateway: nil,
+            ipv6Address: try CIDRv6("fd00::2/64"),
+            ipv6Gateway: try IPv6Address("fd00::1"))
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.interfaces = [interface]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let exec = try await container.exec("check-v6-route") { config in
+                config.arguments = ["ip", "-6", "route", "show"]
+                config.stdout = buffer
+            }
+
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ip -6 route show failed with status \(status)")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert output to UTF8")
+            }
+
+            guard output.contains("default via fd00::1 dev eth0") else {
+                throw IntegrationError.assert(
+                    msg: "expected 'default via fd00::1 dev eth0' in v6 routes when ipv4Gateway is nil, got: \(output)")
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    @available(macOS 26.0, *)
+    func testIPv6OnlyGatewayOutsideSubnet() async throws {
+        let id = "test-ipv6-only-gateway-outside-subnet"
+        let bs = try await bootstrap(id)
+
+        // No v4 gateway AND v6 gateway is outside the v6 subnet. Exercises
+        // setupInterface's "no v4 gateway, but v6 link route required before
+        // v6 default route" branch — the exact bug the helper extraction fixed.
+        let interface = NATInterface(
+            ipv4Address: try CIDRv4("192.0.2.2/24"),
+            ipv4Gateway: nil,
+            ipv6Address: try CIDRv6("fd00::2/120"),
+            ipv6Gateway: try IPv6Address("fd01::1"))
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.interfaces = [interface]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let exec = try await container.exec("check-v6-routes") { config in
+                config.arguments = ["ip", "-6", "route", "show"]
+                config.stdout = buffer
+            }
+
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ip -6 route show failed with status \(status)")
+            }
+
+            guard let output = String(data: buffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert output to UTF8")
+            }
+
+            // Both the on-link route to the gateway AND the default via it must be present.
+            // Without the link route the kernel rejects the default — that was the bug.
+            let lines = output.split(separator: "\n").map(String.init)
+            let hasLinkRoute = lines.contains { $0.hasPrefix("fd01::1 ") && $0.contains("dev eth0") && !$0.contains("via") }
+            guard hasLinkRoute else {
+                throw IntegrationError.assert(
+                    msg: "expected an on-link route 'fd01::1 ... dev eth0' (no 'via') in v6 routes, got: \(output)")
+            }
+            guard output.contains("default via fd01::1 dev eth0") else {
+                throw IntegrationError.assert(
+                    msg: "expected 'default via fd01::1 dev eth0' in v6 routes, got: \(output)")
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    @available(macOS 26.0, *)
+    func testIPv6DualStack() async throws {
+        let id = "test-ipv6-dual-stack"
+        let bs = try await bootstrap(id)
+
+        // Pin the network's v6 prefix so the gateway is deterministically fd00::1
+        // and the allocator's first allocation yields fd00::2.
+        var network = try VmnetNetwork(prefixV6: try CIDRv6("fd00::/64"))
+        defer {
+            try? network.releaseInterface(id)
+        }
+
+        guard let interface = try network.createInterface(id) else {
+            throw IntegrationError.assert(msg: "failed to create network interface")
+        }
+
+        // Capture the v4 address vmnet allocated so we can assert it ends up on eth0.
+        let expectedV4 = interface.ipv4Address.address.description
+
+        let addrBuffer = BufferWriter()
+        let routeBuffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.interfaces = [interface]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // `ip addr show` (no family flag) lists both v4 and v6.
+            let addrExec = try await container.exec("check-dual-stack-addr") { config in
+                config.arguments = ["ip", "addr", "show", "eth0"]
+                config.stdout = addrBuffer
+            }
+            try await addrExec.start()
+            let addrStatus = try await addrExec.wait()
+            try await addrExec.delete()
+
+            guard addrStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ip addr show failed with status \(addrStatus)")
+            }
+
+            guard let addrOutput = String(data: addrBuffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert addr output to UTF8")
+            }
+
+            guard addrOutput.contains(expectedV4) else {
+                throw IntegrationError.assert(
+                    msg: "expected v4 address \(expectedV4) on eth0, got: \(addrOutput)")
+            }
+            guard addrOutput.contains("fd00::2") else {
+                throw IntegrationError.assert(
+                    msg: "expected v6 address fd00::2 on eth0, got: \(addrOutput)")
+            }
+
+            // The dual-stack default routes must both be installed.
+            let routeExec = try await container.exec("check-dual-stack-route") { config in
+                config.arguments = ["ip", "-6", "route", "show"]
+                config.stdout = routeBuffer
+            }
+            try await routeExec.start()
+            let routeStatus = try await routeExec.wait()
+            try await routeExec.delete()
+
+            guard routeStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ip -6 route show failed with status \(routeStatus)")
+            }
+
+            guard let routeOutput = String(data: routeBuffer.data, encoding: .utf8) else {
+                throw IntegrationError.assert(msg: "failed to convert route output to UTF8")
+            }
+
+            guard routeOutput.contains("default via fd00::1 dev eth0") else {
+                throw IntegrationError.assert(
+                    msg: "expected 'default via fd00::1 dev eth0' in v6 routes, got: \(routeOutput)")
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    #endif
+
     func testSysctl() async throws {
         let id = "test-container-sysctl"
 
@@ -4620,6 +5367,87 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(
                     msg: "expected sysctls ['2048', '1'], got '\(output ?? "nil")'")
             }
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testExecJoinsInitNamespaces() async throws {
+        let id = "test-exec-joins-init-namespaces"
+
+        // An exec must land in exactly the namespaces the container's init
+        // process is in. The namespace identity check (`/proc/self/ns/*` vs
+        // `/proc/1/ns/*`, PID 1 being the container init as seen from inside
+        // its own PID namespace) is the real invariant: it catches any
+        // namespace the exec path forgets, not just the one that regressed.
+        //
+        // `kernel.shm_rmid_forced` is asserted alongside it because it is what
+        // consumers actually observe. IPC-namespaced sysctls are resolved
+        // against the *reading* process's IPC namespace, so an exec left in the
+        // guest's root IPC namespace reads the guest default (0) rather than
+        // the value applied to the container — the shape of the CRI conformance
+        // failure "should support safe sysctls", which reads such a sysctl back
+        // over ExecSync.
+        //
+        // `net` is expected to match too: LinuxContainer declares no network
+        // namespace, so both sides sit in the guest root netns today, and
+        // asserting it guards the exec path if that ever changes.
+        let probe = """
+            exec 2>&1
+            set -u
+            fail=0
+            for ns in ipc uts mnt pid cgroup net; do
+                mine=$(readlink /proc/self/ns/$ns)
+                init=$(readlink /proc/1/ns/$ns)
+                if [ "$mine" != "$init" ]; then
+                    echo "NS-FAIL: $ns exec=$mine init=$init"
+                    fail=1
+                fi
+            done
+            shm=$(cat /proc/sys/kernel/shm_rmid_forced)
+            if [ "$shm" != "1" ]; then
+                echo "SYSCTL-FAIL: kernel.shm_rmid_forced=$shm expected 1"
+                fail=1
+            fi
+            [ "$fail" -eq 0 ] || exit 1
+            echo "NS-OK"
+            """
+
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.sysctl = [
+                "kernel.shm_rmid_forced": "1"
+            ]
+            config.process.arguments = ["/bin/sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let buffer = BufferWriter()
+            let exec = try await container.exec("ns-probe") { config in
+                config.arguments = ["/bin/sh", "-c", probe]
+                config.stdout = buffer
+            }
+
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            let output = String(data: buffer.data, encoding: .utf8) ?? "<non-utf8 output>"
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "exec namespace probe failed (exit \(status.exitCode)): \(output)")
+            }
+            guard output.contains("NS-OK") else {
+                throw IntegrationError.assert(msg: "expected NS-OK sentinel, got: \(output)")
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
         } catch {
             try? await container.stop()
             throw error

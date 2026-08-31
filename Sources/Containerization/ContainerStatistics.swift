@@ -66,6 +66,11 @@ public struct ContainerStatistics: Sendable {
         public var majorPageFaults: UInt64
         public var inactiveFile: UInt64
         public var anon: UInt64
+        public var workingsetRefaultAnon: UInt64
+        public var workingsetRefaultFile: UInt64
+        public var pgstealKswapd: UInt64
+        public var pgstealDirect: UInt64
+        public var pgstealKhugepaged: UInt64
 
         public init(
             usageBytes: UInt64,
@@ -78,7 +83,12 @@ public struct ContainerStatistics: Sendable {
             pageFaults: UInt64,
             majorPageFaults: UInt64,
             inactiveFile: UInt64,
-            anon: UInt64
+            anon: UInt64,
+            workingsetRefaultAnon: UInt64 = 0,
+            workingsetRefaultFile: UInt64 = 0,
+            pgstealKswapd: UInt64 = 0,
+            pgstealDirect: UInt64 = 0,
+            pgstealKhugepaged: UInt64 = 0
         ) {
             self.usageBytes = usageBytes
             self.limitBytes = limitBytes
@@ -91,6 +101,11 @@ public struct ContainerStatistics: Sendable {
             self.majorPageFaults = majorPageFaults
             self.inactiveFile = inactiveFile
             self.anon = anon
+            self.workingsetRefaultAnon = workingsetRefaultAnon
+            self.workingsetRefaultFile = workingsetRefaultFile
+            self.pgstealKswapd = pgstealKswapd
+            self.pgstealDirect = pgstealDirect
+            self.pgstealKhugepaged = pgstealKhugepaged
         }
     }
 

@@ -274,7 +274,7 @@ extension ArchiveReader {
     /// for an existing file at a path to be extracted.
     public func extractContents(to directory: URL) throws -> [String] {
         // Create the root directory with standard permissions
-        // and create a FileDescriptor for secure path traveral.
+        // and create a FileDescriptor for secure path traversal.
         let fm = FileManager.default
         let rootFilePath = FilePath(directory.path)
         try fm.createDirectory(atPath: directory.path, withIntermediateDirectories: true)
@@ -398,7 +398,7 @@ extension ArchiveReader {
     }
 
     private func setFileAttributes(fd: Int32, entry: WriteEntry) {
-        fchmod(fd, entry.permissions)
+        fchmod(fd, entry.permissions & 0o777)
         if let owner = entry.owner, let group = entry.group {
             fchown(fd, owner, group)
         }

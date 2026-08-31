@@ -51,7 +51,9 @@ struct Application: AsyncParsableCommand {
         // so we do this synchronously before any async code runs.
         try mountProc()
 
-        var command = try parseAsRoot()
+        // When running as PID 1 with a Musl-static build, Swift's runtime
+        // captures argc/argv as empty. Recover argv from /proc/self/cmdline.
+        var command = try parseAsRoot(Self.procSelfArgv())
         if let asyncCommand = command as? AsyncParsableCommand {
             nonisolated(unsafe) var unsafeCommand = asyncCommand
             try await unsafeCommand.run()
@@ -83,6 +85,17 @@ struct Application: AsyncParsableCommand {
             options: []
         )
         try mnt.mount(createWithPerms: 0o755)
+    }
+
+    // /proc/self/cmdline holds argv as NUL-separated bytes. Read it after
+    // mountProc(). Returns argv minus argv[0], suitable for parseAsRoot(_:).
+    private static func procSelfArgv() -> [String] {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: "/proc/self/cmdline")) else {
+            return []
+        }
+        let parts = data.split(separator: 0, omittingEmptySubsequences: true)
+            .map { String(decoding: $0, as: UTF8.self) }
+        return Array(parts.dropFirst())
     }
 
     private static func isProcMounted() -> Bool {

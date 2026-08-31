@@ -78,8 +78,11 @@ extension ImageStore {
             // Lastly, we need to construct and push a new index, since we may
             // have pushed content only for specific platforms.
             let digest = SHA256.hash(data: localIndexData)
+            // The descriptor's mediaType becomes the HTTP Content-Type in
+            // RegistryClient.push and must match the mediaType field inside
+            // localIndexData. Registries reject mismatches with MANIFEST_INVALID.
             let descriptor = Descriptor(
-                mediaType: MediaTypes.index,
+                mediaType: index.mediaType,
                 digest: digest.digestString,
                 size: Int64(localIndexData.count))
             let stream = ReadStream(data: localIndexData)

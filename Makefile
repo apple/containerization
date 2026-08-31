@@ -15,10 +15,39 @@
 # Build configuration variables
 BUILD_CONFIGURATION ?= debug
 WARNINGS_AS_ERRORS ?= true
-SWIFT_CONFIGURATION := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors) --disable-automatic-resolution
+
+# Allow for a custom build cache directory
+# By default this is left unset, and swift uses the default directory as `./.build`
+# The `linux_run` target exports SCRATCH_ROOT inside of the container
+SCRATCH_ROOT ?=
+SCRATCH_PATH ?= $(if $(SCRATCH_ROOT),$(SCRATCH_ROOT)/build-containerization)
+SWIFT_SCRATCH_FLAGS := $(if $(SCRATCH_PATH),--scratch-path $(SCRATCH_PATH))
+SWIFT_CONFIGURATION := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors) --disable-automatic-resolution $(SWIFT_SCRATCH_FLAGS)
 
 # Commonly used locations
 UNAME_S := $(shell uname -s)
+UNAME_M := $(shell uname -m)
+KERNEL_ARCH := $(if $(filter $(UNAME_M),aarch64 arm64),arm64,$(UNAME_M))
+# Candidate kernel filenames in bin/ (compiled vmlinuz first, kata-fetched vmlinux fallback).
+ifeq ($(KERNEL_ARCH),x86_64)
+KERNEL_CANDIDATES := bin/vmlinuz-x86_64 bin/vmlinux-x86_64
+else
+KERNEL_CANDIDATES := bin/vmlinux-$(KERNEL_ARCH)
+endif
+# In-repo KVM-capable kernel built by `make -C kernel` (vmlinuz for x86_64 bzImage,
+# vmlinux for arm64 Image). linux-integration requires this; the kata-fetched
+# kernel under bin/ does not enable KVM.
+ifeq ($(KERNEL_ARCH),x86_64)
+LINUX_INTEGRATION_KERNEL := kernel/vmlinuz-x86_64
+else
+LINUX_INTEGRATION_KERNEL := kernel/vmlinux-$(KERNEL_ARCH)
+endif
+
+# Optional test-name filter for `make linux-integration`, e.g.
+#   make linux-integration FILTER="pod hotplug"
+# Comma-separated; a test is kept if its name contains ANY of the substrings.
+FILTER ?=
+linux_integration_filter = $(if $(strip $(FILTER)),--filter '$(strip $(FILTER))')
 ifeq ($(UNAME_S),Darwin)
 SWIFT ?= /usr/bin/swift
 else
@@ -26,7 +55,7 @@ SWIFT ?= swift
 endif
 
 ROOT_DIR := $(shell git rev-parse --show-toplevel)
-BUILD_BIN_DIR = $(shell $(SWIFT) build -c $(BUILD_CONFIGURATION) --show-bin-path)
+BUILD_BIN_DIR = $(shell $(SWIFT) build -c $(BUILD_CONFIGURATION) $(SWIFT_SCRATCH_FLAGS) --show-bin-path)
 COV_DATA_DIR = $(shell $(SWIFT) test --show-coverage-path | xargs dirname)
 COV_REPORT_FILE = $(ROOT_DIR)/code-coverage-report
 
@@ -36,15 +65,45 @@ LIBARCHIVE_UPSTREAM_VERSION := v3.7.7
 LIBARCHIVE_LOCAL_DIR := workdir/libarchive
 
 KATA_BINARY_PACKAGE := https://github.com/kata-containers/kata-containers/releases/download/3.17.0/kata-static-3.17.0-arm64.tar.xz
+CLOUD_HYPERVISOR_URL := https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/v52.0/cloud-hypervisor-static-aarch64
+# SHA256 of the v52.0 aarch64 static binary (verified locally from the
+# upstream release artifact). Bump alongside CLOUD_HYPERVISOR_URL.
+CLOUD_HYPERVISOR_SHA256 := bf004ddc1a148f47caa87ac49a783b8dbd6bf9bc27abe522ed197df7b982d3b1
 
 SWIFT_VERSION := $(shell cat $(ROOT_DIR)/.swift-version)
 SWIFT_SDK_URL := $(shell grep '^SWIFT_SDK_URL' vminitd/Makefile | head -1 | sed 's/.*:= *//')
 SWIFT_SDK_CHECKSUM := $(shell grep '^SWIFT_SDK_CHECKSUM' vminitd/Makefile | head -1 | sed 's/.*:= *//')
 LINUX_DEV_IMAGE := containerization-dev:$(SWIFT_VERSION)
 
+# Use an alternative path (backed by a named volume) for the build cache
+# when building products inside of a container
+# LINUX_SCRATCH_ROOT is used for the build cache
+# LINUX_SHARED_CACHE is used for the dependency cache
+LINUX_BUILD_VOLUME := containerization-linux-build
+LINUX_SCRATCH_ROOT := /build
+LINUX_SHARED_CACHE := $(LINUX_SCRATCH_ROOT)/cache
+
+# Literal `,` for use inside $(call ...) arguments — bare commas are
+# treated as the call's argument separator and split the value early.
+comma := ,
+
 # Run a command inside a Linux dev container.
 # Requires 'container' (https://github.com/apple/container).
 # Automatically builds the dev image if it doesn't exist.
+#
+# Bind-mounts $(ROOT_DIR)/.local/integration-cache → the dev container's
+# appRoot (`~/.local/share/com.apple.containerization`) so cctl-populated
+# imageStore content (e.g. `vminit:latest` from `make init`, plus images
+# pulled by the integration suite like alpine) persists across `container
+# run` invocations. Without this, every `make linux-integration` re-pulls
+# alpine and re-imports vminit, which dominates per-suite ramp-up. The
+# macOS path gets this for free because $HOME persists.
+#
+# $(1): bash command to run inside the container.
+# $(2): optional extra flags for `container run` (empty by default). Use this
+#       for linux-integration to pass `--kernel kernel/vmlinux-<arch>` so
+#       /dev/kvm is exposed in the dev container's Linux VM (the kata kernel
+#       fetched by `make fetch-default-kernel` does not enable KVM).
 define linux_run
 	@if ! command -v container > /dev/null 2>&1; then \
 		echo "Error: 'container' CLI not found. Install from https://github.com/apple/container"; \
@@ -54,7 +113,18 @@ define linux_run
 		echo "Building Linux dev container image..."; \
 		$(MAKE) linux-image; \
 	fi
-	@container run --memory 8gb --cpus 4 -v $(ROOT_DIR):/workspace -w /workspace $(LINUX_DEV_IMAGE) \
+	@mkdir -p $(ROOT_DIR)/.local/integration-cache
+	@if ! container volume inspect $(LINUX_BUILD_VOLUME) > /dev/null 2>&1; then \
+		echo "Creating Linux build volume $(LINUX_BUILD_VOLUME)..."; \
+		container volume create $(LINUX_BUILD_VOLUME) > /dev/null; \
+	fi
+	@container run --rm $(2) --memory 16gb --cpus 8 \
+		--env SCRATCH_ROOT=$(LINUX_SCRATCH_ROOT) \
+		--env XDG_CACHE_HOME=$(LINUX_SHARED_CACHE) \
+		-v $(ROOT_DIR):/workspace \
+		-v $(LINUX_BUILD_VOLUME):$(LINUX_SCRATCH_ROOT) \
+		-v $(ROOT_DIR)/.local/integration-cache:/root/.local/share/com.apple.containerization \
+		-w /workspace $(LINUX_DEV_IMAGE) \
 		bash -c "$(1)"
 endef
 
@@ -85,14 +155,141 @@ linux-image:
 linux-build: LIBC ?= musl
 linux-build:
 ifeq ($(LIBC),all)
-	$(call linux_run,make containerization && make -C vminitd LIBC=glibc && make -C vminitd LIBC=musl)
+	$(call linux_run,make containerization && make -C vminitd LIBC=glibc && make -C vminitd LIBC=musl && make init)
 else
-	$(call linux_run,make containerization && make -C vminitd LIBC=$(LIBC))
+	$(call linux_run,make containerization && make -C vminitd LIBC=$(LIBC) && make init)
 endif
 
 .PHONY: linux-test
 linux-test:
-	$(call linux_run,swift test $(SWIFT_CONFIGURATION))
+	$(call linux_run,swift test $(SWIFT_CONFIGURATION) --scratch-path $(LINUX_SCRATCH_ROOT)/build-containerization)
+
+.PHONY: build-cloud-hypervisor
+# Build cloud-hypervisor from the patched source at .local/cloud-hypervisor and
+# install it to bin/cloud-hypervisor. Runs inside the Linux dev container so the
+# resulting binary is aarch64-linux-gnu and can run nested-virt under
+# `container run --virtualization`. Installs build deps + rustup the first
+# time. Forces HOME=/root since the container inherits the host HOME otherwise,
+# which breaks rustup's $HOME/.cargo path.
+#
+# Prerequisite: clone cloud-hypervisor into .local/cloud-hypervisor (any
+# revision compatible with the v52.0 REST surface this repo targets). There
+# is no fetch target — pin the revision deliberately. Example:
+#   git clone -b v52.0 https://github.com/cloud-hypervisor/cloud-hypervisor \
+#       .local/cloud-hypervisor
+build-cloud-hypervisor:
+ifeq (,$(wildcard .local/cloud-hypervisor/Cargo.toml))
+	@echo "missing .local/cloud-hypervisor source checkout." >&2
+	@echo "clone the cloud-hypervisor repo into .local/cloud-hypervisor before running this target, e.g.:" >&2
+	@echo "  git clone -b v52.0 https://github.com/cloud-hypervisor/cloud-hypervisor .local/cloud-hypervisor" >&2
+	@exit 1
+endif
+	$(call linux_run,export HOME=/root && if ! command -v curl >/dev/null 2>&1; then apt-get update && apt-get install -y --no-install-recommends curl ca-certificates build-essential pkg-config libssl-dev; fi && if [ ! -x /root/.cargo/bin/cargo ]; then curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal; fi && . /root/.cargo/env && cd .local/cloud-hypervisor && cargo build --release --bin cloud-hypervisor && cp target/release/cloud-hypervisor /workspace/bin/cloud-hypervisor && chmod +x /workspace/bin/cloud-hypervisor)
+
+.PHONY: build-virtiofsd
+# Build virtiofsd from the source at .local/virtiofsd and install it to
+# bin/virtiofsd. Runs inside the Linux dev container so the resulting
+# binary is aarch64-linux-gnu and matches the cloud-hypervisor binary
+# built by `make build-cloud-hypervisor`.
+#
+# Prerequisite: clone virtiofsd into .local/virtiofsd (any revision the
+# scripts/patches/virtiofsd-skip-cap-drop-with-sandbox-none.patch applies
+# cleanly to). There is no fetch target — pin the revision deliberately:
+#   git clone https://gitlab.com/virtio-fs/virtiofsd .local/virtiofsd
+#
+# virtiofsd has two hard build deps that aren't in the base dev image:
+#   * libcap-ng-dev — capng crate is unconditional in [dependencies].
+#   * libseccomp-dev — Cargo.toml has `default = ["seccomp"]` and
+#     `[[bin]] required-features = ["seccomp"]`, and libseccomp-sys is a
+#     -sys crate that links against the system library via pkg-config.
+# Both are required even though we run with `--sandbox none` (capng is
+# called for capability-drop at startup, before any sandbox setup).
+#
+# Before building, applies the patch at
+# scripts/patches/virtiofsd-skip-cap-drop-with-sandbox-none.patch (see
+# that file for rationale). Idempotent: skips if already applied via
+# git apply --reverse --check.
+#
+# Sentinel for the apt-get block is libcap-ng + libseccomp via pkg-config
+# (not `command -v curl`) so this target works correctly even after
+# `build-cloud-hypervisor` has already installed curl in the same dev
+# container.
+build-virtiofsd:
+ifeq (,$(wildcard .local/virtiofsd/Cargo.toml))
+	@echo "missing .local/virtiofsd source checkout." >&2
+	@echo "clone the virtiofsd repo into .local/virtiofsd before running this target, e.g.:" >&2
+	@echo "  git clone https://gitlab.com/virtio-fs/virtiofsd .local/virtiofsd" >&2
+	@exit 1
+endif
+	$(call linux_run,export HOME=/root && \
+		if ! pkg-config --exists libcap-ng libseccomp 2>/dev/null; then \
+			apt-get update && apt-get install -y --no-install-recommends \
+				curl ca-certificates build-essential pkg-config libssl-dev \
+				libcap-ng-dev libseccomp-dev; \
+		fi && \
+		if [ ! -x /root/.cargo/bin/cargo ]; then \
+			curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal; \
+		fi && \
+		. /root/.cargo/env && \
+		cd /workspace/.local/virtiofsd && \
+		if git apply --check /workspace/scripts/patches/virtiofsd-skip-cap-drop-with-sandbox-none.patch 2>/dev/null; then \
+			git apply /workspace/scripts/patches/virtiofsd-skip-cap-drop-with-sandbox-none.patch && \
+			echo 'applied virtiofsd cap-drop patch'; \
+		elif git apply --reverse --check /workspace/scripts/patches/virtiofsd-skip-cap-drop-with-sandbox-none.patch 2>/dev/null; then \
+			echo 'virtiofsd cap-drop patch already applied'; \
+		else \
+			echo 'ERROR: virtiofsd cap-drop patch does not apply cleanly' >&2; \
+			exit 1; \
+		fi && \
+		cargo build --release && \
+		cp target/release/virtiofsd /workspace/bin/virtiofsd && \
+		chmod +x /workspace/bin/virtiofsd)
+
+.PHONY: linux-integration
+linux-integration:
+ifeq (,$(wildcard bin/cloud-hypervisor))
+	@echo "missing bin/cloud-hypervisor; run 'make fetch-cloud-hypervisor' first"
+	@exit 1
+endif
+ifeq (,$(wildcard bin/virtiofsd))
+	@echo "missing bin/virtiofsd; run 'make build-virtiofsd' first"
+	@exit 1
+endif
+ifeq (,$(wildcard $(LINUX_INTEGRATION_KERNEL)))
+	@echo "missing $(LINUX_INTEGRATION_KERNEL); run 'make -C kernel' first to build a KVM-capable kernel"
+	@exit 1
+endif
+ifeq (,$(wildcard bin/containerization-integration))
+	@echo "missing bin/containerization-integration; run 'make linux-build' first"
+	@exit 1
+endif
+ifeq (,$(wildcard bin/initfs.ext4))
+	@echo "missing bin/initfs.ext4; run 'make init' first (this also seeds the persistent imageStore at .local/integration-cache)"
+	@exit 1
+endif
+	$(call linux_run,CONTAINERIZATION_RELAXED_SANDBOX=1 ./bin/containerization-integration --kernel ./$(LINUX_INTEGRATION_KERNEL) --ch-binary ./bin/cloud-hypervisor --virtiofsd-binary ./bin/virtiofsd --max-concurrency 1 $(linux_integration_filter),--kernel $(LINUX_INTEGRATION_KERNEL) --virtualization)
+
+# Builds the x86_64 deployment tarball.
+#
+# Cross-compiles cctl, vminitd, cloud-hypervisor, and virtiofsd to
+# x86_64-linux-musl inside the aarch64 Linux dev container (using the
+# musl cross toolchain + static C deps installed by the dev image),
+# packs an initfs.ext4 with the x86_64 vminitd inside, and emits
+# bin/containerization-x86_64-<sha>.tar.gz.
+#
+# Depends on linux-image so that Dockerfile / build-musl-x86_64-deps.sh
+# changes are picked up automatically. `container build` is cheap when
+# layers are cached, so the no-change path is a few seconds of overhead.
+#
+# Prereqs:
+#   * .local/cloud-hypervisor and .local/virtiofsd source checkouts
+#     (see build-cloud-hypervisor / build-virtiofsd for clone URLs).
+#   * kernel/vmlinuz-x86_64 (preferred) or kernel/vmlinux-x86_64 present.
+#     Build via `make -C kernel TARGET_ARCH=x86_64` (or `make -C kernel x86_64`).
+#     The script fails hard if neither is present.
+.PHONY: dist-x86_64
+dist-x86_64: linux-image
+	$(call linux_run,./scripts/build-dist-x86_64.sh)
 endif
 
 .PHONY: all
@@ -112,34 +309,67 @@ containerization:
 	@echo Copying containerization binaries...
 	@mkdir -p bin
 	@install "$(BUILD_BIN_DIR)/cctl" ./bin/
-ifeq ($(UNAME_S),Darwin)
 	@install "$(BUILD_BIN_DIR)/containerization-integration" ./bin/
-
+ifeq ($(UNAME_S),Darwin)
 	@echo Signing containerization binaries...
 	@codesign --force --sign - --timestamp=none --entitlements=signing/vz.entitlements bin/cctl
 	@codesign --force --sign - --timestamp=none --entitlements=signing/vz.entitlements bin/containerization-integration
 endif
 
+# Shell fragments run inside the Linux dev container (see linux_run). Kept as
+# variables so `vminitd` (compile only) and `init` (compile + build the initfs
+# in a single container run) don't duplicate the command.
+VMINITD_BUILD_CMD = make -C vminitd BUILD_CONFIGURATION=$(BUILD_CONFIGURATION) WARNINGS_AS_ERRORS=$(WARNINGS_AS_ERRORS)
+INITFS_BUILD_CMD = ./scripts/build-initfs.sh --vminitd vminitd/bin/vminitd --vmexec vminitd/bin/vmexec --ext4 bin/initfs.ext4 --tar bin/init.rootfs.tar.gz
+
 .PHONY: init
-init: containerization vminitd
-	@echo Creating init.ext4...
-	@rm -f bin/init.rootfs.tar.gz bin/init.block bin/initfs.ext4
+ifeq ($(UNAME_S),Darwin)
+# Compile the guest and build the initfs (ext4 + rootfs tar) in a single dev
+# container run — where mkfs/loop-mount live — then create the vminit:latest
+# OCI image natively from the tar. The container's output is the finished
+# initfs, not raw binaries.
+init: containerization
+	@mkdir -p ./bin
+	$(call linux_run,$(VMINITD_BUILD_CMD) && $(INITFS_BUILD_CMD))
+	@"$(MAKE)" init-image
+else
+init: containerization
+	@mkdir -p ./bin
+	@$(VMINITD_BUILD_CMD)
+	@$(INITFS_BUILD_CMD)
+	@"$(MAKE)" init-image
+endif
+
+# Create the vminit:latest OCI image from the container-built rootfs tar, using
+# the native cctl. Split out from `init` so CI can create the image after
+# downloading the initfs artifact built by the Linux container job — no
+# apple/container needed on the macOS runner. The integration suite and the
+# release ghcr push consume this image.
+.PHONY: init-image
+init-image:
+	@echo Creating vminit:latest image...
+	@rm -f bin/init.block
 	@./bin/cctl rootfs create \
-		--vminitd vminitd/bin/vminitd \
-		--vmexec vminitd/bin/vmexec \
-		--ext4 ./bin/initfs.ext4 \
-		--label org.opencontainers.image.source=https://github.com/apple/containerization \
 		--image vminit:latest \
+		--label org.opencontainers.image.source=https://github.com/apple/containerization \
 		bin/init.rootfs.tar.gz
 
-.PHONY: cross-prep
-cross-prep:
-	@"$(MAKE)" -C vminitd cross-prep
-
 .PHONY: vminitd
+ifeq ($(UNAME_S),Darwin)
+# On macOS, vminitd/vmexec are static musl Linux binaries. Rather than
+# cross-compiling on the host (which used to require Swiftly + the Static
+# Linux SDK via `make cross-prep`), build them inside the Linux dev container
+# via `linux_run` — the same model `build-cloud-hypervisor` uses. The dev
+# image bakes in the Static Linux SDK, and the /workspace mount makes the
+# resulting binaries visible on the host at vminitd/bin/.
 vminitd:
 	@mkdir -p ./bin
-	@"$(MAKE)" -C vminitd BUILD_CONFIGURATION=$(BUILD_CONFIGURATION) WARNINGS_AS_ERRORS=$(WARNINGS_AS_ERRORS)
+	$(call linux_run,$(VMINITD_BUILD_CMD))
+else
+vminitd:
+	@mkdir -p ./bin
+	@$(VMINITD_BUILD_CMD)
+endif
 
 .PHONY: update-libarchive-source
 update-libarchive-source:
@@ -169,12 +399,13 @@ coverage: test
 
 .PHONY: integration
 integration:
-ifeq (,$(wildcard bin/vmlinux))
-	@echo No bin/vmlinux kernel found. See fetch-default-kernel target.
-	@exit 1
-endif
-	@echo Running the integration tests...
-	@./bin/containerization-integration
+	@kernel="$$(for f in $(KERNEL_CANDIDATES); do [ -f $$f ] && echo $$f && break; done)"; \
+	if [ -z "$$kernel" ]; then \
+		echo "No kernel found. Looked for: $(KERNEL_CANDIDATES). See fetch-default-kernel target or build via kernel/Makefile."; \
+		exit 1; \
+	fi; \
+	echo "Running the integration tests with kernel $$kernel..."; \
+	./bin/containerization-integration --kernel "$$kernel"
 
 .PHONY: fetch-default-kernel
 fetch-default-kernel:
@@ -182,13 +413,27 @@ fetch-default-kernel:
 ifeq (,$(wildcard .local/kata.tar.gz))
 	@curl -SsL -o .local/kata.tar.gz ${KATA_BINARY_PACKAGE}
 endif
-ifeq (,$(wildcard .local/vmlinux))
+ifeq (,$(wildcard .local/vmlinux-$(KERNEL_ARCH)))
 	@tar -zxf .local/kata.tar.gz -C .local/ --strip-components=1
-	@cp -L .local/opt/kata/share/kata-containers/vmlinux.container .local/vmlinux
+	@cp -L .local/opt/kata/share/kata-containers/vmlinux.container .local/vmlinux-$(KERNEL_ARCH)
 endif
-ifeq (,$(wildcard bin/vmlinux))
-	@cp .local/vmlinux bin/vmlinux
+ifeq (,$(wildcard bin/vmlinux-$(KERNEL_ARCH)))
+	@cp .local/vmlinux-$(KERNEL_ARCH) bin/vmlinux-$(KERNEL_ARCH)
 endif
+
+.PHONY: fetch-cloud-hypervisor
+fetch-cloud-hypervisor:
+	@mkdir -p bin
+	@curl -SsL -o bin/cloud-hypervisor $(CLOUD_HYPERVISOR_URL)
+	@actual=$$(shasum -a 256 bin/cloud-hypervisor | awk '{print $$1}'); \
+	if [ "$$actual" != "$(CLOUD_HYPERVISOR_SHA256)" ]; then \
+		echo "ERROR: cloud-hypervisor checksum mismatch" >&2; \
+		echo "  expected: $(CLOUD_HYPERVISOR_SHA256)" >&2; \
+		echo "  actual:   $$actual" >&2; \
+		rm -f bin/cloud-hypervisor; \
+		exit 1; \
+	fi
+	@chmod +x bin/cloud-hypervisor
 
 .PHONY: check
 check: swift-fmt-check check-licenses
@@ -203,8 +448,8 @@ swift-fmt:
 	@$(SWIFT) format --recursive --configuration .swift-format -i $(SWIFT_SRC)
 
 swift-fmt-check:
-	   @echo Checking code formatting compliance...
-	   @$(SWIFT) format lint --recursive --strict --configuration .swift-format-nolint $(SWIFT_SRC)
+	@echo Checking code formatting compliance...
+	@$(SWIFT) format lint --recursive --strict --configuration .swift-format-nolint $(SWIFT_SRC)
 
 .PHONY: update-licenses
 update-licenses:
@@ -245,6 +490,14 @@ docs:
 cleancontent:
 	@echo Cleaning the content...
 	@rm -rf ~/Library/Application\ Support/com.apple.containerization
+
+.PHONY: examples
+examples:
+	@echo Building examples...
+	@mkdir -p bin
+	@"$(MAKE)" -C examples/sandboxy build BUILD_CONFIGURATION=$(BUILD_CONFIGURATION)
+	@install examples/sandboxy/bin/sandboxy ./bin/
+	@codesign --force --sign - --timestamp=none --entitlements=signing/vz.entitlements bin/sandboxy
 
 .PHONY: clean
 clean:

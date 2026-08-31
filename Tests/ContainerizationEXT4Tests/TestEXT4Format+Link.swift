@@ -43,6 +43,25 @@ struct Ext4FormatLinkTests {
         #expect(try EXT4.EXT4Reader(blockDevice: afterUnlink).stat("/original").inode.linksCount == 1)
     }
 
+    @Test func hardlinkCreatesMissingParents() throws {
+        let path = FilePath(
+            FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: false))
+        defer { try? FileManager.default.removeItem(at: path.url) }
+        let fmt = try EXT4.Formatter(path, minDiskSize: 32.kib())
+        try fmt.create(path: "/original", mode: EXT4.Inode.Mode(.S_IFREG, 0o755), buf: nil)
+        // Parent dirs /a and /a/b do not exist yet; link must create them implicitly.
+        try fmt.link(link: "/a/b/hardlink", target: "/original")
+        try fmt.close()
+
+        let reader = try EXT4.EXT4Reader(blockDevice: path)
+        #expect(try reader.stat("/a").inode.mode.isDir())
+        #expect(try reader.stat("/a/b").inode.mode.isDir())
+        let target = try reader.stat("/original")
+        #expect(try reader.stat("/a/b/hardlink").inodeNumber == target.inodeNumber)
+        #expect(target.inode.linksCount == 2)
+    }
+
     @Test func unlinkFirstInodeFreesInode() throws {
         let emptyPath = FilePath(FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: false))
         defer { try? FileManager.default.removeItem(at: emptyPath.url) }

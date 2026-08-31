@@ -15,13 +15,36 @@
 
 set -e
 
+TARGET_ARCH="${TARGET_ARCH:-$(uname -m)}"
+
+case "${TARGET_ARCH}" in
+  aarch64|arm64)
+    CONFIG=config-arm64
+    KARCH=arm64
+    CROSS_COMPILE=aarch64-linux-gnu-
+    IMAGE_PATH=arch/arm64/boot/Image
+    OUTPUT_NAME=vmlinux-arm64
+    ;;
+  x86_64|amd64)
+    CONFIG=config-x86_64
+    KARCH=x86_64
+    CROSS_COMPILE=x86_64-linux-gnu-
+    IMAGE_PATH=arch/x86/boot/bzImage
+    OUTPUT_NAME=vmlinuz-x86_64
+    ;;
+  *)
+    echo "Unsupported target architecture: ${TARGET_ARCH}" >&2
+    exit 1
+    ;;
+esac
+
 mkdir -p /kbuild
 tar -xf /kernel/source.tar.xz -C /kbuild --strip-components=1
-cp /kernel/config-arm64 /kbuild/.config
+cp "/kernel/${CONFIG}" /kbuild/.config
 
 (
   cd /kbuild
-  make olddefconfig && \
-    make -j$((`nproc`-1)) LOCALVERSION="${LOCALVERSION}" && \
-    cp arch/arm64/boot/Image /kernel/vmlinux
+  make ARCH="${KARCH}" CROSS_COMPILE="${CROSS_COMPILE}" olddefconfig && \
+    make ARCH="${KARCH}" CROSS_COMPILE="${CROSS_COMPILE}" -j$((`nproc`-1)) LOCALVERSION="${LOCALVERSION}" && \
+    cp "${IMAGE_PATH}" "/kernel/${OUTPUT_NAME}"
 )

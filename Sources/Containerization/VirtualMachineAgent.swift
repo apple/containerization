@@ -25,6 +25,12 @@ public struct WriteFileFlags {
     public var create = false
 }
 
+public enum FilesystemOperation: Sendable {
+    case freeze
+    case thaw
+    case trim
+}
+
 /// A protocol for the agent running inside a virtual machine. If an operation isn't
 /// supported the implementation MUST return a ContainerizationError with a code of
 /// `.unsupported`.
@@ -34,6 +40,8 @@ public protocol VirtualMachineAgent: Sendable {
     func standardSetup() async throws
     /// Close any resources held by the agent.
     func close() async throws
+    // Perform a filesystem operation on the given path.
+    func filesystemOperation(operation: FilesystemOperation, path: String, containerID: String?) async throws
 
     // POSIX-y
     func getenv(key: String) async throws -> String
@@ -67,9 +75,9 @@ public protocol VirtualMachineAgent: Sendable {
     // Networking
     func up(name: String, mtu: UInt32?) async throws
     func down(name: String) async throws
-    func addressAdd(name: String, ipv4Address: CIDRv4) async throws
-    func routeAddLink(name: String, dstIPv4Addr: IPv4Address, srcIPv4Addr: IPv4Address?) async throws
-    func routeAddDefault(name: String, ipv4Gateway: IPv4Address?) async throws
+    func addressAdd(name: String, address: InterfaceAddress) async throws
+    func routeAddLink(name: String, route: LinkRoute) async throws
+    func routeAddDefault(name: String, route: DefaultRoute) async throws
     func configureDNS(config: DNS, location: String) async throws
     func configureHosts(config: Hosts, location: String) async throws
 

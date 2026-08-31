@@ -15,6 +15,7 @@
 //===----------------------------------------------------------------------===//
 
 import Foundation
+import OrderedCollections
 import SystemPackage
 
 extension EXT4 {
@@ -22,7 +23,11 @@ extension EXT4 {
         class FileTreeNode {
             let inode: InodeNumber
             let name: String
-            var children: [Ptr<FileTreeNode>] = []
+            // Children keyed by name for O(1) lookup, preserving insertion order.
+            private(set) var childrenByName: OrderedDictionary<String, Ptr<FileTreeNode>> = [:]
+            var children: OrderedDictionary<String, Ptr<FileTreeNode>>.Values {
+                childrenByName.values
+            }
             var blocks: (start: UInt32, end: UInt32)?
             var additionalBlocks: [(start: UInt32, end: UInt32)]?
             var link: InodeNumber?
@@ -39,16 +44,17 @@ extension EXT4 {
             ) {
                 self.inode = inode
                 self.name = name
-                self.children = children
                 self.blocks = blocks
                 self.additionalBlocks = additionalBlocks
                 self.link = link
                 self.parent = parent
+                for child in children {
+                    self.addChild(child)
+                }
             }
 
             deinit {
-                self.children.removeAll()
-                self.children = []
+                self.childrenByName.removeAll()
                 self.blocks = nil
                 self.additionalBlocks = nil
                 self.link = nil
@@ -63,6 +69,14 @@ extension EXT4 {
                 }
                 let path = components.reversed().joined(separator: "/")
                 return FilePath(path).lexicallyNormalized()
+            }
+
+            func addChild(_ child: Ptr<FileTreeNode>) {
+                childrenByName[child.pointee.name] = child
+            }
+
+            func removeChild(named name: String) {
+                childrenByName.removeValue(forKey: name)
             }
         }
 
@@ -82,18 +96,10 @@ extension EXT4 {
                 return node
             }
             for component in components {
-                var found = false
-                for childPtr in node.pointee.children {
-                    let child = childPtr.pointee
-                    if child.name == component {
-                        node = childPtr
-                        found = true
-                        break
-                    }
-                }
-                guard found else {
+                guard let childPtr = node.pointee.childrenByName[component] else {
                     return nil
                 }
+                node = childPtr
             }
             return node
         }

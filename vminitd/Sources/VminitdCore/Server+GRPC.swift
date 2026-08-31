@@ -27,10 +27,12 @@ import ContainerizationOS
 import Foundation
 import GRPCCore
 import GRPCProtobuf
+import LCShim
 import Logging
 import NIOCore
 import NIOPosix
 import SwiftProtobuf
+import SystemPackage
 
 private let _setenv = Foundation.setenv
 
@@ -40,14 +42,16 @@ private let _mount = Musl.mount
 private let _umount = Musl.umount2
 private let _kill = Musl.kill
 private let _sync = Musl.sync
-private let _stat: @Sendable (UnsafePointer<CChar>, UnsafeMutablePointer<Musl.stat>) -> Int32 = stat
+typealias _stat_struct = Musl.stat
+private let _stat: @Sendable (UnsafePointer<CChar>, UnsafeMutablePointer<_stat_struct>) -> Int32 = stat
 #elseif canImport(Glibc)
 import Glibc
 private let _mount = Glibc.mount
 private let _umount = Glibc.umount2
 private let _kill = Glibc.kill
 private let _sync = Glibc.sync
-private let _stat: @Sendable (UnsafePointer<CChar>, UnsafeMutablePointer<Glibc.stat>) -> Int32 = stat
+typealias _stat_struct = Glibc.stat
+private let _stat: @Sendable (UnsafePointer<CChar>, UnsafeMutablePointer<_stat_struct>) -> Int32 = stat
 #endif
 
 extension ContainerizationError {
@@ -378,11 +382,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         )
 
         #if os(Linux)
-        #if canImport(Musl)
-        var s = Musl.stat()
-        #elseif canImport(Glibc)
-        var s = Glibc.stat()
-        #endif
+        var s = _stat_struct()
         let result = _stat(request.path, &s)
         if result == -1 {
             let error = swiftErrno("stat")
@@ -664,7 +664,47 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             )
 
             #if os(Linux)
-            try mnt.mount(createWithPerms: 0o755)
+            do {
+                try mnt.mount(createWithPerms: 0o755)
+            } catch {
+                // A hot-plugged virtio device (virtio-blk / virtio-fs) may not
+                // be enumerated by the guest yet when the host issues this
+                // mount immediately after vm.add-disk / vm.add-fs: cloud-
+                // hypervisor places the device on the PCI bus but the guest
+                // does not always auto-probe it. Force a PCI rescan and retry
+                // with a bounded wait. Scoped to hot-plug-candidate sources so
+                // an ordinary mount failure isn't delayed.
+                let hotplugCandidate = request.type == "virtiofs" || request.source.hasPrefix("/dev/vd")
+                guard hotplugCandidate else { throw error }
+
+                if let rescan = FileHandle(forWritingAtPath: "/sys/bus/pci/rescan") {
+                    defer { try? rescan.close() }
+                    do {
+                        try rescan.write(contentsOf: Data("1".utf8))
+                        log.info("mount: triggered PCI bus rescan for hot-plugged device")
+                    } catch {
+                        log.error("mount: PCI rescan write failed", metadata: ["error": "\(error)"])
+                    }
+                } else {
+                    log.error("mount: cannot open /sys/bus/pci/rescan")
+                }
+
+                var mounted = false
+                for attempt in 1...20 {  // up to ~2s for the device to enumerate
+                    try? await Task.sleep(for: .milliseconds(100))
+                    do {
+                        try mnt.mount(createWithPerms: 0o755)
+                        log.info("mount: succeeded after PCI rescan", metadata: ["attempt": "\(attempt)"])
+                        mounted = true
+                        break
+                    } catch {
+                        continue
+                    }
+                }
+                if !mounted {
+                    throw error
+                }
+            }
             return .init()
             #else
             fatalError("mount not supported on platform")
@@ -676,6 +716,175 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                     "error": "\(error)"
                 ])
             throw RPCError(code: .internalError, message: "mount", cause: error)
+        }
+    }
+
+    public func filesystemOperation(request: Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest, context: GRPCCore.ServerContext)
+        async throws -> Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse
+    {
+        let path = FilePath(request.path)
+        if !request.hasContainerID {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "containerID is required"
+            )
+        }
+
+        guard let operation = request.operation else {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "operation is required"
+            )
+        }
+
+        let container = try await state.get(container: request.containerID)
+        guard let containerPid = await container.pid else {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "container PID is not present"
+            )
+        }
+
+        log.debug(
+            "filesystemOperation",
+            metadata: [
+                "containerID": "\(request.containerID)",
+                "containerPid": "\(containerPid)",
+                "operation": "\(operation)",
+                "path": "\(path)",
+            ])
+
+        if !path.isAbsolute {
+            throw RPCError(code: .invalidArgument, message: "path must be absolute")
+        }
+
+        let selfMountFd = open("/proc/self/ns/mnt", O_RDONLY | O_CLOEXEC)
+        if selfMountFd < 0 {
+            let error = swiftErrno("open")
+            throw RPCError(code: .internalError, message: "failed to open self mount namespace", cause: error)
+        }
+
+        defer { close(selfMountFd) }
+
+        let containerMountFd = open("/proc/\(containerPid)/ns/mnt", O_RDONLY | O_CLOEXEC)
+        if containerMountFd < 0 {
+            let error = swiftErrno("open")
+            throw RPCError(code: .internalError, message: "failed to open container mount namespace", cause: error)
+        }
+
+        defer { close(containerMountFd) }
+
+        var finfo = _stat_struct()
+        let selfMountStat = fstat(selfMountFd, &finfo)
+        if selfMountStat != 0 {
+            let error = swiftErrno("fstat")
+            throw RPCError(code: .internalError, message: "failed to stat self mount namespace", cause: error)
+        }
+        let selfInode = finfo.st_ino
+
+        let containerMountStat = fstat(containerMountFd, &finfo)
+        if containerMountStat != 0 {
+            let error = swiftErrno("fstat")
+            throw RPCError(code: .internalError, message: "failed to stat container mount namespace", cause: error)
+        }
+        let containerInode = finfo.st_ino
+
+        if selfInode == containerInode {
+            try doFilesystemOperation(path: path, operation: operation)
+        } else {
+            try await self.runOnDedicatedThread {
+                if unshare(CLONE_FS) != 0 {
+                    let error = self.swiftErrno("unshare(CLONE_FS)")
+                    throw RPCError(code: .internalError, message: "failed to unshare filesystem namespace", cause: error)
+                }
+                if setns(containerMountFd, CLONE_NEWNS) != 0 {
+                    let error = self.swiftErrno("setns(CLONE_NEWNS)")
+                    throw RPCError(code: .internalError, message: "failed to enter container mount namespace", cause: error)
+                }
+                try self.doFilesystemOperation(path: path, operation: operation)
+            }
+        }
+
+        return .init()
+    }
+
+    private func doFilesystemOperation(
+        path: FilePath,
+        operation: Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest.OneOf_Operation
+    ) throws {
+        var finfo = _stat_struct()
+        let rc = _stat(path.string, &finfo)
+        if rc != 0 {
+            let error = swiftErrno("stat")
+            throw RPCError(code: .notFound, message: "failed to stat path", cause: error)
+        }
+
+        let fd = open(path.string, O_RDONLY | O_NOFOLLOW)
+        if fd < 0 {
+            if errno == ELOOP {
+                throw RPCError(code: .internalError, message: "path cannot be a symlink")
+            }
+            let error = swiftErrno("open")
+            throw RPCError(code: .internalError, message: "failed to open path", cause: error)
+        }
+
+        defer { close(fd) }
+
+        do {
+            switch operation {
+            case .freeze(_):
+                try freezeFilesystem(fd: fd)
+            case .thaw(_):
+                try thawFilesystem(fd: fd)
+            case .trim(let params):
+                switch params.schedule {
+                case .oneShot(_):
+                    try trimFilesystem(fd: fd)
+                case .none:
+                    throw RPCError(code: .invalidArgument, message: "trim schedule must be specified")
+                }
+            }
+        } catch {
+            log.error(
+                "filesystemOperation",
+                metadata: [
+                    "error": "\(error)"
+                ])
+            throw RPCError(code: .internalError, message: "filesystemOperation", cause: error)
+        }
+    }
+
+    private func freezeFilesystem(fd: Int32) throws {
+        let FIFREEZE: UInt = 0xC004_5877
+        let rc: CInt = ioctl(fd, FIFREEZE, 0)
+        if rc != 0 {
+            let error = swiftErrno("ioctl(FIFREEZE)")
+            throw RPCError(code: .internalError, message: "freeze failed", cause: error)
+        }
+    }
+
+    private func thawFilesystem(fd: Int32) throws {
+        let FITHAW: UInt = 0xC004_5878
+        let rc: CInt = ioctl(fd, FITHAW, 0)
+        if rc != 0 {
+            let error = swiftErrno("ioctl(FITHAW)")
+            throw RPCError(code: .internalError, message: "thaw failed", cause: error)
+        }
+    }
+
+    private struct fitrim_range {
+        var start: UInt64
+        var len: UInt64
+        var min_len: UInt64
+    }
+
+    private func trimFilesystem(fd: Int32) throws {
+        let FITRIM: UInt = 0xC018_5879
+        var trange = fitrim_range(start: 0, len: UInt64.max, min_len: 0)
+        let rc: CInt = ioctl(fd, FITRIM, &trange)
+        if rc != 0 {
+            let error = swiftErrno("ioctl(FITRIM)")
+            throw RPCError(code: .internalError, message: "trim failed", cause: error)
         }
     }
 
@@ -856,7 +1065,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             if error is RPCError {
                 throw error
             }
-            throw RPCError(code: .internalError, message: "createProcess", cause: error)
+            throw RPCError(code: .internalError, message: "createProcess: \(error)", cause: error)
         }
     }
 
@@ -1192,6 +1401,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             metadata: [
                 "interface": "\(request.interface)",
                 "ipv4Address": "\(request.ipv4Address)",
+                "ipv6Address": "\(request.hasIpv6Address ? request.ipv6Address : "<none>")",
             ])
 
         do {
@@ -1199,6 +1409,30 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             let session = NetlinkSession(socket: socket, log: log)
             let ipv4Address = try CIDRv4(request.ipv4Address)
             try session.addressAdd(interface: request.interface, ipv4Address: ipv4Address)
+            if request.hasIpv6Address {
+                // Suppress SLAAC on this interface before adding the static
+                // address: the host would provide a static IPv6 config, this
+                // auto-derived IPv6 config would compete with the static one.
+                let confPath = URL(fileURLWithPath: "/proc/sys/net/ipv6/conf/\(request.interface)")
+                for key in ["accept_ra", "autoconf"] {
+                    let setting = confPath.appendingPathComponent(key)
+                    do {
+                        let fh = try FileHandle(forWritingTo: setting)
+                        defer { try? fh.close() }
+                        try fh.write(contentsOf: Data("0".utf8))
+                    } catch {
+                        log.warning(
+                            "ipAddrAdd: failed to disable IPv6 auto-configuration",
+                            metadata: [
+                                "path": "\(setting.path)",
+                                "error": "\(error)",
+                            ])
+                    }
+                }
+
+                let ipv6Address = try CIDRv6(request.ipv6Address)
+                try session.addressAdd(interface: request.interface, ipv6Address: ipv6Address)
+            }
         } catch {
             log.error(
                 "ipAddrAdd",
@@ -1220,18 +1454,38 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                 "interface": "\(request.interface)",
                 "dstIpv4Addr": "\(request.dstIpv4Addr)",
                 "srcIpv4Addr": "\(request.srcIpv4Addr)",
+                "dstIpv6Addr": "\(request.hasDstIpv6Addr ? request.dstIpv6Addr : "<none>")",
+                "srcIpv6Addr": "\(request.hasSrcIpv6Addr ? request.srcIpv6Addr : "<none>")",
             ])
+
+        guard !request.dstIpv4Addr.isEmpty || request.hasDstIpv6Addr else {
+            throw RPCError(
+                code: .invalidArgument,
+                message: "ipRouteAddLink requires at least one of dstIpv4Addr or dstIpv6Addr"
+            )
+        }
 
         do {
             let socket = try DefaultNetlinkSocket()
             let session = NetlinkSession(socket: socket, log: log)
-            let dstIpv4Addr = try CIDRv4(request.dstIpv4Addr)
-            let srcIpv4Addr = request.srcIpv4Addr.isEmpty ? nil : try IPv4Address(request.srcIpv4Addr)
-            try session.routeAdd(
-                interface: request.interface,
-                dstIpv4Addr: dstIpv4Addr,
-                srcIpv4Addr: srcIpv4Addr
-            )
+            if !request.dstIpv4Addr.isEmpty {
+                let dstIpv4Addr = try CIDRv4(request.dstIpv4Addr)
+                let srcIpv4Addr = request.srcIpv4Addr.isEmpty ? nil : try IPv4Address(request.srcIpv4Addr)
+                try session.routeAdd(
+                    interface: request.interface,
+                    dstIpv4Addr: dstIpv4Addr,
+                    srcIpv4Addr: srcIpv4Addr
+                )
+            }
+            if request.hasDstIpv6Addr {
+                let dstIpv6Addr = try CIDRv6(request.dstIpv6Addr)
+                let srcIpv6Addr = request.hasSrcIpv6Addr ? try IPv6Address(request.srcIpv6Addr) : nil
+                try session.routeAdd(
+                    interface: request.interface,
+                    dstIpv6Addr: dstIpv6Addr,
+                    srcIpv6Addr: srcIpv6Addr
+                )
+            }
         } catch {
             log.error(
                 "ipRouteAddLink",
@@ -1253,13 +1507,24 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             metadata: [
                 "interface": "\(request.interface)",
                 "ipv4Gateway": "\(request.ipv4Gateway)",
+                "ipv6Gateway": "\(request.hasIpv6Gateway ? request.ipv6Gateway : "<none>")",
             ])
 
         do {
             let socket = try DefaultNetlinkSocket()
             let session = NetlinkSession(socket: socket, log: log)
-            let ipv4Gateway = !request.ipv4Gateway.isEmpty ? try IPv4Address(request.ipv4Gateway) : nil
-            try session.routeAddDefault(interface: request.interface, ipv4Gateway: ipv4Gateway)
+            if !request.ipv4Gateway.isEmpty {
+                let ipv4Gateway = try IPv4Address(request.ipv4Gateway)
+                try session.routeAddDefault(interface: request.interface, ipv4Gateway: ipv4Gateway)
+            } else if !request.hasIpv6Gateway {
+                // No v4 gateway and no v6 either: install a v4 default route
+                // with no gateway (preserves pre-IPv6 behavior).
+                try session.routeAddDefault(interface: request.interface, ipv4Gateway: nil)
+            }
+            if request.hasIpv6Gateway {
+                let ipv6Gateway = try IPv6Address(request.ipv6Gateway)
+                try session.routeAddDefault(interface: request.interface, ipv6Gateway: ipv6Gateway)
+            }
         } catch {
             log.error(
                 "ipRouteAddDefault",
@@ -1383,13 +1648,14 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             for containerID in containerIDs {
                 let container = try await state.get(container: containerID)
 
-                // Only fetch cgroup stats if needed
-                let cgStats: Cgroup2Stats?
-                if wantProcess || wantMemory || wantCPU || wantBlockIO {
-                    cgStats = try await container.stats()
-                } else {
-                    cgStats = nil
-                }
+                // Only read the cgroup stat groups that were requested.
+                var cgCategories: Cgroup2StatsCategory = []
+                if wantProcess { cgCategories.insert(.pids) }
+                if wantMemory { cgCategories.insert(.memory) }
+                if wantCPU { cgCategories.insert(.cpu) }
+                if wantBlockIO { cgCategories.insert(.io) }
+
+                let cgStats: Cgroup2Stats? = cgCategories.isEmpty ? nil : try await container.stats(cgCategories)
 
                 // Get network stats only if requested
                 var networkStats: [Com_Apple_Containerization_Sandbox_V3_NetworkStats] = []
@@ -1458,6 +1724,22 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         return error
     }
 
+    private func runOnDedicatedThread<T: Sendable>(
+        _ work: @escaping @Sendable () throws -> T
+    ) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            let thread = Thread {
+                do {
+                    let result = try work()
+                    continuation.resume(returning: result)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+            thread.start()
+        }
+    }
+
     // NOTE: This is just crummy. It works because today the assumption is
     // every NIC in the root net namespace is for the container(s), but if we
     // ever supported individual containers having their own NICs/IPs then this
@@ -1510,6 +1792,11 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                     $0.majorPageFaults = memory.pgmajfault
                     $0.inactiveFile = memory.inactiveFile
                     $0.anon = memory.anon
+                    $0.workingsetRefaultAnon = memory.workingsetRefaultAnon
+                    $0.workingsetRefaultFile = memory.workingsetRefaultFile
+                    $0.pgstealKswapd = memory.pgstealKswapd
+                    $0.pgstealDirect = memory.pgstealDirect
+                    $0.pgstealKhugepaged = memory.pgstealKhugepaged
                 }
             }
 
