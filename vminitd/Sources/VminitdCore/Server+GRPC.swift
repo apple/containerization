@@ -1569,7 +1569,20 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
 
             // Redirect rules must apply before writing: a netlink failure throws.
             let redirects =
-                if request.redirectTargets.isEmpty {
+                if request.redirectTargets.isEmpty && !request.nameservers.isEmpty {
+                    // Nameservers without targets: redirect the default nameserver to
+                    // the default target, one TCP and one UDP rule.
+                    [
+                        DNATRule(
+                            matchDaddr: try IPv4Address([198, 51, 100, 100]), matchDport: 53,
+                            matchProto: IPProtocol.IPPROTO_UDP,
+                            dnatAddr: try IPv4Address([192, 168, 64, 1]), dnatPort: 3053),
+                        DNATRule(
+                            matchDaddr: try IPv4Address([198, 51, 100, 100]), matchDport: 53,
+                            matchProto: IPProtocol.IPPROTO_TCP,
+                            dnatAddr: try IPv4Address([192, 168, 64, 1]), dnatPort: 3053),
+                    ]
+                } else if request.redirectTargets.isEmpty {
                     [] as [DNATRule]
                 } else {
                     try request.nameservers.enumerated().flatMap { index, nameserver in
