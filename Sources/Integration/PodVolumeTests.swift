@@ -19,6 +19,7 @@ import ContainerizationArchive
 import ContainerizationEXT4
 import ContainerizationError
 import ContainerizationOCI
+import ContainerizationOS
 import Foundation
 import Logging
 import SystemPackage
@@ -76,6 +77,63 @@ extension IntegrationSuite {
         guard output.contains("/dev/vd") else {
             throw IntegrationError.assert(msg: "expected virtio block device (/dev/vd*) for \(path), got: \(output)")
         }
+    }
+
+    /// Run `bin/cctl run` to completion and return its combined stdout+stderr.
+    ///
+    /// This exercises the `cctl` CLI rather than the
+    /// library directly, so it validates the `--block` option wiring end to end:
+    /// argument parsing, `Mount` construction, VZ attachment, and the guest
+    /// mount. `bin/cctl` is built and codesigned with the virtualization
+    /// entitlement.
+    private func runCctl(arguments: [String]) throws -> (output: String, exitCode: Int32) {
+        let cctl = Self.binPath(name: "cctl")
+        guard FileManager.default.isExecutableFile(atPath: cctl.path) else {
+            throw IntegrationError.assert(msg: "bin/cctl not built or not executable at \(cctl.path); run `make containerization`")
+        }
+
+        let (parent, child) = try Terminal.create()
+
+        let process = Process()
+        process.executableURL = cctl
+        process.arguments = arguments
+        // `cctl run` resolves relative paths (kernel, bin/) against the cwd.
+        process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        process.standardInput = child.handle
+        process.standardOutput = child.handle
+        process.standardError = child.handle
+
+        try process.run()
+        // Drop our copy of the child fd. While any process here holds it open
+        // the parent side never reports EOF and the drain below never returns.
+        try child.close()
+
+        // Drain before waiting: the pty buffer is far smaller than a pipe's, so
+        // a chatty container blocks quickly.
+        var data = Data()
+        var buf = [UInt8](repeating: 0, count: 4096)
+        let parentFD = parent.handle.fileDescriptor
+        while true {
+            let n = read(parentFD, &buf, buf.count)
+            if n > 0 {
+                data.append(contentsOf: buf[0..<n])
+                continue
+            }
+            // n == 0 is EOF. n < 0 with EIO is how Darwin reports "last child
+            // fd closed" on a pty parent, which is EOF for us too. Retry EINTR.
+            if n < 0 && errno == EINTR {
+                continue
+            }
+            break
+        }
+        process.waitUntilExit()
+        try? parent.close()
+
+        // The pty applies ONLCR until cctl switches it to raw mode, so the
+        // output is a mix of "\r\n" and "\n". Normalize for callers' matching.
+        let output = (String(data: data, encoding: .utf8) ?? "")
+            .replacingOccurrences(of: "\r\n", with: "\n")
+        return (output, process.terminationStatus)
     }
 
     func testContainerNBDMount() async throws {
@@ -944,6 +1002,178 @@ extension IntegrationSuite {
         guard readerOut.contains("tmpfs /shared-tmpfs tmpfs") else {
             throw IntegrationError.assert(msg: "reader mount /shared-tmpfs is not backed by tmpfs: \(readerOut)")
         }
+    }
+
+    /// `cctl run --block` in filesystem mode: the ext4 on the NBD export is
+    /// mounted at dst, and a write from the container lands on the backing file.
+    func testCctlBlockNBDMount() async throws {
+        let id = "test-cctl-block-nbd-mount"
+        let (server, diskURL) = try createNBDServer(testID: id, name: "cctl-vol")
+        defer { server.stop() }
+
+        let (output, exitCode) = try runCctl(arguments: [
+            "run",
+            "--kernel", self.kernel,
+            "--id", id,
+            "--block", "src=\(server.url),dst=/data,fmt=ext4",
+            "/bin/sh", "-c",
+            "grep /data /proc/mounts; printf 'cctl-block-works' > /data/hello.txt",
+        ])
+
+        guard exitCode == 0 else {
+            throw IntegrationError.assert(msg: "cctl run exited with \(exitCode): \(output)")
+        }
+
+        // The mount must be backed by a virtio block device, not a virtiofs share.
+        try assertVirtioBlockMount(output, path: "/data")
+
+        // Read the file back off the NBD backing file to prove the write
+        // traversed guest -> virtio-blk -> NBD -> host.
+        let content = try readFileFromDiskImage(diskURL, path: "/hello.txt")
+        guard content == "cctl-block-works" else {
+            throw IntegrationError.assert(msg: "NBD backing file: expected 'cctl-block-works', got '\(content)'")
+        }
+    }
+
+    /// `cctl run --block ...,raw`: the device node is bind mounted rather than
+    /// mounted as a filesystem, so an unformatted export is usable directly.
+    func testCctlBlockNBDRaw() async throws {
+        let id = "test-cctl-block-nbd-raw"
+
+        // No filesystem — a bare sparse file, to prove `raw` never reads a superblock.
+        let diskURL = Self.testDir.appending(component: "\(id)-raw.img")
+        try? FileManager.default.removeItem(at: diskURL)
+        FileManager.default.createFile(atPath: diskURL.path, contents: nil)
+        let fh = try FileHandle(forWritingTo: diskURL)
+        try fh.truncate(atOffset: 64.mib())
+        try fh.close()
+
+        let shortID = String(id.hashValue, radix: 36, uppercase: false)
+        let socketPath = "/tmp/nbd-\(shortID)-cctl-raw.sock"
+        let server = try NBDServer(filePath: diskURL.path, socketPath: socketPath)
+        defer { server.stop() }
+
+        let (output, exitCode) = try runCctl(arguments: [
+            "run",
+            "--kernel", self.kernel,
+            "--id", id,
+            "--block", "src=\(server.url),dst=/dev/my-disk,raw",
+            "/bin/sh", "-c",
+            "test -b /dev/my-disk && printf 'raw-via-cctl' | dd of=/dev/my-disk bs=512 count=1 conv=sync 2>/dev/null && dd if=/dev/my-disk bs=1 count=12 2>/dev/null",
+        ])
+
+        guard exitCode == 0 else {
+            throw IntegrationError.assert(msg: "cctl run exited with \(exitCode): \(output)")
+        }
+
+        guard output.contains("raw-via-cctl") else {
+            throw IntegrationError.assert(msg: "expected 'raw-via-cctl' in output, got '\(output)'")
+        }
+    }
+
+    /// A malformed `--block` value must fail as a usage error before any VM boots.
+    func testCctlBlockRejectsInvalidSpec() async throws {
+        let (output, exitCode) = try runCctl(arguments: [
+            "run",
+            "--kernel", self.kernel,
+            "--id", "test-cctl-block-invalid",
+            "--block", "dst=/data",
+            "/bin/true",
+        ])
+
+        guard exitCode != 0 else {
+            throw IntegrationError.assert(msg: "expected non-zero exit for malformed --block, got 0: \(output)")
+        }
+        guard output.contains("requires src=") else {
+            throw IntegrationError.assert(msg: "expected a src= usage error, got: \(output)")
+        }
+    }
+
+    /// Format an unformatted NBD export from inside the container, then prove
+    /// the filesystem survives the container exiting.
+    ///
+    /// Two sequential `cctl run` invocations against one long-lived NBD
+    /// server, each a separate VM:
+    ///   1. assert the export has no filesystem, then `mkfs` it
+    ///   2. fresh container — read the same filesystem UUID back
+    ///
+    /// Uses `raw` mode (a bind mounted device node) rather than a filesystem
+    /// mount
+    func testCctlBlockNBDFormatAndPersist() async throws {
+        let id = "test-cctl-block-nbd-format-persist"
+
+        // A bare sparse file — deliberately NOT formatted by the host, so the
+        // filesystem observed in run 2 can only have come from run 1.
+        let diskURL = Self.testDir.appending(component: "\(id).img")
+        try? FileManager.default.removeItem(at: diskURL)
+        FileManager.default.createFile(atPath: diskURL.path, contents: nil)
+        let fh = try FileHandle(forWritingTo: diskURL)
+        try fh.truncate(atOffset: 64.mib())
+        try fh.close()
+
+        let shortID = String(id.hashValue, radix: 36, uppercase: false)
+        let socketPath = "/tmp/nbd-\(shortID)-persist.sock"
+        // One server for all runs: each container reconnects to the same export.
+        let server = try NBDServer(filePath: diskURL.path, socketPath: socketPath)
+        defer { server.stop() }
+
+        let blockSpec = "src=\(server.url),dst=/dev/vol,raw"
+
+        // Run 1: verify unformatted, then format.
+        let (out1, code1) = try runCctl(arguments: [
+            "run", "--kernel", self.kernel, "--id", "\(id)-1",
+            "--block", blockSpec,
+            "/bin/sh", "-c",
+            """
+            if [ -n "$(blkid /dev/vol 2>/dev/null)" ]; then echo UNEXPECTED_FS; else echo no-fs-yet; fi
+            mkfs.vfat /dev/vol >/dev/null 2>&1 && echo mkfs-ok || echo mkfs-failed
+            blkid /dev/vol
+            """,
+        ])
+
+        guard code1 == 0 else {
+            throw IntegrationError.assert(msg: "run 1 exited with \(code1): \(out1)")
+        }
+        // The export must have started with no filesystem, or the test proves nothing.
+        // Note: busybox `blkid` exits 0 with empty output on an unformatted
+        // device, so the guest script tests output emptiness, not exit status.
+        guard out1.contains("no-fs-yet"), !out1.contains("UNEXPECTED_FS") else {
+            throw IntegrationError.assert(msg: "run 1: export already had a filesystem: \(out1)")
+        }
+        guard out1.contains("mkfs-ok") else {
+            throw IntegrationError.assert(msg: "run 1: mkfs failed: \(out1)")
+        }
+        guard let uuid = Self.parseBlkidUUID(out1) else {
+            throw IntegrationError.assert(msg: "run 1: no filesystem UUID after mkfs: \(out1)")
+        }
+
+        // Run 2: a brand new VM and container against the same export.
+        let (out2, code2) = try runCctl(arguments: [
+            "run", "--kernel", self.kernel, "--id", "\(id)-2",
+            "--block", blockSpec,
+            "/bin/sh", "-c",
+            "blkid /dev/vol",
+        ])
+
+        guard code2 == 0 else {
+            throw IntegrationError.assert(msg: "run 2 exited with \(code2): \(out2)")
+        }
+        // Same UUID => the very filesystem run 1 created, not a coincidental reformat.
+        guard let uuid2 = Self.parseBlkidUUID(out2), uuid2 == uuid else {
+            throw IntegrationError.assert(msg: "run 2: expected filesystem UUID \(uuid), got: \(out2)")
+        }
+    }
+
+    /// Extract the `UUID="..."` value from `blkid` output, if present.
+    private static func parseBlkidUUID(_ output: String) -> String? {
+        guard let range = output.range(of: "UUID=\"") else {
+            return nil
+        }
+        let rest = output[range.upperBound...]
+        guard let end = rest.firstIndex(of: "\"") else {
+            return nil
+        }
+        return String(rest[..<end])
     }
 }
 #endif

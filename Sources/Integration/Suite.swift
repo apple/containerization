@@ -621,6 +621,12 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("pod filesystem operation", testPodFilesystemOperation),
                 Test("pod shared disk image volume", testPodSharedDiskImageVolume),
                 Test("pod shared tmpfs volume", testPodSharedTmpfsVolume),
+
+                // cctl --block CLI wiring (spawns bin/cctl; skips if unbuilt)
+                Test("cctl block NBD mount", testCctlBlockNBDMount),
+                Test("cctl block NBD raw", testCctlBlockNBDRaw),
+                Test("cctl block NBD format and persist", testCctlBlockNBDFormatAndPersist),
+                Test("cctl block rejects invalid spec", testCctlBlockRejectsInvalidSpec),
             ] + macOS26Tests()
         let tests: [Test] = crossPlatformTests + macOSOnlyTests
         #else
