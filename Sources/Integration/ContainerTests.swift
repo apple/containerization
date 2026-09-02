@@ -1479,6 +1479,71 @@ extension IntegrationSuite {
         }
     }
 
+    /// Sequential `exec`s with stdio must not run a VM out of vsock ports.
+    ///
+    /// The cloud-hypervisor backend pre-binds a fixed pool of host stdio
+    /// sockets (it has to: the VMM can't see socket files created after it
+    /// forked). While host port numbers were handed out by a fetch-add that
+    /// never reused one, and a finished stream destroyed its pool entry, that
+    /// pool was a *lifetime* budget for the VM rather than a concurrency one —
+    /// a one-container pod accepted exactly four sequential execs and the
+    /// fifth failed with "vsock port … was not pre-bound". An `exec` liveness
+    /// probe every 10s therefore bricked a pod in well under a minute.
+    ///
+    /// 40 execs at two stdio ports each is 80 allocations, comfortably past
+    /// the pre-bound pool, so this only passes if ports and pool entries are
+    /// both recycled. Each exec also checks its *own* output, which is what
+    /// catches the failure mode recycling introduces: a straggling dial for a
+    /// finished stream getting delivered to whichever process reused the port.
+    func testSequentialExecsReuseStdioPorts() async throws {
+        let id = "test-sequential-execs-reuse-stdio-ports"
+
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/sleep", "1000"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            for index in 0..<40 {
+                let expected = "exec-\(index)"
+                let stdout = BufferWriter()
+                let stderr = BufferWriter()
+                let exec = try await container.exec("seq-\(index)") { config in
+                    config.arguments = ["/bin/echo", expected]
+                    config.stdout = stdout
+                    config.stderr = stderr
+                }
+                try await exec.start()
+                let status = try await exec.wait()
+                try await exec.delete()
+
+                guard status.exitCode == 0 else {
+                    throw IntegrationError.assert(msg: "exec \(index) status \(status) != 0")
+                }
+                let got = String(data: stdout.data, encoding: .utf8) ?? ""
+                guard got == "\(expected)\n" else {
+                    throw IntegrationError.assert(
+                        msg: "exec \(index) stdout '\(got)' != '\(expected)\\n' — a recycled port may be cross-wired")
+                }
+                let err = String(data: stderr.data, encoding: .utf8) ?? ""
+                guard err.isEmpty else {
+                    throw IntegrationError.assert(msg: "exec \(index) stderr should be empty, got '\(err)'")
+                }
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
     func testNonExistentBinary() async throws {
         let id = "test-non-existent-binary"
 

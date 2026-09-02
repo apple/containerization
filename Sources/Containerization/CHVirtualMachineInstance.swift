@@ -111,20 +111,29 @@ public final class CHVirtualMachineInstance: Sendable {
     /// snapshotted filesystem view at fork time, so files written under the
     /// per-VM workDir AFTER cloud-hypervisor starts are invisible to CH.
     /// We work around this by binding a fixed range of `vsock.sock_<port>`
-    /// listener files BEFORE launching CH; `vm.listen(_:)` then consumes
-    /// pre-bound entries from this pool instead of binding on demand.
+    /// listener files BEFORE launching CH; `vm.listen(_:)` then lends out
+    /// pre-bound slots from this pool instead of binding on demand.
+    ///
+    /// The pool bounds *concurrent* streams, not the VM's lifetime total: a
+    /// slot outlives each of its tenants (see `CHStdioPortSlot`) and the host
+    /// port allocator reuses released numbers (see `VsockPortAllocator`).
     /// Range covers `LinuxContainer.hostVsockPorts` initial value
     /// (`0x10000000`) through the next `stdioPoolSize` sequential ports —
-    /// enough for `[stdin,stdout,stderr] x N` processes per VM. Bump
-    /// `stdioPoolSize` if you need more concurrent stdio streams than that.
+    /// enough for `[stdin,stdout,stderr] x N` concurrent processes per VM.
+    /// Sized for a pod's worth of containers plus concurrent `exec`s (probes,
+    /// `kubectl exec`) rather than for one container: at three ports per
+    /// process, 64 covers 21 concurrent processes. Idle slots cost one fd
+    /// each, so the headroom is cheap.
+    ///
+    /// A `listen(_:)` for a port outside the range still works — it binds on
+    /// demand and joins the pool, which is correct on any host where CH can see
+    /// socket files created after it forked, and warns because that is exactly
+    /// what the dev container cannot do.
     static let stdioPoolBase: UInt32 = 0x1000_0000
-    static let stdioPoolSize: Int = 16
-    private struct PreboundListener: Sendable {
-        let port: UInt32
-        let listenFd: Int32
-        let path: URL
-    }
-    private let _stdioPool: Mutex<[UInt32: PreboundListener]>
+    static let stdioPoolSize: Int = 64
+    /// Slots keyed by port, filled in `start()` and held until `stop()`.
+    /// Entries are lent out, never removed.
+    private let _stdioPool: Mutex<[UInt32: CHStdioPortSlot]>
 
     public convenience init(
         group: (any EventLoopGroup)? = nil,
@@ -294,16 +303,9 @@ extension CHVirtualMachineInstance: VirtualMachineInstance {
         // by an in-flight hotplug. Empty if neither ran.
         await self.hotplug.shutdown()
 
-        // Close pre-bound stdio listener fds the start path opened in
-        // prebindStdioPool. Files unlink with workDir below.
-        let leftover = self._stdioPool.withLock { pool -> [PreboundListener] in
-            let entries = Array(pool.values)
-            pool.removeAll()
-            return entries
-        }
-        for entry in leftover {
-            _ = close(entry.listenFd)
-        }
+        // Stop the stdio accept loops and close their listening fds. The
+        // socket files unlink with workDir below.
+        self.shutdownStdioSlots()
 
         try? FileManager.default.removeItem(at: self.workDir)
 
@@ -348,17 +350,10 @@ extension CHVirtualMachineInstance: VirtualMachineInstance {
             // before `group.shutdownGracefully()` below.
             try? await self.client.shutdown()
 
-            // Close any listening fds for stdio ports the test never
-            // consumed. The files themselves are removed when workDir is
+            // Stop every stdio accept loop and close its listening socket.
+            // The socket files themselves are removed when workDir is
             // unlinked below.
-            let leftover = self._stdioPool.withLock { pool -> [PreboundListener] in
-                let entries = Array(pool.values)
-                pool.removeAll()
-                return entries
-            }
-            for entry in leftover {
-                _ = close(entry.listenFd)
-            }
+            self.shutdownStdioSlots()
 
             if self.ownsGroup {
                 try? await self.group.shutdownGracefully()
@@ -406,67 +401,71 @@ extension CHVirtualMachineInstance: VirtualMachineInstance {
     }
 
     public func listen(_ port: UInt32) throws -> VsockListener {
-        // Consume from the pre-bound pool (see `_stdioPool` doc).
-        let prebound = _stdioPool.withLock { $0.removeValue(forKey: port) }
-        guard let prebound else {
-            throw ContainerizationError(
-                .invalidArgument,
-                message: "vsock port \(port) was not pre-bound; only ports "
-                    + "\(Self.stdioPoolBase)..<\(Self.stdioPoolBase + UInt32(Self.stdioPoolSize)) "
-                    + "are available for stdio. Increase CHVirtualMachineInstance.stdioPoolSize "
-                    + "if you need more concurrent stdio streams per VM."
-            )
+        if let slot = _stdioPool.withLock({ $0[port] }) {
+            return try lend(slot)
         }
-        let listenFd = prebound.listenFd
-        let path = prebound.path
-        logger?.debug("vsock listen consuming pool entry port=\(port) path=\(path.path)")
-        let listener = VsockListener(port: port) { [path, listenFd, logger] _ in
-            logger?.debug("vsock listen finishing port=\(port) closing listenFd=\(listenFd)")
-            _ = close(listenFd)
-            try? FileManager.default.removeItem(at: path)
+
+        // A port outside the pre-bound range binds on demand and then joins the
+        // pool, so it recycles between tenants exactly like a pre-bound one.
+        // Binding on demand is correct wherever CH can see socket files created
+        // after it forked — everywhere except the `--virtualization` dev
+        // container, which is what the warning is for.
+        let poolEnd = Self.stdioPoolBase + UInt32(Self.stdioPoolSize)
+        logger?.warning(
+            """
+            vsock port \(port) is outside the pre-bound range \(Self.stdioPoolBase)..<\(poolEnd); \
+            binding on demand. Under apple/container --virtualization cloud-hypervisor cannot see \
+            socket files created after it forked, so the guest's dial to this port will be reset — \
+            raise CHVirtualMachineInstance.stdioPoolSize if this host needs more concurrent streams.
+            """
+        )
+        let path = chVsockListenSocketPath(
+            baseSocket: workDir.appendingPathComponent("vsock.sock"),
+            port: port
+        )
+        let listenFd = try chVsockBindListener(at: path)
+        let slot = CHStdioPortSlot(port: port, path: path, listenFd: listenFd)
+        _stdioPool.withLock { $0[port] = slot }
+        return try lend(slot)
+    }
+
+    /// Lend `slot` to a fresh listener for the duration of one stdio stream.
+    /// The socket and its accept loop stay up when that listener finishes,
+    /// ready for the port's next tenant — see `CHStdioPortSlot`.
+    private func lend(_ slot: CHStdioPortSlot) throws -> VsockListener {
+        logger?.debug("vsock listen claiming slot port=\(slot.port) path=\(slot.path.path)")
+        let listener = VsockListener(port: slot.port) { [slot, logger] _ in
+            logger?.debug("vsock listen releasing slot port=\(slot.port)")
+            slot.relinquish()
         }
-        let acceptLogger = logger
-        // The accept loop calls a blocking accept() syscall, which is
-        // inappropriate for Swift's cooperative thread pool: a pool thread
-        // pinned to accept() can't service other tasks until the syscall
-        // returns. With even a few leaked accept loops (e.g. when a test's
-        // setupIO times out and the listener is finished only when the
-        // 30s timer fires), Task.detached'd accept loops queue behind the
-        // pinned threads and never run, manifesting as the "vsock acceptLoop
-        // starting" log being silent and the dial-back never being seen by
-        // the host. Use libdispatch's global queue instead — it spawns
-        // OS threads on demand and is the right tool for blocking syscalls.
-        DispatchQueue.global(qos: .userInitiated).async { [listener, listenFd] in
-            acceptLogger?.debug("vsock acceptLoop starting port=\(listener.port) listenFd=\(listenFd)")
-            Self.acceptLoop(listenFd: listenFd, into: listener, logger: acceptLogger)
-            acceptLogger?.debug("vsock acceptLoop exited port=\(listener.port)")
-        }
+        try slot.claim(by: listener)
+        slot.startAcceptingIfNeeded(logger: logger)
         return listener
     }
 
     /// Bind every port in `stdioPoolBase..<stdioPoolBase+stdioPoolSize` as
     /// a listening UDS at `<workDir>/vsock.sock_<port>`. Must run before
     /// `chProcess.start()` so the files end up in CH's snapshot view of
-    /// the workDir. Files for ports never consumed are removed during
-    /// `stop()` along with the rest of `workDir`; the listening fds are
-    /// closed there too.
+    /// the workDir. The sockets stay bound for the life of the VM; `stop()`
+    /// shuts the slots down and removes `workDir` with the files in it.
     private func prebindStdioPool() throws {
         let base = workDir.appendingPathComponent("vsock.sock")
-        var pool: [UInt32: PreboundListener] = [:]
+        var pool: [UInt32: CHStdioPortSlot] = [:]
         pool.reserveCapacity(Self.stdioPoolSize)
         do {
             for offset in 0..<UInt32(Self.stdioPoolSize) {
                 let port = Self.stdioPoolBase + offset
                 let path = chVsockListenSocketPath(baseSocket: base, port: port)
                 let fd = try chVsockBindListener(at: path)
-                pool[port] = PreboundListener(port: port, listenFd: fd, path: path)
+                pool[port] = CHStdioPortSlot(port: port, path: path, listenFd: fd)
             }
         } catch {
-            // Roll back any successfully-bound listeners so we don't leak
-            // them on a partial failure.
-            for entry in pool.values {
-                _ = close(entry.listenFd)
-                try? FileManager.default.removeItem(at: entry.path)
+            // Roll back any successfully-bound slots so we don't leak them on
+            // a partial failure. No accept loops are running yet, so shutdown
+            // closes the fds directly.
+            for slot in pool.values {
+                slot.shutdown()
+                try? FileManager.default.removeItem(at: slot.path)
             }
             throw error
         }
@@ -682,31 +681,17 @@ extension CHVirtualMachineInstance {
         throw ContainerizationError(.timeout, message: "could not dial vminitd within \(deadline): \(lastError)")
     }
 
-    /// Blocking accept loop driving a `VsockListener`. Runs on a detached
-    /// task because `accept(2)` blocks. Exits when the listening fd is
-    /// closed (by `VsockListener.finish()`) or the stream consumer
-    /// terminates.
-    private static func acceptLoop(listenFd: Int32, into listener: VsockListener, logger: Logger?) {
-        while true {
-            logger?.debug("vsock acceptLoop blocking on accept port=\(listener.port) listenFd=\(listenFd)")
-            let connFd = accept(listenFd, nil, nil)
-            if connFd < 0 {
-                let savedErrno = errno
-                if savedErrno == EINTR {
-                    continue
-                }
-                logger?.debug("vsock acceptLoop accept returned \(connFd) errno=\(savedErrno) port=\(listener.port)")
-                return
-            }
-            logger?.debug("vsock acceptLoop accepted connFd=\(connFd) port=\(listener.port)")
-            let handle = FileHandle(fileDescriptor: connFd, closeOnDealloc: true)
-            let result = listener.yield(handle)
-            if case .terminated = result {
-                logger?.debug("vsock acceptLoop yield terminated port=\(listener.port)")
-                try? handle.close()
-                return
-            }
-            logger?.debug("vsock acceptLoop yield enqueued port=\(listener.port)")
+    /// Stop every stdio accept loop and release its listening socket.
+    /// Idempotent per slot, so the failed-start and `stop()` paths can both
+    /// call it.
+    private func shutdownStdioSlots() {
+        let slots = self._stdioPool.withLock { pool -> [CHStdioPortSlot] in
+            let slots = Array(pool.values)
+            pool.removeAll()
+            return slots
+        }
+        for slot in slots {
+            slot.shutdown()
         }
     }
 }
