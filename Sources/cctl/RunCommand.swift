@@ -256,14 +256,15 @@ extension Application {
             .appendingPathComponent("com.apple.containerization")
         }()
 
-        /// Resolve the command from the image config. The guest is Linux
-        /// regardless of the host, so the config is read for linux/arm64 rather
-        /// than `Platform.current`.
+        /// Resolve the command from the image config.
         static func resolveArguments(
             _ arguments: [String],
             image: Containerization.Image,
             imageReference: String
         ) async throws -> [String] {
+            // We hardcode linux arm64 for the kernel above, then proceed to use Platform.current in
+            // ContainerManager.create. This means it will always default have to be arm64, so we
+            // read that config directly.
             let imageConfig = try await image.config(for: .arm64).config
             return try Application.resolveProcessArguments(
                 arguments: arguments,
