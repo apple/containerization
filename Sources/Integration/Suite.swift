@@ -623,11 +623,16 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("pod shared disk image volume", testPodSharedDiskImageVolume),
                 Test("pod shared tmpfs volume", testPodSharedTmpfsVolume),
 
-                // cctl --block CLI wiring (spawns bin/cctl; skips if unbuilt)
+                // cctl --block CLI wiring
                 Test("cctl block NBD mount", testCctlBlockNBDMount),
                 Test("cctl block NBD raw", testCctlBlockNBDRaw),
                 Test("cctl block NBD format and persist", testCctlBlockNBDFormatAndPersist),
                 Test("cctl block rejects invalid spec", testCctlBlockRejectsInvalidSpec),
+
+                // cctl run command entrypoint resolution
+                Test("cctl run uses image default command", testCctlRunUsesImageDefaultCommand),
+                Test("cctl run explicit command overrides default", testCctlRunExplicitCommandOverridesDefault),
+                Test("cctl run without entrypoint or cmd fails", testCctlRunWithoutEntrypointOrCmdFails),
             ] + macOS26Tests()
         let tests: [Test] = crossPlatformTests + macOSOnlyTests
         #else

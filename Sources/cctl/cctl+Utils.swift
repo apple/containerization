@@ -45,6 +45,29 @@ extension Application {
         }
         return parsedLabels
     }
+
+    /// Parse the ENTRYPOINT and CMD from an `ImageConfig` into the command to
+    /// run: `ENTRYPOINT + (arguments ?? CMD)`.
+    ///
+    /// If arguments are present, they replace CMD and are appended to ENTRYPOINT
+    ///
+    /// - Throws: when the image declares neither and no command was given.
+    static func resolveProcessArguments(
+        arguments: [String],
+        imageConfig: ImageConfig?,
+        imageReference: String
+    ) throws -> [String] {
+        let entrypoint = imageConfig?.entrypoint ?? []
+        let command = arguments.isEmpty ? (imageConfig?.cmd ?? []) : arguments
+        let resolved = entrypoint + command
+        guard !resolved.isEmpty else {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "image \(imageReference) declares no entrypoint or cmd; pass a command to run"
+            )
+        }
+        return resolved
+    }
 }
 
 extension Containerization.Mount {
