@@ -99,6 +99,16 @@ extension Application {
         @Option(name: .long, help: "Current working directory")
         var cwd: String = "/"
 
+        @Option(
+            name: .customLong("entrypoint"),
+            help: """
+                Override the image's ENTRYPOINT with a single executable \
+                (Example: --entrypoint /bin/ls). The image's CMD is still \
+                appended; pass a trailing command to replace it.
+                """
+        )
+        var entrypointOverride: String?
+
         /// Command to run in the container. When omitted the image's
         /// ENTRYPOINT + CMD is used.
         @Argument(parsing: .captureForPassthrough)
@@ -130,6 +140,7 @@ extension Application {
             let image = try await manager.imageStore.get(reference: imageReference, pull: true)
             let processArguments = try await Self.resolveArguments(
                 arguments,
+                entrypointOverride: entrypointOverride,
                 image: image,
                 imageReference: imageReference
             )
@@ -259,6 +270,7 @@ extension Application {
         /// Resolve the command from the image config.
         static func resolveArguments(
             _ arguments: [String],
+            entrypointOverride: String?,
             image: Containerization.Image,
             imageReference: String
         ) async throws -> [String] {
@@ -268,6 +280,7 @@ extension Application {
             let imageConfig = try await image.config(for: .arm64).config
             return try Application.resolveProcessArguments(
                 arguments: arguments,
+                entrypointOverride: entrypointOverride,
                 imageConfig: imageConfig,
                 imageReference: imageReference
             )
@@ -412,6 +425,16 @@ extension Application {
         @Option(name: .long, help: "Current working directory")
         var cwd: String = "/"
 
+        @Option(
+            name: .customLong("entrypoint"),
+            help: """
+                Override the image's ENTRYPOINT with a single executable \
+                (Example: --entrypoint /bin/ls). The image's CMD is still \
+                appended; pass a trailing command to replace it.
+                """
+        )
+        var entrypointOverride: String?
+
         /// Command to run in the container. When omitted the image's
         /// ENTRYPOINT + CMD is used.
         @Argument(parsing: .captureForPassthrough)
@@ -502,6 +525,7 @@ extension Application {
             }
             processConfig.arguments = try Application.resolveProcessArguments(
                 arguments: arguments,
+                entrypointOverride: entrypointOverride,
                 imageConfig: imageConfig,
                 imageReference: imageReference
             )

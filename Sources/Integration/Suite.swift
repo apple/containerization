@@ -633,6 +633,8 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("cctl run uses image default command", testCctlRunUsesImageDefaultCommand),
                 Test("cctl run explicit command overrides default", testCctlRunExplicitCommandOverridesDefault),
                 Test("cctl run without entrypoint or cmd fails", testCctlRunWithoutEntrypointOrCmdFails),
+                Test("cctl run entrypoint override keeps image cmd", testCctlRunEntrypointOverrideKeepsImageCmd),
+                Test("cctl run entrypoint override with command", testCctlRunEntrypointOverrideWithCommand),
             ] + macOS26Tests()
         let tests: [Test] = crossPlatformTests + macOSOnlyTests
         #else

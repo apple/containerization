@@ -30,6 +30,7 @@ struct RunArgumentsTests {
         let name: String
         let imageConfig: ImageConfig?
         let arguments: [String]
+        var entrypointOverride: String? = nil
         let expected: [String]?
 
         var testDescription: String { name }
@@ -131,6 +132,64 @@ struct RunArgumentsTests {
             arguments: [],
             expected: nil
         ),
+
+        // --entrypoint replaces the image's ENTRYPOINT. CMD is still appended,
+        // so an override alone does not change the arguments the process gets.
+        .init(
+            name: "override replaces entrypoint and keeps cmd",
+            imageConfig: ImageConfig(entrypoint: ["/app"], cmd: ["--serve"]),
+            arguments: [],
+            entrypointOverride: "/bin/ls",
+            expected: ["/bin/ls", "--serve"]
+        ),
+        .init(
+            name: "override with trailing arguments replaces cmd",
+            imageConfig: ImageConfig(entrypoint: ["/app"], cmd: ["--serve"]),
+            arguments: ["-l"],
+            entrypointOverride: "/bin/ls",
+            expected: ["/bin/ls", "-l"]
+        ),
+        // A multi-word entrypoint has to come through as override + arguments,
+        // since the override itself is a single executable.
+        .init(
+            name: "override supplies the executable and arguments the rest",
+            imageConfig: ImageConfig(entrypoint: ["/app"], cmd: ["--serve"]),
+            arguments: ["foo.py"],
+            entrypointOverride: "python3",
+            expected: ["python3", "foo.py"]
+        ),
+        // An override supplies a command even when the image declares nothing,
+        // so this case can no longer fail.
+        .init(
+            name: "override on an image with no entrypoint or cmd",
+            imageConfig: ImageConfig(),
+            arguments: [],
+            entrypointOverride: "/bin/true",
+            expected: ["/bin/true"]
+        ),
+        .init(
+            name: "override on a cmd-only image",
+            imageConfig: ImageConfig(cmd: ["/bin/sh"]),
+            arguments: [],
+            entrypointOverride: "/usr/bin/strace",
+            expected: ["/usr/bin/strace", "/bin/sh"]
+        ),
+        .init(
+            name: "override with a missing image config",
+            imageConfig: nil,
+            arguments: [],
+            entrypointOverride: "/bin/true",
+            expected: ["/bin/true"]
+        ),
+
+        // An empty override would exec "" in the guest.
+        .init(
+            name: "empty override fails",
+            imageConfig: ImageConfig(entrypoint: ["/app"], cmd: ["--serve"]),
+            arguments: [],
+            entrypointOverride: "",
+            expected: nil
+        ),
     ]
 
     @Test("resolves", arguments: cases)
@@ -138,6 +197,7 @@ struct RunArgumentsTests {
         let resolve = {
             try Application.resolveProcessArguments(
                 arguments: testCase.arguments,
+                entrypointOverride: testCase.entrypointOverride,
                 imageConfig: testCase.imageConfig,
                 imageReference: "test:latest"
             )
@@ -156,6 +216,7 @@ struct RunArgumentsTests {
         do {
             _ = try Application.resolveProcessArguments(
                 arguments: [],
+                entrypointOverride: nil,
                 imageConfig: ImageConfig(),
                 imageReference: "registry.example/thing:v2"
             )

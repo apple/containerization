@@ -84,5 +84,42 @@ extension IntegrationSuite {
             throw IntegrationError.assert(msg: "expected an entrypoint/cmd error, got: \(output)")
         }
     }
+
+    /// `--entrypoint` replaces the image's ENTRYPOINT while leaving its CMD in
+    /// place. The alpine test image has no ENTRYPOINT and `CMD ["/bin/sh"]`, so
+    /// overriding with `/bin/echo` and passing no command must print the CMD
+    /// rather than start a shell — which is what makes the appending observable.
+    func testCctlRunEntrypointOverrideKeepsImageCmd() async throws {
+        let (output, exitCode) = try runCctl(arguments: [
+            "run", "--kernel", self.kernel, "--id", "test-cctl-run-entrypoint",
+            "-i", Self.cctlRunImage,
+            "--entrypoint", "/bin/echo",
+        ])
+
+        guard exitCode == 0 else {
+            throw IntegrationError.assert(msg: "cctl run exited with \(exitCode): \(output)")
+        }
+        guard output.contains("/bin/sh") else {
+            throw IntegrationError.assert(msg: "expected the image's cmd to be appended to the override, got: \(output)")
+        }
+    }
+
+    /// An override plus a trailing command: the override supplies the executable
+    /// and the command replaces the image's CMD.
+    func testCctlRunEntrypointOverrideWithCommand() async throws {
+        let marker = "ENTRYPOINT_OVERRIDE_RAN"
+        let (output, exitCode) = try runCctl(arguments: [
+            "run", "--kernel", self.kernel, "--id", "test-cctl-run-entrypoint-command",
+            "-i", Self.cctlRunImage,
+            "--entrypoint", "/bin/echo", marker,
+        ])
+
+        guard exitCode == 0 else {
+            throw IntegrationError.assert(msg: "cctl run exited with \(exitCode): \(output)")
+        }
+        guard output.contains(marker) else {
+            throw IntegrationError.assert(msg: "expected the override to run with the trailing command, got: \(output)")
+        }
+    }
 }
 #endif
