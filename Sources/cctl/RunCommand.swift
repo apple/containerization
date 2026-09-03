@@ -99,8 +99,20 @@ extension Application {
         @Option(name: .long, help: "Current working directory")
         var cwd: String = "/"
 
+        @Option(
+            name: .customLong("entrypoint"),
+            help: """
+                Override the image's ENTRYPOINT with a single executable \
+                (Example: --entrypoint /bin/ls). The image's CMD is still \
+                appended; pass a trailing command to replace it.
+                """
+        )
+        var entrypointOverride: String?
+
+        /// Command to run in the container. When omitted the image's
+        /// ENTRYPOINT + CMD is used.
         @Argument(parsing: .captureForPassthrough)
-        var arguments: [String] = ["/bin/sh"]
+        var arguments: [String] = []
 
         func run() async throws {
             let kernel = Kernel(
@@ -124,13 +136,22 @@ extension Application {
             )
             let sigwinchStream = AsyncSignalHandler.create(notify: [SIGWINCH])
 
+            // Get the actual image so we can parse out the ENTRYPOINT
+            let image = try await manager.imageStore.get(reference: imageReference, pull: true)
+            let processArguments = try await Self.resolveArguments(
+                arguments,
+                entrypointOverride: entrypointOverride,
+                image: image,
+                imageReference: imageReference
+            )
+
             let current = try Terminal.current
             try current.setraw()
             defer { current.tryReset() }
 
             let container = try await manager.create(
                 id,
-                reference: imageReference,
+                image: image,
                 rootfsSizeInBytes: fsSizeInMB.mib(),
                 readOnly: readOnly,
                 networking: true
@@ -138,7 +159,7 @@ extension Application {
                 config.cpus = cpus
                 config.memoryInBytes = memory.mib()
                 config.process.setTerminalIO(terminal: current)
-                config.process.arguments = arguments
+                config.process.arguments = processArguments
                 config.process.workingDirectory = cwd
 
                 for mount in self.mounts {
@@ -245,6 +266,25 @@ extension Application {
             ).first!
             .appendingPathComponent("com.apple.containerization")
         }()
+
+        /// Resolve the command from the image config.
+        static func resolveArguments(
+            _ arguments: [String],
+            entrypointOverride: String?,
+            image: Containerization.Image,
+            imageReference: String
+        ) async throws -> [String] {
+            // We hardcode linux arm64 for the kernel above, then proceed to use Platform.current in
+            // ContainerManager.create. This means it will always default have to be arm64, so we
+            // read that config directly.
+            let imageConfig = try await image.config(for: .arm64).config
+            return try Application.resolveProcessArguments(
+                arguments: arguments,
+                entrypointOverride: entrypointOverride,
+                imageConfig: imageConfig,
+                imageReference: imageReference
+            )
+        }
     }
 }
 #endif
@@ -385,8 +425,20 @@ extension Application {
         @Option(name: .long, help: "Current working directory")
         var cwd: String = "/"
 
+        @Option(
+            name: .customLong("entrypoint"),
+            help: """
+                Override the image's ENTRYPOINT with a single executable \
+                (Example: --entrypoint /bin/ls). The image's CMD is still \
+                appended; pass a trailing command to replace it.
+                """
+        )
+        var entrypointOverride: String?
+
+        /// Command to run in the container. When omitted the image's
+        /// ENTRYPOINT + CMD is used.
         @Argument(parsing: .captureForPassthrough)
-        var arguments: [String] = ["/bin/sh"]
+        var arguments: [String] = []
 
         func run() async throws {
             #if arch(arm64)
@@ -471,7 +523,12 @@ extension Application {
             if let imageConfig {
                 processConfig = .init(from: imageConfig)
             }
-            processConfig.arguments = arguments
+            processConfig.arguments = try Application.resolveProcessArguments(
+                arguments: arguments,
+                entrypointOverride: entrypointOverride,
+                imageConfig: imageConfig,
+                imageReference: imageReference
+            )
             processConfig.workingDirectory = cwd
             if let hostTerminal {
                 processConfig.setTerminalIO(terminal: hostTerminal)
