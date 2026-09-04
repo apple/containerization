@@ -503,19 +503,22 @@ extension Vminitd {
         public let totalSize: UInt64
     }
 
-    /// Stat a path in the guest filesystem and return its metadata.
+    /// Stat a path in the guest filesystem and return its metadata. `path` is
+    /// resolved by the guest as if `root` were the filesystem root and confined to it.
     public func stat(
-        path: URL
+        root: String,
+        path: String
     ) async throws -> ContainerizationOS.Stat {
         let request = Com_Apple_Containerization_Sandbox_V3_StatRequest.with {
-            $0.path = path.path
+            $0.root = root
+            $0.path = path
         }
 
         let response: Com_Apple_Containerization_Sandbox_V3_StatResponse
         do {
             response = try await client.stat(request)
         } catch let error as RPCError where error.code == .notFound {
-            throw ContainerizationError(.notFound, message: "stat: path not found '\(path.path)'", cause: error)
+            throw ContainerizationError(.notFound, message: "stat: path not found '\(path)'", cause: error)
         }
         guard response.error.isEmpty else {
             throw ContainerizationError(.internalError, message: "stat: \(response.error)")
@@ -548,7 +551,8 @@ extension Vminitd {
     /// For COPY_IN, `onMetadata` is not called.
     public func copy(
         direction: Com_Apple_Containerization_Sandbox_V3_CopyRequest.Direction,
-        guestPath: URL,
+        root: String,
+        path: String,
         vsockPort: UInt32,
         mode: UInt32 = 0,
         createParents: Bool = false,
@@ -557,7 +561,8 @@ extension Vminitd {
     ) async throws {
         let request = Com_Apple_Containerization_Sandbox_V3_CopyRequest.with {
             $0.direction = direction
-            $0.path = guestPath.path
+            $0.root = root
+            $0.path = path
             $0.mode = mode
             $0.createParents = createParents
             $0.vsockPort = vsockPort

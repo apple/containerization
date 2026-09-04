@@ -23,6 +23,15 @@
 #define RESOLVE_IN_ROOT 0x10
 #endif
 
+#ifndef RESOLVE_NO_MAGICLINKS
+#define RESOLVE_NO_MAGICLINKS 0x02
+#endif
+
+/* O_PATH is Linux-only and gated behind __USE_GNU in glibc's <fcntl.h>, so the
+ * Swift libc overlays do not reliably surface it. Prefixed to avoid colliding
+ * with a platform O_PATH (musl defines one unconditionally). */
+#define CZ_O_PATH 010000000
+
 struct cz_open_how {
   unsigned long long flags;
   unsigned long long mode;
