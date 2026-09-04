@@ -195,7 +195,10 @@ struct IntegrationSuite: AsyncParsableCommand {
 
     static let eventLoop = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
 
-    func bootstrap(_ testID: String) async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image, bootLog: BootLog) {
+    func bootstrap(
+        _ testID: String,
+        kernelArguments: [String] = []
+    ) async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image, bootLog: BootLog) {
         let reference = "ghcr.io/linuxcontainers/alpine:3.20"
         let store = Self.imageStore
 
@@ -217,7 +220,13 @@ struct IntegrationSuite: AsyncParsableCommand {
             }
         }()
 
-        let testKernel = Kernel(path: .init(filePath: kernel), platform: .linuxArm)
+        var commandLine = Kernel.CommandLine(debug: false, panic: 0)
+        commandLine.kernelArgs.append(contentsOf: kernelArguments)
+        let testKernel = Kernel(
+            path: .init(filePath: kernel),
+            platform: .linuxArm,
+            commandline: commandLine
+        )
         // Intentionally NOT adding `debug` or `earlycon=pl011,...` here.
         // Both look free, but each costs real wall-clock per VM boot:
         //   * `debug` floods printk through hvc0 (which CH writes to the
@@ -233,7 +242,9 @@ struct IntegrationSuite: AsyncParsableCommand {
         let platform = Platform(arch: "arm64", os: "linux", variant: "v8")
 
         // Unpack to shared location with coordination to prevent concurrent unpacks
-        let fsPath = Self.testDir.appending(component: image.digest)
+        // OCI digests include a `sha256:` prefix. Keep it out of the host
+        // filesystem name used for the disposable ext4 image.
+        let fsPath = Self.testDir.appending(component: image.digest.trimmingDigestPrefix)
         let fs = try await Self.unpackCoordinator.unpack(key: fsPath.absolutePath()) {
             do {
                 let unpacker = EXT4Unpacker(capacityInBytes: 2.gib())
@@ -259,12 +270,12 @@ struct IntegrationSuite: AsyncParsableCommand {
         // a ~2GB rootfs and a ~512MB initfs, so without reaping the dev
         // container fills its CoW layer in ~10 tests.
         if self.maxConcurrency == 1 {
-            let preserve = fsPath.absolutePath()
+            let preserve = fsPath.lastPathComponent
             if let entries = try? FileManager.default.contentsOfDirectory(
                 at: Self.testDir,
                 includingPropertiesForKeys: nil
             ) {
-                for url in entries where url.absolutePath() != preserve {
+                for url in entries where url.lastPathComponent != preserve {
                     try? FileManager.default.removeItem(at: url)
                 }
             }
@@ -438,6 +449,9 @@ struct IntegrationSuite: AsyncParsableCommand {
             // Statistics / cgroups / memory
             Test("container statistics", testContainerStatistics),
             Test("container cgroup limits", testCgroupLimits),
+            Test("container zero pids limit", testZeroPidsLimitFailsClosed),
+            Test("container pids exhaustion", testPidsLimitExhaustion),
+            Test("container pids controller unavailable", testPidsControllerUnavailableFailsClosed),
             Test("container memory events OOM kill", testMemoryEventsOOMKill),
 
             // Console / boot / lifecycle

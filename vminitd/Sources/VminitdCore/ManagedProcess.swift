@@ -74,6 +74,7 @@ final class ManagedProcess: ContainerProcess, Sendable {
         stdio: HostStdio,
         bundle: ContainerizationOCI.Bundle,
         owningPid: Int32? = nil,
+        enforcePidsLimit: Bool = false,
         log: Logger
     ) throws {
         self.id = id
@@ -94,7 +95,7 @@ final class ManagedProcess: ContainerProcess, Sendable {
         try errorPipe.setCloexec()
         self.errorPipe = errorPipe
 
-        let args: [String]
+        var args: [String]
         if let owningPid {
             args = [
                 "exec",
@@ -103,6 +104,9 @@ final class ManagedProcess: ContainerProcess, Sendable {
                 "--process-path",
                 bundle.getExecSpecPath(id: id).path,
             ]
+            if enforcePidsLimit {
+                args.append("--enforce-pids-limit")
+            }
         } else {
             args = ["run", "--bundle-path", bundle.path.path]
         }

@@ -14,12 +14,19 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import ContainerizationError
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
 import Testing
 
 @testable import Containerization
+
+private struct StubVirtualMachineManager: VirtualMachineManager {
+    func create(config: some VMCreationConfig) throws -> any VirtualMachineInstance {
+        fatalError("not used")
+    }
+}
 
 struct LinuxContainerTests {
 
@@ -118,5 +125,79 @@ struct LinuxContainerTests {
         }
         #expect(pod.maskedPaths == expectedMasked)
         #expect(pod.readonlyPaths == expectedReadonly)
+    }
+
+    @Test func finitePidsLimitMakesCgroupMountsReadOnly() throws {
+        for mounts in [LinuxContainer.defaultMounts(), LinuxContainer.defaultOCIMounts()] {
+            let cgroupMount = mounts.first { $0.destination == "/sys/fs/cgroup" }
+            #expect(cgroupMount?.type == "cgroup2")
+            #expect(cgroupMount?.options.contains("ro") == false)
+
+            let finite = LinuxContainer.mountsEnforcingPidsLimit(mounts, pidsLimit: 64)
+            let finiteCgroupMount = finite.first { $0.destination == "/sys/fs/cgroup" }
+            #expect(finiteCgroupMount?.options.contains("ro") == true)
+            #expect(finiteCgroupMount?.options.contains("rw") == false)
+
+            let omitted = LinuxContainer.mountsEnforcingPidsLimit(mounts, pidsLimit: nil)
+            let unlimited = LinuxContainer.mountsEnforcingPidsLimit(mounts, pidsLimit: -1)
+            #expect(omitted.first { $0.destination == "/sys/fs/cgroup" }?.options.contains("ro") == false)
+            #expect(unlimited.first { $0.destination == "/sys/fs/cgroup" }?.options.contains("ro") == false)
+        }
+
+        let custom = Mount.any(
+            type: "cgroup2",
+            source: "none",
+            destination: "/alternate-cgroup",
+            options: ["rw"]
+        )
+        let hardenedCustom = LinuxContainer.mountsEnforcingPidsLimit([custom], pidsLimit: 1)
+        #expect(hardenedCustom[0].options == ["ro"])
+
+        let bindAlias = Mount.any(
+            type: "none",
+            source: "/sys/fs/cgroup",
+            destination: "/alternate-cgroup",
+            options: ["bind", "rw"]
+        )
+        let hardenedAlias = LinuxContainer.mountsEnforcingPidsLimit([bindAlias], pidsLimit: 1)
+        #expect(hardenedAlias[0].options == ["bind", "ro"])
+    }
+
+    @Test func pidsLimitPreservesOmissionAndOCIValues() {
+        let omitted = LinuxContainer.Configuration()
+        let omittedFromInitializer = LinuxContainer.Configuration(
+            process: LinuxProcessConfiguration(arguments: ["/bin/sh"])
+        )
+        let zero = LinuxContainer.Configuration(
+            process: LinuxProcessConfiguration(arguments: ["/bin/sh"]),
+            pidsLimit: 0
+        )
+        let unlimited = LinuxContainer.Configuration(
+            process: LinuxProcessConfiguration(arguments: ["/bin/sh"]),
+            pidsLimit: -1
+        )
+
+        #expect(omitted.pidsLimit == nil)
+        #expect(omittedFromInitializer.pidsLimit == nil)
+        #expect(zero.pidsLimit == 0)
+        #expect(unlimited.pidsLimit == -1)
+    }
+
+    @Test func pidsLimitRejectsValuesBelowUnlimitedSentinel() {
+        let rootfs = Mount.any(type: "none", source: "none", destination: "/")
+
+        for pidsLimit in [-2, Int64.min] {
+            var configuration = LinuxContainer.Configuration()
+            configuration.pidsLimit = pidsLimit
+
+            #expect(throws: ContainerizationError.self) {
+                _ = try LinuxContainer(
+                    "invalid-pids-limit",
+                    rootfs: rootfs,
+                    vmm: StubVirtualMachineManager(),
+                    configuration: configuration
+                )
+            }
+        }
     }
 }

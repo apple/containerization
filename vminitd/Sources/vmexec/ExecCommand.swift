@@ -21,6 +21,7 @@ import FoundationEssentials
 import LCShim
 import Logging
 import SystemPackage
+import VminitdCore
 
 #if canImport(Musl)
 import Musl
@@ -39,6 +40,9 @@ struct ExecCommand: ParsableCommand {
 
     @Option(name: .long, help: "pid of the init process for the container")
     var parentPid: Int
+
+    @Flag(name: .long, help: "enforce finite pids.max admission with clone3")
+    var enforcePidsLimit: Bool = false
 
     func run() throws {
         do {
@@ -64,6 +68,21 @@ struct ExecCommand: ParsableCommand {
     private func execInNamespaces(process: ContainerizationOCI.Process) throws {
         let syncPipe = FileDescriptor(rawValue: 3)
         let ackPipe = FileDescriptor(rawValue: 4)
+
+        // The pids controller does not reject migration through cgroup.procs.
+        // When this container has a finite ceiling, fork the exec child into
+        // the cgroup atomically so kernel admission enforces pids.max.
+        let cgroupFD: Int32?
+        if enforcePidsLimit {
+            cgroupFD = try CgroupProcessAdmission.openForCloning(parentPid: Int32(parentPid))
+        } else {
+            cgroupFD = nil
+        }
+        defer {
+            if let cgroupFD {
+                close(cgroupFD)
+            }
+        }
 
         let pidFd = CZ_pidfd_open(Int32(parentPid), 0)
         guard pidFd > 0 else {
@@ -93,13 +112,14 @@ struct ExecCommand: ParsableCommand {
             nsType: CLONE_NEWCGROUP | CLONE_NEWPID | CLONE_NEWUTS | CLONE_NEWNS | CLONE_NEWIPC
         )
 
-        let processID = fork()
+        let processID = cgroupFD.map { CZ_clone_into_cgroup($0) } ?? fork()
 
         guard processID != -1 else {
             try? syncPipe.close()
             try? ackPipe.close()
 
-            throw App.Errno(stage: "fork")
+            let stage = cgroupFD == nil ? "fork" : "clone3(CLONE_INTO_CGROUP)"
+            throw App.Errno(stage: stage, info: "\(stage):")
         }
 
         if processID == 0 {  // child
