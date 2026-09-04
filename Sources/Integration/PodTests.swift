@@ -1924,6 +1924,197 @@ extension IntegrationSuite {
         }
     }
 
+    func testPodUnixSocketOutOfGuestTmpfsStopsWithContainer() async throws {
+        let id = "test-pod-unixsocket-out-of-guest-tmpfs"
+        let bs = try await bootstrap(
+            id,
+            reference: "cgr.dev/chainguard/python:latest-dev@sha256:aa8fd2447b8b52922db57deb3894b622c3229387aaaec5934d64b85dbff6eb17"
+        )
+        let hostSocket = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("relay.sock")
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.bootLog = bs.bootLog
+        }
+
+        try await pod.addContainer("server", rootfs: bs.rootfs) { config in
+            config.process.arguments = [
+                "/usr/bin/python",
+                "-c",
+                """
+                import os, socket
+                path = "/dev/shm/relay.sock"
+                server = socket.socket(socket.AF_UNIX)
+                server.bind(path)
+                os.chmod(path, 0o777)
+                server.listen()
+                open("/tmp/relay-ready", "w").close()
+                while True:
+                    connection, _ = server.accept()
+                    connection.sendall(connection.recv(4))
+                    connection.close()
+                """,
+            ]
+            config.sockets = [
+                UnixSocketConfiguration(
+                    source: URL(filePath: "/dev/shm/relay.sock"),
+                    destination: hostSocket,
+                    direction: .outOf
+                )
+            ]
+        }
+
+        do {
+            try await pod.create()
+            try await pod.startContainer("server")
+
+            let ready = try await pod.execInContainer("server", processID: "wait-for-relay") { config in
+                config.arguments = ["/bin/sh", "-c", "while [ ! -f /tmp/relay-ready ]; do sleep 0.1; done"]
+            }
+            try await ready.start()
+            let readyStatus = try await ready.wait()
+            try await ready.delete()
+            guard readyStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "socket server did not become ready")
+            }
+
+            let client = try Socket(type: UnixType(path: hostSocket.path))
+            try client.connect()
+            _ = try client.write(data: Data("PING".utf8))
+
+            var response = Data(count: 4)
+            let bytesRead = try client.read(buffer: &response)
+            guard bytesRead == 4, response == Data("PING".utf8) else {
+                throw IntegrationError.assert(msg: "unexpected relay response: \(response)")
+            }
+
+            try await pod.stopContainer("server")
+            try await pod.stopContainer("server")
+            guard !FileManager.default.fileExists(atPath: hostSocket.path) else {
+                throw IntegrationError.assert(msg: "host relay remained after container stop")
+            }
+            try await pod.stop()
+        } catch {
+            try? await pod.stop()
+            throw error
+        }
+    }
+
+    func testPodUnixSocketFirstRelayFailureRollsBackProcess() async throws {
+        try await testPodUnixSocketRelayFailureRollsBackProcess(successfulRelayCount: 0)
+    }
+
+    func testPodUnixSocketLaterRelayFailureRollsBackProcess() async throws {
+        try await testPodUnixSocketRelayFailureRollsBackProcess(successfulRelayCount: 1)
+    }
+
+    func testPodUnixSocketGuestRelayFailureStopsHostRelay() async throws {
+        let id = "test-pod-unixsocket-guest-relay-failure"
+        let bs = try await bootstrap(id)
+        let hostSocket = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("relay.sock")
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.bootLog = bs.bootLog
+        }
+
+        try await pod.addContainer("container", rootfs: bs.rootfs) { config in
+            config.process.arguments = ["/bin/sleep", "100"]
+            config.sockets = [
+                UnixSocketConfiguration(
+                    source: URL(filePath: "/tmp/../tmp/relay.sock"),
+                    destination: hostSocket,
+                    direction: .outOf
+                )
+            ]
+        }
+
+        do {
+            try await pod.create()
+            do {
+                try await pod.startContainer("container")
+                throw IntegrationError.assert(msg: "expected guest relay setup to fail")
+            } catch let error as IntegrationError {
+                throw error
+            } catch {
+            }
+
+            guard !FileManager.default.fileExists(atPath: hostSocket.path) else {
+                throw IntegrationError.assert(msg: "host relay remained after guest setup failed")
+            }
+            try await assertPodContainerCannotRestartAfterFailedStart(pod)
+
+            try await pod.stop()
+        } catch {
+            try? await pod.stop()
+            throw error
+        }
+    }
+
+    private func testPodUnixSocketRelayFailureRollsBackProcess(successfulRelayCount: Int) async throws {
+        let id = "test-pod-unixsocket-relay-rollback-\(successfulRelayCount)"
+        let bs = try await bootstrap(id)
+        let hostDirectory = FileManager.default.uniqueTemporaryDirectory(create: true)
+        let validHostSocket = hostDirectory.appendingPathComponent("relay.sock")
+        let invalidHostSocket = hostDirectory.appendingPathComponent(String(repeating: "x", count: 200))
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.bootLog = bs.bootLog
+        }
+
+        try await pod.addContainer("container", rootfs: bs.rootfs) { config in
+            config.process.arguments = ["/bin/sleep", "100"]
+            var sockets: [UnixSocketConfiguration] = []
+            if successfulRelayCount > 0 {
+                sockets.append(
+                    UnixSocketConfiguration(
+                        source: URL(filePath: "/tmp/relay.sock"),
+                        destination: validHostSocket,
+                        direction: .outOf
+                    ))
+            }
+            sockets.append(
+                UnixSocketConfiguration(
+                    source: URL(filePath: "/tmp/failing.sock"),
+                    destination: invalidHostSocket,
+                    direction: .outOf
+                ))
+            config.sockets = sockets
+        }
+
+        do {
+            try await pod.create()
+            do {
+                try await pod.startContainer("container")
+                throw IntegrationError.assert(msg: "expected relay setup to fail")
+            } catch let error as IntegrationError {
+                throw error
+            } catch UnixType.Error.nameTooLong {
+            } catch {
+                throw IntegrationError.assert(msg: "unexpected relay setup error: \(error)")
+            }
+
+            guard !FileManager.default.fileExists(atPath: validHostSocket.path) else {
+                throw IntegrationError.assert(msg: "successful relay was not rolled back")
+            }
+            try await assertPodContainerCannotRestartAfterFailedStart(pod)
+
+            try await pod.stop()
+        } catch {
+            try? await pod.stop()
+            throw error
+        }
+    }
+
+    private func assertPodContainerCannotRestartAfterFailedStart(_ pod: LinuxPod) async throws {
+        do {
+            try await pod.startContainer("container")
+            throw IntegrationError.assert(msg: "errored container unexpectedly restarted")
+        } catch let error as IntegrationError {
+            throw error
+        } catch let error as ContainerizationError where error.code == .invalidState {
+        } catch {
+            throw IntegrationError.assert(msg: "unexpected retry error: \(error)")
+        }
+    }
+
     private func createPodHostUnixSocket() throws -> String {
         let dir = FileManager.default.uniqueTemporaryDirectory(create: true)
         let socketPath = dir.appendingPathComponent("test.sock").path

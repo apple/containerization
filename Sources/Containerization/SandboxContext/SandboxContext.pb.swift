@@ -239,6 +239,15 @@ public nonisolated struct Com_Apple_Containerization_Sandbox_V3_ProxyVsockReques
 
   public var action: Com_Apple_Containerization_Sandbox_V3_ProxyVsockRequest.Action = .into
 
+  public var containerPid: Int32 {
+    get {_containerPid ?? 0}
+    set {_containerPid = newValue}
+  }
+  /// Returns true if `containerPid` has been explicitly set.
+  public var hasContainerPid: Bool {self._containerPid != nil}
+  /// Clears the value of `containerPid`. Subsequent reads from it will return its default value.
+  public mutating func clearContainerPid() {self._containerPid = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum Action: SwiftProtobuf.Enum, Swift.CaseIterable {
@@ -278,6 +287,7 @@ public nonisolated struct Com_Apple_Containerization_Sandbox_V3_ProxyVsockReques
   public init() {}
 
   fileprivate var _guestSocketPermissions: UInt32? = nil
+  fileprivate var _containerPid: Int32? = nil
 }
 
 public nonisolated struct Com_Apple_Containerization_Sandbox_V3_ProxyVsockResponse: Sendable {
@@ -1996,7 +2006,7 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_SysctlResponse: Swif
 
 nonisolated extension Com_Apple_Containerization_Sandbox_V3_ProxyVsockRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ProxyVsockRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{3}vsock_port\0\u{1}guestPath\0\u{1}guestSocketPermissions\0\u{1}action\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{3}vsock_port\0\u{1}guestPath\0\u{1}guestSocketPermissions\0\u{1}action\0\u{3}container_pid\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2009,6 +2019,7 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_ProxyVsockRequest: S
       case 3: try { try decoder.decodeSingularStringField(value: &self.guestPath) }()
       case 4: try { try decoder.decodeSingularUInt32Field(value: &self._guestSocketPermissions) }()
       case 5: try { try decoder.decodeSingularEnumField(value: &self.action) }()
+      case 6: try { try decoder.decodeSingularInt32Field(value: &self._containerPid) }()
       default: break
       }
     }
@@ -2034,6 +2045,9 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_ProxyVsockRequest: S
     if self.action != .into {
       try visitor.visitSingularEnumField(value: self.action, fieldNumber: 5)
     }
+    try { if let v = self._containerPid {
+      try visitor.visitSingularInt32Field(value: v, fieldNumber: 6)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -2043,6 +2057,7 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_ProxyVsockRequest: S
     if lhs.guestPath != rhs.guestPath {return false}
     if lhs._guestSocketPermissions != rhs._guestSocketPermissions {return false}
     if lhs.action != rhs.action {return false}
+    if lhs._containerPid != rhs._containerPid {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

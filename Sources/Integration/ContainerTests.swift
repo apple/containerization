@@ -1124,6 +1124,118 @@ extension IntegrationSuite {
         }
     }
 
+    func testUnixSocketOutOfGuestTmpfs() async throws {
+        let id = "test-unixsocket-out-of-guest-tmpfs"
+        let bs = try await bootstrap(
+            id,
+            reference: "cgr.dev/chainguard/python:latest-dev@sha256:aa8fd2447b8b52922db57deb3894b622c3229387aaaec5934d64b85dbff6eb17"
+        )
+        let hostSocket = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("relay.sock")
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = [
+                "/usr/bin/python",
+                "-c",
+                """
+                import os, socket
+                path = "/dev/shm/relay.sock"
+                server = socket.socket(socket.AF_UNIX)
+                server.bind(path)
+                os.chmod(path, 0o777)
+                server.listen()
+                open("/tmp/relay-ready", "w").close()
+                connection, _ = server.accept()
+                connection.sendall(connection.recv(4))
+                """,
+            ]
+            config.sockets = [
+                UnixSocketConfiguration(
+                    source: URL(filePath: "/dev/shm/relay.sock"),
+                    destination: hostSocket,
+                    direction: .outOf
+                )
+            ]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let ready = try await container.exec("wait-for-relay") { config in
+                config.arguments = ["/bin/sh", "-c", "while [ ! -f /tmp/relay-ready ]; do sleep 0.1; done"]
+            }
+            try await ready.start()
+            let readyStatus = try await ready.wait()
+            try await ready.delete()
+            guard readyStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "socket server did not become ready")
+            }
+
+            let client = try Socket(type: UnixType(path: hostSocket.path))
+            try client.connect()
+            _ = try client.write(data: Data("PING".utf8))
+
+            var response = Data(count: 4)
+            let bytesRead = try client.read(buffer: &response)
+            guard bytesRead == 4, response == Data("PING".utf8) else {
+                throw IntegrationError.assert(msg: "unexpected relay response: \(response)")
+            }
+
+            let status = try await container.wait()
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "socket server exited with status \(status)")
+            }
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testUnixSocketRelayRollback() async throws {
+        let id = "test-unixsocket-relay-rollback"
+        let bs = try await bootstrap(id)
+        let hostDirectory = FileManager.default.uniqueTemporaryDirectory(create: true)
+        guard FileManager.default.fileExists(atPath: hostDirectory.path) else {
+            throw IntegrationError.assert(msg: "failed to create host socket directory")
+        }
+        let firstHostSocket = hostDirectory.appendingPathComponent("first.sock")
+        let invalidHostSocket = hostDirectory.appendingPathComponent(String(repeating: "x", count: 200))
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/sleep", "100"]
+            config.sockets = [
+                UnixSocketConfiguration(
+                    source: URL(filePath: "/tmp/first.sock"),
+                    destination: firstHostSocket,
+                    direction: .outOf
+                ),
+                UnixSocketConfiguration(
+                    source: URL(filePath: "/tmp/second.sock"),
+                    destination: invalidHostSocket,
+                    direction: .outOf
+                ),
+            ]
+            config.bootLog = bs.bootLog
+        }
+
+        try await container.create()
+        do {
+            try await container.start()
+            throw IntegrationError.assert(msg: "expected the second relay to fail")
+        } catch let error as IntegrationError {
+            throw error
+        } catch UnixType.Error.nameTooLong {
+            guard !FileManager.default.fileExists(atPath: firstHostSocket.path) else {
+                throw IntegrationError.assert(msg: "first relay was not removed after setup failed")
+            }
+        } catch {
+            throw IntegrationError.assert(msg: "unexpected relay setup error: \(error)")
+        }
+    }
+
     // NOTE: Once upon a time our guest agent created any proxied unix sockets at
     // a path that contained the container ID in it. The problem here is if the container
     // ID is comically long we exceed the max length of a unix domain socket path.

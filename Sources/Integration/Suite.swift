@@ -195,8 +195,10 @@ struct IntegrationSuite: AsyncParsableCommand {
 
     static let eventLoop = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
 
-    func bootstrap(_ testID: String) async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image, bootLog: BootLog) {
-        let reference = "ghcr.io/linuxcontainers/alpine:3.20"
+    func bootstrap(
+        _ testID: String,
+        reference: String = "ghcr.io/linuxcontainers/alpine:3.20"
+    ) async throws -> (rootfs: Containerization.Mount, vmm: VirtualMachineManager, image: Containerization.Image, bootLog: BootLog) {
         let store = Self.imageStore
 
         let initImage = try await store.getInitImage(reference: Self.initImage)
@@ -602,7 +604,13 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("unix socket into guest", testUnixSocketIntoGuest),
                 Test("unix socket into guest long container id", testUnixSocketIntoGuestLongContainerID),
                 Test("unix socket into guest symlink", testUnixSocketIntoGuestSymlink),
+                Test("unix socket out of guest tmpfs", testUnixSocketOutOfGuestTmpfs),
+                Test("unix socket relay rollback", testUnixSocketRelayRollback),
                 Test("pod unix socket into guest symlink", testPodUnixSocketIntoGuestSymlink),
+                Test("pod unix socket out of guest tmpfs", testPodUnixSocketOutOfGuestTmpfsStopsWithContainer),
+                Test("pod unix socket first relay rollback", testPodUnixSocketFirstRelayFailureRollsBackProcess),
+                Test("pod unix socket later relay rollback", testPodUnixSocketLaterRelayFailureRollsBackProcess),
+                Test("pod unix socket guest relay rollback", testPodUnixSocketGuestRelayFailureStopsHostRelay),
 
                 // High-concurrency stdio (exceeds CH's prebound stdio pool size)
                 Test("multiple concurrent processes", testMultipleConcurrentProcesses),
