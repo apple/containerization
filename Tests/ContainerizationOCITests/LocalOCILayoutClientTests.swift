@@ -147,6 +147,64 @@ struct LocalOCILayoutClientTests {
         }
     }
 
+    @Test func loadIndexFromOCILayoutRejectsSymlinkOCILayout() throws {
+        let root = FileManager.default.uniqueTemporaryDirectory(create: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // A file outside the layout root that the oci-layout symlink points to.
+        let outsideDir = FileManager.default.uniqueTemporaryDirectory(create: true)
+        defer { try? FileManager.default.removeItem(at: outsideDir) }
+        let outsideTarget = outsideDir.appendingPathComponent("outside-\(UUID().uuidString)")
+        try Data("{\"imageLayoutVersion\":\"1.0.0\"}".utf8).write(to: outsideTarget)
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent("oci-layout"), withDestinationURL: outsideTarget)
+
+        // create a valid regular file for index.json.
+        try Data("{\"schemaVersion\":2,\"manifests\":[]}".utf8)
+            .write(to: root.appendingPathComponent("index.json"))
+
+        let client: LocalOCILayoutClient = try LocalOCILayoutClient(root: root)
+        #expect(throws: (any Error).self) {
+            try client.loadIndexFromOCILayout(directory: root)
+        }
+    }
+
+    @Test func loadIndexFromOCILayoutRejectsSymlinkedIndexFile() throws {
+        let root = FileManager.default.uniqueTemporaryDirectory(create: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // A file outside the layout root that the index.json symlink points to.
+        let outsideDir = FileManager.default.uniqueTemporaryDirectory(create: true)
+        defer { try? FileManager.default.removeItem(at: outsideDir) }
+        let outsideTarget = outsideDir.appendingPathComponent("outside-\(UUID().uuidString)")
+        try Data("{\"schemaVersion\":2,\"manifests\":[]}".utf8).write(to: outsideTarget)
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent("index.json"), withDestinationURL: outsideTarget)
+
+        // create a valid oci-layout regular file.
+        try Data("{\"imageLayoutVersion\":\"1.0.0\"}".utf8)
+            .write(to: root.appendingPathComponent("oci-layout"))
+
+        let client = try LocalOCILayoutClient(root: root)
+        #expect(throws: (any Error).self) {
+            try client.loadIndexFromOCILayout(directory: root)
+        }
+    }
+
+    @Test func loadIndexFromOCILayoutReadsRegularFiles() throws {
+        let root = FileManager.default.uniqueTemporaryDirectory(create: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let client = try LocalOCILayoutClient(root: root)
+        try Data("{\"imageLayoutVersion\":\"1.0.0\"}".utf8)
+            .write(to: root.appendingPathComponent("oci-layout"))
+        try Data("{\"schemaVersion\":2,\"manifests\":[]}".utf8)
+            .write(to: root.appendingPathComponent("index.json"))
+
+        let index = try client.loadIndexFromOCILayout(directory: root)
+        #expect(index.manifests.isEmpty)
+    }
+
     private func byteBufferGenerator(for data: Data) -> () -> AsyncStream<ByteBuffer> {
         {
             AsyncStream { continuation in
