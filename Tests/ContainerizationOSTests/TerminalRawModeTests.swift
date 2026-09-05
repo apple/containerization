@@ -67,4 +67,19 @@ struct TerminalRawModeTests {
         #expect(has(tcflag_t(OPOST), in: attrs.c_oflag), "setraw must preserve OPOST for output post-processing")
         #expect(has(tcflag_t(ONLCR), in: attrs.c_oflag), "setraw must preserve ONLCR for CRLF output translation")
     }
+
+    @Test("setraw can preserve terminal signal generation")
+    func setrawCanPreserveSignalGeneration() throws {
+        let (parent, child) = try Terminal.create(initialSize: Terminal.Size(width: 120, height: 40))
+        defer {
+            try? parent.close()
+            try? child.close()
+        }
+
+        try child.setraw(preserveSignalGeneration: true)
+
+        let attrs = try termiosAttributes(of: child.handle.fileDescriptor)
+        #expect(!has(tcflag_t(ICANON), in: attrs.c_lflag), "raw input must remain non-canonical")
+        #expect(has(tcflag_t(ISIG), in: attrs.c_lflag), "Ctrl-C must continue to generate SIGINT")
+    }
 }

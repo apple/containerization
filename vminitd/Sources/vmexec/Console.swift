@@ -59,8 +59,11 @@ class Console {
         // Put the pty slave into raw mode so the tty line discipline does not
         // buffer or truncate large output writes (the container's stdout goes
         // through this slave). `Terminal.setraw()` applies cfmakeraw and keeps
-        // OPOST, so newline translation to CRLF on output is preserved.
-        try Terminal(descriptor: slaveFD, setInitState: false).setraw()
+        // OPOST, so newline translation to CRLF on output is preserved. Keep
+        // ISIG enabled because cctl forwards terminal bytes, and guest Ctrl-C
+        // therefore depends on the slave line discipline generating SIGINT.
+        try Terminal(descriptor: slaveFD, setInitState: false)
+            .setraw(preserveSignalGeneration: true)
 
         for fd: Int32 in 0...2 {
             guard dup3(slaveFD, fd, 0) != -1 else {

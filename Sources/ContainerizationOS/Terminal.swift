@@ -140,9 +140,15 @@ extension Terminal {
 
 extension Terminal {
     /// Enable raw mode for the pty.
-    public func setraw() throws {
+    /// - Parameter preserveSignalGeneration: Keep `ISIG` enabled so control
+    ///   characters such as Ctrl-C still signal the foreground process.
+    /// - Throws: An error if the terminal attributes cannot be read or applied.
+    public func setraw(preserveSignalGeneration: Bool = false) throws {
         var attr = try Self.getattr(descriptor)
         cfmakeraw(&attr)
+        if preserveSignalGeneration {
+            attr.c_lflag |= tcflag_t(ISIG)
+        }
         attr.c_oflag = attr.c_oflag | tcflag_t(OPOST)
         try fromSyscall(tcsetattr(descriptor, TCSANOW, &attr))
     }
