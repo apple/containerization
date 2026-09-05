@@ -19,6 +19,8 @@ import ContainerizationOS
 import Foundation
 import Testing
 
+import struct ContainerizationOCI.ImageConfig
+
 @testable import Containerization
 
 struct LinuxContainerTests {
@@ -118,5 +120,54 @@ struct LinuxContainerTests {
         }
         #expect(pod.maskedPaths == expectedMasked)
         #expect(pod.readonlyPaths == expectedReadonly)
+    }
+
+    @Test func runtimeSpecIncludesConfiguredBlockIO() throws {
+        let blockIO = Containerization.LinuxBlockIO(
+            weight: 500,
+            leafWeight: 300,
+            weightDevice: [
+                Containerization.LinuxWeightDevice(major: 8, minor: 0, weight: 700, leafWeight: 400)
+            ],
+            throttleReadBpsDevice: [
+                Containerization.LinuxThrottleDevice(major: 8, minor: 16, rate: 1_048_576)
+            ],
+            throttleWriteBpsDevice: [
+                Containerization.LinuxThrottleDevice(major: 8, minor: 32, rate: 2_097_152)
+            ],
+            throttleReadIOPSDevice: [
+                Containerization.LinuxThrottleDevice(major: 8, minor: 48, rate: 1_000)
+            ],
+            throttleWriteIOPSDevice: [
+                Containerization.LinuxThrottleDevice(major: 8, minor: 64, rate: 2_000)
+            ]
+        )
+
+        let container = try LinuxContainer(
+            "blkio-test",
+            rootfs: .block(format: "ext4", source: "/tmp/rootfs.img", destination: "/"),
+            vmm: StubVirtualMachineManager(),
+            configuration: .init(process: .init(), blockIO: blockIO)
+        )
+
+        let resources = try #require(container.generateRuntimeSpec().linux?.resources)
+        let specBlockIO = try #require(resources.blockIO)
+
+        #expect(specBlockIO.weight == 500)
+        #expect(specBlockIO.leafWeight == 300)
+        #expect(specBlockIO.weightDevice.first?.major == 8)
+        #expect(specBlockIO.weightDevice.first?.minor == 0)
+        #expect(specBlockIO.weightDevice.first?.weight == 700)
+        #expect(specBlockIO.weightDevice.first?.leafWeight == 400)
+        #expect(specBlockIO.throttleReadBpsDevice.first?.rate == 1_048_576)
+        #expect(specBlockIO.throttleWriteBpsDevice.first?.rate == 2_097_152)
+        #expect(specBlockIO.throttleReadIOPSDevice.first?.rate == 1_000)
+        #expect(specBlockIO.throttleWriteIOPSDevice.first?.rate == 2_000)
+    }
+}
+
+private struct StubVirtualMachineManager: VirtualMachineManager {
+    func create(config: some VMCreationConfig) async throws -> any VirtualMachineInstance {
+        fatalError("StubVirtualMachineManager.create should not be called by LinuxContainerTests")
     }
 }
