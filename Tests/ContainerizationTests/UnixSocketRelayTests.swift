@@ -31,6 +31,35 @@ import Musl
 #endif
 
 struct UnixSocketRelayTests {
+    @Test
+    func outOfRelayAppliesRequestedHostSocketPermissions() throws {
+        let root = URL(fileURLWithPath: "/tmp").appendingPathComponent(
+            "containerization-relay-\(UUID())",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let socketPath = root.appendingPathComponent("service.sock")
+        let configuration = UnixSocketConfiguration(
+            source: URL(fileURLWithPath: "/run/service.sock"),
+            destination: socketPath,
+            permissions: .init(rawValue: 0o600),
+            direction: .outOf
+        )
+
+        let listener = try UnixSocketRelay.makeHostListener(configuration)
+        defer { try? listener.close() }
+        let permissions = try #require(
+            FileManager.default.attributesOfItem(atPath: socketPath.path)[
+                .posixPermissions
+            ] as? NSNumber
+        )
+        #expect(permissions.uint16Value == 0o600)
+    }
+
     private func socketPair() throws -> (connection: FileHandle, peer: FileHandle) {
         var fds: [Int32] = [-1, -1]
         #if canImport(Glibc)
