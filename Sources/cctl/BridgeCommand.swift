@@ -59,7 +59,7 @@ extension Application {
             func run() async throws {
                 let cidr = try CIDRv4(subnet)
                 let gw = try gateway.map { try IPv4Address($0) }
-                let mgr = BridgeManager(
+                let mgr = try BridgeManager.make(
                     name: name,
                     subnet: cidr,
                     gateway: gw,
@@ -86,7 +86,7 @@ extension Application {
 
             func run() async throws {
                 let cidr = try CIDRv4(subnet)
-                let mgr = BridgeManager(name: name, subnet: cidr, logger: log)
+                let mgr = try BridgeManager.make(name: name, subnet: cidr, logger: log)
                 try mgr.delete()
             }
         }
