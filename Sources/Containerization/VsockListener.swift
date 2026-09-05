@@ -18,6 +18,7 @@ import Foundation
 import Synchronization
 
 #if os(macOS)
+import ObjectiveC
 import Virtualization
 #endif
 
@@ -76,6 +77,22 @@ public final class VsockListener: NSObject, Sendable, AsyncSequence {
 
 #if os(macOS)
 
+private final class ConnectionOwnerAssociationKey: @unchecked Sendable {}
+
+private let connectionOwnerAssociationKey = ConnectionOwnerAssociationKey()
+
+/// Keeps an owner of a duplicated descriptor alive for as long as its file
+/// handle can use that descriptor. Virtualization owns the original VSOCK
+/// descriptor and requires its connection object to stay alive after accept.
+func retainConnectionOwner(_ owner: AnyObject, for handle: FileHandle) {
+    objc_setAssociatedObject(
+        handle,
+        Unmanaged.passUnretained(connectionOwnerAssociationKey).toOpaque(),
+        owner,
+        .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+    )
+}
+
 extension VsockListener: VZVirtioSocketListenerDelegate {
     public func listener(
         _: VZVirtioSocketListener, shouldAcceptNewConnection conn: VZVirtioSocketConnection,
@@ -85,9 +102,9 @@ extension VsockListener: VZVirtioSocketListenerDelegate {
         guard fd != -1 else {
             return false
         }
-        conn.close()
 
         let fh = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
+        retainConnectionOwner(conn, for: fh)
         let result = cont.yield(fh)
         if case .terminated = result {
             try? fh.close()
