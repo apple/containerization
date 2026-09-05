@@ -169,8 +169,8 @@ public final class RegistryClient: ContentClient {
         var currentToken: TokenResponse?
         var attemptedBasicAuth = false
 
-        // Add any arbitrary headers
-        headers?.forEach { (k, v) in request.headers.add(name: k, value: v) }
+        // Add any arbitrary headers.
+        requestHeaders(merging: headers).forEach { (k, v) in request.headers.add(name: k, value: v) }
         var retryCount = 0
         var response: HTTPClientResponse?
         while true {
@@ -269,6 +269,17 @@ public final class RegistryClient: ContentClient {
             throw ContainerizationError(.internalError, message: "invalid response")
         }
         return try await closure(response)
+    }
+
+    internal func requestHeaders(merging headers: [(String, String)]?) -> [(String, String)] {
+        var merged: [(String, String)] = []
+        if headers?.contains(where: { $0.0.caseInsensitiveCompare("User-Agent") == .orderedSame }) != true {
+            merged.append(("User-Agent", clientID))
+        }
+        if let headers {
+            merged.append(contentsOf: headers)
+        }
+        return merged
     }
 
     internal func requestData(
