@@ -144,8 +144,9 @@ extension VZVirtioSocketConnection {
         if fd == -1 {
             throw POSIXError.fromErrno()
         }
-        self.close()
-        return FileHandle(fileDescriptor: fd, closeOnDealloc: false)
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
+        retainConnectionOwner(self, for: handle)
+        return handle
     }
 }
 
