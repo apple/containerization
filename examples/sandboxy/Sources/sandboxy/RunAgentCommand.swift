@@ -687,6 +687,7 @@ private func runContainerSession(
         envVarsBuilder.append("https_proxy=\(proxyURL)")
         envVarsBuilder.append("NO_PROXY=localhost,127.0.0.1")
         envVarsBuilder.append("no_proxy=localhost,127.0.0.1")
+        // TODO: Refine install customization as we integrate more agent definitions rather than inspecting installCommands directly.
         if definition.installCommands.contains(where: { $0.contains("global-agent") }) {
             envVarsBuilder.append("GLOBAL_AGENT_HTTP_PROXY=\(proxyURL)")
             envVarsBuilder.append("GLOBAL_AGENT_HTTPS_PROXY=\(proxyURL)")
