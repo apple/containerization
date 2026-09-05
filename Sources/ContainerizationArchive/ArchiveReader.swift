@@ -106,6 +106,29 @@ public final class ArchiveReader {
             .checkOk(elseThrow: { .unableToOpenArchive($0) })
     }
 
+    /// Initializes an `ArchiveReader` to read from the provided file descriptor,
+    /// auto-detecting the archive `Format` and compression `Filter`.
+    ///
+    /// Use this when the incoming stream's format and compression are not known
+    /// ahead of time, e.g. a tar stream supplied on stdin that may be
+    /// uncompressed or compressed (gzip, bzip2, xz, ...), matching
+    /// `docker cp -` / `podman cp -` input semantics. zstd is not auto-detected
+    /// from a stream because it requires seeking; use
+    /// ``init(format:filter:fileHandle:)`` with ``Filter/zstd`` for that case.
+    public init(fileHandle: FileHandle) throws {
+        self.underlying = archive_read_new()
+        self.fileHandle = fileHandle
+
+        try archive_read_support_filter_all(underlying)
+            .checkOk(elseThrow: .failedToDetectFilter)
+        try archive_read_support_format_all(underlying)
+            .checkOk(elseThrow: .failedToDetectFormat)
+
+        let fd = fileHandle.fileDescriptor
+        try archive_read_open_fd(underlying, fd, 4096)
+            .checkOk(elseThrow: { .unableToOpenArchive($0) })
+    }
+
     /// Initialize the `ArchiveReader` to read from a specified file URL
     /// by trying to auto determine the archives `Format` and `Filter`.
     public init(file: URL) throws {
