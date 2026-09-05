@@ -1537,6 +1537,11 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         return .init()
     }
 
+    // DNS well-known port (53).
+    private static let nameserverPort: UInt16 = 53
+    // Redirect-target ports must be unprivileged (>= 1024).
+    private static let minimumRedirectPort: UInt32 = 1024
+
     public func configureDns(
         request: Com_Apple_Containerization_Sandbox_V3_ConfigureDnsRequest,
         context: GRPCCore.ServerContext
@@ -1553,11 +1558,72 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             ])
 
         do {
+            // A non-empty target set must match the nameservers one-to-one.
+            if !request.redirectTargets.isEmpty {
+                guard request.nameservers.count == request.redirectTargets.count else {
+                    throw ContainerizationError(
+                        .invalidArgument,
+                        message: "DNS redirect target count (\(request.redirectTargets.count)) must match nameserver count (\(request.nameservers.count))")
+                }
+            }
+
+            // Redirect rules must apply before writing: a netlink failure throws.
+            let redirects =
+                if request.redirectTargets.isEmpty && !request.nameservers.isEmpty {
+                    // Nameservers without targets: redirect the default nameserver to
+                    // the default target, one TCP and one UDP rule.
+                    [
+                        DNATRule(
+                            matchDaddr: try IPv4Address([198, 51, 100, 100]), matchDport: 53,
+                            matchProto: IPProtocol.IPPROTO_UDP,
+                            dnatAddr: try IPv4Address([192, 168, 64, 1]), dnatPort: 3053),
+                        DNATRule(
+                            matchDaddr: try IPv4Address([198, 51, 100, 100]), matchDport: 53,
+                            matchProto: IPProtocol.IPPROTO_TCP,
+                            dnatAddr: try IPv4Address([192, 168, 64, 1]), dnatPort: 3053),
+                    ]
+                } else if request.redirectTargets.isEmpty {
+                    [] as [DNATRule]
+                } else {
+                    try request.nameservers.enumerated().flatMap { index, nameserver in
+                        // Wire ports arrive as `uint32` while the host validates `UInt16`;
+                        // IPv6 endpoints are skipped — the rules are IPv4-only.
+                        let target = request.redirectTargets[index]
+                        guard target.port <= UInt16.max, target.port >= Self.minimumRedirectPort else {
+                            throw ContainerizationError(
+                                .invalidArgument,
+                                message: "DNS redirect target '\(target.ip):\(target.port)' has invalid port")
+                        }
+                        guard let match = try? IPv4Address(nameserver),
+                            let dnat = try? IPv4Address(target.ip)
+                        else {
+                            return [] as [DNATRule]
+                        }
+                        // Each target gets two rules in the same batch: one UDP and one TCP.
+                        return [
+                            DNATRule(
+                                matchDaddr: match, matchDport: Self.nameserverPort,
+                                matchProto: IPProtocol.IPPROTO_UDP,
+                                dnatAddr: dnat, dnatPort: UInt16(target.port)),
+                            DNATRule(
+                                matchDaddr: match, matchDport: Self.nameserverPort,
+                                matchProto: IPProtocol.IPPROTO_TCP,
+                                dnatAddr: dnat, dnatPort: UInt16(target.port)),
+                        ]
+                    }
+                }
+
+            if !redirects.isEmpty {
+                let socket = try DefaultNetlinkSocket(socketProtocol: NetlinkProtocol.NETLINK_NETFILTER)
+                try NfTablesSession(socket: socket, log: log).addDnatToOutput(rules: redirects)
+            }
+
             let etc = URL(fileURLWithPath: request.location).appendingPathComponent("etc")
             try FileManager.default.createDirectory(atPath: etc.path, withIntermediateDirectories: true)
             let resolvConf = etc.appendingPathComponent("resolv.conf")
             let config = DNS(
                 nameservers: request.nameservers,
+                redirectTargets: request.redirectTargets.map { (ip: $0.ip, port: UInt16($0.port)) },
                 domain: domain,
                 searchDomains: request.searchDomains,
                 options: request.options
@@ -1566,16 +1632,26 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             log.debug("writing to path \(resolvConf.path) \(text)")
             try text.write(toFile: resolvConf.path, atomically: true, encoding: .utf8)
             log.debug("wrote resolver configuration", metadata: ["path": "\(resolvConf.path)"])
+
+            return .init()
+        } catch let err as ContainerizationError {
+            log.error(
+                "configureDns",
+                metadata: [
+                    "error": "\(err)"
+                ])
+            throw err.toRPCError(operation: "configureDns: failed to configure DNS")
         } catch {
             log.error(
                 "configureDns",
                 metadata: [
                     "error": "\(error)"
                 ])
-            throw RPCError(code: .internalError, message: "configureDns", cause: error)
+            if error is RPCError {
+                throw error
+            }
+            throw RPCError(code: .internalError, message: "configureDns: \(error)", cause: error)
         }
-
-        return .init()
     }
 
     public func configureHosts(

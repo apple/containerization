@@ -52,6 +52,16 @@ struct DNSTests {
         #expect(dns.resolvConf == expected)
     }
 
+    @Test func dnsResolvConfAddsRedirectComment() {
+        let dns = DNS(
+            nameservers: ["8.8.8.8"],
+            redirectTargets: [(ip: "192.168.64.1", port: 3053)]
+        )
+
+        let expected = "# DNS traffic may be redirected by an nftables rule; verify with: nft list ruleset\nnameserver 8.8.8.8\n"
+        #expect(dns.resolvConf == expected)
+    }
+
     @Test func dnsValidateAcceptsValidIPv4Nameservers() throws {
         let dns = DNS(nameservers: ["8.8.8.8", "1.1.1.1"])
         #expect(throws: Never.self) { try dns.validate() }
@@ -79,6 +89,45 @@ struct DNSTests {
 
     @Test func dnsValidateRejectsInvalidAddress() {
         let dns = DNS(nameservers: ["not-an-ip"])
+        #expect(throws: (any Error).self) { try dns.validate() }
+    }
+
+    // MARK: - redirectTargets
+
+    @Test func dnsValidateAcceptsValidRedirectTargets() throws {
+        let dns = DNS(
+            nameservers: ["8.8.8.8", "1.1.1.1"],
+            redirectTargets: [(ip: "192.168.64.1", port: 3053), (ip: "192.168.64.2", port: 5353)])
+        #expect(throws: Never.self) { try dns.validate() }
+    }
+
+    @Test func dnsValidateAcceptsMaxPort() throws {
+        let dns = DNS(nameservers: ["8.8.8.8"], redirectTargets: [(ip: "192.168.64.1", port: 65535)])
+        #expect(throws: Never.self) { try dns.validate() }
+    }
+
+    @Test func dnsValidateRejectsRedirectTargetPort53() {
+        let dns = DNS(nameservers: ["8.8.8.8"], redirectTargets: [(ip: "192.168.64.1", port: 53)])
+        #expect(throws: (any Error).self) { try dns.validate() }
+    }
+
+    @Test func dnsValidateRejectsRedirectTargetPort1023() {
+        let dns = DNS(nameservers: ["8.8.8.8"], redirectTargets: [(ip: "192.168.64.1", port: 1023)])
+        #expect(throws: (any Error).self) { try dns.validate() }
+    }
+
+    @Test func dnsValidateRejectsRedirectTargetPort0() {
+        let dns = DNS(nameservers: ["8.8.8.8"], redirectTargets: [(ip: "192.168.64.1", port: 0)])
+        #expect(throws: (any Error).self) { try dns.validate() }
+    }
+
+    @Test func dnsValidateRejectsRedirectTargetNonIPv4() {
+        let dns = DNS(nameservers: ["8.8.8.8"], redirectTargets: [(ip: "dns.example.com", port: 3053)])
+        #expect(throws: (any Error).self) { try dns.validate() }
+    }
+
+    @Test func dnsValidateRejectsRedirectTargetIPv6() {
+        let dns = DNS(nameservers: ["8.8.8.8"], redirectTargets: [(ip: "2001:db8::1", port: 3053)])
         #expect(throws: (any Error).self) { try dns.validate() }
     }
 }
