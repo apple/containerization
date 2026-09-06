@@ -46,6 +46,11 @@ struct AuthChallengeTests {
                 Bearer realm="https://auth.server.io/token",service="registry.server.io"
                 """,
             expected: .init(type: "Bearer", realm: "https://auth.server.io/token", service: "registry.server.io", scope: nil, error: nil)),
+        .init(
+            input: """
+                Basic realm="Registry Realm"
+                """,
+            expected: .init(type: "Basic", realm: "Registry Realm", service: nil, scope: nil, error: nil)),
 
     ]
 

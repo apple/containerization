@@ -41,15 +41,36 @@ extension ImageStore {
             }
             do {
                 let data = try Data(contentsOf: statePath)
-                return try JSONDecoder().decode(State.self, from: data)
+                let entries = try JSONDecoder().decode([String: SkippableDescriptor].self, from: data)
+                return entries.compactMapValues { $0.descriptor }
             } catch {
                 throw ContainerizationError(.internalError, message: "failed to load image state \(error.localizedDescription)")
             }
         }
 
+        /// Decodes one state entry, tolerating a record that cannot be read.
+        ///
+        /// `Descriptor` rejects malformed digests at decode time, so without this
+        /// a single unreadable record would make `load()` throw and take every
+        /// other image in the store with it — listing, pulling and deleting all
+        /// go through here.
+        ///
+        /// - Note: A skipped record is dropped silently, and because `save()`
+        ///   writes back only what `load()` returned, the next mutation removes it
+        ///   from `state.json` permanently. That is acceptable because a record
+        ///   whose descriptor cannot be decoded is unusable anyway, but it does
+        ///   mean the image disappears without a diagnostic.
+        private struct SkippableDescriptor: Decodable {
+            let descriptor: Descriptor?
+
+            init(from decoder: any Decoder) throws {
+                self.descriptor = try? Descriptor(from: decoder)
+            }
+        }
+
         private func save(_ state: State) throws {
             let statePath = self.path.appendingPathComponent("state.json")
-            try JSONEncoder().encode(state).write(to: statePath)
+            try JSONEncoder().encode(state).write(to: statePath, options: .atomic)
         }
 
         public func delete(reference: String) throws {

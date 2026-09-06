@@ -284,7 +284,7 @@ extension IntegrationSuite {
 
                         var hasher = SHA256()
                         hasher.update(data: buffer.data)
-                        let hash = hasher.finalize().digestString.trimmingDigestPrefix
+                        let hash = hasher.finalize().encoded
                         guard hash == expected else {
                             throw IntegrationError.assert(
                                 msg: "process \(idx) output \(hash) != expected \(expected)")
@@ -1470,6 +1470,71 @@ extension IntegrationSuite {
             }
 
             // Stop should handle cleanup of all exec processes gracefully
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    /// Sequential `exec`s with stdio must not run a VM out of vsock ports.
+    ///
+    /// The cloud-hypervisor backend pre-binds a fixed pool of host stdio
+    /// sockets (it has to: the VMM can't see socket files created after it
+    /// forked). While host port numbers were handed out by a fetch-add that
+    /// never reused one, and a finished stream destroyed its pool entry, that
+    /// pool was a *lifetime* budget for the VM rather than a concurrency one —
+    /// a one-container pod accepted exactly four sequential execs and the
+    /// fifth failed with "vsock port … was not pre-bound". An `exec` liveness
+    /// probe every 10s therefore bricked a pod in well under a minute.
+    ///
+    /// 40 execs at two stdio ports each is 80 allocations, comfortably past
+    /// the pre-bound pool, so this only passes if ports and pool entries are
+    /// both recycled. Each exec also checks its *own* output, which is what
+    /// catches the failure mode recycling introduces: a straggling dial for a
+    /// finished stream getting delivered to whichever process reused the port.
+    func testSequentialExecsReuseStdioPorts() async throws {
+        let id = "test-sequential-execs-reuse-stdio-ports"
+
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/sleep", "1000"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            for index in 0..<40 {
+                let expected = "exec-\(index)"
+                let stdout = BufferWriter()
+                let stderr = BufferWriter()
+                let exec = try await container.exec("seq-\(index)") { config in
+                    config.arguments = ["/bin/echo", expected]
+                    config.stdout = stdout
+                    config.stderr = stderr
+                }
+                try await exec.start()
+                let status = try await exec.wait()
+                try await exec.delete()
+
+                guard status.exitCode == 0 else {
+                    throw IntegrationError.assert(msg: "exec \(index) status \(status) != 0")
+                }
+                let got = String(data: stdout.data, encoding: .utf8) ?? ""
+                guard got == "\(expected)\n" else {
+                    throw IntegrationError.assert(
+                        msg: "exec \(index) stdout '\(got)' != '\(expected)\\n' — a recycled port may be cross-wired")
+                }
+                let err = String(data: stderr.data, encoding: .utf8) ?? ""
+                guard err.isEmpty else {
+                    throw IntegrationError.assert(msg: "exec \(index) stderr should be empty, got '\(err)'")
+                }
+            }
+
             try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
@@ -4319,15 +4384,23 @@ extension IntegrationSuite {
                 config.arguments = ["/bin/sh", "-c", "echo hello > /data/hello.txt"]
             }
             try await writeExec.start()
-            let writeStatus = try await writeExec.wait()
-            try await writeExec.delete()
-            guard writeStatus.exitCode == 0 else {
-                throw IntegrationError.assert(msg: "write exec failed with status \(writeStatus)")
+
+            do {
+                let status = try await writeExec.wait(timeoutInSeconds: 1)
+                throw IntegrationError.assert(msg: "write unexpectedly completed while filesystem was frozen with status \(status)")
+            } catch let error as ContainerizationError where error.code == .timeout {
+                // The write must remain blocked until the filesystem is thawed.
             }
 
             try FileManager.default.copyItem(at: diskImageURL, to: cloneImageURL)
 
             try await writerContainer.filesystemOperation(operation: .thaw, path: "/data")
+
+            let writeStatus = try await writeExec.wait()
+            try await writeExec.delete()
+            guard writeStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "write exec failed with status \(writeStatus)")
+            }
 
             try await writerContainer.kill(.kill)
             _ = try await writerContainer.wait()
@@ -5359,6 +5432,87 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(
                     msg: "expected sysctls ['2048', '1'], got '\(output ?? "nil")'")
             }
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testExecJoinsInitNamespaces() async throws {
+        let id = "test-exec-joins-init-namespaces"
+
+        // An exec must land in exactly the namespaces the container's init
+        // process is in. The namespace identity check (`/proc/self/ns/*` vs
+        // `/proc/1/ns/*`, PID 1 being the container init as seen from inside
+        // its own PID namespace) is the real invariant: it catches any
+        // namespace the exec path forgets, not just the one that regressed.
+        //
+        // `kernel.shm_rmid_forced` is asserted alongside it because it is what
+        // consumers actually observe. IPC-namespaced sysctls are resolved
+        // against the *reading* process's IPC namespace, so an exec left in the
+        // guest's root IPC namespace reads the guest default (0) rather than
+        // the value applied to the container — the shape of the CRI conformance
+        // failure "should support safe sysctls", which reads such a sysctl back
+        // over ExecSync.
+        //
+        // `net` is expected to match too: LinuxContainer declares no network
+        // namespace, so both sides sit in the guest root netns today, and
+        // asserting it guards the exec path if that ever changes.
+        let probe = """
+            exec 2>&1
+            set -u
+            fail=0
+            for ns in ipc uts mnt pid cgroup net; do
+                mine=$(readlink /proc/self/ns/$ns)
+                init=$(readlink /proc/1/ns/$ns)
+                if [ "$mine" != "$init" ]; then
+                    echo "NS-FAIL: $ns exec=$mine init=$init"
+                    fail=1
+                fi
+            done
+            shm=$(cat /proc/sys/kernel/shm_rmid_forced)
+            if [ "$shm" != "1" ]; then
+                echo "SYSCTL-FAIL: kernel.shm_rmid_forced=$shm expected 1"
+                fail=1
+            fi
+            [ "$fail" -eq 0 ] || exit 1
+            echo "NS-OK"
+            """
+
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.sysctl = [
+                "kernel.shm_rmid_forced": "1"
+            ]
+            config.process.arguments = ["/bin/sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let buffer = BufferWriter()
+            let exec = try await container.exec("ns-probe") { config in
+                config.arguments = ["/bin/sh", "-c", probe]
+                config.stdout = buffer
+            }
+
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            let output = String(data: buffer.data, encoding: .utf8) ?? "<non-utf8 output>"
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "exec namespace probe failed (exit \(status.exitCode)): \(output)")
+            }
+            guard output.contains("NS-OK") else {
+                throw IntegrationError.assert(msg: "expected NS-OK sentinel, got: \(output)")
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
         } catch {
             try? await container.stop()
             throw error

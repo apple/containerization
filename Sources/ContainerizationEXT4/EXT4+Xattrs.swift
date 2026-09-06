@@ -208,7 +208,9 @@ extension EXT4 {
                 guard end - front >= 4 else {
                     throw Error.malformedXattrBuffer
                 }
-
+                guard attribute.name.count > 0 && attribute.name.count <= UInt8.max else {
+                    throw Error.invalidXAttr(attribute.name)
+                }
                 var out: [UInt8] = []
                 let v = attribute.sizeValue
                 offset -= UInt16(v)
@@ -297,6 +299,7 @@ extension EXT4 {
             case convertAsciiString(_ s: String)
             case nonAsciiXattrName
             case missingXAttrHeader
+            case invalidXAttr(_ s: String)
 
             public var description: String {
                 switch self {
@@ -310,6 +313,8 @@ extension EXT4 {
                     return "extended attribute name contains non-ASCII bytes"
                 case .missingXAttrHeader:
                     return "missing header for extended attribute entry"
+                case .invalidXAttr(let s):
+                    return "invalid extended attribute \(s)"
                 }
             }
         }

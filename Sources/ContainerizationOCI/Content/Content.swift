@@ -31,6 +31,11 @@ public protocol Content: Sendable {
     func size() throws -> UInt64
 
     /// Data representation of entire content
+    ///
+    /// - Note: Implementations must bound this read. It is reached with a
+    ///   caller-declared size that may not match what is on disk, so an
+    ///   unbounded read is a memory-exhaustion primitive. See
+    ///   ``LocalContent/maxDecodedSize``.
     func data() throws -> Data
 
     /// Data representation partial content

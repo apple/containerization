@@ -169,7 +169,7 @@ extension ImageStore {
         }
 
         // Calculate size of blobs not in the referenced list
-        let referencedSet = Set(referenced.map { $0.trimmingDigestPrefix })
+        let referencedSet = Set(referenced.map { (try? ParsedDigest(parsingPathComponent: $0).encoded) ?? $0 })
         let blobsPath = self.path.appendingPathComponent("content/blobs/sha256")
 
         let fileManager = FileManager.default
