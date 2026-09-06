@@ -155,8 +155,7 @@ extension RegistryClient {
             }
 
             guard descriptor.digest == response.headers.first(name: "Docker-Content-Digest") else {
-                let required = response.headers.first(name: "Docker-Content-Digest") ?? ""
-                throw ContainerizationError(.internalError, message: "digest mismatch \(descriptor.digest) != \(required)")
+                throw ContainerizationError(.internalError, message: "digest mismatch")
             }
         }
     }

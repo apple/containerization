@@ -100,6 +100,7 @@ On first run, `sandboxy` downloads a kernel, pulls a base image, and installs th
 ## Supported Agents
 
 - **Claude Code** - built-in
+- **Pi** - built-in; PTY mode is enabled automatically
 
 Additional agents can be added via JSON config files. See [Adding a New Agent](#adding-a-new-agent).
 
@@ -148,6 +149,9 @@ sandboxy run --rm claude
 
 # Pass flags through to the agent
 sandboxy run claude -- --model foobar
+
+# Run Pi's interactive terminal UI (PTY is automatic for Pi)
+sandboxy run pi
 ```
 
 **Options:**
@@ -267,7 +271,7 @@ Every session automatically saves its rootfs when it exits. The instance appears
 ```bash
 # First run -- auto-named instance
 sandboxy run claude
-# => Instance claude-20260328-091522 saved. Resume with: sandboxy run claude --name claude-20260328-091522
+# => Instance claude-20260328-091522 saved. Resume with: sandboxy run --name claude-20260328-091522 claude
 
 # Resume it
 sandboxy run --name claude-20260328-091522 claude

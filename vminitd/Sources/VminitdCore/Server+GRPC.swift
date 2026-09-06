@@ -27,6 +27,7 @@ import ContainerizationOS
 import Foundation
 import GRPCCore
 import GRPCProtobuf
+import LCShim
 import Logging
 import NIOCore
 import NIOPosix
@@ -722,11 +723,34 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         async throws -> Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse
     {
         let path = FilePath(request.path)
+        if !request.hasContainerID {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "containerID is required"
+            )
+        }
+
+        guard let operation = request.operation else {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "operation is required"
+            )
+        }
+
+        let container = try await state.get(container: request.containerID)
+        guard let containerPid = await container.pid else {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "container PID is not present"
+            )
+        }
 
         log.debug(
             "filesystemOperation",
             metadata: [
-                "operation": "\(String(describing: request.operation))",
+                "containerID": "\(request.containerID)",
+                "containerPid": "\(containerPid)",
+                "operation": "\(operation)",
                 "path": "\(path)",
             ])
 
@@ -734,6 +758,60 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             throw RPCError(code: .invalidArgument, message: "path must be absolute")
         }
 
+        let selfMountFd = open("/proc/self/ns/mnt", O_RDONLY | O_CLOEXEC)
+        if selfMountFd < 0 {
+            let error = swiftErrno("open")
+            throw RPCError(code: .internalError, message: "failed to open self mount namespace", cause: error)
+        }
+
+        defer { close(selfMountFd) }
+
+        let containerMountFd = open("/proc/\(containerPid)/ns/mnt", O_RDONLY | O_CLOEXEC)
+        if containerMountFd < 0 {
+            let error = swiftErrno("open")
+            throw RPCError(code: .internalError, message: "failed to open container mount namespace", cause: error)
+        }
+
+        defer { close(containerMountFd) }
+
+        var finfo = _stat_struct()
+        let selfMountStat = fstat(selfMountFd, &finfo)
+        if selfMountStat != 0 {
+            let error = swiftErrno("fstat")
+            throw RPCError(code: .internalError, message: "failed to stat self mount namespace", cause: error)
+        }
+        let selfInode = finfo.st_ino
+
+        let containerMountStat = fstat(containerMountFd, &finfo)
+        if containerMountStat != 0 {
+            let error = swiftErrno("fstat")
+            throw RPCError(code: .internalError, message: "failed to stat container mount namespace", cause: error)
+        }
+        let containerInode = finfo.st_ino
+
+        if selfInode == containerInode {
+            try doFilesystemOperation(path: path, operation: operation)
+        } else {
+            try await self.runOnDedicatedThread {
+                if unshare(CLONE_FS) != 0 {
+                    let error = self.swiftErrno("unshare(CLONE_FS)")
+                    throw RPCError(code: .internalError, message: "failed to unshare filesystem namespace", cause: error)
+                }
+                if setns(containerMountFd, CLONE_NEWNS) != 0 {
+                    let error = self.swiftErrno("setns(CLONE_NEWNS)")
+                    throw RPCError(code: .internalError, message: "failed to enter container mount namespace", cause: error)
+                }
+                try self.doFilesystemOperation(path: path, operation: operation)
+            }
+        }
+
+        return .init()
+    }
+
+    private func doFilesystemOperation(
+        path: FilePath,
+        operation: Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest.OneOf_Operation
+    ) throws {
         var finfo = _stat_struct()
         let rc = _stat(path.string, &finfo)
         if rc != 0 {
@@ -753,20 +831,18 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         defer { close(fd) }
 
         do {
-            switch request.operation {
-            case .freeze:
+            switch operation {
+            case .freeze(_):
                 try freezeFilesystem(fd: fd)
-            case .thaw:
+            case .thaw(_):
                 try thawFilesystem(fd: fd)
             case .trim(let params):
                 switch params.schedule {
-                case .oneShot:
+                case .oneShot(_):
                     try trimFilesystem(fd: fd)
                 case .none:
                     throw RPCError(code: .invalidArgument, message: "trim schedule must be specified")
                 }
-            case .none:
-                throw RPCError(code: .invalidArgument, message: "invalid operation")
             }
         } catch {
             log.error(
@@ -776,8 +852,6 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                 ])
             throw RPCError(code: .internalError, message: "filesystemOperation", cause: error)
         }
-
-        return .init()
     }
 
     private func freezeFilesystem(fd: Int32) throws {
@@ -1648,6 +1722,22 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                 "error": "\(error)"
             ])
         return error
+    }
+
+    private func runOnDedicatedThread<T: Sendable>(
+        _ work: @escaping @Sendable () throws -> T
+    ) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            let thread = Thread {
+                do {
+                    let result = try work()
+                    continuation.resume(returning: result)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+            thread.start()
+        }
     }
 
     // NOTE: This is just crummy. It works because today the assumption is

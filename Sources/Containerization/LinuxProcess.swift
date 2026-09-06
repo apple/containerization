@@ -100,21 +100,35 @@ public final class LinuxProcess: Sendable {
     private let logger: Logger?
     private let onDelete: (@Sendable () async -> Void)?
 
+    /// The allocator that `io`'s ports came from. This process gives them
+    /// back when it is deleted; see `VsockPortAllocator` for why they can't
+    /// simply be abandoned.
+    private let portAllocator: VsockPortAllocator
+
+    /// How long to wait for the guest to dial back for each stdio stream.
+    /// Defaults to the process-wide `stdioDialBackTimeout`; injectable so
+    /// tests don't have to wait it out.
+    private let stdioTimeout: UInt32
+
     init(
         _ id: String,
         containerID: String? = nil,
         spec: Spec,
         io: Stdio,
+        portAllocator: VsockPortAllocator,
         ociRuntimePath: String?,
         agent: any VirtualMachineAgent,
         vm: any VirtualMachineInstance,
         logger: Logger?,
+        stdioTimeoutSeconds: UInt32 = LinuxProcess.stdioDialBackTimeout,
         onDelete: (@Sendable () async -> Void)? = nil
     ) {
         self.id = id
         self.owningContainer = containerID
         self.state = Mutex<State>(.init(spec: spec, pid: -1, stdio: StdioHandles()))
         self.ioSetup = io
+        self.portAllocator = portAllocator
+        self.stdioTimeout = stdioTimeoutSeconds
         self.agent = agent
         self.ociRuntimePath = ociRuntimePath
         self.vm = vm
@@ -124,28 +138,79 @@ public final class LinuxProcess: Sendable {
 }
 
 extension LinuxProcess {
+    /// Seconds to wait for the guest to dial back on each stdio vsock port.
+    /// The guest only connects once `createProcess` has reached it, so this
+    /// window has to cover a loaded guest getting from that RPC to its
+    /// `connect(2)` — on a busy host running many VMs that is far more than
+    /// the few hundred milliseconds it takes when idle.
+    ///
+    /// Env: `CONTAINERIZATION_STDIO_TIMEOUT` (seconds, default 30). Values
+    /// that aren't a positive integer are ignored.
+    ///
+    /// The asymmetry is what sets the default high: too long only delays
+    /// reporting a guest that was never coming back, while too short
+    /// actively corrupts the failure. Expiring tears down the host
+    /// listeners, so the guest's own connect is then answered with a reset
+    /// and the error surfaced to the caller names a vsock connection
+    /// problem instead of a slow guest.
+    static let stdioDialBackTimeout: UInt32 = {
+        guard let raw = ProcessInfo.processInfo.environment["CONTAINERIZATION_STDIO_TIMEOUT"],
+            let seconds = UInt32(raw),
+            seconds > 0
+        else {
+            return 30
+        }
+        return seconds
+    }()
+
+    /// What each sibling task in `start()` reports back.
+    private enum StartStep: Sendable {
+        case stdio([FileHandle?])
+        case processCreated
+    }
+
     func setupIO(listeners: [VsockListener?]) async throws -> [FileHandle?] {
-        let ioTimeout: UInt32 = 30
+        let timeout = self.stdioTimeout
+        let names = ["stdin", "stdout", "stderr"]
+        let handles = try await withThrowingTaskGroup(of: (Int, FileHandle?).self) { group in
+            var results = [FileHandle?](repeating: nil, count: 3)
 
-        let handles = try await Timeout.run(seconds: ioTimeout) {
-            try await withThrowingTaskGroup(of: (Int, FileHandle?).self) { group in
-                var results = [FileHandle?](repeating: nil, count: 3)
+            for (index, listener) in listeners.enumerated() {
+                guard let listener else { continue }
+                let name = names[index]
 
-                for (index, listener) in listeners.enumerated() {
-                    guard let listener else { continue }
-
-                    group.addTask {
-                        let first = await listener.first(where: { _ in true })
-                        try listener.finish()
-                        return (index, first)
+                group.addTask {
+                    let first: FileHandle?
+                    // Timed per stream rather than around the whole group so
+                    // the error can name the stream the guest never dialed.
+                    do {
+                        first = try await Timeout.run(seconds: timeout) {
+                            await listener.first(where: { _ in true })
+                        }
+                    } catch {
+                        try? listener.finish()
+                        // A cancelled sibling — or a cancelled caller — lands
+                        // here too. That error isn't ours to relabel, and the
+                        // group reports whichever failure came first anyway.
+                        if Task.isCancelled {
+                            throw error
+                        }
+                        throw ContainerizationError(
+                            .timeout,
+                            message: "guest did not dial back for \(name) (vsock port \(listener.port)) "
+                                + "within \(timeout)s",
+                            cause: error
+                        )
                     }
+                    try listener.finish()
+                    return (index, first)
                 }
-
-                for try await (index, fileHandle) in group {
-                    results[index] = fileHandle
-                }
-                return results
             }
+
+            for try await (index, fileHandle) in group {
+                results[index] = fileHandle
+            }
+            return results
         }
 
         // Note: stdin relay is started separately via startStdinRelay() after
@@ -239,14 +304,14 @@ extension LinuxProcess {
 
     /// Start the process.
     public func start() async throws {
+        var pending = [VsockListener?](repeating: nil, count: 3)
         do {
             let spec = self.state.withLock { $0.spec }
-            var listeners = [VsockListener?](repeating: nil, count: 3)
             if let stdin = self.ioSetup.stdin {
-                listeners[0] = try self.vm.listen(stdin.port)
+                pending[0] = try self.vm.listen(stdin.port)
             }
             if let stdout = self.ioSetup.stdout {
-                listeners[1] = try self.vm.listen(stdout.port)
+                pending[1] = try self.vm.listen(stdout.port)
             }
             if let stderr = self.ioSetup.stderr {
                 if spec.process!.terminal {
@@ -255,25 +320,48 @@ extension LinuxProcess {
                         message: "stderr should not be configured with terminal=true"
                     )
                 }
-                listeners[2] = try self.vm.listen(stderr.port)
+                pending[2] = try self.vm.listen(stderr.port)
+            }
+            let listeners = pending
+
+            // setupIO and createProcess must run concurrently: the guest only
+            // dials back for stdio once createProcess has reached it. Run them
+            // as siblings so whichever fails *first* is the error we report.
+            // That ordering is the point. A stdio dial-back timeout tears down
+            // the host listeners, after which the guest's own connect is
+            // answered with a reset — so if createProcess's error won the race
+            // the caller was told "connection reset by peer" for a port that
+            // the host itself had stopped listening on moments earlier, which
+            // sends every investigation to the wrong layer.
+            let result = try await withThrowingTaskGroup(of: StartStep.self, returning: [FileHandle?].self) { group in
+                group.addTask {
+                    let handles = try await self.setupIO(listeners: listeners)
+                    return .stdio(handles)
+                }
+
+                group.addTask {
+                    try await self.agent.createProcess(
+                        id: self.id,
+                        containerID: self.owningContainer,
+                        stdinPort: self.ioSetup.stdin?.port,
+                        stdoutPort: self.ioSetup.stdout?.port,
+                        stderrPort: self.ioSetup.stderr?.port,
+                        ociRuntimePath: self.ociRuntimePath,
+                        configuration: spec,
+                        options: nil
+                    )
+                    return .processCreated
+                }
+
+                var handles = [FileHandle?](repeating: nil, count: 3)
+                for try await step in group {
+                    if case .stdio(let stdio) = step {
+                        handles = stdio
+                    }
+                }
+                return handles
             }
 
-            let t = Task {
-                try await self.setupIO(listeners: listeners)
-            }
-
-            try await agent.createProcess(
-                id: self.id,
-                containerID: self.owningContainer,
-                stdinPort: self.ioSetup.stdin?.port,
-                stdoutPort: self.ioSetup.stdout?.port,
-                stderrPort: self.ioSetup.stderr?.port,
-                ociRuntimePath: self.ociRuntimePath,
-                configuration: spec,
-                options: nil
-            )
-
-            let result = try await t.value
             let pid = try await self.agent.startProcess(
                 id: self.id,
                 containerID: self.owningContainer
@@ -294,6 +382,13 @@ extension LinuxProcess {
                 $0.pid = pid
             }
         } catch {
+            // Release any listener this failure path left open — e.g. a later
+            // vm.listen(_:) throwing after earlier ports were already claimed.
+            // finish() is idempotent, so streams setupIO already finished are
+            // unaffected.
+            for listener in pending {
+                try? listener?.finish()
+            }
             if let err = error as? ContainerizationError {
                 throw err
             }
@@ -434,6 +529,13 @@ extension LinuxProcess {
     }
 
     private func performDeletion() async throws {
+        // Runs after the paths below have closed the host stdio handles, and
+        // only once (performDeletion is guarded by state.deletionTask). Ports
+        // deliberately come back at delete rather than at process exit: a
+        // straggling guest dial for a finished stream must not be handed to
+        // whichever process reuses the number next.
+        defer { self.releaseStdioPorts() }
+
         do {
             try await self.agent.deleteProcess(
                 id: self.id,
@@ -474,6 +576,15 @@ extension LinuxProcess {
                 message: "failed to close agent connection",
                 cause: error,
             )
+        }
+    }
+
+    /// Return this process's stdio vsock ports to the allocator. `release` is
+    /// idempotent, so overlapping teardown paths don't need to coordinate.
+    private func releaseStdioPorts() {
+        for port in [self.ioSetup.stdin?.port, self.ioSetup.stdout?.port, self.ioSetup.stderr?.port] {
+            guard let port else { continue }
+            self.portAllocator.release(port)
         }
     }
 }

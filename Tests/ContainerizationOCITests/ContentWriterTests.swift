@@ -116,4 +116,69 @@ struct ContentWriterTests {
             #expect(digest == SHA256.hash(data: expected))
         }
     }
+
+    @Test func testCreateFromRejectsSymlinkedSource() throws {
+        try withTempDirectory { base in
+            try withTempDirectory { src in
+                let target = try makeTempFile(in: src, data: Data("target contents".utf8))
+                let link = src.appendingPathComponent(UUID().uuidString)
+                try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+
+                let writer = try ContentWriter(for: base)
+                #expect(throws: (any Error).self) {
+                    try writer.create(from: link)
+                }
+            }
+        }
+    }
+
+    @Test func testCopyFromToRejectsSymlinkedSource() throws {
+        try withTempDirectory { base in
+            try withTempDirectory { src in
+                let target = try makeTempFile(in: src, data: Data("target contents".utf8))
+                let link = src.appendingPathComponent(UUID().uuidString)
+                try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+
+                let destination = base.appendingPathComponent(UUID().uuidString)
+                #expect(throws: (any Error).self) {
+                    try ContentWriter.copy(from: link, destination: destination)
+                }
+                #expect(!FileManager.default.fileExists(atPath: destination.path))
+            }
+        }
+    }
+
+    @Test func testCopyFromToRoundTripsRegularFile() throws {
+        try withTempDirectory { base in
+            try withTempDirectory { src in
+                let data = Data("copy me".utf8)
+                let sourceURL = try makeTempFile(in: src, data: data)
+                let destination = base.appendingPathComponent(UUID().uuidString)
+
+                let (size, digest) = try ContentWriter.copy(from: sourceURL, destination: destination)
+                let written = try Data(contentsOf: destination)
+                #expect(size == Int64(data.count))
+                #expect(digest == SHA256.hash(data: data))
+                #expect(written == data)
+            }
+        }
+    }
+
+    @Test func testCopyFromToRejectsExistingDestination() throws {
+        try withTempDirectory { base in
+            try withTempDirectory { src in
+                let data = Data("copy me".utf8)
+                let sourceURL = try makeTempFile(in: src, data: data)
+                let destination = base.appendingPathComponent(UUID().uuidString)
+                let existingData = Data("stale contents".utf8)
+                try existingData.write(to: destination)
+
+                #expect(throws: (any Error).self) {
+                    try ContentWriter.copy(from: sourceURL, destination: destination)
+                }
+                // The pre-existing destination content is left untouched, not overwritten.
+                #expect(try Data(contentsOf: destination) == existingData)
+            }
+        }
+    }
 }

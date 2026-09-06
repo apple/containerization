@@ -22,6 +22,13 @@ import Testing
 @testable import ContainerizationOCI
 
 struct OCITests {
+    /// Descriptor digests are validated when decoded, so fixtures that round trip
+    /// through JSON need well formed `sha256:<64 hex>` values.
+    private static func digest(_ seed: String) -> String {
+        let hex = String(repeating: seed, count: 64).prefix(64)
+        return "sha256:\(hex)"
+    }
+
     @Test func config() {
         let config = ContainerizationOCI.ImageConfig()
         let rootfs = ContainerizationOCI.Rootfs(type: "foo", diffIDs: ["diff1", "diff2"])
@@ -44,7 +51,7 @@ struct OCITests {
         let testArtifactType = "application/vnd.example.test.v1+json"
         let descriptor = ContainerizationOCI.Descriptor(
             mediaType: MediaTypes.imageManifest,
-            digest: "sha256:abc123",
+            digest: Self.digest("abc123"),
             size: 1234,
             artifactType: testArtifactType
         )
@@ -57,7 +64,7 @@ struct OCITests {
 
     @Test func descriptorWithoutArtifactTypeDecodesAsNil() throws {
         let json = """
-                {"mediaType":"application/vnd.oci.descriptor.v1+json","digest":"sha256:abc","size":0}
+                {"mediaType":"application/vnd.oci.descriptor.v1+json","digest":"\(Self.digest("abc"))","size":0}
             """
         let decoded = try JSONDecoder().decode(ContainerizationOCI.Descriptor.self, from: json.data(using: .utf8)!)
         #expect(decoded.artifactType == nil)
@@ -78,25 +85,26 @@ struct OCITests {
 
     @Test func indexWithSubjectAndArtifactType() throws {
         let testArtifactType = "application/vnd.example.test.v1+json"
-        let subject = ContainerizationOCI.Descriptor(mediaType: MediaTypes.imageManifest, digest: "sha256:subject", size: 512)
+        let subjectDigest = Self.digest("5b")
+        let subject = ContainerizationOCI.Descriptor(mediaType: MediaTypes.imageManifest, digest: subjectDigest, size: 512)
         let index = ContainerizationOCI.Index(
             schemaVersion: 2,
             manifests: [],
             subject: subject,
             artifactType: testArtifactType
         )
-        #expect(index.subject?.digest == "sha256:subject")
+        #expect(index.subject?.digest == subjectDigest)
         #expect(index.artifactType == testArtifactType)
 
         let data = try JSONEncoder().encode(index)
         let decoded = try JSONDecoder().decode(ContainerizationOCI.Index.self, from: data)
-        #expect(decoded.subject?.digest == "sha256:subject")
+        #expect(decoded.subject?.digest == subjectDigest)
         #expect(decoded.artifactType == testArtifactType)
     }
 
     @Test func indexDecodesWithoutNewFields() throws {
         let json = """
-                {"schemaVersion":2,"manifests":[{"mediaType":"application/vnd.oci.descriptor.v1+json","digest":"sha256:abc","size":10}]}
+                {"schemaVersion":2,"manifests":[{"mediaType":"application/vnd.oci.descriptor.v1+json","digest":"\(Self.digest("abc"))","size":10}]}
             """
         let decoded = try JSONDecoder().decode(ContainerizationOCI.Index.self, from: json.data(using: .utf8)!)
         #expect(decoded.schemaVersion == 2)
@@ -123,11 +131,12 @@ struct OCITests {
 
     @Test func manifestWithSubjectAndArtifactType() throws {
         let testArtifactType = "application/vnd.example.test.v1+json"
-        let config = ContainerizationOCI.Descriptor(mediaType: MediaTypes.emptyJSON, digest: "sha256:empty", size: 2)
-        let subject = ContainerizationOCI.Descriptor(mediaType: MediaTypes.imageManifest, digest: "sha256:target", size: 1234)
+        let targetDigest = Self.digest("7a")
+        let config = ContainerizationOCI.Descriptor(mediaType: MediaTypes.emptyJSON, digest: Self.digest("e"), size: 2)
+        let subject = ContainerizationOCI.Descriptor(mediaType: MediaTypes.imageManifest, digest: targetDigest, size: 1234)
         let layer = ContainerizationOCI.Descriptor(
             mediaType: testArtifactType,
-            digest: "sha256:meta",
+            digest: Self.digest("3a"),
             size: 89,
             annotations: ["org.opencontainers.image.title": "metadata.json"]
         )
@@ -138,13 +147,13 @@ struct OCITests {
             subject: subject,
             artifactType: testArtifactType
         )
-        #expect(manifest.subject?.digest == "sha256:target")
+        #expect(manifest.subject?.digest == targetDigest)
         #expect(manifest.artifactType == testArtifactType)
         #expect(manifest.layers[0].annotations?["org.opencontainers.image.title"] == "metadata.json")
 
         let data = try JSONEncoder().encode(manifest)
         let decoded = try JSONDecoder().decode(ContainerizationOCI.Manifest.self, from: data)
-        #expect(decoded.subject?.digest == "sha256:target")
+        #expect(decoded.subject?.digest == targetDigest)
         #expect(decoded.artifactType == testArtifactType)
     }
 
@@ -152,7 +161,7 @@ struct OCITests {
         let json = """
                 {
                     "schemaVersion": 2,
-                    "config": {"mediaType":"application/vnd.oci.empty.v1+json","digest":"sha256:abc","size":2},
+                    "config": {"mediaType":"application/vnd.oci.empty.v1+json","digest":"\(Self.digest("abc"))","size":2},
                     "layers": []
                 }
             """

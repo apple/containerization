@@ -51,8 +51,34 @@ extension Application {
         @Option(name: .customLong("mount"), help: "Directory to share into the container (Example: /foo:/bar)")
         var mounts: [String] = []
 
+        @Option(
+            name: .customLong("block"),
+            help: """
+                Block device to attach, as comma separated fields \
+                (Example: src=nbd://127.0.0.1:10809,dst=/data,fmt=ext4). \
+                src= is a disk-image path or NBD URL, dst= the guest mount point. \
+                Optional: fmt=<type> (default ext4), timeout=<seconds>, ro, \
+                raw (bind mount the device node instead of a filesystem). \
+                The source must already be formatted.
+                """,
+            transform: Containerization.Mount.parseBlockArgument
+        )
+        var blocks: [Containerization.Mount] = []
+
         @Option(name: .customLong("ns"), help: "Nameserver addresses")
         var nameservers: [String] = []
+
+        @Option(
+            name: .customLong("cap-add"),
+            help: """
+                Linux capability to grant the container process, repeatable \
+                (Example: --cap-add CAP_SYS_ADMIN, or --cap-add sys_admin). \
+                Added on top of the default OCI capability set. Needed by \
+                tools that issue privileged ioctls, e.g. mkfs.xfs
+                """,
+            transform: { try CapabilityName(rawValue: $0) }
+        )
+        var capAdd: [CapabilityName] = []
 
         @Option(name: .long, help: "Path to OCI runtime to use for spawning the container")
         var ociRuntimePath: String?
@@ -73,8 +99,20 @@ extension Application {
         @Option(name: .long, help: "Current working directory")
         var cwd: String = "/"
 
+        @Option(
+            name: .customLong("entrypoint"),
+            help: """
+                Override the image's ENTRYPOINT with a single executable \
+                (Example: --entrypoint /bin/ls). The image's CMD is still \
+                appended; pass a trailing command to replace it.
+                """
+        )
+        var entrypointOverride: String?
+
+        /// Command to run in the container. When omitted the image's
+        /// ENTRYPOINT + CMD is used.
         @Argument(parsing: .captureForPassthrough)
-        var arguments: [String] = ["/bin/sh"]
+        var arguments: [String] = []
 
         func run() async throws {
             let kernel = Kernel(
@@ -98,13 +136,22 @@ extension Application {
             )
             let sigwinchStream = AsyncSignalHandler.create(notify: [SIGWINCH])
 
+            // Get the actual image so we can parse out the ENTRYPOINT
+            let image = try await manager.imageStore.get(reference: imageReference, pull: true)
+            let processArguments = try await Self.resolveArguments(
+                arguments,
+                entrypointOverride: entrypointOverride,
+                image: image,
+                imageReference: imageReference
+            )
+
             let current = try Terminal.current
             try current.setraw()
             defer { current.tryReset() }
 
             let container = try await manager.create(
                 id,
-                reference: imageReference,
+                image: image,
                 rootfsSizeInBytes: fsSizeInMB.mib(),
                 readOnly: readOnly,
                 networking: true
@@ -112,7 +159,7 @@ extension Application {
                 config.cpus = cpus
                 config.memoryInBytes = memory.mib()
                 config.process.setTerminalIO(terminal: current)
-                config.process.arguments = arguments
+                config.process.arguments = processArguments
                 config.process.workingDirectory = cwd
 
                 for mount in self.mounts {
@@ -157,6 +204,20 @@ extension Application {
                     config.mounts = LinuxContainer.defaultOCIMounts()
                 }
 
+                // Appended after the OCI reset above, which replaces
+                // config.mounts wholesale.
+                config.mounts.append(contentsOf: self.blocks)
+
+                if !self.capAdd.isEmpty {
+                    var caps = LinuxCapabilities.defaultOCICapabilities
+                    for cap in self.capAdd {
+                        caps.bounding.append(cap)
+                        caps.effective.append(cap)
+                        caps.permitted.append(cap)
+                    }
+                    config.process.capabilities = caps
+                }
+
                 config.useInit = self.`init`
             }
 
@@ -170,17 +231,31 @@ extension Application {
             // Resize the containers pty to the current terminal window.
             try? await container.resize(to: try current.size)
 
-            try await withThrowingTaskGroup(of: Void.self) { group in
+            let exit = try await withThrowingTaskGroup(
+                of: Void.self,
+                returning: ExitStatus.self
+            ) { group in
                 group.addTask {
                     for await _ in sigwinchStream.signals {
                         try await container.resize(to: try current.size)
                     }
                 }
 
-                try await container.wait()
+                let result = try await container.wait()
                 group.cancelAll()
 
                 try await container.stop()
+                return result
+            }
+
+            // Surface the workload's exit code, as the Linux path below does.
+            // Without this `cctl run` always succeeds and callers cannot tell a
+            // failed container from a successful one.
+            if exit.exitCode != 0 {
+                // Reset the terminal before exiting: ExitCode unwinds past the
+                // `defer` that would otherwise restore it.
+                current.tryReset()
+                throw ExitCode(exit.exitCode)
             }
         }
 
@@ -191,6 +266,25 @@ extension Application {
             ).first!
             .appendingPathComponent("com.apple.containerization")
         }()
+
+        /// Resolve the command from the image config.
+        static func resolveArguments(
+            _ arguments: [String],
+            entrypointOverride: String?,
+            image: Containerization.Image,
+            imageReference: String
+        ) async throws -> [String] {
+            // We hardcode linux arm64 for the kernel above, then proceed to use Platform.current in
+            // ContainerManager.create. This means it will always default have to be arm64, so we
+            // read that config directly.
+            let imageConfig = try await image.config(for: .arm64).config
+            return try Application.resolveProcessArguments(
+                arguments: arguments,
+                entrypointOverride: entrypointOverride,
+                imageConfig: imageConfig,
+                imageReference: imageReference
+            )
+        }
     }
 }
 #endif
@@ -227,6 +321,21 @@ extension Application {
 
         @Option(name: .customLong("mount"), help: "Directory to share into the container (Example: /foo:/bar)")
         var mounts: [String] = []
+
+        @Option(
+            name: .customLong("block"),
+            help: """
+                Block device to attach, as comma separated fields \
+                (Example: src=/tmp/disk.ext4,dst=/data,fmt=ext4). \
+                src= is a disk-image path, dst= the guest mount point. \
+                Optional: fmt=<type> (default ext4), ro, \
+                raw (bind mount the device node instead of a filesystem). \
+                The source must already be formatted. NBD URLs are macOS-only; \
+                cloud-hypervisor treats src= as a file path.
+                """,
+            transform: Containerization.Mount.parseBlockArgument
+        )
+        var blocks: [Containerization.Mount] = []
 
         @Option(name: .long, help: "Path to OCI runtime to use for spawning the container")
         var ociRuntimePath: String?
@@ -289,6 +398,19 @@ extension Application {
         var nameservers: [String] = []
 
         @Option(
+            name: .customLong("cap-add"),
+            help: """
+                Linux capability to grant the container process, repeatable \
+                (Example: --cap-add CAP_SYS_ADMIN, or --cap-add sys_admin). \
+                Added on top of the default OCI capability set. Needed by \
+                tools that issue privileged ioctls — mkfs.xfs, for instance, \
+                calls BLKBSZSET and fails without CAP_SYS_ADMIN.
+                """,
+            transform: { try CapabilityName(rawValue: $0) }
+        )
+        var capAdd: [CapabilityName] = []
+
+        @Option(
             name: .customLong("ch-binary"),
             help: "Path to cloud-hypervisor binary (defaults to PATH lookup)"
         )
@@ -303,8 +425,20 @@ extension Application {
         @Option(name: .long, help: "Current working directory")
         var cwd: String = "/"
 
+        @Option(
+            name: .customLong("entrypoint"),
+            help: """
+                Override the image's ENTRYPOINT with a single executable \
+                (Example: --entrypoint /bin/ls). The image's CMD is still \
+                appended; pass a trailing command to replace it.
+                """
+        )
+        var entrypointOverride: String?
+
+        /// Command to run in the container. When omitted the image's
+        /// ENTRYPOINT + CMD is used.
         @Argument(parsing: .captureForPassthrough)
-        var arguments: [String] = ["/bin/sh"]
+        var arguments: [String] = []
 
         func run() async throws {
             #if arch(arm64)
@@ -389,7 +523,12 @@ extension Application {
             if let imageConfig {
                 processConfig = .init(from: imageConfig)
             }
-            processConfig.arguments = arguments
+            processConfig.arguments = try Application.resolveProcessArguments(
+                arguments: arguments,
+                entrypointOverride: entrypointOverride,
+                imageConfig: imageConfig,
+                imageReference: imageReference
+            )
             processConfig.workingDirectory = cwd
             if let hostTerminal {
                 processConfig.setTerminalIO(terminal: hostTerminal)
@@ -444,6 +583,8 @@ extension Application {
             let networkInterfaces = interfaces
             let useInit = self.`init`
             let extraMounts = self.mounts
+            let extraBlocks = self.blocks
+            let extraCaps = self.capAdd
             let runtimePath = self.ociRuntimePath
             let dns = dnsConfig
             let hosts = hostsConfig
@@ -478,6 +619,20 @@ extension Application {
                 if let runtimePath {
                     config.ociRuntimePath = runtimePath
                     config.mounts = LinuxContainer.defaultOCIMounts()
+                }
+
+                // Appended after the OCI reset above, which replaces
+                // config.mounts wholesale.
+                config.mounts.append(contentsOf: extraBlocks)
+
+                if !extraCaps.isEmpty {
+                    var caps = LinuxCapabilities.defaultOCICapabilities
+                    for cap in extraCaps {
+                        caps.bounding.append(cap)
+                        caps.effective.append(cap)
+                        caps.permitted.append(cap)
+                    }
+                    config.process.capabilities = caps
                 }
             }
 

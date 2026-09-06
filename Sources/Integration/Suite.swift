@@ -447,6 +447,7 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("container bootlog using filehandle", testBootLogFileHandle),
             Test("process delete idempotency", testProcessDeleteIdempotency),
             Test("multiple execs without delete", testMultipleExecsWithoutDelete),
+            Test("sequential execs reuse stdio ports", testSequentialExecsReuseStdioPorts),
 
             // Capabilities
             Test("container capabilities sys admin", testCapabilitiesSysAdmin),
@@ -457,6 +458,9 @@ struct IntegrationSuite: AsyncParsableCommand {
 
             // Masked / read-only paths
             Test("container default masked and read-only paths", testDefaultMaskedAndReadonlyPaths),
+
+            // Namespaces
+            Test("container exec joins init namespaces", testExecJoinsInitNamespaces),
 
             // Stat / Copy
             Test("container stat", testStat),
@@ -618,6 +622,19 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("pod filesystem operation", testPodFilesystemOperation),
                 Test("pod shared disk image volume", testPodSharedDiskImageVolume),
                 Test("pod shared tmpfs volume", testPodSharedTmpfsVolume),
+
+                // cctl --block CLI wiring
+                Test("cctl block NBD mount", testCctlBlockNBDMount),
+                Test("cctl block NBD raw", testCctlBlockNBDRaw),
+                Test("cctl block NBD format and persist", testCctlBlockNBDFormatAndPersist),
+                Test("cctl block rejects invalid spec", testCctlBlockRejectsInvalidSpec),
+
+                // cctl run command entrypoint resolution
+                Test("cctl run uses image default command", testCctlRunUsesImageDefaultCommand),
+                Test("cctl run explicit command overrides default", testCctlRunExplicitCommandOverridesDefault),
+                Test("cctl run without entrypoint or cmd fails", testCctlRunWithoutEntrypointOrCmdFails),
+                Test("cctl run entrypoint override keeps image cmd", testCctlRunEntrypointOverrideKeepsImageCmd),
+                Test("cctl run entrypoint override with command", testCctlRunEntrypointOverrideWithCommand),
             ] + macOS26Tests()
         let tests: [Test] = crossPlatformTests + macOSOnlyTests
         #else

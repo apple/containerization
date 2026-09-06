@@ -41,7 +41,7 @@ public protocol VirtualMachineAgent: Sendable {
     /// Close any resources held by the agent.
     func close() async throws
     // Perform a filesystem operation on the given path.
-    func filesystemOperation(operation: FilesystemOperation, path: String) async throws
+    func filesystemOperation(operation: FilesystemOperation, path: String, containerID: String?) async throws
 
     // POSIX-y
     func getenv(key: String) async throws -> String

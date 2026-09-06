@@ -110,12 +110,11 @@ extension EXT4.Formatter {
 
         for (entry, streamReader) in reader.makeStreamingIterator() {
             try Task.checkCancellation()
-            guard var pathEntry = entry.path else {
+            guard let pathEntry = entry.path else {
                 continue
             }
 
-            pathEntry = preProcessPath(s: pathEntry)
-            let path = FilePath(pathEntry)
+            let path = try preProcessPath(s: pathEntry)
 
             if path.base.hasPrefix(".wh.") {
                 if path.base == ".wh..wh..opq" {  // whiteout directory
@@ -136,8 +135,7 @@ extension EXT4.Formatter {
             }
 
             if let hardlink = entry.hardlink {
-                let hl = preProcessPath(s: hardlink)
-                hardlinks[path] = FilePath(hl)
+                hardlinks[path] = try preProcessPath(s: hardlink)
                 if let progress {
                     await progress([.addItems(1)])
                 }
@@ -190,15 +188,17 @@ extension EXT4.Formatter {
         }
     }
 
-    private func preProcessPath(s: String) -> String {
-        var p = s
-        if p.hasPrefix("./") {
-            p = String(p.dropFirst())
+    private func preProcessPath(s: String) throws -> FilePath {
+        // Normalize as a relative path (root stripped) before checking: lexicallyNormalized()
+        // silently clamps an unresolvable leading ".." to "/" on an already-absolute path,
+        // which would hide a traversal attempt instead of surfacing it as a leading
+        // .parentDirectory component. Any ".." that survives normalization of the relative
+        // form is a genuine attempt to escape above the image root.
+        let relative = FilePath(root: nil, FilePath(s).components).lexicallyNormalized()
+        if relative.components.first?.kind == .parentDirectory {
+            throw UnpackError.pathTraversal(s)
         }
-        if !p.hasPrefix("/") {
-            p = "/" + p
-        }
-        return p
+        return FilePath("/").pushing(relative)
     }
 }
 
@@ -208,6 +208,8 @@ public enum UnpackError: Swift.Error, CustomStringConvertible, Sendable, Equatab
     case invalidName(_ name: String)
     /// A circular link is found.
     case circularLinks
+    /// The path attempts to traverse above the image root.
+    case pathTraversal(_ path: String)
 
     /// The description of the error.
     public var description: String {
@@ -216,6 +218,8 @@ public enum UnpackError: Swift.Error, CustomStringConvertible, Sendable, Equatab
             return "'\(name)' is an invalid name"
         case .circularLinks:
             return "circular links found"
+        case .pathTraversal(let path):
+            return "'\(path)' attempts to traverse above the image root"
         }
     }
 }
