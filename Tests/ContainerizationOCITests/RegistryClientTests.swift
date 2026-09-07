@@ -100,6 +100,25 @@ struct OCIClientTests: ~Copyable {
         try await client.ping()
     }
 
+    @Test func requestHeadersAddDefaultUserAgent() async throws {
+        let client = RegistryClient(host: "ghcr.io", clientID: "containerization-tests")
+        let headers = client.requestHeaders(merging: [("Accept", "*/*")])
+
+        #expect(headers.contains { $0.0 == "User-Agent" && $0.1 == "containerization-tests" })
+        #expect(headers.contains { $0.0 == "Accept" && $0.1 == "*/*" })
+    }
+
+    @Test func requestHeadersKeepExplicitUserAgent() async throws {
+        let client = RegistryClient(host: "ghcr.io", clientID: "containerization-tests")
+        let headers = client.requestHeaders(merging: [
+            ("Accept", "*/*"),
+            ("user-agent", "custom-client"),
+        ])
+
+        #expect(!headers.contains { $0.0 == "User-Agent" && $0.1 == "containerization-tests" })
+        #expect(headers.contains { $0.0 == "user-agent" && $0.1 == "custom-client" })
+    }
+
     @Test func resolve() async throws {
         let client = RegistryClient(host: "ghcr.io")
         let descriptor = try await client.resolve(name: "apple/containerization/dockermanifestimage", tag: "0.0.2")
