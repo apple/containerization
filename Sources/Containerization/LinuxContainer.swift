@@ -1197,12 +1197,13 @@ extension LinuxContainer {
             }
             let isArchive = isDirectory.boolValue
 
-            let guestPath: URL = try await state.vm.withAgent { agent in
+            let root = self.root
+            let destinationPath: String = try await state.vm.withAgent { agent in
                 guard let vminitd = agent as? Vminitd else {
                     throw ContainerizationError(.unsupported, message: "copyIn requires Vminitd agent")
                 }
 
-                return try await self.resolveCopyInGuestPath(
+                return try await self.resolveCopyInDestination(
                     from: source,
                     to: destination,
                     sourceIsDirectory: isArchive,
@@ -1226,7 +1227,8 @@ extension LinuxContainer {
                         }
                         try await vminitd.copy(
                             direction: .copyIn,
-                            guestPath: guestPath,
+                            root: root,
+                            path: destinationPath,
                             vsockPort: port,
                             mode: mode,
                             createParents: createParents,
@@ -1299,17 +1301,19 @@ extension LinuxContainer {
         }
     }
 
-    private func resolveCopyInGuestPath(
+    /// Resolve where a copyIn should land, as a path within the container root
+    /// filesystem. The destination is probed in the guest only to apply
+    /// cp-style semantics (copy into an existing directory); the returned path
+    /// is resolved and confined to the rootfs by the guest when it is written.
+    private func resolveCopyInDestination(
         from source: URL,
         to destination: URL,
         sourceIsDirectory: Bool,
         using vminitd: Vminitd
-    ) async throws -> URL {
-        let guestDestination = URL(filePath: self.root).appending(path: destination.path)
-
+    ) async throws -> String {
         let stat: ContainerizationOS.Stat?
         do {
-            stat = try await vminitd.stat(path: guestDestination)
+            stat = try await vminitd.stat(root: self.root, path: destination.path)
         } catch let error as ContainerizationError where error.code == .notFound {
             stat = nil
         }
@@ -1322,7 +1326,7 @@ extension LinuxContainer {
                     message: "destination directory does not exist: \(destination.path)"
                 )
             }
-            return guestDestination
+            return destination.path
         }
 
         let destinationIsDirectory = (stat.mode & UInt32(S_IFMT)) == UInt32(S_IFDIR)
@@ -1333,10 +1337,10 @@ extension LinuxContainer {
                     message: "cannot copy directory over existing file: \(destination.path)"
                 )
             }
-            return guestDestination
+            return destination.path
         }
 
-        return guestDestination.appendingPathComponent(source.lastPathComponent)
+        return destination.appendingPathComponent(source.lastPathComponent).path
     }
 
     /// Copy a file or directory from the container to the host.
@@ -1358,7 +1362,8 @@ extension LinuxContainer {
                 try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
             }
 
-            let guestPath = URL(filePath: self.root).appending(path: source.path)
+            let root = self.root
+            let sourcePath = source.path
             let port = self.hostVsockPorts.allocate()
             // Deferred LIFO: listener back first, then the port number.
             defer { self.hostVsockPorts.release(port) }
@@ -1376,7 +1381,8 @@ extension LinuxContainer {
                         }
                         try await vminitd.copy(
                             direction: .copyOut,
-                            guestPath: guestPath,
+                            root: root,
+                            path: sourcePath,
                             vsockPort: port,
                             onMetadata: { meta in
                                 metadataCont.yield(meta)

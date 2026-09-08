@@ -242,7 +242,8 @@ message CopyRequest {
   }
   // Direction of the copy operation.
   Direction direction = 1;
-  // Path in the guest (destination for COPY_IN, source for COPY_OUT).
+  // Path within the guest (destination for COPY_IN, source for COPY_OUT),
+  // resolved as if `root` were the filesystem root.
   string path = 2;
   // File mode for single-file COPY_IN (defaults to 0644 if not set).
   uint32 mode = 3;
@@ -252,6 +253,8 @@ message CopyRequest {
   uint32 vsock_port = 5;
   // For COPY_IN: indicates the data arriving on vsock is a tar+gzip archive.
   bool is_archive = 6;
+  // Absolute path of the target root filesystem in the guest.
+  string root = 7;
 }
 
 message CopyResponse {
@@ -271,7 +274,12 @@ message CopyResponse {
   string error = 4;
 }
 
-message StatRequest { string path = 1; }
+message StatRequest {
+  // Path within the guest, resolved as if `root` were the filesystem root.
+  string path = 1;
+  // Absolute path of the target root filesystem in the guest.
+  string root = 2;
+}
 
 message Stat {
   uint64 dev = 1;   // st_dev:     ID of device containing file
