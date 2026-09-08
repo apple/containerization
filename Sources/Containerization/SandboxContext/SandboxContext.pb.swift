@@ -823,8 +823,7 @@ public nonisolated struct Com_Apple_Containerization_Sandbox_V3_CopyRequest: Sen
   /// Direction of the copy operation.
   public var direction: Com_Apple_Containerization_Sandbox_V3_CopyRequest.Direction = .copyIn
 
-  /// Path within the guest (destination for COPY_IN, source for COPY_OUT),
-  /// resolved as if `root` were the filesystem root.
+  /// Path in the guest (destination for COPY_IN, source for COPY_OUT).
   public var path: String = String()
 
   /// File mode for single-file COPY_IN (defaults to 0644 if not set).
@@ -838,9 +837,6 @@ public nonisolated struct Com_Apple_Containerization_Sandbox_V3_CopyRequest: Sen
 
   /// For COPY_IN: indicates the data arriving on vsock is a tar+gzip archive.
   public var isArchive: Bool = false
-
-  /// Absolute path of the target root filesystem in the guest.
-  public var root: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -950,11 +946,7 @@ public nonisolated struct Com_Apple_Containerization_Sandbox_V3_StatRequest: Sen
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  /// Path within the guest, resolved as if `root` were the filesystem root.
   public var path: String = String()
-
-  /// Absolute path of the target root filesystem in the guest.
-  public var root: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -3030,7 +3022,7 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_WriteFileResponse: S
 
 nonisolated extension Com_Apple_Containerization_Sandbox_V3_CopyRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".CopyRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}direction\0\u{1}path\0\u{1}mode\0\u{3}create_parents\0\u{3}vsock_port\0\u{3}is_archive\0\u{1}root\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}direction\0\u{1}path\0\u{1}mode\0\u{3}create_parents\0\u{3}vsock_port\0\u{3}is_archive\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3044,7 +3036,6 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_CopyRequest: SwiftPr
       case 4: try { try decoder.decodeSingularBoolField(value: &self.createParents) }()
       case 5: try { try decoder.decodeSingularUInt32Field(value: &self.vsockPort) }()
       case 6: try { try decoder.decodeSingularBoolField(value: &self.isArchive) }()
-      case 7: try { try decoder.decodeSingularStringField(value: &self.root) }()
       default: break
       }
     }
@@ -3069,9 +3060,6 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_CopyRequest: SwiftPr
     if self.isArchive != false {
       try visitor.visitSingularBoolField(value: self.isArchive, fieldNumber: 6)
     }
-    if !self.root.isEmpty {
-      try visitor.visitSingularStringField(value: self.root, fieldNumber: 7)
-    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -3082,7 +3070,6 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_CopyRequest: SwiftPr
     if lhs.createParents != rhs.createParents {return false}
     if lhs.vsockPort != rhs.vsockPort {return false}
     if lhs.isArchive != rhs.isArchive {return false}
-    if lhs.root != rhs.root {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -3143,7 +3130,7 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_CopyResponse.Status:
 
 nonisolated extension Com_Apple_Containerization_Sandbox_V3_StatRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".StatRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{1}root\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3152,7 +3139,6 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_StatRequest: SwiftPr
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.path) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.root) }()
       default: break
       }
     }
@@ -3162,15 +3148,11 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_StatRequest: SwiftPr
     if !self.path.isEmpty {
       try visitor.visitSingularStringField(value: self.path, fieldNumber: 1)
     }
-    if !self.root.isEmpty {
-      try visitor.visitSingularStringField(value: self.root, fieldNumber: 2)
-    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_StatRequest, rhs: Com_Apple_Containerization_Sandbox_V3_StatRequest) -> Bool {
     if lhs.path != rhs.path {return false}
-    if lhs.root != rhs.root {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

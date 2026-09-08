@@ -1864,8 +1864,10 @@ extension IntegrationSuite {
             let vsock = try await container.dialVsock(port: 1024)
             let vminitd = try await Vminitd(connection: vsock, group: Self.eventLoop)
 
+            let root = URL(filePath: container.root)
+
             // --- regular file ---
-            let regularStat = try await vminitd.stat(root: container.root, path: "tmp/regular-file.txt")
+            let regularStat = try await vminitd.stat(path: root.appending(path: "tmp/regular-file.txt"))
             guard (regularStat.mode & UInt32(S_IFMT)) == S_IFREG else {
                 throw IntegrationError.assert(msg: "regular file: expected S_IFREG, got mode 0x\(String(regularStat.mode, radix: 16))")
             }
@@ -1880,7 +1882,7 @@ extension IntegrationSuite {
             }
 
             // --- directory ---
-            let dirStat = try await vminitd.stat(root: container.root, path: "tmp/test-dir")
+            let dirStat = try await vminitd.stat(path: root.appending(path: "tmp/test-dir"))
             guard (dirStat.mode & UInt32(S_IFMT)) == S_IFDIR else {
                 throw IntegrationError.assert(msg: "directory: expected S_IFDIR, got mode 0x\(String(dirStat.mode, radix: 16))")
             }
@@ -1890,8 +1892,8 @@ extension IntegrationSuite {
             }
 
             // --- symlink ---
-            // stat follows symlinks (confined to the rootfs), so the result reflects the target regular file
-            let symlinkStat = try await vminitd.stat(root: container.root, path: "tmp/test-link")
+            // stat(2) follows symlinks, so the result reflects the target regular file
+            let symlinkStat = try await vminitd.stat(path: root.appending(path: "tmp/test-link"))
             guard (symlinkStat.mode & UInt32(S_IFMT)) == S_IFREG else {
                 throw IntegrationError.assert(msg: "symlink (followed): expected S_IFREG, got mode 0x\(String(symlinkStat.mode, radix: 16))")
             }
@@ -1900,7 +1902,7 @@ extension IntegrationSuite {
             }
 
             // --- FIFO ---
-            let fifoStat = try await vminitd.stat(root: container.root, path: "tmp/test-fifo")
+            let fifoStat = try await vminitd.stat(path: root.appending(path: "tmp/test-fifo"))
             guard (fifoStat.mode & UInt32(S_IFMT)) == S_IFIFO else {
                 throw IntegrationError.assert(msg: "FIFO: expected S_IFIFO, got mode 0x\(String(fifoStat.mode, radix: 16))")
             }
@@ -1962,108 +1964,6 @@ extension IntegrationSuite {
             guard output == testContent else {
                 throw IntegrationError.assert(
                     msg: "copied file content mismatch: expected '\(testContent)', got '\(output)'")
-            }
-
-            try await container.kill(.kill)
-            try await container.wait()
-            try await container.stop()
-        } catch {
-            try? await container.stop()
-            throw error
-        }
-    }
-
-    func testCopyInDoesNotEscapeRootfsViaSymlink() async throws {
-        let id = "test-copy-in-symlink-escape"
-
-        let bs = try await bootstrap(id)
-
-        let hostFile = FileManager.default.uniqueTemporaryDirectory(create: true)
-            .appendingPathComponent("payload.txt")
-        try "HACKED".write(to: hostFile, atomically: true, encoding: .utf8)
-
-        let buffer = BufferWriter()
-        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
-            config.process.arguments = ["sleep", "100"]
-            config.bootLog = bs.bootLog
-        }
-
-        do {
-            try await container.create()
-            try await container.start()
-
-            // Plant a symlink whose absolute target would, resolved unconfined in
-            // vminitd's namespace, escape the container rootfs.
-            let setup = try await container.exec("plant-symlink") { config in
-                config.arguments = ["sh", "-c", "echo -n ORIGINAL > /target && ln -s /target /tmp/escape"]
-            }
-            try await setup.start()
-            guard try await setup.wait().exitCode == 0 else {
-                throw IntegrationError.assert(msg: "failed to plant symlink")
-            }
-            try await setup.delete()
-
-            // Copy through the symlink: the write must land on the container's own
-            // /target (the confined symlink target), not a same-named VM-root file.
-            try await container.copyIn(from: hostFile, to: URL(filePath: "/tmp/escape"))
-
-            let exec = try await container.exec("verify") { config in
-                config.arguments = ["cat", "/target"]
-                config.stdout = buffer
-            }
-            try await exec.start()
-            let status = try await exec.wait()
-            try await exec.delete()
-            guard status.exitCode == 0 else {
-                throw IntegrationError.assert(msg: "cat /target failed with status \(status)")
-            }
-            let got = String(data: buffer.data, encoding: .utf8) ?? ""
-            guard got == "HACKED" else {
-                throw IntegrationError.assert(msg: "copyIn did not stay within the rootfs: /target = '\(got)'")
-            }
-
-            try await container.kill(.kill)
-            try await container.wait()
-            try await container.stop()
-        } catch {
-            try? await container.stop()
-            throw error
-        }
-    }
-
-    func testCopyOutDoesNotEscapeRootfsViaSymlink() async throws {
-        let id = "test-copy-out-symlink-escape"
-
-        let bs = try await bootstrap(id)
-
-        let hostDestination = FileManager.default.uniqueTemporaryDirectory(create: true)
-            .appendingPathComponent("out.txt")
-
-        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
-            config.process.arguments = ["sleep", "100"]
-            config.bootLog = bs.bootLog
-        }
-
-        do {
-            try await container.create()
-            try await container.start()
-
-            // A symlink whose absolute target resolves, confined, to the container's
-            // own file. copyOut must read that, never a same-named VM-root file.
-            let setup = try await container.exec("plant-symlink") { config in
-                config.arguments = ["sh", "-c", "echo -n CONTAINED > /target && ln -s /target /tmp/leak"]
-            }
-            try await setup.start()
-            guard try await setup.wait().exitCode == 0 else {
-                throw IntegrationError.assert(msg: "failed to plant symlink")
-            }
-            try await setup.delete()
-
-            try await container.copyOut(from: URL(filePath: "/tmp/leak"), to: hostDestination)
-
-            let copied = try String(contentsOf: hostDestination, encoding: .utf8)
-            guard copied == "CONTAINED" else {
-                throw IntegrationError.assert(msg: "copyOut did not stay within the rootfs: got '\(copied)'")
             }
 
             try await container.kill(.kill)
