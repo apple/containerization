@@ -108,9 +108,13 @@ extension LocalOCILayoutClient {
     private static let ociLayoutIndexFileName = "index.json"
 
     package func loadIndexFromOCILayout(directory: URL) throws -> ContainerizationOCI.Index {
+        let fm = FileManager.default
         let decoder = JSONDecoder()
 
         let ociLayoutFile = directory.appendingPathComponent(Self.ociLayoutFileName)
+        guard fm.fileExists(atPath: ociLayoutFile.absolutePath()) else {
+            throw ContainerizationError(.notFound, message: ociLayoutFile.absolutePath())
+        }
         var data = try Self.readControlFile(at: ociLayoutFile)
         let ociLayout = try decoder.decode([String: String].self, from: data)
         guard ociLayout[Self.ociLayoutVersionString] != nil else {
@@ -118,40 +122,24 @@ extension LocalOCILayoutClient {
         }
 
         let indexFile = directory.appendingPathComponent(Self.ociLayoutIndexFileName)
+        guard fm.fileExists(atPath: indexFile.absolutePath()) else {
+            throw ContainerizationError(.notFound, message: indexFile.absolutePath())
+        }
         data = try Self.readControlFile(at: indexFile)
         let index = try decoder.decode(ContainerizationOCI.Index.self, from: data)
         return index
     }
 
-    /// Read a layout control file.
-    /// File must be a regular file and cannot be larger than `maxDecodedSize`.
+    /// Read a layout control file, refusing an oversized one.
     ///
     /// `oci-layout` and `index.json` are read straight out of a caller-supplied
-    /// directory before any digest in them has been looked at. Without the
-    /// `O_NOFOLLOW`/regular-file check, a crafted archive could place either name
-    /// as a symlink and without the size cap, an unbounded read here is a
-    /// memory-exhaustion primitive reachable from `ImageStore.load(from:)`.
+    /// directory before any digest in them has been looked at, so an unbounded
+    /// read here is a memory-exhaustion primitive reachable from
+    /// `ImageStore.load(from:)`.
     private static func readControlFile(at url: URL) throws -> Data {
-        let fd = open(url.path, O_RDONLY | O_NOFOLLOW)
-        guard fd >= 0 else {
-            let errCode = POSIXErrorCode(rawValue: errno) ?? .EINVAL
-            let err = POSIXError(errCode)
-            throw ContainerizationError(.internalError, message: "failed to open \(url.absolutePath())", cause: err)
-        }
-        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-        defer { try? handle.close() }
-
-        var st = stat()
-        guard fstat(fd, &st) == 0 else {
-            let errCode = POSIXErrorCode(rawValue: errno) ?? .EINVAL
-            let err = POSIXError(errCode)
-            throw ContainerizationError(.internalError, message: "failed to stat \(url.absolutePath())", cause: err)
-        }
-        guard (st.st_mode & S_IFMT) == S_IFREG else {
-            throw ContainerizationError(.internalError, message: "refusing to read non-regular file at \(url.absolutePath())")
-        }
-
         let limit = LocalContent.maxDecodedSize
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
         let data = try handle.read(upToCount: limit + 1) ?? Data()
         guard data.count <= limit else {
             throw ContainerizationError(
