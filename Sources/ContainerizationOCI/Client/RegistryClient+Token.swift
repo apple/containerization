@@ -25,8 +25,10 @@ struct TokenRequest {
 
     /// The realm against which the token should be requested.
     let realm: String
-    /// The name of the service which hosts the resource.
-    let service: String
+    /// The name of the service which hosts the resource. Optional: the parameter is a Docker
+    /// registry convention, not a requirement of RFC 6750, and some registries (notably Google
+    /// Artifact Registry) omit it from their challenge entirely.
+    let service: String?
     /// Whether to return a refresh token along with the bearer token.
     let offlineToken: Bool
     /// String identifying the client.
@@ -36,7 +38,7 @@ struct TokenRequest {
 
     init(
         realm: String,
-        service: String,
+        service: String?,
         clientId: String,
         scope: String?,
         offlineToken: Bool = false
@@ -139,9 +141,11 @@ extension RegistryClient {
         }
         try validateRealm(components)
         components.queryItems = [
-            URLQueryItem(name: "client_id", value: request.clientId),
-            URLQueryItem(name: "service", value: request.service),
+            URLQueryItem(name: "client_id", value: request.clientId)
         ]
+        if let service = request.service {
+            components.queryItems?.append(URLQueryItem(name: "service", value: service))
+        }
         var scope = ""
         if let reqScope = request.scope {
             scope = reqScope
@@ -228,11 +232,8 @@ extension RegistryClient {
         guard let realm = bearerChallenge.realm else {
             throw ContainerizationError(.invalidArgument, message: "cannot parse realm from \(TokenRequest.authenticateHeaderName) header")
         }
-        guard let service = bearerChallenge.service else {
-            throw ContainerizationError(.invalidArgument, message: "cannot parse service from \(TokenRequest.authenticateHeaderName) header")
-        }
         let scope = bearerChallenge.scope
-        let tokenRequest = TokenRequest(realm: realm, service: service, clientId: self.clientID, scope: scope)
+        let tokenRequest = TokenRequest(realm: realm, service: bearerChallenge.service, clientId: self.clientID, scope: scope)
         return tokenRequest
     }
 
