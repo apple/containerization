@@ -14,6 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import ContainerizationOS
 import FoundationEssentials
 import LCShim
 
@@ -54,6 +55,8 @@ class Console {
             throw App.Errno(stage: "open_pts")
         }
         defer { _ = _close(slaveFD) }
+
+        try Terminal(descriptor: slaveFD, setInitState: false).setraw()
 
         for fd: Int32 in 0...2 {
             guard dup3(slaveFD, fd, 0) != -1 else {
