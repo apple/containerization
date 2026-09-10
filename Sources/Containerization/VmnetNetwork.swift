@@ -159,7 +159,7 @@ public struct VmnetNetwork: Network {
     /// Creates a new network.
     /// - Parameters:
     ///   - mode: The vmnet operating mode. Defaults to `.VMNET_SHARED_MODE`.
-    ///   - subnetV4: The IPv4 subnet to use for this network.
+    ///   - subnet: The IPv4 subnet to use for this network.
     ///   - prefixV6: The IPv6 prefix to use for this network.
     public init(
         mode: vmnet.operating_modes_t = .VMNET_SHARED_MODE,
