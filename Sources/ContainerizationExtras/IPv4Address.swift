@@ -20,7 +20,7 @@ public struct IPv4Address: Sendable, Hashable, CustomStringConvertible, Equatabl
 
     /// Creates an IPv4Address from an unsigned integer.
     ///
-    /// - Parameter string: The integer representation of the address.
+    /// - Parameter value: The integer representation of the address.
     @inlinable
     public init(_ value: UInt32) {
         self.value = value
