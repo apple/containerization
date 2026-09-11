@@ -300,9 +300,7 @@ extension IntegrationSuite {
         let rootfs1 = try cloneRootfsForContainer(bs.rootfs, testID: id, containerID: "writer")
         let rootfs2 = try cloneRootfsForContainer(bs.rootfs, testID: id, containerID: "reader")
 
-        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
-            config.cpus = 4
-            config.memoryInBytes = 1024.mib()
+        let pod = try LinuxPod(id, vmm: bs.vmm, vm: .default) { config in
             config.bootLog = bs.bootLog
             config.volumes = [
                 .init(
@@ -392,9 +390,7 @@ extension IntegrationSuite {
         let (server2, diskURL2) = try createNBDServer(testID: id, name: "vol2")
         defer { server2.stop() }
 
-        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
-            config.cpus = 4
-            config.memoryInBytes = 1024.mib()
+        let pod = try LinuxPod(id, vmm: bs.vmm, vm: .default) { config in
             config.bootLog = bs.bootLog
             config.volumes = [
                 .init(
@@ -472,9 +468,7 @@ extension IntegrationSuite {
         let (server, _) = try createNBDServer(testID: id, name: "unused")
         defer { server.stop() }
 
-        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
-            config.cpus = 4
-            config.memoryInBytes = 1024.mib()
+        let pod = try LinuxPod(id, vmm: bs.vmm, vm: .default) { config in
             config.bootLog = bs.bootLog
             config.volumes = [
                 .init(
@@ -516,9 +510,7 @@ extension IntegrationSuite {
         let rootfs1 = try cloneRootfsForContainer(bs.rootfs, testID: id, containerID: "writer")
         let rootfs2 = try cloneRootfsForContainer(bs.rootfs, testID: id, containerID: "reader")
 
-        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
-            config.cpus = 4
-            config.memoryInBytes = 1024.mib()
+        let pod = try LinuxPod(id, vmm: bs.vmm, vm: .default) { config in
             config.bootLog = bs.bootLog
             config.volumes = [
                 .init(
@@ -583,9 +575,7 @@ extension IntegrationSuite {
         let rootfs1 = try cloneRootfsForContainer(bs.rootfs, testID: id, containerID: "c1")
         let rootfs2 = try cloneRootfsForContainer(bs.rootfs, testID: id, containerID: "c2")
 
-        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
-            config.cpus = 4
-            config.memoryInBytes = 1024.mib()
+        let pod = try LinuxPod(id, vmm: bs.vmm, vm: .default) { config in
             config.bootLog = bs.bootLog
             config.volumes = [
                 .init(
@@ -672,9 +662,7 @@ extension IntegrationSuite {
         }
 
         // Create a pod with all 5 volumes and verify each is at the right path.
-        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
-            config.cpus = 4
-            config.memoryInBytes = 1024.mib()
+        let pod = try LinuxPod(id, vmm: bs.vmm, vm: .default) { config in
             config.bootLog = bs.bootLog
             config.volumes = (0..<volumeCount).map { i in
                 .init(
@@ -742,9 +730,7 @@ extension IntegrationSuite {
         let rootfs2 = try cloneRootfsForContainer(bs.rootfs, testID: id, containerID: "appender")
         let rootfs3 = try cloneRootfsForContainer(bs.rootfs, testID: id, containerID: "reader")
 
-        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
-            config.cpus = 1
-            config.memoryInBytes = 512.mib()
+        let pod = try LinuxPod(id, vmm: bs.vmm, vm: VMResources(cpus: 1, memoryInBytes: 512.mib())) { config in
             config.bootLog = bs.bootLog
             config.volumes = [
                 .init(
@@ -865,9 +851,7 @@ extension IntegrationSuite {
         let rootfs1 = try cloneRootfsForContainer(bs.rootfs, testID: id, containerID: "writer")
         let rootfs2 = try cloneRootfsForContainer(bs.rootfs, testID: id, containerID: "reader")
 
-        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
-            config.cpus = 1
-            config.memoryInBytes = 512.mib()
+        let pod = try LinuxPod(id, vmm: bs.vmm, vm: VMResources(cpus: 1, memoryInBytes: 512.mib())) { config in
             config.bootLog = bs.bootLog
             config.volumes = [
                 .init(

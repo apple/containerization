@@ -37,12 +37,11 @@ public final class LinuxPod: Sendable {
     /// Configuration for the pod.
     public let config: Configuration
 
+    /// The size of the pod's virtual machine.
+    public let vm: VMResources
+
     /// The configuration for the LinuxPod.
     public struct Configuration: Sendable {
-        /// The amount of cpus for the pod's VM.
-        public var cpus: Int = 4
-        /// The memory in bytes to give to the pod's VM.
-        public var memoryInBytes: UInt64 = 1024.mib()
         /// The network interfaces for the pod.
         public var interfaces: [any Interface] = []
         /// Whether nested virtualization should be turned on for the pod.
@@ -73,10 +72,10 @@ public final class LinuxPod: Sendable {
     public struct ContainerConfiguration: Sendable {
         /// Configuration for the init process of the container.
         public var process = LinuxProcessConfiguration()
-        /// Optional per-container CPU limit (can exceed pod total for oversubscription).
-        public var cpus: Int?
-        /// Optional per-container memory limit in bytes (can exceed pod total for oversubscription).
-        public var memoryInBytes: UInt64?
+        /// The container's CPU cgroup limit, in whole cores. May exceed the pod's VM for oversubscription.
+        public var cpus: Int = 4
+        /// The container's memory cgroup limit in bytes. May exceed the pod's VM for oversubscription.
+        public var memoryInBytes: UInt64 = 1024.mib()
         /// The hostname for the container.
         public var hostname: String?
         /// The system control options for the container.
@@ -251,10 +250,11 @@ public final class LinuxPod: Sendable {
 
     /// Create a new `LinuxPod`. A `VirtualMachineManager` instance must be
     /// provided that will handle launching the virtual machine the containers
-    /// will execute inside of.
+    /// will execute inside of. `vm` sizes that virtual machine.
     public init(
         _ id: String,
         vmm: VirtualMachineManager,
+        vm: VMResources = .default,
         logger: Logger? = nil,
         configuration: (inout Configuration) throws -> Void
     ) throws {
@@ -266,6 +266,7 @@ public final class LinuxPod: Sendable {
         }
         self.id = id
         self.vmm = vmm
+        self.vm = vm
         self.hostVsockPorts = VsockPortAllocator(base: 0x1000_0000)
         self.guestVsockPorts = Atomic<UInt32>(0x1000_0000)
         self.logger = logger
@@ -319,18 +320,14 @@ public final class LinuxPod: Sendable {
         // We let the OCI runtime remount as ro, instead of doing it originally.
         spec.root?.readonly = rootfs.options.contains("ro")
 
-        // Resource limits (if specified)
-        if let cpus = config.cpus, cpus > 0 {
-            spec.linux?.resources?.cpu = LinuxCPU(
-                quota: Int64(cpus * 100_000),
-                period: 100_000
-            )
-        }
-        if let memoryInBytes = config.memoryInBytes, memoryInBytes > 0 {
-            spec.linux?.resources?.memory = LinuxMemory(
-                limit: Int64(memoryInBytes)
-            )
-        }
+        // Resource limits.
+        spec.linux?.resources?.cpu = LinuxCPU(
+            quota: Int64(config.cpus * 100_000),
+            period: 100_000
+        )
+        spec.linux?.resources?.memory = LinuxMemory(
+            limit: Int64(config.memoryInBytes)
+        )
 
         return spec
     }
@@ -351,12 +348,12 @@ public final class LinuxPod: Sendable {
 extension LinuxPod {
     /// Number of CPU cores allocated to the pod's VM.
     public var cpus: Int {
-        config.cpus
+        vm.cpus
     }
 
     /// Amount of memory in bytes allocated for the pod's VM.
     public var memoryInBytes: UInt64 {
-        config.memoryInBytes
+        vm.memoryInBytes
     }
 
     /// Network interfaces of the pod.
@@ -617,8 +614,8 @@ extension LinuxPod {
             }
 
             var vmConfig = VMConfiguration(
-                cpus: self.config.cpus,
-                memoryInBytes: self.config.memoryInBytes,
+                cpus: self.vm.cpus,
+                memoryInBytes: self.vm.memoryInBytes,
                 interfaces: self.config.interfaces,
                 mountsByID: mountsByID,
                 bootLog: self.config.bootLog,

@@ -49,6 +49,9 @@ public final class LinuxContainer: Container, Sendable {
     /// Configuration for the container.
     public let config: Configuration
 
+    /// The size of the virtual machine the container runs in.
+    public let vm: VMResources
+
     /// The configuration for the LinuxContainer.
     public struct Configuration: Sendable {
         /// The seccomp filter to install on the container's processes.
@@ -79,9 +82,9 @@ public final class LinuxContainer: Container, Sendable {
 
         /// Configuration for the init process of the container.
         public var process = LinuxProcessConfiguration()
-        /// The amount of cpus for the container.
+        /// The container's CPU cgroup limit, in whole cores. The VM is sized by ``VMResources``.
         public var cpus: Int = 4
-        /// The memory in bytes to give to the container.
+        /// The container's memory cgroup limit in bytes. The VM is sized by ``VMResources``.
         public var memoryInBytes: UInt64 = 1024.mib()
         /// The hostname for the container.
         public var hostname: String?
@@ -120,13 +123,6 @@ public final class LinuxContainer: Container, Sendable {
         /// Run the container with a minimal init process that handles signal
         /// forwarding and zombie reaping.
         public var useInit: Bool = false
-        /// Additional CPU cores to allocate for the virtual machine on top
-        /// of the container's configured `cpus` value.
-        public var cpuOverhead: Int = 1
-        /// Additional memory in bytes to allocate for the virtual machine
-        /// on top of the container's configured `memoryInBytes` value.
-        /// The total is aligned to a 1 MiB boundary.
-        public var memoryOverhead: UInt64 = 128.mib()
 
         public init() {}
 
@@ -147,9 +143,7 @@ public final class LinuxContainer: Container, Sendable {
             bootLog: BootLog? = nil,
             ociRuntimePath: String? = nil,
             seccompProfile: SeccompProfile = .unconfined,
-            useInit: Bool = false,
-            cpuOverhead: Int = 1,
-            memoryOverhead: UInt64 = 128.mib()
+            useInit: Bool = false
         ) {
             self.process = process
             self.cpus = cpus
@@ -168,8 +162,6 @@ public final class LinuxContainer: Container, Sendable {
             self.ociRuntimePath = ociRuntimePath
             self.seccompProfile = seccompProfile
             self.useInit = useInit
-            self.cpuOverhead = cpuOverhead
-            self.memoryOverhead = memoryOverhead
         }
     }
 
@@ -345,6 +337,7 @@ public final class LinuxContainer: Container, Sendable {
     ///     rootfs as the lower layer and this as the upper layer. Must be a block device.
     ///     The `destination` field is ignored as mounting is handled internally.
     ///   - vmm: The virtual machine manager that will handle launching the VM for the container.
+    ///   - vm: The size of the VM the container runs in.
     ///   - logger: Optional logger for container operations.
     ///   - configuration: A closure that configures the container by modifying the Configuration instance.
     public convenience init(
@@ -352,6 +345,7 @@ public final class LinuxContainer: Container, Sendable {
         rootfs: Mount,
         writableLayer: Mount? = nil,
         vmm: VirtualMachineManager,
+        vm: VMResources = .default,
         logger: Logger? = nil,
         configuration: (inout Configuration) throws -> Void
     ) throws {
@@ -362,6 +356,7 @@ public final class LinuxContainer: Container, Sendable {
             rootfs: rootfs,
             writableLayer: writableLayer,
             vmm: vmm,
+            vm: vm,
             configuration: config,
             logger: logger
         )
@@ -377,6 +372,7 @@ public final class LinuxContainer: Container, Sendable {
     ///     rootfs as the lower layer and this as the upper layer. Must be a block device.
     ///     The `destination` field is ignored as mounting is handled internally.
     ///   - vmm: The virtual machine manager that will handle launching the VM for the container.
+    ///   - vm: The size of the VM the container runs in.
     ///   - configuration: The container configuration specifying process, resources, networking, and other settings.
     ///   - logger: Optional logger for container operations.
     public init(
@@ -384,6 +380,7 @@ public final class LinuxContainer: Container, Sendable {
         rootfs: Mount,
         writableLayer: Mount? = nil,
         vmm: VirtualMachineManager,
+        vm: VMResources = .default,
         configuration: LinuxContainer.Configuration,
         logger: Logger? = nil
     ) throws {
@@ -419,6 +416,7 @@ public final class LinuxContainer: Container, Sendable {
         }
         self.id = id
         self.vmm = vmm
+        self.vm = vm
         self.hostVsockPorts = VsockPortAllocator(base: 0x1000_0000)
         self.guestVsockPorts = Atomic<UInt32>(0x1000_0000)
         self.logger = logger
@@ -457,12 +455,12 @@ public final class LinuxContainer: Container, Sendable {
 
     /// What a generated runtime spec is for. The guest keeps only
     /// `spec.process` (plus `root`, to resolve the user) for an exec.
-    private enum SpecPurpose {
+    package enum SpecPurpose {
         case containerInit
         case exec
     }
 
-    private func generateRuntimeSpec(for purpose: SpecPurpose) throws -> Spec {
+    package func generateRuntimeSpec(for purpose: SpecPurpose) throws -> Spec {
         var spec = Self.createDefaultRuntimeSpec(id)
 
         // Process toggles.
@@ -663,13 +661,12 @@ extension LinuxContainer {
         Self.guestRootfsPath(id)
     }
 
-    /// Number of CPU cores allocated.
+    /// The container's CPU cgroup limit.
     public var cpus: Int {
         config.cpus
     }
 
-    /// Amount of memory in bytes allocated for the container.
-    /// This will be aligned to a 1MB boundary if it isn't already.
+    /// The container's memory cgroup limit in bytes.
     public var memoryInBytes: UInt64 {
         config.memoryInBytes
     }
@@ -757,10 +754,6 @@ extension LinuxContainer {
             var modifiedRootfs = self.rootfs
             modifiedRootfs.options.removeAll(where: { $0 == "ro" })
 
-            let vmMemory = self.memoryInBytes + self.config.memoryOverhead
-
-            let vmCpus = self.cpus + self.config.cpuOverhead
-
             // Prepare file mounts. This transforms single-file mounts into directory shares.
             // `mountsForRuntime()` is the single point where `config.mounts` is
             // read, so it covers both the VM's mounts and the OCI spec derived
@@ -776,8 +769,8 @@ extension LinuxContainer {
             }
 
             let vmConfig = VMConfiguration(
-                cpus: vmCpus,
-                memoryInBytes: vmMemory,
+                cpus: self.vm.cpus,
+                memoryInBytes: self.vm.memoryInBytes,
                 interfaces: self.interfaces,
                 mountsByID: [self.id: containerMounts],
                 bootLog: self.config.bootLog,

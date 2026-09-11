@@ -213,6 +213,7 @@ public struct ContainerManager: Sendable {
     ///   - readOnly: Whether to mount the root filesystem as read-only.
     ///   - networking: Whether to create a network interface for this container. Defaults to `true`.
     ///     When `false`, no network resources are allocated and `releaseNetwork`/`delete` remain safe to call.
+    ///   - vm: The size of the VM the container runs in.
     ///   - progress: Optional handler for tracking rootfs unpacking progress.
     public mutating func create(
         _ id: String,
@@ -221,6 +222,7 @@ public struct ContainerManager: Sendable {
         writableLayerSizeInBytes: UInt64? = nil,
         readOnly: Bool = false,
         networking: Bool = true,
+        vm: VMResources = .default,
         progress: ProgressHandler? = nil,
         configuration: (inout LinuxContainer.Configuration) throws -> Void
     ) async throws -> LinuxContainer {
@@ -232,6 +234,7 @@ public struct ContainerManager: Sendable {
             writableLayerSizeInBytes: writableLayerSizeInBytes,
             readOnly: readOnly,
             networking: networking,
+            vm: vm,
             progress: progress,
             configuration: configuration
         )
@@ -247,6 +250,7 @@ public struct ContainerManager: Sendable {
     ///   - readOnly: Whether to mount the root filesystem as read-only.
     ///   - networking: Whether to create a network interface for this container. Defaults to `true`.
     ///     When `false`, no network resources are allocated and `releaseNetwork`/`delete` remain safe to call.
+    ///   - vm: The size of the VM the container runs in.
     ///   - progress: Optional handler for tracking rootfs unpacking progress.
     public mutating func create(
         _ id: String,
@@ -255,6 +259,7 @@ public struct ContainerManager: Sendable {
         writableLayerSizeInBytes: UInt64? = nil,
         readOnly: Bool = false,
         networking: Bool = true,
+        vm: VMResources = .default,
         progress: ProgressHandler? = nil,
         configuration: (inout LinuxContainer.Configuration) throws -> Void
     ) async throws -> LinuxContainer {
@@ -285,6 +290,7 @@ public struct ContainerManager: Sendable {
             rootfs: rootfs,
             writableLayer: writableLayer,
             networking: networking,
+            vm: vm,
             configuration: configuration
         )
     }
@@ -300,12 +306,14 @@ public struct ContainerManager: Sendable {
     ///     The `destination` field is ignored as mounting is handled internally.
     ///   - networking: Whether to create a network interface for this container. Defaults to `true`.
     ///     When `false`, no network resources are allocated and `releaseNetwork`/`delete` remain safe to call.
+    ///   - vm: The size of the VM the container runs in.
     public mutating func create(
         _ id: String,
         image: Image,
         rootfs: Mount,
         writableLayer: Mount? = nil,
         networking: Bool = true,
+        vm: VMResources = .default,
         configuration: (inout LinuxContainer.Configuration) throws -> Void
     ) async throws -> LinuxContainer {
         let imageConfig = try await image.config(for: .current).config
@@ -314,6 +322,7 @@ public struct ContainerManager: Sendable {
             rootfs: rootfs,
             writableLayer: writableLayer,
             vmm: self.vmm,
+            vm: vm,
             logger: self.logger
         ) { config in
             if let imageConfig {
