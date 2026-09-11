@@ -73,10 +73,9 @@ public final class LinuxPod: Sendable {
     public struct ContainerConfiguration: Sendable {
         /// Configuration for the init process of the container.
         public var process = LinuxProcessConfiguration()
-        /// Optional per-container CPU limit (can exceed pod total for oversubscription).
-        public var cpus: Int?
-        /// Optional per-container memory limit in bytes (can exceed pod total for oversubscription).
-        public var memoryInBytes: UInt64?
+        /// The cgroup limits applied to this container inside the pod's virtual
+        /// machine. May exceed the pod total for oversubscription.
+        public var resources = ContainerResources()
         /// The hostname for the container.
         public var hostname: String?
         /// The system control options for the container.
@@ -319,18 +318,15 @@ public final class LinuxPod: Sendable {
         // We let the OCI runtime remount as ro, instead of doing it originally.
         spec.root?.readonly = rootfs.options.contains("ro")
 
-        // Resource limits (if specified)
-        if let cpus = config.cpus, cpus > 0 {
-            spec.linux?.resources?.cpu = LinuxCPU(
-                quota: Int64(cpus * 100_000),
-                period: 100_000
-            )
-        }
-        if let memoryInBytes = config.memoryInBytes, memoryInBytes > 0 {
-            spec.linux?.resources?.memory = LinuxMemory(
-                limit: Int64(memoryInBytes)
-            )
-        }
+        // Resource limits for the container itself, independent of the size of
+        // the pod's VM.
+        spec.linux?.resources?.cpu = LinuxCPU(
+            quota: Int64(config.resources.cpus * 100_000),
+            period: 100_000
+        )
+        spec.linux?.resources?.memory = LinuxMemory(
+            limit: Int64(config.resources.memoryInBytes)
+        )
 
         return spec
     }

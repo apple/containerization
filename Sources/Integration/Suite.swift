@@ -528,8 +528,8 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("container workingDir created", testWorkingDirCreated),
             Test("container workingDir exec created", testWorkingDirExecCreated),
 
-            // VM resource overhead
-            Test("container VM resource overhead", testVMResourceOverhead),
+            // Independent VM and container sizing
+            Test("container independent VM and container sizing", testIndependentVMAndContainerSizing),
 
             // Pods
             Test("pod single container", testPodSingleContainer),
