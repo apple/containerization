@@ -182,6 +182,15 @@ extension RegistryClient {
         }
     }
 
+    private static func validateReceivedSize(_ received: Int64, _ descriptor: Descriptor) throws {
+        guard received <= descriptor.size else {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "blob download exceeded expected size \(descriptor.size) for \(descriptor.digest)"
+            )
+        }
+    }
+
     #if os(macOS)
     /// Fetch a blob from remote registry and write the contents into a file in the provided directory.
     public func fetchBlob(name: String, descriptor: Descriptor, into file: URL, progress: ProgressHandler?) async throws -> (Int64, SHA256Digest) {
@@ -196,6 +205,7 @@ extension RegistryClient {
                 while let buf = try await itr.next() {
                     let readBytes = Int64(buf.readableBytes)
                     received += readBytes
+                    try Self.validateReceivedSize(received, descriptor)
                     let written = try await writer.write(contentsOf: buf)
                     await progress?([
                         .addSize(written)
@@ -240,6 +250,7 @@ extension RegistryClient {
             while let buf = try await itr.next() {
                 let readBytes = Int64(buf.readableBytes)
                 received += readBytes
+                try Self.validateReceivedSize(received, descriptor)
                 await progress?([
                     .addSize(readBytes)
                 ])
