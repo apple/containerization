@@ -31,6 +31,7 @@ public actor ManagedContainer {
     private let log: Logger
     private let bundle: ContainerizationOCI.Bundle
     private let needsCgroupCleanup: Bool
+    private let enforcePidsLimit: Bool
     private var execs: [String: any ContainerProcess] = [:]
 
     public var pid: Int32? {
@@ -58,6 +59,7 @@ public actor ManagedContainer {
             spec: spec
         )
         log.debug("created bundle with spec \(spec)")
+        let enforcePidsLimit = spec.linux?.resources?.pids.map { $0.limit >= 0 } ?? false
 
         let cgManager = Cgroup2Manager(
             group: URL(filePath: cgroupsPath),
@@ -105,6 +107,7 @@ public actor ManagedContainer {
             self.id = id
             self.bundle = bundle
             self.log = log
+            self.enforcePidsLimit = enforcePidsLimit
         } catch {
             try? cgManager.delete()
             throw error
@@ -180,6 +183,7 @@ extension ManagedContainer {
             stdio: stdio,
             bundle: self.bundle,
             owningPid: self.initProcess.pid,
+            enforcePidsLimit: self.enforcePidsLimit,
             log: self.log
         )
         self.execs[id] = process

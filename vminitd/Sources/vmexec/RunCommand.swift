@@ -21,6 +21,7 @@ import ContainerizationOS
 import FoundationEssentials
 import LCShim
 import SystemPackage
+import VminitdCore
 
 #if canImport(Musl)
 import Musl
@@ -328,34 +329,50 @@ struct RunCommand: ParsableCommand {
         let syncPipe = FileDescriptor(rawValue: 3)
         let ackPipe = FileDescriptor(rawValue: 4)
 
+        var cgroupManager: Cgroup2Manager?
+        var cgroupFD: Int32?
+        var cloneIntoCgroup = false
+        if let linux = spec.linux, !linux.cgroupsPath.isEmpty {
+            let manager = try Cgroup2Manager.load(group: URL(filePath: linux.cgroupsPath))
+            if let resources = linux.resources {
+                // Apply limits before the workload child exists. In particular,
+                // controller-unavailable PID requests must fail before fork.
+                try manager.applyResources(resources: resources)
+                cloneIntoCgroup = resources.pids.map { $0.limit >= 0 } ?? false
+            }
+            if cloneIntoCgroup {
+                cgroupFD = try CgroupProcessAdmission.openForCloning(manager)
+            }
+            cgroupManager = manager
+        }
+        defer {
+            if let cgroupFD {
+                close(cgroupFD)
+            }
+        }
+
         let unshareFlags = try setupNamespaces(namespaces: spec.linux?.namespaces)
 
         guard unshare(unshareFlags) == 0 else {
             throw App.Errno(stage: "unshare(\(unshareFlags))")
         }
 
-        let processID = fork()
+        let processID = cgroupFD.map { CZ_clone_into_cgroup($0) } ?? fork()
         guard processID != -1 else {
             try? syncPipe.close()
             try? ackPipe.close()
-            throw App.Errno(stage: "fork")
+            let stage = cgroupFD == nil ? "fork" : "clone3(CLONE_INTO_CGROUP)"
+            throw App.Errno(stage: stage, info: "\(stage):")
         }
 
         if processID == 0 {  // child
             try childSetup(spec: spec, ackPipe: ackPipe, syncPipe: syncPipe)
         } else {  // parent process
-            // Setup cgroup before child enters cgroup namespace
-            if let linux = spec.linux {
-                let cgroupPath = linux.cgroupsPath
-                if !cgroupPath.isEmpty {
-                    let cgroupManager = try Cgroup2Manager.load(group: URL(filePath: cgroupPath))
-
-                    if let resources = linux.resources {
-                        try cgroupManager.applyResources(resources: resources)
-                    }
-
-                    try cgroupManager.addProcess(pid: processID)
-                }
+            // Without a finite PID limit, retain the legacy migration path.
+            // Finite limits use clone3(CLONE_INTO_CGROUP) above because Linux
+            // permits cgroup.procs migration to exceed pids.max.
+            if !cloneIntoCgroup, let cgroupManager {
+                try cgroupManager.addProcess(pid: processID)
             }
 
             // Send our child's pid before we exit.

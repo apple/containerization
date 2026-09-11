@@ -446,6 +446,7 @@ extension IntegrationSuite {
 
         try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
             config.process.arguments = ["/bin/sleep", "infinity"]
+            config.memoryInBytes = 64.mib()
         }
 
         do {
@@ -454,9 +455,10 @@ extension IntegrationSuite {
 
             let exec = try await pod.execInContainer("container1", processID: "oom-trigger") { config in
                 config.arguments = [
-                    "sh",
-                    "-c",
-                    "echo 2097152 > /sys/fs/cgroup/memory.max && dd if=/dev/zero of=/dev/null bs=100M",
+                    "dd",
+                    "if=/dev/zero",
+                    "of=/dev/null",
+                    "bs=100M",
                 ]
             }
 

@@ -122,6 +122,14 @@ public struct Cgroup2Manager: Sendable {
         )
     }
 
+    package func openForCloning() throws -> Int32 {
+        let fd = open(self.path.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        guard fd >= 0 else {
+            throw Error.errno(errno: errno, message: "failed to open cgroup \(self.path.path)")
+        }
+        return fd
+    }
+
     private static func writeValue(path: URL, value: String, fileName: String) throws {
         let file = path.appending(path: fileName)
         let fd = open(file.path, O_WRONLY, 0)

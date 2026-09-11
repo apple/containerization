@@ -57,6 +57,10 @@ public final class LinuxContainer: Container, Sendable {
         public var cpus: Int = 4
         /// The memory in bytes to give to the container.
         public var memoryInBytes: UInt64 = 1024.mib()
+        /// The optional maximum number of processes for the container.
+        ///
+        /// OCI semantics are preserved: `-1` means unlimited and `0` is a valid limit.
+        public var pidsLimit: Int64?
         /// The hostname for the container.
         public var hostname: String?
         /// The system control options for the container.
@@ -66,6 +70,9 @@ public final class LinuxContainer: Container, Sendable {
         /// The Unix domain socket relays to setup for the container.
         public var sockets: [UnixSocketConfiguration] = []
         /// The mounts for the container.
+        ///
+        /// When ``pidsLimit`` is finite, cgroup2 mounts and mounts at or below
+        /// `/sys/fs/cgroup` are made read-only before the container is created.
         public var mounts: [Mount] = LinuxContainer.defaultMounts()
         /// Paths inside the container that vmexec hides from the workload.
         /// Defaults to the OCI standard set (``LinuxContainer/defaultMaskedPaths()``),
@@ -105,6 +112,7 @@ public final class LinuxContainer: Container, Sendable {
             process: LinuxProcessConfiguration,
             cpus: Int = 4,
             memoryInBytes: UInt64 = 1024.mib(),
+            pidsLimit: Int64? = nil,
             hostname: String? = nil,
             sysctl: [String: String] = [:],
             interfaces: [any Interface] = [],
@@ -124,6 +132,7 @@ public final class LinuxContainer: Container, Sendable {
             self.process = process
             self.cpus = cpus
             self.memoryInBytes = memoryInBytes
+            self.pidsLimit = pidsLimit
             self.hostname = hostname
             self.sysctl = sysctl
             self.interfaces = interfaces
@@ -350,12 +359,23 @@ public final class LinuxContainer: Container, Sendable {
         configuration: LinuxContainer.Configuration,
         logger: Logger? = nil
     ) throws {
+        var configuration = configuration
         guard id.count <= Self.maxIDLength else {
             throw ContainerizationError(
                 .invalidArgument,
                 message: "container id length \(id.count) exceeds maximum of \(Self.maxIDLength) characters"
             )
         }
+        if let pidsLimit = configuration.pidsLimit, pidsLimit < -1 {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "pidsLimit must be greater than or equal to -1"
+            )
+        }
+        configuration.mounts = Self.mountsEnforcingPidsLimit(
+            configuration.mounts,
+            pidsLimit: configuration.pidsLimit
+        )
         if let writableLayer {
             guard writableLayer.isBlock else {
                 throw ContainerizationError(
@@ -427,7 +447,8 @@ public final class LinuxContainer: Container, Sendable {
             cpu: LinuxCPU(
                 quota: Int64(config.cpus * 100_000),
                 period: 100_000
-            )
+            ),
+            pids: config.pidsLimit.map { LinuxPids(limit: $0) }
         )
 
         spec.linux?.namespaces = [
@@ -505,6 +526,36 @@ public final class LinuxContainer: Container, Sendable {
             .any(type: "tmpfs", source: "tmpfs", destination: "/dev/shm", options: defaultOptions + ["mode=1777", "size=65536k"]),
             .any(type: "cgroup2", source: "none", destination: "/sys/fs/cgroup", options: defaultOptions),
         ]
+    }
+
+    /// Prevent a workload with a finite PID ceiling from raising or removing
+    /// that ceiling through a guest-visible cgroup mount. Unlimited and omitted
+    /// limits retain the existing mount behavior.
+    static func mountsEnforcingPidsLimit(_ mounts: [Mount], pidsLimit: Int64?) -> [Mount] {
+        guard let pidsLimit, pidsLimit >= 0 else {
+            return mounts
+        }
+
+        return mounts.map { mount in
+            let destination = FilePath(mount.destination).lexicallyNormalized().string
+            let source = FilePath(mount.source).lexicallyNormalized().string
+            let exposesCgroup =
+                mount.type == "cgroup2" || Self.isCgroupPath(destination) || Self.isCgroupPath(source)
+            guard exposesCgroup else {
+                return mount
+            }
+
+            var mount = mount
+            mount.options.removeAll { $0 == "rw" }
+            if !mount.options.contains("ro") {
+                mount.options.append("ro")
+            }
+            return mount
+        }
+    }
+
+    private static func isCgroupPath(_ path: String) -> Bool {
+        path == "/sys/fs/cgroup" || path.hasPrefix("/sys/fs/cgroup/")
     }
 
     private static func guestRootfsPath(_ id: String) -> String {
