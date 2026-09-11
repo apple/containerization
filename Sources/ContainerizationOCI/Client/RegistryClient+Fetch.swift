@@ -171,6 +171,13 @@ extension RegistryClient {
                 throw ContainerizationError(.invalidArgument, message: "missing required header Content-Length")
             }
 
+            guard expectedBytes <= descriptor.size else {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "declared blob length \(expectedBytes) exceeds descriptor size \(descriptor.size) for \(descriptor.digest)"
+                )
+            }
+
             try await closure(expectedBytes, response.body)
         }
     }
