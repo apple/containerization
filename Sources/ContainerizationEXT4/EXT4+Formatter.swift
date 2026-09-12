@@ -1047,9 +1047,8 @@ extension EXT4 {
             }
             let tableSize: UInt64 = UInt64(EXT4.InodeSize) * blockGroups * inodesPerGroup
             let rest = tableSize - UInt64(self.inodes.count) * EXT4.InodeSize
-            let zeroBlock = Array<UInt8>.init(repeating: 0, count: Int(self.blockSize))
-            for _ in 0..<(rest / self.blockSize) {
-                try self.handle.write(contentsOf: zeroBlock)
+            if rest > 0 {
+                try self.handle.seek(toOffset: self.pos + rest)
             }
             try self.handle.write(contentsOf: Array<UInt8>.init(repeating: 0, count: Int(rest % self.blockSize)))
             return inodeTableOffset
