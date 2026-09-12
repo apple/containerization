@@ -96,7 +96,9 @@ extension EXT4 {
             guard blockSize >= 1024 && blockSize <= 4096 && blockSize.nonzeroBitCount == 1 else {
                 throw Error.invalidBlockSize(blockSize)
             }
-            guard minDiskSize / UInt64(blockSize) <= UInt64(UInt32.max) else {
+            let minimumBlockCount =
+                minDiskSize / UInt64(blockSize) + (minDiskSize.isMultiple(of: UInt64(blockSize)) ? 0 : 1)
+            guard minimumBlockCount <= UInt64(UInt32.max) else {
                 throw Error.cannotResizeFS(minDiskSize)
             }
             self.logBlockSize = UInt32(blockSize.trailingZeroBitCount) - 10
