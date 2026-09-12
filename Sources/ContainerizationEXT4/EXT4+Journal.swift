@@ -36,7 +36,7 @@ extension EXT4.Formatter {
         }
         let journalStartBlock = self.currentBlock
         try writeJournalSuperblock(journalBlocks: journalBlocks, filesystemUUID: filesystemUUID)
-        try zeroJournalBlocks(count: journalBlocks - 1)
+        try skipJournalBlocks(count: journalBlocks - 1)
         try setupJournalInode(startBlock: journalStartBlock, blockCount: journalBlocks)
         return journalBlocks
     }
@@ -124,19 +124,11 @@ extension EXT4.Formatter {
         try self.handle.write(contentsOf: buf)
     }
 
-    private func zeroJournalBlocks(count: UInt32) throws {
+    private func skipJournalBlocks(count: UInt32) throws {
         guard count > 0 else { return }
-        let chunkSize = 1.mib()
-        // Safe: both operands are UInt32, so their product peaks at ~17 TiB, which fits
-        // in Int64 (the width of Int on all 64-bit Apple platforms).
-        let totalBytes = Int(count) * Int(self.blockSize)
-        let zeroBuf = [UInt8](repeating: 0, count: min(Int(chunkSize), totalBytes))
-        var remaining = totalBytes
-        while remaining > 0 {
-            let toWrite = min(zeroBuf.count, remaining)
-            try self.handle.write(contentsOf: zeroBuf[0..<toWrite])
-            remaining -= toWrite
-        }
+        // Widen before multiplying so the byte offset is calculated without UInt32 overflow.
+        let totalBytes = UInt64(count) * UInt64(self.blockSize)
+        try self.handle.seek(toOffset: self.pos + totalBytes)
     }
 
     private func setupJournalInode(startBlock: UInt32, blockCount: UInt32) throws {
