@@ -38,6 +38,36 @@ struct OCITests {
         #expect(image.rootfs.type == "foo")
     }
 
+    @Test func platformDecodesAndEncodesSpecOSKeys() throws {
+        let json = """
+                {"architecture":"amd64","os":"windows","os.version":"10.0.17763.1234","os.features":["win32k"]}
+            """
+        let decoded = try JSONDecoder().decode(ContainerizationOCI.Platform.self, from: json.data(using: .utf8)!)
+        #expect(decoded.osVersion == "10.0.17763.1234")
+        #expect(decoded.osFeatures == ["win32k"])
+
+        let encoded = String(decoding: try JSONEncoder().encode(decoded), as: UTF8.self)
+        #expect(encoded.contains("\"os.version\":\"10.0.17763.1234\""))
+        #expect(encoded.contains("\"os.features\":[\"win32k\"]"))
+        #expect(!encoded.contains("osVersion"))
+        #expect(!encoded.contains("osFeatures"))
+    }
+
+    @Test func imageConfigDecodesAndEncodesSpecOSKeys() throws {
+        let json = """
+                {"architecture":"amd64","os":"windows","os.version":"10.0.17763.1234","os.features":["win32k"],"rootfs":{"type":"layers","diff_ids":[]}}
+            """
+        let decoded = try JSONDecoder().decode(ContainerizationOCI.Image.self, from: json.data(using: .utf8)!)
+        #expect(decoded.osVersion == "10.0.17763.1234")
+        #expect(decoded.osFeatures == ["win32k"])
+
+        let encoded = String(decoding: try JSONEncoder().encode(decoded), as: UTF8.self)
+        #expect(encoded.contains("\"os.version\":\"10.0.17763.1234\""))
+        #expect(encoded.contains("\"os.features\":[\"win32k\"]"))
+        #expect(!encoded.contains("osVersion"))
+        #expect(!encoded.contains("osFeatures"))
+    }
+
     @Test func descriptor() {
         let platform = ContainerizationOCI.Platform(arch: "arm64", os: "linux")
         let descriptor = ContainerizationOCI.Descriptor(mediaType: MediaTypes.descriptor, digest: "123", size: 0, platform: platform)
