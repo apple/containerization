@@ -59,8 +59,10 @@ extension EXT4.Formatter {
             guard blocks >= EXT4.MinJournalBlocks else {
                 throw EXT4.Formatter.Error.journalTooSmall(size)
             }
-            // Safe: any journal large enough to overflow UInt32 (>16 TiB at 4 KiB block size)
-            // would fail at the I/O layer before this conversion is reached.
+            // Safe: blocks is guaranteed to be at least EXT4.MinJournalBlocks and at most UInt32.max.
+            guard blocks <= UInt64(UInt32.max) else {
+                throw EXT4.Formatter.Error.journalTooLarge(size)
+            }
             return UInt32(blocks)
         }
         // Default sizing: scale with the usable content area, with a floor determined by
