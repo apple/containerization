@@ -26,7 +26,7 @@ import Testing
 @testable import Containerization
 
 private struct NilGatewayInterface: Interface {
-    let ipv4Address: CIDRv4
+    let ipv4Address: CIDRv4?
     let ipv4Gateway: IPv4Address? = nil
     let macAddress: MACAddress? = nil
 

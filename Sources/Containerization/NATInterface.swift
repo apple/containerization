@@ -17,7 +17,7 @@
 import ContainerizationExtras
 
 public struct NATInterface: Interface {
-    public var ipv4Address: CIDRv4
+    public var ipv4Address: CIDRv4?
     public var ipv4Gateway: IPv4Address?
     public var ipv6Address: CIDRv6?
     public var ipv6Gateway: IPv6Address?
