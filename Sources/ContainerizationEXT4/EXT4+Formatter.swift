@@ -1119,7 +1119,6 @@ extension EXT4 {
             if rest > 0 {
                 try self.handle.seek(toOffset: self.pos + rest)
             }
-            try self.handle.write(contentsOf: Array<UInt8>.init(repeating: 0, count: Int(rest % self.blockSize)))
             return inodeTableOffset
         }
 
