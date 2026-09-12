@@ -297,6 +297,8 @@ extension Platform: Codable {
     enum CodingKeys: String, CodingKey {
         case os = "os"
         case architecture = "architecture"
+        case osVersion = "os.version"
+        case osFeatures = "os.features"
         case variant = "variant"
     }
 
@@ -304,6 +306,8 @@ extension Platform: Codable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(os, forKey: .os)
         try container.encode(architecture, forKey: .architecture)
+        try container.encodeIfPresent(osVersion, forKey: .osVersion)
+        try container.encodeIfPresent(osFeatures, forKey: .osFeatures)
         try container.encodeIfPresent(variant, forKey: .variant)
     }
 
@@ -317,8 +321,10 @@ extension Platform: Codable {
         guard let os else {
             throw ContainerizationError(.invalidArgument, message: "missing OS")
         }
+        let osVersion = try container.decodeIfPresent(String.self, forKey: .osVersion)
+        let osFeatures = try container.decodeIfPresent([String].self, forKey: .osFeatures)
         let variant = try container.decodeIfPresent(String.self, forKey: .variant)
-        self.init(arch: architecture, os: os, variant: variant)
+        self.init(arch: architecture, os: os, osVersion: osVersion, osFeatures: osFeatures, variant: variant)
     }
 }
 
