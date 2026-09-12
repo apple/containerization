@@ -22,6 +22,18 @@ import Foundation
 import LCShim
 import Logging
 
+#if canImport(Musl)
+import Musl
+private let osClose = Musl.close
+#else
+import Glibc
+private let osClose = Glibc.close
+#endif
+
+private func osOpen(_ path: String, _ flags: Int32) -> Int32 {
+    path.withCString { open($0, flags) }
+}
+
 actor VsockProxy {
     enum Action {
         case listen
@@ -40,6 +52,7 @@ actor VsockProxy {
     private let port: UInt32
     private let udsPerms: UInt32?
     private let log: Logger?
+    private let containerRoot: Int32?
 
     private var listener: Socket?
     private var task: Task<(), Never>?
@@ -51,14 +64,42 @@ actor VsockProxy {
         port: UInt32,
         path: URL,
         udsPerms: UInt32?,
+        containerPID: Int32? = nil,
         log: Logger? = nil
-    ) {
+    ) throws {
         self.id = id
         self.action = action
         self.port = port
-        self.path = path
+        if let containerPID {
+            guard
+                action == .listen,
+                containerPID > 0,
+                path.path.hasPrefix("/"),
+                path.standardizedFileURL.path == path.path
+            else {
+                throw POSIXError(.EINVAL)
+            }
+
+            // Keep the container's root mounted and address it through this
+            // descriptor so a recycled PID cannot redirect later connections.
+            let root = osOpen("/proc/\(containerPID)/root", O_PATH | O_DIRECTORY | O_CLOEXEC)
+            guard root >= 0 else {
+                throw POSIXError.fromErrno()
+            }
+            self.containerRoot = root
+            self.path = URL(filePath: "/proc/self/fd/\(root)\(path.path)")
+        } else {
+            self.containerRoot = nil
+            self.path = path
+        }
         self.udsPerms = udsPerms
         self.log = log
+    }
+
+    deinit {
+        if let containerRoot {
+            _ = osClose(containerRoot)
+        }
     }
 }
 

@@ -210,20 +210,24 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                 "action": "\(request.action)",
             ])
 
-        let proxy = VsockProxy(
-            id: request.id,
-            action: request.action == .into ? .dial : .listen,
-            port: request.vsockPort,
-            path: URL(fileURLWithPath: request.guestPath),
-            udsPerms: request.guestSocketPermissions,
-            log: log
-        )
-
         do {
-            try await proxy.start()
-            try await state.add(proxy: proxy)
+            let proxy = try VsockProxy(
+                id: request.id,
+                action: request.action == .into ? .dial : .listen,
+                port: request.vsockPort,
+                path: URL(fileURLWithPath: request.guestPath),
+                udsPerms: request.guestSocketPermissions,
+                containerPID: request.hasContainerPid ? request.containerPid : nil,
+                log: log
+            )
+            do {
+                try await proxy.start()
+                try await state.add(proxy: proxy)
+            } catch {
+                try? await proxy.close()
+                throw error
+            }
         } catch {
-            try? await proxy.close()
             log.error(
                 "proxyVsock",
                 metadata: [

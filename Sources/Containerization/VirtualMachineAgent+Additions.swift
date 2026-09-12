@@ -14,9 +14,28 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import ContainerizationError
+
 /// Protocol to conform to if your agent is capable of relaying unix domain socket
 /// connections.
 public protocol SocketRelayAgent {
     func relaySocket(port: UInt32, configuration: UnixSocketConfiguration) async throws
+    func relaySocket(port: UInt32, configuration: UnixSocketConfiguration, containerPID: Int32?) async throws
     func stopSocketRelay(configuration: UnixSocketConfiguration) async throws
+}
+
+extension SocketRelayAgent {
+    public func relaySocket(
+        port: UInt32,
+        configuration: UnixSocketConfiguration,
+        containerPID: Int32?
+    ) async throws {
+        guard containerPID == nil else {
+            throw ContainerizationError(
+                .unsupported,
+                message: "agent does not support relaying a socket from a container mount namespace"
+            )
+        }
+        try await relaySocket(port: port, configuration: configuration)
+    }
 }
