@@ -35,9 +35,17 @@ extension EXT4.Formatter {
             try self.seek(block: self.currentBlock + 1)
         }
         let journalStartBlock = self.currentBlock
+        let journalEndBlock = try calculateJournalEndBlock(
+            startBlock: journalStartBlock,
+            blockCount: journalBlocks
+        )
         try writeJournalSuperblock(journalBlocks: journalBlocks, filesystemUUID: filesystemUUID)
         try skipJournalBlocks(count: journalBlocks - 1)
-        try setupJournalInode(startBlock: journalStartBlock, blockCount: journalBlocks)
+        try setupJournalInode(
+            startBlock: journalStartBlock,
+            blockCount: journalBlocks,
+            endBlock: journalEndBlock
+        )
         return journalBlocks
     }
 
@@ -131,7 +139,7 @@ extension EXT4.Formatter {
         try self.handle.seek(toOffset: self.pos + totalBytes)
     }
 
-    private func setupJournalInode(startBlock: UInt32, blockCount: UInt32) throws {
+    private func setupJournalInode(startBlock: UInt32, blockCount: UInt32, endBlock: UInt32) throws {
         var journalInode = EXT4.Inode()
         journalInode.mode = EXT4.Inode.Mode(.S_IFREG, 0o600)
         journalInode.uid = 0
@@ -154,12 +162,17 @@ extension EXT4.Formatter {
 
         // Journal is one contiguous allocation → numExtents = 1 → extent tree fits inline
         // in the inode, so writeExtents needs no extra disk I/O for extent index blocks.
-        // Safe: blockCount is at most UInt32.max and startBlock ≥ 0, so the addition could
-        // theoretically overflow — but zeroJournalBlocks would have already failed with an
-        // I/O error if the journal extended past the end of the filesystem image.
-        journalInode = try self.writeExtents(journalInode, (startBlock, startBlock + blockCount))
+        journalInode = try self.writeExtents(journalInode, (startBlock, endBlock))
 
         self.inodes[Int(EXT4.JournalInode) - 1].pointee = journalInode
+    }
+
+    private func calculateJournalEndBlock(startBlock: UInt32, blockCount: UInt32) throws -> UInt32 {
+        let (endBlock, overflow) = startBlock.addingReportingOverflow(blockCount)
+        guard !overflow else {
+            throw EXT4.Formatter.Error.journalTooLarge(UInt64(blockCount) * UInt64(self.blockSize))
+        }
+        return endBlock
     }
 
     func journalInodeBlockBackup() -> (
