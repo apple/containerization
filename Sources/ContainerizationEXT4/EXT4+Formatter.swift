@@ -612,6 +612,28 @@ extension EXT4 {
             throw Error.unsupportedFiletype
         }
 
+        private func markAllocatedRange(
+            start: UInt64,
+            end: UInt64,
+            groupStart: UInt64,
+            groupEnd: UInt64,
+            bitmap: inout [UInt8]
+        ) -> UInt32 {
+            let clippedStart = max(start, groupStart)
+            let clippedEnd = min(end, groupEnd)
+
+            guard clippedStart < clippedEnd else {
+                return 0
+            }
+
+            for block in clippedStart..<clippedEnd {
+                let localBlock = UInt32(block - groupStart)
+                bitmap[Int(localBlock / 8)] |= 1 << (localBlock % 8)
+            }
+
+            return UInt32(clippedEnd - clippedStart)
+        }
+
         //  Completes the formatting of an ext4 filesystem after writing the necessary structures.
         //
         //  This function is responsible for finalizing the formatting process of an ext4 filesystem
