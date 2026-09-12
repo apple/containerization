@@ -1359,6 +1359,7 @@ extension EXT4 {
             case cannotTruncateFile(_ path: FilePath)
             case cannotCreateSparseFile(_ path: FilePath)
             case cannotResizeFS(_ size: UInt64)
+            case internalInconsistency(_ message: String)
             case invalidBlockSize(_ size: UInt32)
             case journalTooSmall(_ size: UInt64)
             public var description: String {
@@ -1393,6 +1394,8 @@ extension EXT4 {
                     return "cannot create sparse file at \(path)"
                 case .cannotResizeFS(let size):
                     return "cannot set filesystem size to \(size) bytes"
+                case .internalInconsistency(let message):
+                    return "internal inconsistency: \(message)"
                 case .invalidBlockSize(let size):
                     return "invalid block size \(size): must be 1024, 2048, or 4096"
                 case .journalTooSmall(let size):
