@@ -1337,6 +1337,7 @@ extension EXT4 {
             case cannotResizeFS(_ size: UInt64)
             case invalidBlockSize(_ size: UInt32)
             case journalTooSmall(_ size: UInt64)
+            case journalTooLarge(_ size: UInt64)
             public var description: String {
                 switch self {
                 case .notDirectory(let path):
@@ -1373,7 +1374,10 @@ extension EXT4 {
                     return "invalid block size \(size): must be 1024, 2048, or 4096"
                 case .journalTooSmall(let size):
                     return "requested journal size \(size) bytes is too small; minimum is \(EXT4.MinJournalBlocks) blocks (JBD2_MIN_JOURNAL_BLOCKS)"
+                case .journalTooLarge(let size):
+                    return "requested journal size \(size) bytes is too large"
                 }
+
             }
         }
 
