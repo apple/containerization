@@ -1484,9 +1484,13 @@ extension LinuxContainer {
         try await self.state.withLock {
             let state = try $0.startedState("copyIn")
 
-            let guestPath = URL(filePath: self.root).appending(path: destination.path)
-            let port = self.hostVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
+            let root = self.root
+            let destinationPath = destination.path
+            let port = self.hostVsockPorts.allocate()
+            // Deferred LIFO: listener back first, then the port number.
+            defer { self.hostVsockPorts.release(port) }
             let listener = try state.vm.listen(port)
+            defer { try? listener.finish() }
 
             try await withThrowingTaskGroup(of: Void.self) { group in
                 group.addTask {
@@ -1496,7 +1500,8 @@ extension LinuxContainer {
                         }
                         try await vminitd.copy(
                             direction: .copyIn,
-                            guestPath: guestPath,
+                            root: root,
+                            path: destinationPath,
                             vsockPort: port,
                             createParents: createParents,
                             isArchive: true
@@ -1553,9 +1558,13 @@ extension LinuxContainer {
         try await self.state.withLock {
             let state = try $0.startedState("copyOut")
 
-            let guestPath = URL(filePath: self.root).appending(path: source.path)
-            let port = self.hostVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
+            let root = self.root
+            let sourcePath = source.path
+            let port = self.hostVsockPorts.allocate()
+            // Deferred LIFO: listener back first, then the port number.
+            defer { self.hostVsockPorts.release(port) }
             let listener = try state.vm.listen(port)
+            defer { try? listener.finish() }
 
             let (metadataStream, metadataCont) = AsyncStream.makeStream(of: Vminitd.CopyMetadata.self)
 
@@ -1567,7 +1576,8 @@ extension LinuxContainer {
                         }
                         try await vminitd.copy(
                             direction: .copyOut,
-                            guestPath: guestPath,
+                            root: root,
+                            path: sourcePath,
                             vsockPort: port,
                             isArchive: true,
                             onMetadata: { meta in
