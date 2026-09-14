@@ -16,7 +16,6 @@
 
 #if os(Linux)
 
-import Containerization
 import ContainerizationError
 import ContainerizationOCI
 import ContainerizationOS
@@ -41,6 +40,10 @@ final class RuncProcess: ContainerProcess, Sendable {
     private enum ProcessState {
         case initial
         case creating
+        /// `runc create` returned and the container init exists, but `runc
+        /// start` has not run yet. The pid must be visible to ProcessSupervisor
+        /// from here on, or an exit reaped while `pid` is nil is dropped.
+        case created(pid: Int32)
         case running(pid: Int32)
         case exited(ContainerExitStatus)
     }
@@ -63,7 +66,7 @@ final class RuncProcess: ContainerProcess, Sendable {
     var pid: Int32? {
         self.state.withLock {
             switch $0.state {
-            case .running(let pid):
+            case .created(let pid), .running(let pid):
                 return pid
             default:
                 return nil
@@ -161,6 +164,13 @@ final class RuncProcess: ContainerProcess, Sendable {
 
         let pid = Int32(pidInt)
 
+        // Publish the pid before `runc start`. The container init is parked in
+        // runc's start-wait right now, so it provably cannot have exited yet —
+        // this closes the reap race rather than narrowing it.
+        self.state.withLock {
+            $0.state = .created(pid: pid)
+        }
+
         self.log.info(
             "container created",
             metadata: [
@@ -188,6 +198,11 @@ final class RuncProcess: ContainerProcess, Sendable {
         try await self.runc.start(id: self.id)
 
         self.state.withLock {
+            // The process may already have run to completion and been reaped
+            // between `runc start` and here; `setExit` owns the terminal state.
+            if case .exited = $0.state {
+                return
+            }
             $0.state = .running(pid: pid)
         }
 
@@ -281,282 +296,6 @@ final class RuncProcess: ContainerProcess, Sendable {
 
         if let consoleSocket = self.consoleSocket {
             try consoleSocket.close()
-        }
-    }
-}
-
-// MARK: - RuncTerminalIO
-
-final class RuncTerminalIO: RuncProcess.IO & Sendable {
-    private struct State {
-        var stdinSocket: Socket?
-        var stdoutSocket: Socket?
-
-        var stdin: IOPair?
-        var stdout: IOPair?
-        var terminal: Terminal?
-    }
-
-    private let log: Logger?
-    private let hostStdio: HostStdio
-    private let state: Mutex<State>
-
-    init(
-        stdio: HostStdio,
-        log: Logger?
-    ) throws {
-        self.hostStdio = stdio
-        self.log = log
-        self.state = Mutex(State())
-    }
-
-    func resize(size: Terminal.Size) throws {
-        try self.state.withLock {
-            if let terminal = $0.terminal {
-                try terminal.resize(size: size)
-            }
-        }
-    }
-
-    func create() throws {
-        try self.state.withLock {
-            if let stdinPort = self.hostStdio.stdin {
-                let type = VsockType(
-                    port: stdinPort,
-                    cid: VsockType.hostCID
-                )
-                let stdinSocket = try Socket(type: type, closeOnDeinit: false)
-                try stdinSocket.connect()
-                $0.stdinSocket = stdinSocket
-            }
-
-            if let stdoutPort = self.hostStdio.stdout {
-                let type = VsockType(
-                    port: stdoutPort,
-                    cid: VsockType.hostCID
-                )
-                let stdoutSocket = try Socket(type: type, closeOnDeinit: false)
-                try stdoutSocket.connect()
-                $0.stdoutSocket = stdoutSocket
-            }
-        }
-    }
-
-    func getIO() -> Runc.IO {
-        // Terminal mode doesn't pass pipes to runc, it uses the console socket
-        .inherit
-    }
-
-    func closeAfterExec() throws {
-        // No pipes to close in terminal mode
-    }
-
-    func attachConsole(fd: Int32) throws {
-        try self.state.withLock {
-            let term = try Terminal(descriptor: fd, setInitState: false)
-            $0.terminal = term
-
-            if let stdinSocket = $0.stdinSocket {
-                let pair = IOPair(
-                    readFrom: stdinSocket,
-                    writeTo: term,
-                    reason: "RuncTerminalIO stdin",
-                    logger: log
-                )
-                try pair.relay(ignoreHup: true)
-                $0.stdin = pair
-            }
-
-            if let stdoutSocket = $0.stdoutSocket {
-                let pair = IOPair(
-                    readFrom: term,
-                    writeTo: stdoutSocket,
-                    reason: "RuncTerminalIO stdout",
-                    logger: log
-                )
-                try pair.relay(ignoreHup: true)
-                $0.stdout = pair
-            }
-        }
-    }
-
-    func close() throws {
-        self.state.withLock {
-            if let stdin = $0.stdin {
-                stdin.close()
-                $0.stdin = nil
-            }
-            if let stdout = $0.stdout {
-                stdout.close()
-                $0.stdout = nil
-            }
-            $0.terminal = nil
-        }
-    }
-
-    func closeStdin() throws {
-        self.state.withLock {
-            if let stdin = $0.stdin {
-                stdin.close()
-                $0.stdin = nil
-            }
-        }
-    }
-}
-
-// MARK: - RuncStandardIO
-
-final class RuncStandardIO: RuncProcess.IO & Sendable {
-    private struct State {
-        var stdin: IOPair?
-        var stdout: IOPair?
-        var stderr: IOPair?
-
-        var stdinPipe: Pipe?
-        var stdoutPipe: Pipe?
-        var stderrPipe: Pipe?
-    }
-
-    private let log: Logger?
-    private let hostStdio: HostStdio
-    private let state: Mutex<State>
-
-    init(
-        stdio: HostStdio,
-        log: Logger?
-    ) {
-        self.hostStdio = stdio
-        self.log = log
-        self.state = Mutex(State())
-    }
-
-    // NOP for non-terminal
-    func attachConsole(fd: Int32) throws {}
-
-    func create() throws {
-        try self.state.withLock {
-            if let stdinPort = self.hostStdio.stdin {
-                let inPipe = Pipe()
-                $0.stdinPipe = inPipe
-
-                let type = VsockType(
-                    port: stdinPort,
-                    cid: VsockType.hostCID
-                )
-                let stdinSocket = try Socket(type: type, closeOnDeinit: false)
-                try stdinSocket.connect()
-
-                let pair = IOPair(
-                    readFrom: stdinSocket,
-                    writeTo: inPipe.fileHandleForWriting,
-                    reason: "RuncStandardIO stdin",
-                    logger: log
-                )
-                $0.stdin = pair
-                try pair.relay()
-            }
-
-            if let stdoutPort = self.hostStdio.stdout {
-                let outPipe = Pipe()
-                $0.stdoutPipe = outPipe
-
-                let type = VsockType(
-                    port: stdoutPort,
-                    cid: VsockType.hostCID
-                )
-                let stdoutSocket = try Socket(type: type, closeOnDeinit: false)
-                try stdoutSocket.connect()
-
-                let pair = IOPair(
-                    readFrom: outPipe.fileHandleForReading,
-                    writeTo: stdoutSocket,
-                    reason: "RuncStandardIO stdout",
-                    logger: log
-                )
-                $0.stdout = pair
-                try pair.relay()
-            }
-
-            if let stderrPort = self.hostStdio.stderr {
-                let errPipe = Pipe()
-                $0.stderrPipe = errPipe
-
-                let type = VsockType(
-                    port: stderrPort,
-                    cid: VsockType.hostCID
-                )
-                let stderrSocket = try Socket(type: type, closeOnDeinit: false)
-                try stderrSocket.connect()
-
-                let pair = IOPair(
-                    readFrom: errPipe.fileHandleForReading,
-                    writeTo: stderrSocket,
-                    reason: "RuncStandardIO stderr",
-                    logger: log
-                )
-                $0.stderr = pair
-                try pair.relay()
-            }
-        }
-    }
-
-    func getIO() -> Runc.IO {
-        self.state.withLock {
-            Runc.IO(
-                stdin: $0.stdinPipe?.fileHandleForReading,
-                stdout: $0.stdoutPipe?.fileHandleForWriting,
-                stderr: $0.stderrPipe?.fileHandleForWriting
-            )
-        }
-    }
-
-    func closeAfterExec() throws {
-        try self.state.withLock {
-            // Close the pipe ends we gave to runc (the child inherited them)
-            if let stdinPipe = $0.stdinPipe {
-                try stdinPipe.fileHandleForReading.close()
-                $0.stdinPipe = nil
-            }
-            if let stdoutPipe = $0.stdoutPipe {
-                try stdoutPipe.fileHandleForWriting.close()
-                $0.stdoutPipe = nil
-            }
-            if let stderrPipe = $0.stderrPipe {
-                try stderrPipe.fileHandleForWriting.close()
-                $0.stderrPipe = nil
-            }
-        }
-    }
-
-    func resize(size: Terminal.Size) throws {
-        throw ContainerizationError(.unsupported, message: "resize not supported for standard IO")
-    }
-
-    func close() throws {
-        self.state.withLock {
-            if let stdin = $0.stdin {
-                stdin.close()
-                $0.stdin = nil
-            }
-
-            if let stdout = $0.stdout {
-                stdout.close()
-                $0.stdout = nil
-            }
-
-            if let stderr = $0.stderr {
-                stderr.close()
-                $0.stderr = nil
-            }
-        }
-    }
-
-    func closeStdin() throws {
-        self.state.withLock {
-            if let stdin = $0.stdin {
-                stdin.close()
-                $0.stdin = nil
-            }
         }
     }
 }

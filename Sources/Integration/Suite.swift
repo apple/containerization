@@ -102,6 +102,62 @@ enum IntegrationError: Swift.Error {
     case noOutput
 }
 
+/// Resume-once holder for ``withDeadline``. A class because `Mutex` is
+/// `~Copyable` and cannot be captured by the `sending` closure `Task {}` takes.
+private final class DeadlineGate<T: Sendable>: Sendable {
+    private let stored: Mutex<CheckedContinuation<T, any Error>?>
+
+    init(_ continuation: CheckedContinuation<T, any Error>) {
+        self.stored = Mutex(continuation)
+    }
+
+    /// Resumes the continuation on the first call and discards every later one,
+    /// so the losing task is abandoned rather than awaited.
+    func resume(with result: Result<T, any Error>) {
+        let continuation = self.stored.withLock { continuation -> CheckedContinuation<T, any Error>? in
+            defer { continuation = nil }
+            return continuation
+        }
+        continuation?.resume(with: result)
+    }
+}
+
+/// Bound an await so a hang fails the test instead of wedging the suite.
+///
+/// Races two unstructured tasks through one continuation so the loser is
+/// abandoned rather than awaited: the work routinely awaits an unstructured
+/// `Task` (`LinuxContainer.wait` creates one) that ignores cancellation, which
+/// a `withThrowingTaskGroup` race would have to drain before it could rethrow.
+/// Not cancellation-aware; safe only because the runner never cancels a test.
+func withDeadline<T: Sendable>(
+    seconds: Int,
+    _ what: String,
+    _ work: @escaping @Sendable () async throws -> T
+) async throws -> T {
+    try await withCheckedThrowingContinuation { (cont: CheckedContinuation<T, any Error>) in
+        let gate = DeadlineGate(cont)
+
+        let timer = Task {
+            // A cancelled sleep means the work resolved first.
+            guard (try? await Task.sleep(for: .seconds(seconds))) != nil else {
+                return
+            }
+            gate.resume(with: .failure(IntegrationError.assert(msg: "timed out after \(seconds)s waiting for \(what)")))
+        }
+
+        Task {
+            // Release the timer once the work resolves; left alone it would sit
+            // out the whole deadline keeping this closure alive.
+            defer { timer.cancel() }
+            do {
+                gate.resume(with: .success(try await work()))
+            } catch {
+                gate.resume(with: .failure(error))
+            }
+        }
+    }
+}
+
 struct SkipTest: Swift.Error, CustomStringConvertible {
     let reason: String
 
@@ -257,7 +313,9 @@ struct IntegrationSuite: AsyncParsableCommand {
         // macOS where tests can run in parallel we just keep all files —
         // disk usage isn't a concern there. Each per-test bootstrap clones
         // a ~2GB rootfs and a ~512MB initfs, so without reaping the dev
-        // container fills its CoW layer in ~10 tests.
+        // container fills its CoW layer in ~10 tests. Tests must stop their
+        // container on the failure path too (see RuncTests), or this unlinks
+        // the clones out from under a still-running VM.
         if self.maxConcurrency == 1 {
             let preserve = fsPath.absolutePath()
             if let entries = try? FileManager.default.contentsOfDirectory(
@@ -582,6 +640,22 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("container duplicate virtiofs mount via symlink", testDuplicateVirtiofsMountViaSymlink),
             Test("container mount sort by depth", testMountsSortedByDepth),
             Test("pod single file mount", testPodSingleFileMount),
+
+            // runc-backed runtime (skipped unless `make fetch-runc` was run)
+            Test("runc process true", testRuncProcessTrue),
+            Test("runc process false", testRuncProcessFalse),
+            Test("runc process echo hi", testRuncProcessEchoHi),
+            Test("runc process stdin", testRuncProcessStdin),
+            Test("runc process tty ensure TERM", testRuncProcessTty),
+            Test("runc container statistics", testRuncContainerStatistics),
+            Test("runc container kill and stop", testRuncContainerKillAndStop),
+            Test("runc container exec", testRuncContainerExec),
+            Test("runc container exec fast exit", testRuncContainerExecFastExit),
+            Test("runc container exec terminal", testRuncContainerExecTerminal),
+            Test("runc process seccomp default profile", testRuncProcessSeccompDefault),
+            Test("runc process seccomp off by default", testRuncProcessSeccompDisabledByDefault),
+            Test("runc container exec seccomp default profile", testRuncContainerExecSeccompDefault),
+            Test("runc process custom seccomp profile", testRuncProcessCustomSeccompProfile),
         ]
 
         #if os(macOS)
