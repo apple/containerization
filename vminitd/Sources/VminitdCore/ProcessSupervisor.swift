@@ -32,7 +32,36 @@ final class ProcessSupervisor: Sendable {
     private struct State {
         var processes: [any ContainerProcess] = []
         var log: Logger?
+
+        /// Exits reaped before their owner recorded a pid, oldest first.
+        ///
+        /// `runc exec --detach` returns once the exec'd process is already
+        /// running, so a short-lived exec can be reaped before RuncExecProcess
+        /// knows its pid. Most entries are never claimed — every orphan
+        /// reparented to vminitd lands here — so eviction bounds this.
+        var unclaimedExits: [Int32: ParkedExit] = [:]
+        var unclaimedOrder: [Int32] = []
     }
+
+    /// A reaped exit status waiting to be claimed, with the time it was parked.
+    private struct ParkedExit {
+        let status: Int32
+        let parkedAt: ContinuousClock.Instant
+    }
+
+    /// How long a parked exit is worth keeping. The park-to-claim window is
+    /// microseconds, so anything this old was never going to be claimed.
+    ///
+    /// Age, not count, is the eviction policy: a count cap alone lets a burst
+    /// of unclaimed exits evict a live claimant's entry inside its window,
+    /// hanging its `wait()` forever. Expiry is driven by `handleSignal` and
+    /// `claimExit` rather than a timer; `claimExit` sweeps before it looks, so
+    /// an entry older than this is never handed out.
+    private static let maxUnclaimedAge = Duration.seconds(5)
+
+    /// Hard ceiling on parked exits, a memory backstop only. Set well above
+    /// what ``maxUnclaimedAge`` can accumulate.
+    private static let maxUnclaimedExits = 4096
 
     private let state: Mutex<State>
     private let reaperCommandRunner = ReaperCommandRunner()
@@ -100,40 +129,189 @@ final class ProcessSupervisor: Sendable {
     private func handleSignal() {
         dispatchPrecondition(condition: .onQueue(queue))
 
-        let exited = Reaper.reap()
+        // Reaping happens under the state lock so `claimExit` can treat "pid
+        // gone and nothing parked" as proof the status was dropped. `wait4` is
+        // WNOHANG, so this does not block.
+        let exited = self.state.withLock { state -> [Int32: Int32] in
+            let exited = Reaper.reap()
 
-        for (pid, status) in exited {
-            reaperCommandRunner.notifyExit(pid: pid, status: status)
-        }
-
-        self.state.withLock { state in
             state.log?.debug("received SIGCHLD, reaping processes")
             state.log?.debug("finished wait4 of \(exited.count) processes")
             state.log?.debug("checking for exit of managed process", metadata: ["exits": "\(exited)", "processes": "\(state.processes.count)"])
 
-            let exitedProcesses = state.processes.filter { proc in
-                exited.contains { pid, _ in
-                    proc.pid == pid
+            // One pass, reading each `pid` exactly once: it is a computed
+            // property behind the process's own lock and changes underneath us.
+            let work: [(proc: any ContainerProcess, pid: Int32, status: Int32)] = state.processes.compactMap { proc in
+                guard let pid = proc.pid, let status = exited[pid] else {
+                    return nil
                 }
+                return (proc, pid, status)
             }
 
-            for proc in exitedProcesses {
-                guard let pid = proc.pid else {
-                    continue
-                }
+            // Which exits found an owner.
+            let matched = Set(work.map { $0.pid })
 
-                if let status = exited[pid] {
-                    state.log?.debug(
-                        "managed process exited",
-                        metadata: [
-                            "pid": "\(pid)",
-                            "status": "\(status)",
-                            "count": "\(state.processes.count - 1)",
-                        ])
-                    proc.setExit(status)
-                    state.processes.removeAll(where: { $0.pid == pid })
-                }
+            for (proc, pid, status) in work {
+                state.log?.debug(
+                    "managed process exited",
+                    metadata: [
+                        "pid": "\(pid)",
+                        "status": "\(status)",
+                        "count": "\(state.processes.count - 1)",
+                    ])
+                proc.setExit(status)
+                // Match on identity, not pid: `setExit` has just moved the
+                // process to `.exited`, where both runc implementations report
+                // `pid == nil`.
+                state.processes.removeAll(where: { $0 === proc })
             }
+
+            // Park whatever matched nothing. Mostly noise -- runc's own
+            // short-lived processes and reparented orphans -- but it is also
+            // how a fast `runc exec` child's status survives until
+            // RuncExecProcess records its pid.
+            let now = ContinuousClock.now
+            for (pid, status) in exited where !matched.contains(pid) {
+                let parked = ParkedExit(status: status, parkedAt: now)
+                if state.unclaimedExits.updateValue(parked, forKey: pid) != nil {
+                    // Same pid parked twice without a claim: the kernel recycled
+                    // it. Drop the stale position to keep the order list a
+                    // faithful index of the dictionary.
+                    state.unclaimedOrder.removeAll { $0 == pid }
+                }
+                state.unclaimedOrder.append(pid)
+            }
+
+            // `unclaimedOrder` is in park order, oldest first.
+            Self.expireUnclaimedExits(&state, now: now)
+
+            while state.unclaimedOrder.count > Self.maxUnclaimedExits {
+                let evicted = state.unclaimedOrder.removeFirst()
+                state.unclaimedExits.removeValue(forKey: evicted)
+                state.log?.debug(
+                    "evicted unclaimed exit",
+                    metadata: [
+                        "pid": "\(evicted)"
+                    ])
+            }
+
+            return exited
+        }
+
+        // Outside the lock: this resumes whoever is awaiting a `runc`
+        // invocation, and that task's next move is to call `claimExit`, which
+        // needs this lock.
+        for (pid, status) in exited {
+            reaperCommandRunner.notifyExit(pid: pid, status: status)
+        }
+    }
+
+    /// Drop parked exits older than ``maxUnclaimedAge``. Called from
+    /// `handleSignal` and `claimExit`; there is no timer.
+    ///
+    /// Must be called with the state lock held.
+    private static func expireUnclaimedExits(_ state: inout State, now: ContinuousClock.Instant) {
+        while let oldest = state.unclaimedOrder.first {
+            guard let parked = state.unclaimedExits[oldest] else {
+                // Unreachable: the two containers are only updated together,
+                // under this lock. Drop the dangling position rather than stop,
+                // which would block expiry of everything behind it.
+                state.unclaimedOrder.removeFirst()
+                continue
+            }
+            guard parked.parkedAt.duration(to: now) > Self.maxUnclaimedAge else {
+                // In park order, so the first entry young enough ends the sweep.
+                return
+            }
+            state.unclaimedOrder.removeFirst()
+            state.unclaimedExits.removeValue(forKey: oldest)
+            state.log?.debug(
+                "expired unclaimed exit",
+                metadata: [
+                    "pid": "\(oldest)"
+                ])
+        }
+    }
+
+    /// What `claimExit` found for a pid.
+    enum ExitClaim {
+        /// A status was parked and is now the caller's to deliver.
+        case claimed(Int32)
+
+        /// The pid has been reaped and its status is not anywhere: parked and
+        /// then expired, or evicted. Nothing will ever deliver this exit.
+        case lost
+
+        /// Nothing to hand over, and nothing lost: either the process is still
+        /// running, or its exit has already been delivered through `setExit`.
+        case pending
+    }
+
+    /// Take the exit status parked for `pid`, if one was reaped before its
+    /// owner could register the pid, and say what it means when there isn't one.
+    ///
+    /// `.claimed` and `.lost` also drop `claimant`'s registration, by identity:
+    /// nothing else prunes a claimed process, and the retained reference keeps
+    /// `ConsoleSocket.deinit` from reclaiming `/tmp/runc-console-<uuid>`. Doing
+    /// it here rather than after the caller's `setExit` also closes the window
+    /// in which the claimant is registered with an already-reaped pid.
+    ///
+    /// Callers must not hold their own process lock: this reads `claimant.pid`,
+    /// and `handleSignal` takes this lock and then calls into a process, so
+    /// claiming under a process lock would invert that order.
+    func claimExit(pid: Int32, claimant: any ContainerProcess) -> ExitClaim {
+        self.state.withLock { state in
+            // Sweep before looking, or an entry parked while the table was quiet
+            // is handed out however old it is -- and old is when it might belong
+            // to a recycled pid.
+            Self.expireUnclaimedExits(&state, now: .now)
+
+            if let parked = state.unclaimedExits.removeValue(forKey: pid) {
+                state.unclaimedOrder.removeAll { $0 == pid }
+                state.processes.removeAll { $0 === claimant }
+                state.log?.debug(
+                    "claimed parked exit",
+                    metadata: [
+                        "pid": "\(pid)",
+                        "status": "\(parked.status)",
+                    ])
+                return .claimed(parked.status)
+            }
+
+            // Nothing parked. A claimant no longer publishing this pid has
+            // already been given an exit by `handleSignal`.
+            guard claimant.pid == pid else {
+                return .pending
+            }
+
+            // Otherwise ask the kernel. ESRCH means fully reaped -- a zombie
+            // still answers `kill(pid, 0)` -- and reaping happens under this
+            // lock, so a reaped pid has already been delivered, parked or
+            // expired. The first two are excluded above, so the status is lost.
+            let probe = Foundation.kill(pid, 0)
+            let probeErrno = errno
+            guard probe != 0 && probeErrno == ESRCH else {
+                return .pending
+            }
+
+            state.processes.removeAll { $0 === claimant }
+            state.log?.error(
+                "parked exit lost",
+                metadata: [
+                    "pid": "\(pid)"
+                ])
+            return .lost
+        }
+    }
+
+    /// Drop a process's registration without delivering an exit through it.
+    ///
+    /// Matched by identity, not id: the supervisor is process-wide but an exec
+    /// id is only unique within its ManagedContainer, so in a pod two
+    /// containers can both own an exec called "shell".
+    func deregister(process: any ContainerProcess) {
+        self.state.withLock { state in
+            state.processes.removeAll { $0 === process }
         }
     }
 
@@ -145,9 +323,7 @@ final class ProcessSupervisor: Sendable {
         do {
             return try await process.start()
         } catch {
-            self.state.withLock { state in
-                state.processes.removeAll(where: { $0.id == process.id })
-            }
+            self.deregister(process: process)
             throw error
         }
     }

@@ -1938,9 +1938,17 @@ extension Initd {
                 message: "runtime spec without root field present"
             )
         }
+        // A `!` here would crash PID 1 and take the VM with it.
+        guard var linux = ociSpec.linux else {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "runtime spec without linux field present"
+            )
+        }
 
-        if ociSpec.linux!.cgroupsPath.isEmpty {
-            ociSpec.linux!.cgroupsPath = "/container/\(id)"
+        if linux.cgroupsPath.isEmpty {
+            linux.cgroupsPath = "/container/\(id)"
+            ociSpec.linux = linux
         }
 
         if process.cwd.isEmpty {

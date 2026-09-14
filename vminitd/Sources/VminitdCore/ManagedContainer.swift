@@ -30,7 +30,10 @@ public actor ManagedContainer {
     private let cgroupManager: Cgroup2Manager
     private let log: Logger
     private let bundle: ContainerizationOCI.Bundle
-    private let needsCgroupCleanup: Bool
+    /// Non-nil exactly when the container is runc-backed. Retained so that
+    /// `createExec` can route execs through `runc exec` too, rather than
+    /// leaving them on vmexec.
+    private let runc: Runc?
     private var execs: [String: any ContainerProcess] = [:]
 
     public var pid: Int32? {
@@ -69,26 +72,28 @@ public actor ManagedContainer {
             try cgManager.toggleAllAvailableControllers(enable: true)
 
             let initProcess: any ContainerProcess
+            let runc: Runc?
 
             if let runtimePath = ociRuntimePath {
                 // Use runc runtime
-                let runc = ProcessSupervisor.default.getRuncWithReaper(
+                let runtime = ProcessSupervisor.default.getRuncWithReaper(
                     Runc(
                         command: runtimePath,
                         root: "/run/runc"
                     )
                 )
+                runc = runtime
                 initProcess = try RuncProcess(
                     id: id,
                     stdio: stdio,
                     bundle: bundle,
-                    runc: runc,
+                    runc: runtime,
                     log: log
                 )
-                self.needsCgroupCleanup = false
                 log.info("created runc init process with runtime: \(runtimePath)")
             } else {
                 // Use vmexec runtime
+                runc = nil
                 initProcess = try ManagedProcess(
                     id: id,
                     stdio: stdio,
@@ -96,12 +101,12 @@ public actor ManagedContainer {
                     owningPid: nil,
                     log: log
                 )
-                self.needsCgroupCleanup = true
                 log.info("created vmexec init process")
             }
 
             self.cgroupManager = cgManager
             self.initProcess = initProcess
+            self.runc = runc
             self.id = id
             self.bundle = bundle
             self.log = log
@@ -170,19 +175,35 @@ extension ManagedContainer {
         log.debug("creating exec process with \(process)")
 
         // Write the process config to the bundle, and pass this on
-        // over to ManagedProcess to deal with.
+        // over to the exec implementation to deal with.
         try self.bundle.createExecSpec(
             id: id,
             process: process
         )
-        let process = try ManagedProcess(
-            id: id,
-            stdio: stdio,
-            bundle: self.bundle,
-            owningPid: self.initProcess.pid,
-            log: self.log
-        )
-        self.execs[id] = process
+
+        // A runc-backed container execs through runc too, so the exec'd process
+        // gets the parts of the spec vmexec does not implement (seccomp,
+        // AppArmor, SELinux).
+        let execProcess: any ContainerProcess
+        if let runc = self.runc {
+            execProcess = try RuncExecProcess(
+                id: id,
+                containerID: self.id,
+                stdio: stdio,
+                bundle: self.bundle,
+                runc: runc,
+                log: self.log
+            )
+        } else {
+            execProcess = try ManagedProcess(
+                id: id,
+                stdio: stdio,
+                bundle: self.bundle,
+                owningPid: self.initProcess.pid,
+                log: self.log
+            )
+        }
+        self.execs[id] = execProcess
     }
 
     func start(execID: String) async throws -> Int32 {
@@ -210,8 +231,20 @@ extension ManagedContainer {
         try proc.closeStdin()
     }
 
-    func deleteExec(id: String) throws {
+    func deleteExec(id: String) async throws {
         try ensureExecExists(id)
+
+        // `RuncExecProcess.delete()` closes the exec's console socket and
+        // unlinks its directory under /tmp. Best-effort: a socket we failed to
+        // reclaim must not pin the exec in the map.
+        if let proc = self.execs[id] {
+            do {
+                try await proc.delete()
+            } catch {
+                self.log.error("failed to delete exec process \(id): \(error)")
+            }
+        }
+
         do {
             try self.bundle.deleteExecSpec(id: id)
         } catch {
@@ -226,9 +259,11 @@ extension ManagedContainer {
 
         // Delete the bundle and cgroup
         try self.bundle.delete()
-        if self.needsCgroupCleanup {
-            try await self.removeCgroupWithRetry()
-        }
+
+        // Unconditional for both runtimes: `runc delete` normally removed the
+        // cgroup already, but nothing else reclaims it if runc only partly
+        // completed. Cgroup2Manager.delete treats an absent cgroup as success.
+        try await self.removeCgroupWithRetry()
     }
 
     func stats(_ categories: Cgroup2StatsCategory = .all) throws -> Cgroup2Stats {

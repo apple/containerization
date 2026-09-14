@@ -853,6 +853,20 @@ public struct LinuxSeccomp: Codable, Sendable {
         self.listenerMetadata = listenerMetadata
         self.syscalls = syscalls
     }
+
+    /// Decodes a profile in which every field the runtime spec marks
+    /// `omitempty` may be absent. `defaultAction` stays required: the spec does
+    /// not mark it `omitempty` and it has no safe default.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.defaultAction = try container.decode(LinuxSeccompAction.self, forKey: .defaultAction)
+        self.defaultErrnoRet = try container.decodeIfPresent(UInt.self, forKey: .defaultErrnoRet)
+        self.architectures = try container.decodeIfPresent([Arch].self, forKey: .architectures) ?? []
+        self.flags = try container.decodeIfPresent([LinuxSeccompFlag].self, forKey: .flags) ?? []
+        self.listenerPath = try container.decodeIfPresent(String.self, forKey: .listenerPath) ?? ""
+        self.listenerMetadata = try container.decodeIfPresent(String.self, forKey: .listenerMetadata) ?? ""
+        self.syscalls = try container.decodeIfPresent([LinuxSyscall].self, forKey: .syscalls) ?? []
+    }
 }
 
 public enum LinuxSeccompFlag: String, Codable, Sendable {
@@ -917,6 +931,16 @@ public struct LinuxSeccompArg: Codable, Sendable {
         self.valueTwo = valueTwo
         self.op = op
     }
+
+    /// Decodes an argument filter whose `valueTwo` may be absent. `valueTwo` is
+    /// the `SCMP_CMP_MASKED_EQ` mask, which the spec marks `omitempty`.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.index = try container.decode(UInt.self, forKey: .index)
+        self.value = try container.decode(UInt64.self, forKey: .value)
+        self.valueTwo = try container.decodeIfPresent(UInt64.self, forKey: .valueTwo) ?? 0
+        self.op = try container.decode(LinuxSeccompOperator.self, forKey: .op)
+    }
 }
 
 public struct LinuxSyscall: Codable, Sendable {
@@ -935,5 +959,15 @@ public struct LinuxSyscall: Codable, Sendable {
         self.action = action
         self.errnoRet = errnoRet
         self.args = args
+    }
+
+    /// Decodes a rule whose `args` may be absent; the spec marks it
+    /// `omitempty` and an unconditional rule has none.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.names = try container.decode([String].self, forKey: .names)
+        self.action = try container.decode(LinuxSeccompAction.self, forKey: .action)
+        self.errnoRet = try container.decodeIfPresent(UInt.self, forKey: .errnoRet)
+        self.args = try container.decodeIfPresent([LinuxSeccompArg].self, forKey: .args) ?? []
     }
 }
