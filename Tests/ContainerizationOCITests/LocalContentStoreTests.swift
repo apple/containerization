@@ -63,4 +63,24 @@ struct LocalContentStoreTests {
 
         try await store.cancelIngestSession(session.id)
     }
+
+    @Test func completeIngestSessionRejectsSymlinkedEntry() async throws {
+        let dir = FileManager.default.uniqueTemporaryDirectory(create: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let store = try LocalContentStore(path: dir)
+        let outsideTarget = dir.appendingPathComponent("outside-\(UUID().uuidString)")
+        try Data("outside contents".utf8).write(to: outsideTarget)
+
+        let session = try await store.newIngestSession()
+        let link = session.ingestDir.appendingPathComponent(Self.digestA)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: outsideTarget)
+
+        await #expect(throws: (any Error).self) {
+            try await store.completeIngestSession(session.id)
+        }
+
+        let blobPath = dir.appendingPathComponent("blobs/sha256").appendingPathComponent(Self.digestA)
+        #expect(!FileManager.default.fileExists(atPath: blobPath.path))
+    }
 }

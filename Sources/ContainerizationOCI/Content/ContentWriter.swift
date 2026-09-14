@@ -56,7 +56,28 @@ public class ContentWriter {
     ///   - url: The URL to read the data from.
     @discardableResult
     public func create(from url: URL) throws -> (size: Int64, digest: SHA256.Digest) {
-        let sourceFD = Foundation.open(url.path, O_RDONLY)
+        let tempURL = base.appendingPathComponent(UUID().uuidString)
+        let (size, digest) = try Self.copy(from: url, destination: tempURL)
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let destination = base.appendingPathComponent(digest.encoded)
+        do {
+            try FileManager.default.moveItem(at: tempURL, to: destination)
+        } catch let error as NSError where error.code == NSFileWriteFileExistsError {
+            // Content already exists under this digest; nothing more to do.
+        }
+        return (size, digest)
+    }
+
+    /// Copies `url` to an exact caller-specified `destination`, refusing to
+    /// follow a symlink at `url` and requiring it to be a regular file.
+    /// Fails if `destination` already exists.
+    /// - Parameters:
+    ///   - url: The URL to read the data from.
+    ///   - destination: The exact URL to write the copied content to.
+    @discardableResult
+    public static func copy(from url: URL, destination: URL) throws -> (size: Int64, digest: SHA256.Digest) {
+        let sourceFD = Foundation.open(url.path, O_RDONLY | O_NOFOLLOW)
         guard sourceFD >= 0 else {
             let errCode = POSIXErrorCode(rawValue: errno) ?? .EINVAL
             let err = POSIXError(errCode)
@@ -64,12 +85,21 @@ public class ContentWriter {
         }
         defer { close(sourceFD) }
 
-        let tempURL = base.appendingPathComponent(UUID().uuidString)
-        let destFD = Foundation.open(tempURL.path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
+        var st = stat()
+        guard fstat(sourceFD, &st) == 0 else {
+            let errCode = POSIXErrorCode(rawValue: errno) ?? .EINVAL
+            let err = POSIXError(errCode)
+            throw ContainerizationError(.internalError, message: "failed to stat \(url.path)", cause: err)
+        }
+        guard (st.st_mode & S_IFMT) == S_IFREG else {
+            throw ContainerizationError(.internalError, message: "refusing to copy non-regular file at \(url.path)")
+        }
+
+        let destFD = Foundation.open(destination.path, O_WRONLY | O_CREAT | O_EXCL, 0o644)
         guard destFD >= 0 else {
             let errCode = POSIXErrorCode(rawValue: errno) ?? .EINVAL
             let err = POSIXError(errCode)
-            throw ContainerizationError(.internalError, message: "failed to create temporary file at \(tempURL.absolutePath())", cause: err)
+            throw ContainerizationError(.internalError, message: "failed to create temporary file at \(destination.absolutePath())", cause: err)
         }
 
         let chunkSize = 1024 * 1024  // 1 MiB
@@ -77,7 +107,7 @@ public class ContentWriter {
         defer { buf.deallocate() }
         guard let baseAddress = buf.baseAddress else {
             close(destFD)
-            try? FileManager.default.removeItem(at: tempURL)
+            try? FileManager.default.removeItem(at: destination)
             throw ContainerizationError(.internalError, message: "failed to allocate read buffer of size \(chunkSize)")
         }
 
@@ -90,7 +120,7 @@ public class ContentWriter {
                 close(destFD)
                 let errCode = POSIXErrorCode(rawValue: errno) ?? .EINVAL
                 let err = POSIXError(errCode)
-                try? FileManager.default.removeItem(at: tempURL)
+                try? FileManager.default.removeItem(at: destination)
                 throw ContainerizationError(.internalError, message: "failed to read from \(url.path)", cause: err)
             }
             hasher.update(data: UnsafeRawBufferPointer(start: baseAddress, count: n))
@@ -101,8 +131,8 @@ public class ContentWriter {
                     close(destFD)
                     let errCode = POSIXErrorCode(rawValue: errno) ?? .EINVAL
                     let err = POSIXError(errCode)
-                    try? FileManager.default.removeItem(at: tempURL)
-                    throw ContainerizationError(.internalError, message: "failed to write to \(tempURL.absolutePath())", cause: err)
+                    try? FileManager.default.removeItem(at: destination)
+                    throw ContainerizationError(.internalError, message: "failed to write to \(destination.absolutePath())", cause: err)
                 }
                 written += w
             }
@@ -110,20 +140,7 @@ public class ContentWriter {
         }
         close(destFD)
 
-        let digest = hasher.finalize()
-        let destination = base.appendingPathComponent(digest.encoded)
-        do {
-            try FileManager.default.moveItem(at: tempURL, to: destination)
-        } catch let error as NSError {
-            guard error.code == NSFileWriteFileExistsError else {
-                throw error
-            }
-            try? FileManager.default.removeItem(at: tempURL)
-        } catch {
-            try? FileManager.default.removeItem(at: tempURL)
-            throw error
-        }
-        return (totalSize, digest)
+        return (totalSize, hasher.finalize())
     }
 
     /// Encodes the passed in type as a JSON blob and writes it to the base path.

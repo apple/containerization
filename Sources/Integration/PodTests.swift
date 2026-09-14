@@ -2186,12 +2186,21 @@ extension IntegrationSuite {
                 config.arguments = ["/bin/sh", "-c", "echo hello > /data/hello.txt"]
             }
             try await writeExec.start()
+
+            do {
+                let status = try await writeExec.wait(timeoutInSeconds: 1)
+                throw IntegrationError.assert(msg: "write unexpectedly completed while filesystem was frozen with status \(status)")
+            } catch let error as ContainerizationError where error.code == .timeout {
+                // The write must remain blocked until the filesystem is thawed.
+            }
+
+            try await pod.filesystemOperation("container1", operation: .thaw, path: "/data")
+
             let writeStatus = try await writeExec.wait()
             try await writeExec.delete()
             guard writeStatus.exitCode == 0 else {
                 throw IntegrationError.assert(msg: "write exec failed with status \(writeStatus)")
             }
-            try await pod.filesystemOperation("container1", operation: .thaw, path: "/data")
             try await pod.filesystemOperation("container1", operation: .trim, path: "/data")
 
             let readBuffer = BufferWriter()

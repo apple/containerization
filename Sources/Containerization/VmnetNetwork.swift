@@ -159,7 +159,7 @@ public struct VmnetNetwork: Network {
     /// Creates a new network.
     /// - Parameters:
     ///   - mode: The vmnet operating mode. Defaults to `.VMNET_SHARED_MODE`.
-    ///   - subnetV4: The IPv4 subnet to use for this network.
+    ///   - subnet: The IPv4 subnet to use for this network.
     ///   - prefixV6: The IPv6 prefix to use for this network.
     public init(
         mode: vmnet.operating_modes_t = .VMNET_SHARED_MODE,
@@ -291,7 +291,13 @@ public struct VmnetNetwork: Network {
 
     private static func configurePrefixV6(_ config: vmnet_network_configuration_ref, prefixV6: CIDRv6) throws {
         var p = in6_addr()
-        inet_pton(AF_INET6, prefixV6.lower.description, &p)
+        // `inet_pton` rejects a zone suffix, and a vmnet prefix is never
+        // link-scoped, so the caller is responsible for supplying a zoneless
+        // prefix. Check the result: ignoring it leaves `p` zeroed and
+        // configures `::` on anything that fails to parse.
+        guard inet_pton(AF_INET6, prefixV6.lower.description, &p) == 1 else {
+            throw ContainerizationError(.invalidArgument, message: "invalid IPv6 prefix \(prefixV6) for network")
+        }
 
         guard vmnet_network_configuration_set_ipv6_prefix(config, &p, prefixV6.prefix.length) == .VMNET_SUCCESS else {
             throw ContainerizationError(.internalError, message: "failed to set IPv6 prefix \(prefixV6) for network")

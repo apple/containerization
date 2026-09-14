@@ -78,7 +78,7 @@ public struct CIDRv6: CustomStringConvertible, Equatable, Sendable, Hashable {
     /// The lowest address in this CIDR block
     @inlinable
     public var lower: IPv6Address {
-        IPv6Address(address.value & prefix.prefixMask128)
+        IPv6Address(address.value & prefix.prefixMask128, zone: address.zone)
     }
 
     /// The highest address in this CIDR block (broadcast address).

@@ -21,6 +21,7 @@ import ContainerizationEXT4
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
+import Logging
 import ContainerizationExtras
 import SystemPackage
 import Virtualization
@@ -31,6 +32,7 @@ public struct ContainerManager: Sendable {
     public let imageStore: ImageStore
     private let vmm: VirtualMachineManager
     private var network: Network?
+    private let logger: Logger?
 
     private var containerRoot: URL {
         self.imageStore.path.appendingPathComponent("containers")
@@ -45,16 +47,19 @@ public struct ContainerManager: Sendable {
         imageStore: ImageStore,
         network: Network? = nil,
         rosetta: Bool = false,
-        nestedVirtualization: Bool = false
+        nestedVirtualization: Bool = false,
+        logger: Logger? = nil
     ) throws {
         self.imageStore = imageStore
         self.network = network
+        self.logger = logger
         try Self.createRootDirectory(path: self.imageStore.path)
         self.vmm = VZVirtualMachineManager(
             kernel: kernel,
             initialFilesystem: initfs,
             rosetta: rosetta,
-            nestedVirtualization: nestedVirtualization
+            nestedVirtualization: nestedVirtualization,
+            logger: logger
         )
     }
 
@@ -67,7 +72,8 @@ public struct ContainerManager: Sendable {
         root: URL? = nil,
         network: Network? = nil,
         rosetta: Bool = false,
-        nestedVirtualization: Bool = false
+        nestedVirtualization: Bool = false,
+        logger: Logger? = nil
     ) throws {
         if let root {
             self.imageStore = try ImageStore(path: root)
@@ -75,12 +81,14 @@ public struct ContainerManager: Sendable {
             self.imageStore = ImageStore.default
         }
         self.network = network
+        self.logger = logger
         try Self.createRootDirectory(path: self.imageStore.path)
         self.vmm = VZVirtualMachineManager(
             kernel: kernel,
             initialFilesystem: initfs,
             rosetta: rosetta,
-            nestedVirtualization: nestedVirtualization
+            nestedVirtualization: nestedVirtualization,
+            logger: logger
         )
     }
 
@@ -93,10 +101,12 @@ public struct ContainerManager: Sendable {
         imageStore: ImageStore,
         network: Network? = nil,
         rosetta: Bool = false,
-        nestedVirtualization: Bool = false
+        nestedVirtualization: Bool = false,
+        logger: Logger? = nil
     ) async throws {
         self.imageStore = imageStore
         self.network = network
+        self.logger = logger
         try Self.createRootDirectory(path: self.imageStore.path)
 
         let initPath = self.imageStore.path.appendingPathComponent("initfs.ext4")
@@ -121,7 +131,8 @@ public struct ContainerManager: Sendable {
             kernel: kernel,
             initialFilesystem: initfs,
             rosetta: rosetta,
-            nestedVirtualization: nestedVirtualization
+            nestedVirtualization: nestedVirtualization,
+            logger: logger
         )
     }
 
@@ -133,7 +144,8 @@ public struct ContainerManager: Sendable {
         root: URL? = nil,
         network: Network? = nil,
         rosetta: Bool = false,
-        nestedVirtualization: Bool = false
+        nestedVirtualization: Bool = false,
+        logger: Logger? = nil
     ) async throws {
         if let root {
             self.imageStore = try ImageStore(path: root)
@@ -141,6 +153,7 @@ public struct ContainerManager: Sendable {
             self.imageStore = ImageStore.default
         }
         self.network = network
+        self.logger = logger
         try Self.createRootDirectory(path: self.imageStore.path)
 
         let initPath = self.imageStore.path.appendingPathComponent("initfs.ext4")
@@ -165,19 +178,22 @@ public struct ContainerManager: Sendable {
             kernel: kernel,
             initialFilesystem: initfs,
             rosetta: rosetta,
-            nestedVirtualization: nestedVirtualization
+            nestedVirtualization: nestedVirtualization,
+            logger: logger
         )
     }
 
     /// Create a new manager with the provided vmm and network.
     public init(
         vmm: any VirtualMachineManager,
-        network: Network? = nil
+        network: Network? = nil,
+        logger: Logger? = nil
     ) throws {
         self.imageStore = ImageStore.default
         try Self.createRootDirectory(path: self.imageStore.path)
         self.network = network
         self.vmm = vmm
+        self.logger = logger
     }
 
     private static func createRootDirectory(path: URL) throws {
@@ -297,7 +313,8 @@ public struct ContainerManager: Sendable {
             id,
             rootfs: rootfs,
             writableLayer: writableLayer,
-            vmm: self.vmm
+            vmm: self.vmm,
+            logger: self.logger
         ) { config in
             if let imageConfig {
                 config.process = .init(from: imageConfig)

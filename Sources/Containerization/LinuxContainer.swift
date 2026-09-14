@@ -146,8 +146,9 @@ public final class LinuxContainer: Container, Sendable {
 
     // Ports to be allocated from for stdio and for
     // unix socket relays that are sharing a guest
-    // uds to the host.
-    private let hostVsockPorts: Atomic<UInt32>
+    // uds to the host. Released ports are reused — see
+    // `VsockPortAllocator` for why that matters.
+    private let hostVsockPorts: VsockPortAllocator
     // Ports we request the guest to allocate for unix socket relays from
     // the host.
     private let guestVsockPorts: Atomic<UInt32>
@@ -365,7 +366,7 @@ public final class LinuxContainer: Container, Sendable {
         }
         self.id = id
         self.vmm = vmm
-        self.hostVsockPorts = Atomic<UInt32>(0x1000_0000)
+        self.hostVsockPorts = VsockPortAllocator(base: 0x1000_0000)
         self.guestVsockPorts = Atomic<UInt32>(0x1000_0000)
         self.logger = logger
         self.config = configuration
@@ -641,8 +642,8 @@ extension LinuxContainer {
             let vm = try await self.vmm.create(config: creationConfig)
             let relayManager = UnixSocketRelayManager(vm: vm, log: self.logger)
 
-            try await vm.start()
             do {
+                try await vm.start()
                 let mountsForAgent = containerMounts
                 try await vm.withAgent { agent in
                     try await agent.standardSetup()
@@ -827,6 +828,7 @@ extension LinuxContainer {
                     containerID: self.id,
                     spec: spec,
                     io: stdio,
+                    portAllocator: self.hostVsockPorts,
                     ociRuntimePath: self.config.ociRuntimePath,
                     agent: agent,
                     vm: createdState.vm,
@@ -1011,6 +1013,7 @@ extension LinuxContainer {
                 containerID: self.id,
                 spec: spec,
                 io: stdio,
+                portAllocator: self.hostVsockPorts,
                 ociRuntimePath: self.config.ociRuntimePath,
                 agent: agent,
                 vm: startedState.vm,
@@ -1048,6 +1051,7 @@ extension LinuxContainer {
                 containerID: self.id,
                 spec: spec,
                 io: stdio,
+                portAllocator: self.hostVsockPorts,
                 ociRuntimePath: self.config.ociRuntimePath,
                 agent: agent,
                 vm: state.vm,
@@ -1134,8 +1138,7 @@ extension LinuxContainer {
                 guard let vminitd = agent as? Vminitd else {
                     throw ContainerizationError(.unsupported, message: "filesystemOperation requires Vminitd agent")
                 }
-                let guestPath = URL(filePath: Self.guestRootfsPath(self.id)).appending(path: path).path
-                try await vminitd.filesystemOperation(operation: operation, path: guestPath)
+                try await vminitd.filesystemOperation(operation: operation, path: path, containerID: self.id)
             }
         }
     }
@@ -1157,7 +1160,9 @@ extension LinuxContainer {
 
         let port: UInt32
         if socket.direction == .into {
-            port = self.hostVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
+            // Held for the lifetime of the relay, so it is deliberately never
+            // released — the relay manager outlives this call.
+            port = self.hostVsockPorts.allocate()
             socket.destination = URL(filePath: Self.guestSocketStagingPath(socket.id))
         } else {
             port = self.guestVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
@@ -1192,12 +1197,13 @@ extension LinuxContainer {
             }
             let isArchive = isDirectory.boolValue
 
-            let guestPath: URL = try await state.vm.withAgent { agent in
+            let root = self.root
+            let destinationPath: String = try await state.vm.withAgent { agent in
                 guard let vminitd = agent as? Vminitd else {
                     throw ContainerizationError(.unsupported, message: "copyIn requires Vminitd agent")
                 }
 
-                return try await self.resolveCopyInGuestPath(
+                return try await self.resolveCopyInDestination(
                     from: source,
                     to: destination,
                     sourceIsDirectory: isArchive,
@@ -1205,8 +1211,13 @@ extension LinuxContainer {
                 )
             }
 
-            let port = self.hostVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
+            let port = self.hostVsockPorts.allocate()
+            // Deferred LIFO: hand the listener back before the port number, so
+            // a caller that reuses the number immediately finds the port free
+            // to listen on again.
+            defer { self.hostVsockPorts.release(port) }
             let listener = try state.vm.listen(port)
+            defer { try? listener.finish() }
 
             try await withThrowingTaskGroup(of: Void.self) { group in
                 group.addTask {
@@ -1216,7 +1227,8 @@ extension LinuxContainer {
                         }
                         try await vminitd.copy(
                             direction: .copyIn,
-                            guestPath: guestPath,
+                            root: root,
+                            path: destinationPath,
                             vsockPort: port,
                             mode: mode,
                             createParents: createParents,
@@ -1289,17 +1301,19 @@ extension LinuxContainer {
         }
     }
 
-    private func resolveCopyInGuestPath(
+    /// Resolve where a copyIn should land, as a path within the container root
+    /// filesystem. The destination is probed in the guest only to apply
+    /// cp-style semantics (copy into an existing directory); the returned path
+    /// is resolved and confined to the rootfs by the guest when it is written.
+    private func resolveCopyInDestination(
         from source: URL,
         to destination: URL,
         sourceIsDirectory: Bool,
         using vminitd: Vminitd
-    ) async throws -> URL {
-        let guestDestination = URL(filePath: self.root).appending(path: destination.path)
-
+    ) async throws -> String {
         let stat: ContainerizationOS.Stat?
         do {
-            stat = try await vminitd.stat(path: guestDestination)
+            stat = try await vminitd.stat(root: self.root, path: destination.path)
         } catch let error as ContainerizationError where error.code == .notFound {
             stat = nil
         }
@@ -1312,7 +1326,7 @@ extension LinuxContainer {
                     message: "destination directory does not exist: \(destination.path)"
                 )
             }
-            return guestDestination
+            return destination.path
         }
 
         let destinationIsDirectory = (stat.mode & UInt32(S_IFMT)) == UInt32(S_IFDIR)
@@ -1323,10 +1337,10 @@ extension LinuxContainer {
                     message: "cannot copy directory over existing file: \(destination.path)"
                 )
             }
-            return guestDestination
+            return destination.path
         }
 
-        return guestDestination.appendingPathComponent(source.lastPathComponent)
+        return destination.appendingPathComponent(source.lastPathComponent).path
     }
 
     /// Copy a file or directory from the container to the host.
@@ -1348,21 +1362,27 @@ extension LinuxContainer {
                 try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
             }
 
-            let guestPath = URL(filePath: self.root).appending(path: source.path)
-            let port = self.hostVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
+            let root = self.root
+            let sourcePath = source.path
+            let port = self.hostVsockPorts.allocate()
+            // Deferred LIFO: listener back first, then the port number.
+            defer { self.hostVsockPorts.release(port) }
             let listener = try state.vm.listen(port)
+            defer { try? listener.finish() }
 
             let (metadataStream, metadataCont) = AsyncStream.makeStream(of: Vminitd.CopyMetadata.self)
 
             try await withThrowingTaskGroup(of: Void.self) { group in
                 group.addTask {
+                    defer { metadataCont.finish() }
                     try await state.vm.withAgent { agent in
                         guard let vminitd = agent as? Vminitd else {
                             throw ContainerizationError(.unsupported, message: "copyOut requires Vminitd agent")
                         }
                         try await vminitd.copy(
                             direction: .copyOut,
-                            guestPath: guestPath,
+                            root: root,
+                            path: sourcePath,
                             vsockPort: port,
                             onMetadata: { meta in
                                 metadataCont.yield(meta)
@@ -1663,34 +1683,31 @@ func sortMountsByDestinationDepth(_ mounts: [ContainerizationOCI.Mount]) -> [Con
 
 struct IOUtil {
     static func setup(
-        portAllocator: borrowing Atomic<UInt32>,
+        portAllocator: VsockPortAllocator,
         stdin: ReaderStream?,
         stdout: Writer?,
         stderr: Writer?
     ) -> LinuxProcess.Stdio {
         var stdinSetup: LinuxProcess.StdioReaderSetup? = nil
         if let reader = stdin {
-            let ret = portAllocator.wrappingAdd(1, ordering: .relaxed)
             stdinSetup = .init(
-                port: ret.oldValue,
+                port: portAllocator.allocate(),
                 reader: reader
             )
         }
 
         var stdoutSetup: LinuxProcess.StdioSetup? = nil
         if let writer = stdout {
-            let ret = portAllocator.wrappingAdd(1, ordering: .relaxed)
             stdoutSetup = LinuxProcess.StdioSetup(
-                port: ret.oldValue,
+                port: portAllocator.allocate(),
                 writer: writer
             )
         }
 
         var stderrSetup: LinuxProcess.StdioSetup? = nil
         if let writer = stderr {
-            let ret = portAllocator.wrappingAdd(1, ordering: .relaxed)
             stderrSetup = LinuxProcess.StdioSetup(
-                port: ret.oldValue,
+                port: portAllocator.allocate(),
                 writer: writer
             )
         }

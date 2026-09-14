@@ -66,14 +66,7 @@ public struct UnixType: SocketType, Sendable, CustomStringConvertible {
         let socketName = path
         let nameLength = socketName.utf8.count
 
-        #if os(macOS)
-        // Funnily enough, this isn't limited by sun path on macOS even though
-        // it's stated as so.
-        let lengthLimit = 253
-        #elseif os(Linux)
         let lengthLimit = MemoryLayout.size(ofValue: addr.sun_path)
-        #endif
-
         guard nameLength < lengthLimit else {
             throw Error.nameTooLong(path)
         }
