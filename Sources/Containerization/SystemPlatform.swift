@@ -38,4 +38,16 @@ public struct SystemPlatform: Sendable, Codable {
 
     public static var linuxArm: SystemPlatform { .init(os: .linux, architecture: .arm64) }
     public static var linuxAmd: SystemPlatform { .init(os: .linux, architecture: .amd64) }
+
+    /// The Linux platform matching the host architecture. Guests run the host
+    /// architecture; there is no cross-architecture emulation.
+    public static var linuxHost: SystemPlatform {
+        #if arch(arm64)
+        return .linuxArm
+        #elseif arch(x86_64)
+        return .linuxAmd
+        #else
+        #error("unsupported host architecture (expected arm64 or x86_64)")
+        #endif
+    }
 }

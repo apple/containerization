@@ -80,12 +80,12 @@ export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-L native=${CROSS_PREFI
 # Pre-flight checks
 [ -f .local/cloud-hypervisor/Cargo.toml ] || {
     echo "ERROR: missing .local/cloud-hypervisor source checkout." >&2
-    echo "  git clone -b v52.0 https://github.com/cloud-hypervisor/cloud-hypervisor .local/cloud-hypervisor" >&2
+    echo "  run 'make fetch-cloud-hypervisor-source' on the host" >&2
     exit 1
 }
 [ -f .local/virtiofsd/Cargo.toml ] || {
     echo "ERROR: missing .local/virtiofsd source checkout." >&2
-    echo "  git clone https://gitlab.com/virtio-fs/virtiofsd .local/virtiofsd" >&2
+    echo "  run 'make fetch-virtiofsd' on the host" >&2
     exit 1
 }
 

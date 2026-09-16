@@ -677,6 +677,7 @@ extension IntegrationSuite {
             throw IntegrationError.assert(msg: "process status \(status) != 0")
         }
     }
+    #endif
 
     func testContainerManagerCreate() async throws {
         let id = "test-container-manager"
@@ -850,8 +851,6 @@ extension IntegrationSuite {
                 msg: "process should have \(devConsole) in `mount` output")
         }
     }
-
-    #endif
 
     func testContainerStatistics() async throws {
         let id = "test-container-statistics"
