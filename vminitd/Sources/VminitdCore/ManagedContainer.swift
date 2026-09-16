@@ -16,6 +16,12 @@
 
 #if os(Linux)
 
+#if canImport(Musl)
+import Musl
+#elseif canImport(Glibc)
+import Glibc
+#endif
+
 import Cgroup
 import ContainerizationError
 import ContainerizationOCI
@@ -237,6 +243,19 @@ extension ManagedContainer {
 
     func getMemoryEvents() throws -> MemoryEvents {
         try self.cgroupManager.getMemoryEvents()
+    }
+
+    func filesystemStats() throws -> (usedBytes: UInt64, inodesUsed: UInt64) {
+        var s = statfs()
+        guard statfs(self.bundle.rootfsPath.path, &s) == 0 else {
+            throw ContainerizationError(
+                .internalError,
+                message: "statfs(\(self.bundle.rootfsPath.path)) failed: errno \(errno)"
+            )
+        }
+        let usedBytes = (UInt64(s.f_blocks) - UInt64(s.f_bfree)) * UInt64(s.f_bsize)
+        let inodesUsed = UInt64(s.f_files) - UInt64(s.f_ffree)
+        return (usedBytes, inodesUsed)
     }
 
     func getExecOrInit(execID: String) throws -> any ContainerProcess {

@@ -408,6 +408,7 @@ enum StatCategory {
   STAT_CATEGORY_BLOCK_IO = 4;
   STAT_CATEGORY_NETWORK = 5;
   STAT_CATEGORY_MEMORY_EVENTS = 6;
+  STAT_CATEGORY_FILESYSTEM = 7;
 }
 
 message ContainerStatisticsRequest {
@@ -427,6 +428,7 @@ message ContainerStats {
   BlockIOStats block_io = 5;
   repeated NetworkStats networks = 6;
   MemoryEventStats memory_events = 7;
+  FilesystemStats filesystem = 8;
 }
 
 message ProcessStats {
@@ -499,4 +501,12 @@ message MemoryEventStats {
   uint64 oom_kill = 5;
   // Number of times charge for memory failed because of limit.
   uint64 oom_group_kill = 6;
+}
+
+// Filesystem occupancy for a container's writable rootfs mount, from statfs(2).
+message FilesystemStats {
+  // Bytes currently used on the filesystem (f_blocks - f_bfree) * f_frsize.
+  uint64 used_bytes = 1;
+  // Inodes currently used on the filesystem (f_files - f_ffree).
+  uint64 inodes_used = 2;
 }
