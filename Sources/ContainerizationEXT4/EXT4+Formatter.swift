@@ -260,6 +260,12 @@ extension EXT4 {
             if !pathInode.mode.isDir() && pathInode.linksCount > 1 {
                 pathInode.linksCount -= 1
                 pathInodePtr.pointee = pathInode
+                if let blocks = pathNode.blocks, blocks.start != blocks.end {
+                    self.unownedBlocks[pathNode.inode, default: []].append(blocks)
+                }
+                if let additional = pathNode.additionalBlocks {
+                    self.unownedBlocks[pathNode.inode, default: []].append(contentsOf: additional)
+                }
                 return
             }
 
@@ -273,6 +279,9 @@ extension EXT4 {
                 }
             }
             for block in pathNode.additionalBlocks ?? [] {
+                self.deletedBlocks.append((start: block.start, end: block.end))
+            }
+            for block in self.unownedBlocks.removeValue(forKey: pathNode.inode) ?? [] {
                 self.deletedBlocks.append((start: block.start, end: block.end))
             }
             let now = Date().fs()
@@ -980,6 +989,7 @@ extension EXT4 {
         // MARK: Private and internal methods and properties
         private var tree: FileTree
         private var deletedBlocks: [(start: UInt32, end: UInt32)] = []
+        private var unownedBlocks: [InodeNumber: [(start: UInt32, end: UInt32)]] = [:]
 
         // internally accessed by journal setup
         var handle: FileHandle
