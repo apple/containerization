@@ -16,7 +16,7 @@
 
 import ContainerizationExtras
 import ContainerizationOCI
-import Crypto
+@preconcurrency import Crypto
 import Foundation
 import NIO
 import Testing
@@ -48,8 +48,8 @@ final class ExportOperationTests {
         let indexDigest = SHA256.hash(data: indexData).digestString
 
         try await cs.ingest { ingestDir in
-            for (digest, data) in [(childDigest, childData), (indexDigest, indexData)] {
-                let path = ingestDir.appendingPathComponent(digest.trimmingDigestPrefix)
+            for data in [childData, indexData] {
+                let path = ingestDir.appendingPathComponent(SHA256.hash(data: data).encoded)
                 try data.write(to: path)
             }
         }
@@ -71,6 +71,52 @@ final class ExportOperationTests {
         #expect(indexPush.descriptor.mediaType == sourceMediaType)
         let pushedIndex = try JSONDecoder().decode(Index.self, from: indexPush.body)
         #expect(pushedIndex.mediaType == sourceMediaType)
+    }
+
+    /// Export walks the stored index without a platform filter when none is given,
+    /// so a traversing digest on an entry a pull never fetched would reach both a
+    /// read of an arbitrary host file and a create/truncate of one. It has to be
+    /// rejected before anything is pushed.
+    @Test func exportRejectsTraversingChildDigest() async throws {
+        let dir = FileManager.default.uniqueTemporaryDirectory(create: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let cs = try LocalContentStore(path: dir)
+
+        let secret = dir.appendingPathComponent("secret.txt")
+        try Data("do not read me".utf8).write(to: secret)
+
+        let poisoned = Descriptor(
+            mediaType: "application/vnd.test.opaque.v1+json",
+            digest: "sha256:../../secret.txt",
+            size: 1,
+            platform: Platform(arch: "ppc64le", os: "linux"))
+
+        let index = Index(mediaType: MediaTypes.index, manifests: [poisoned])
+        let indexData = try JSONEncoder().encode(index)
+        let indexDigest = SHA256.hash(data: indexData)
+
+        try await cs.ingest { ingestDir in
+            try indexData.write(to: ingestDir.appendingPathComponent(indexDigest.encoded))
+        }
+
+        let indexDesc = Descriptor(
+            mediaType: MediaTypes.index,
+            digest: indexDigest.digestString,
+            size: Int64(indexData.count))
+
+        let capture = CapturingContentClient()
+        let op = ImageStore.ExportOperation(
+            name: "test/repo", tag: "v1", contentStore: cs, client: capture)
+
+        await #expect(throws: (any Swift.Error).self) {
+            try await op.export(index: indexDesc, platforms: { _ in true })
+        }
+
+        #expect(capture.pushes.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: secret.path))
+        let contents = try String(contentsOf: secret, encoding: .utf8)
+        #expect(contents == "do not read me")
     }
 }
 

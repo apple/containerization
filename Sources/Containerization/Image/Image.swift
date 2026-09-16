@@ -102,24 +102,47 @@ public struct Image: Sendable {
 
     /// Returns a list of digests to all the referenced OCI objects.
     public func referencedDigests() async throws -> [String] {
-        var referenced: [String] = [self.digest.trimmingDigestPrefix]
+        // A malformed root digest means a broken image record; fail rather than
+        // return a partial set, which a caller garbage collecting against this
+        // list would read as "these blobs are unreferenced".
+        let root = try self.digest.validatedDigestEncoding()
+        var referenced: [String] = [root]
         let index = try await self.index()
         for manifest in index.manifests {
-            referenced.append(manifest.digest.trimmingDigestPrefix)
-            guard let m: Manifest = try? await contentStore.get(digest: manifest.digest) else {
-                // If the requested digest does not exist or is not a manifest. Skip.
-                // It's safe to skip processing this digest as it won't have any child layers.
+            // Child entries are skipped when malformed. A digest that cannot be
+            // parsed cannot name a blob in the store, so nothing real is dropped
+            // from the keep set, and one poisoned entry does not brick cleanup
+            // for every other image.
+            guard let encoded = try? manifest.digest.validatedDigestEncoding() else {
                 continue
             }
+            referenced.append(encoded)
+            guard let content: Content = try await contentStore.get(digest: manifest.digest) else {
+                // The digest does not name anything in the store, so it has no
+                // child layers to keep.
+                continue
+            }
+            let m: Manifest
+            do {
+                m = try content.decode()
+            } catch is DecodingError {
+                // Present but not a manifest, so again no child layers.
+                continue
+            }
+            // Any other failure — notably a document that exceeds the decode
+            // limit — propagates. Treating an unreadable manifest as a childless
+            // one would omit its layers from this list, and a caller garbage
+            // collecting against it would delete them as orphaned.
             let descs = m.layers + [m.config]
-            referenced.append(contentsOf: descs.map { $0.digest.trimmingDigestPrefix })
+            referenced.append(contentsOf: descs.compactMap { try? $0.digest.validatedDigestEncoding() })
         }
         return referenced
     }
 
     /// Returns a reference to the content blob for the image. The specified digest must be referenced by the image in one of its layers.
     public func getContent(digest: String) async throws -> Content {
-        guard try await self.referencedDigests().contains(digest.trimmingDigestPrefix) else {
+        let encoded = try digest.validatedDigestEncoding()
+        guard try await self.referencedDigests().contains(encoded) else {
             throw ContainerizationError(.internalError, message: "image \(self.reference) does not reference digest \(digest)")
         }
         guard let content: Content = try await contentStore.get(digest: digest) else {

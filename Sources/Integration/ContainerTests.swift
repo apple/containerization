@@ -284,7 +284,7 @@ extension IntegrationSuite {
 
                         var hasher = SHA256()
                         hasher.update(data: buffer.data)
-                        let hash = hasher.finalize().digestString.trimmingDigestPrefix
+                        let hash = hasher.finalize().encoded
                         guard hash == expected else {
                             throw IntegrationError.assert(
                                 msg: "process \(idx) output \(hash) != expected \(expected)")
@@ -1479,6 +1479,71 @@ extension IntegrationSuite {
         }
     }
 
+    /// Sequential `exec`s with stdio must not run a VM out of vsock ports.
+    ///
+    /// The cloud-hypervisor backend pre-binds a fixed pool of host stdio
+    /// sockets (it has to: the VMM can't see socket files created after it
+    /// forked). While host port numbers were handed out by a fetch-add that
+    /// never reused one, and a finished stream destroyed its pool entry, that
+    /// pool was a *lifetime* budget for the VM rather than a concurrency one —
+    /// a one-container pod accepted exactly four sequential execs and the
+    /// fifth failed with "vsock port … was not pre-bound". An `exec` liveness
+    /// probe every 10s therefore bricked a pod in well under a minute.
+    ///
+    /// 40 execs at two stdio ports each is 80 allocations, comfortably past
+    /// the pre-bound pool, so this only passes if ports and pool entries are
+    /// both recycled. Each exec also checks its *own* output, which is what
+    /// catches the failure mode recycling introduces: a straggling dial for a
+    /// finished stream getting delivered to whichever process reused the port.
+    func testSequentialExecsReuseStdioPorts() async throws {
+        let id = "test-sequential-execs-reuse-stdio-ports"
+
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/bin/sleep", "1000"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            for index in 0..<40 {
+                let expected = "exec-\(index)"
+                let stdout = BufferWriter()
+                let stderr = BufferWriter()
+                let exec = try await container.exec("seq-\(index)") { config in
+                    config.arguments = ["/bin/echo", expected]
+                    config.stdout = stdout
+                    config.stderr = stderr
+                }
+                try await exec.start()
+                let status = try await exec.wait()
+                try await exec.delete()
+
+                guard status.exitCode == 0 else {
+                    throw IntegrationError.assert(msg: "exec \(index) status \(status) != 0")
+                }
+                let got = String(data: stdout.data, encoding: .utf8) ?? ""
+                guard got == "\(expected)\n" else {
+                    throw IntegrationError.assert(
+                        msg: "exec \(index) stdout '\(got)' != '\(expected)\\n' — a recycled port may be cross-wired")
+                }
+                let err = String(data: stderr.data, encoding: .utf8) ?? ""
+                guard err.isEmpty else {
+                    throw IntegrationError.assert(msg: "exec \(index) stderr should be empty, got '\(err)'")
+                }
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
     func testNonExistentBinary() async throws {
         let id = "test-non-existent-binary"
 
@@ -1799,10 +1864,8 @@ extension IntegrationSuite {
             let vsock = try await container.dialVsock(port: 1024)
             let vminitd = try await Vminitd(connection: vsock, group: Self.eventLoop)
 
-            let root = URL(filePath: container.root)
-
             // --- regular file ---
-            let regularStat = try await vminitd.stat(path: root.appending(path: "tmp/regular-file.txt"))
+            let regularStat = try await vminitd.stat(root: container.root, path: "tmp/regular-file.txt")
             guard (regularStat.mode & UInt32(S_IFMT)) == S_IFREG else {
                 throw IntegrationError.assert(msg: "regular file: expected S_IFREG, got mode 0x\(String(regularStat.mode, radix: 16))")
             }
@@ -1817,7 +1880,7 @@ extension IntegrationSuite {
             }
 
             // --- directory ---
-            let dirStat = try await vminitd.stat(path: root.appending(path: "tmp/test-dir"))
+            let dirStat = try await vminitd.stat(root: container.root, path: "tmp/test-dir")
             guard (dirStat.mode & UInt32(S_IFMT)) == S_IFDIR else {
                 throw IntegrationError.assert(msg: "directory: expected S_IFDIR, got mode 0x\(String(dirStat.mode, radix: 16))")
             }
@@ -1827,8 +1890,8 @@ extension IntegrationSuite {
             }
 
             // --- symlink ---
-            // stat(2) follows symlinks, so the result reflects the target regular file
-            let symlinkStat = try await vminitd.stat(path: root.appending(path: "tmp/test-link"))
+            // stat follows symlinks (confined to the rootfs), so the result reflects the target regular file
+            let symlinkStat = try await vminitd.stat(root: container.root, path: "tmp/test-link")
             guard (symlinkStat.mode & UInt32(S_IFMT)) == S_IFREG else {
                 throw IntegrationError.assert(msg: "symlink (followed): expected S_IFREG, got mode 0x\(String(symlinkStat.mode, radix: 16))")
             }
@@ -1837,7 +1900,7 @@ extension IntegrationSuite {
             }
 
             // --- FIFO ---
-            let fifoStat = try await vminitd.stat(path: root.appending(path: "tmp/test-fifo"))
+            let fifoStat = try await vminitd.stat(root: container.root, path: "tmp/test-fifo")
             guard (fifoStat.mode & UInt32(S_IFMT)) == S_IFIFO else {
                 throw IntegrationError.assert(msg: "FIFO: expected S_IFIFO, got mode 0x\(String(fifoStat.mode, radix: 16))")
             }
@@ -1899,6 +1962,108 @@ extension IntegrationSuite {
             guard output == testContent else {
                 throw IntegrationError.assert(
                     msg: "copied file content mismatch: expected '\(testContent)', got '\(output)'")
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testCopyInDoesNotEscapeRootfsViaSymlink() async throws {
+        let id = "test-copy-in-symlink-escape"
+
+        let bs = try await bootstrap(id)
+
+        let hostFile = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("payload.txt")
+        try "HACKED".write(to: hostFile, atomically: true, encoding: .utf8)
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Plant a symlink whose absolute target would, resolved unconfined in
+            // vminitd's namespace, escape the container rootfs.
+            let setup = try await container.exec("plant-symlink") { config in
+                config.arguments = ["sh", "-c", "echo -n ORIGINAL > /target && ln -s /target /tmp/escape"]
+            }
+            try await setup.start()
+            guard try await setup.wait().exitCode == 0 else {
+                throw IntegrationError.assert(msg: "failed to plant symlink")
+            }
+            try await setup.delete()
+
+            // Copy through the symlink: the write must land on the container's own
+            // /target (the confined symlink target), not a same-named VM-root file.
+            try await container.copyIn(from: hostFile, to: URL(filePath: "/tmp/escape"))
+
+            let exec = try await container.exec("verify") { config in
+                config.arguments = ["cat", "/target"]
+                config.stdout = buffer
+            }
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "cat /target failed with status \(status)")
+            }
+            let got = String(data: buffer.data, encoding: .utf8) ?? ""
+            guard got == "HACKED" else {
+                throw IntegrationError.assert(msg: "copyIn did not stay within the rootfs: /target = '\(got)'")
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testCopyOutDoesNotEscapeRootfsViaSymlink() async throws {
+        let id = "test-copy-out-symlink-escape"
+
+        let bs = try await bootstrap(id)
+
+        let hostDestination = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("out.txt")
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // A symlink whose absolute target resolves, confined, to the container's
+            // own file. copyOut must read that, never a same-named VM-root file.
+            let setup = try await container.exec("plant-symlink") { config in
+                config.arguments = ["sh", "-c", "echo -n CONTAINED > /target && ln -s /target /tmp/leak"]
+            }
+            try await setup.start()
+            guard try await setup.wait().exitCode == 0 else {
+                throw IntegrationError.assert(msg: "failed to plant symlink")
+            }
+            try await setup.delete()
+
+            try await container.copyOut(from: URL(filePath: "/tmp/leak"), to: hostDestination)
+
+            let copied = try String(contentsOf: hostDestination, encoding: .utf8)
+            guard copied == "CONTAINED" else {
+                throw IntegrationError.assert(msg: "copyOut did not stay within the rootfs: got '\(copied)'")
             }
 
             try await container.kill(.kill)
@@ -4319,15 +4484,23 @@ extension IntegrationSuite {
                 config.arguments = ["/bin/sh", "-c", "echo hello > /data/hello.txt"]
             }
             try await writeExec.start()
-            let writeStatus = try await writeExec.wait()
-            try await writeExec.delete()
-            guard writeStatus.exitCode == 0 else {
-                throw IntegrationError.assert(msg: "write exec failed with status \(writeStatus)")
+
+            do {
+                let status = try await writeExec.wait(timeoutInSeconds: 1)
+                throw IntegrationError.assert(msg: "write unexpectedly completed while filesystem was frozen with status \(status)")
+            } catch let error as ContainerizationError where error.code == .timeout {
+                // The write must remain blocked until the filesystem is thawed.
             }
 
             try FileManager.default.copyItem(at: diskImageURL, to: cloneImageURL)
 
             try await writerContainer.filesystemOperation(operation: .thaw, path: "/data")
+
+            let writeStatus = try await writeExec.wait()
+            try await writeExec.delete()
+            guard writeStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "write exec failed with status \(writeStatus)")
+            }
 
             try await writerContainer.kill(.kill)
             _ = try await writerContainer.wait()
@@ -5359,6 +5532,87 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(
                     msg: "expected sysctls ['2048', '1'], got '\(output ?? "nil")'")
             }
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    func testExecJoinsInitNamespaces() async throws {
+        let id = "test-exec-joins-init-namespaces"
+
+        // An exec must land in exactly the namespaces the container's init
+        // process is in. The namespace identity check (`/proc/self/ns/*` vs
+        // `/proc/1/ns/*`, PID 1 being the container init as seen from inside
+        // its own PID namespace) is the real invariant: it catches any
+        // namespace the exec path forgets, not just the one that regressed.
+        //
+        // `kernel.shm_rmid_forced` is asserted alongside it because it is what
+        // consumers actually observe. IPC-namespaced sysctls are resolved
+        // against the *reading* process's IPC namespace, so an exec left in the
+        // guest's root IPC namespace reads the guest default (0) rather than
+        // the value applied to the container — the shape of the CRI conformance
+        // failure "should support safe sysctls", which reads such a sysctl back
+        // over ExecSync.
+        //
+        // `net` is expected to match too: LinuxContainer declares no network
+        // namespace, so both sides sit in the guest root netns today, and
+        // asserting it guards the exec path if that ever changes.
+        let probe = """
+            exec 2>&1
+            set -u
+            fail=0
+            for ns in ipc uts mnt pid cgroup net; do
+                mine=$(readlink /proc/self/ns/$ns)
+                init=$(readlink /proc/1/ns/$ns)
+                if [ "$mine" != "$init" ]; then
+                    echo "NS-FAIL: $ns exec=$mine init=$init"
+                    fail=1
+                fi
+            done
+            shm=$(cat /proc/sys/kernel/shm_rmid_forced)
+            if [ "$shm" != "1" ]; then
+                echo "SYSCTL-FAIL: kernel.shm_rmid_forced=$shm expected 1"
+                fail=1
+            fi
+            [ "$fail" -eq 0 ] || exit 1
+            echo "NS-OK"
+            """
+
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.sysctl = [
+                "kernel.shm_rmid_forced": "1"
+            ]
+            config.process.arguments = ["/bin/sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let buffer = BufferWriter()
+            let exec = try await container.exec("ns-probe") { config in
+                config.arguments = ["/bin/sh", "-c", probe]
+                config.stdout = buffer
+            }
+
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+
+            let output = String(data: buffer.data, encoding: .utf8) ?? "<non-utf8 output>"
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "exec namespace probe failed (exit \(status.exitCode)): \(output)")
+            }
+            guard output.contains("NS-OK") else {
+                throw IntegrationError.assert(msg: "expected NS-OK sentinel, got: \(output)")
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
         } catch {
             try? await container.stop()
             throw error

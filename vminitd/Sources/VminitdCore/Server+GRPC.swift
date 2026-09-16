@@ -27,6 +27,7 @@ import ContainerizationOS
 import Foundation
 import GRPCCore
 import GRPCProtobuf
+import LCShim
 import Logging
 import NIOCore
 import NIOPosix
@@ -376,15 +377,19 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         log.debug(
             "stat",
             metadata: [
-                "path": "\(request.path)"
+                "root": "\(request.root)",
+                "path": "\(request.path)",
             ]
         )
 
         #if os(Linux)
-        var s = _stat_struct()
-        let result = _stat(request.path, &s)
-        if result == -1 {
-            let error = swiftErrno("stat")
+        let rootFd = try openRootDirectory(request.root)
+        defer { close(rootFd) }
+
+        // O_PATH avoids blocking on FIFOs/devices while preserving confined symlink following.
+        let fd = RootfsResolver.openInRoot(dirFd: rootFd, path: request.path, flags: RootfsResolver.oPath | O_CLOEXEC)
+        if fd == -1 {
+            let error = swiftErrno("openat2")
             if error.code == .ENOENT {
                 throw RPCError(
                     code: .notFound,
@@ -393,6 +398,12 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                 )
             }
             return .with { $0.error = "\(error)" }
+        }
+        defer { close(fd) }
+
+        var s = _stat_struct()
+        guard fstat(fd, &s) == 0 else {
+            return .with { $0.error = "\(swiftErrno("fstat"))" }
         }
         return .with {
             $0.stat = .with {
@@ -440,6 +451,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             "copy",
             metadata: [
                 "direction": "\(request.direction)",
+                "root": "\(request.root)",
                 "path": "\(path)",
                 "vsockPort": "\(vsockPort)",
                 "isArchive": "\(request.isArchive)",
@@ -471,18 +483,25 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         }
     }
 
+    private func openRootDirectory(_ root: String) throws -> Int32 {
+        guard !root.isEmpty else {
+            throw RPCError(code: .invalidArgument, message: "missing root filesystem")
+        }
+        let fd = open(root, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        guard fd != -1 else {
+            throw RPCError(code: .internalError, message: "failed to open root filesystem '\(root)': \(swiftErrno("open"))")
+        }
+        return fd
+    }
+
     /// Handle a COPY_IN request: connect to host vsock port, read data, write to guest filesystem.
     private func handleCopyIn(
         request: Com_Apple_Containerization_Sandbox_V3_CopyRequest,
         response: GRPCCore.RPCWriter<Com_Apple_Containerization_Sandbox_V3_CopyResponse>
     ) async throws {
+        let root = request.root
         let path = request.path
         let isArchive = request.isArchive
-
-        if request.createParents {
-            let parentDir = URL(fileURLWithPath: path).deletingLastPathComponent()
-            try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
-        }
 
         // Connect to the host's vsock port for data transfer.
         let vsockType = VsockType(port: request.vsockPort, cid: VsockType.hostCID)
@@ -494,13 +513,20 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         let rejected: [String] = try await blockingPool.runIfActive { [self] in
             defer { try? sock.close() }
 
+            let rootFd = try openRootDirectory(root)
+            defer { close(rootFd) }
+
             guard isArchive else {
-                let mode = request.mode > 0 ? mode_t(request.mode) : mode_t(0o644)
-                let fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, mode)
+                if request.createParents {
+                    try RootfsResolver.createDirectoryInRoot(dirFd: rootFd, path: FilePath(path).removingLastComponent().string)
+                }
+
+                let mode = request.mode > 0 ? UInt64(request.mode) : 0o644
+                let fd = RootfsResolver.openInRoot(dirFd: rootFd, path: path, flags: O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, mode: mode)
                 guard fd != -1 else {
                     throw RPCError(
                         code: .internalError,
-                        message: "copy: failed to open file '\(path)': \(swiftErrno("open"))"
+                        message: "copy: failed to open file '\(path)': \(swiftErrno("openat2"))"
                     )
                 }
                 defer { close(fd) }
@@ -531,12 +557,13 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                 }
                 return []
             }
-            let destURL = URL(fileURLWithPath: path)
-            try FileManager.default.createDirectory(at: destURL, withIntermediateDirectories: true)
 
-            let fileHandle = FileHandle(fileDescriptor: sockFd, closeOnDealloc: false)
-            let reader = try ArchiveReader(format: .pax, filter: .gzip, fileHandle: fileHandle)
-            return try reader.extractContents(to: destURL)
+            // /proc/self/fd pins the resolved directory against path swaps during extraction.
+            return try RootfsResolver.withDirectoryInRoot(dirFd: rootFd, path: path) { destFd in
+                let fileHandle = FileHandle(fileDescriptor: sockFd, closeOnDealloc: false)
+                let reader = try ArchiveReader(format: .pax, filter: .gzip, fileHandle: fileHandle)
+                return try reader.extractContents(to: URL(fileURLWithPath: "/proc/self/fd/\(destFd)"))
+            }
         }
 
         if !rejected.isEmpty {
@@ -557,21 +584,33 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         request: Com_Apple_Containerization_Sandbox_V3_CopyRequest,
         response: GRPCCore.RPCWriter<Com_Apple_Containerization_Sandbox_V3_CopyResponse>
     ) async throws {
+        let root = request.root
         let path = request.path
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else {
-            throw RPCError(code: .notFound, message: "copy: path not found '\(path)'")
-        }
-        let isArchive = isDirectory.boolValue
 
-        // Determine total size for single files.
-        var totalSize: UInt64 = 0
-        if !isArchive {
-            let attrs = try FileManager.default.attributesOfItem(atPath: path)
-            if let size = attrs[.size] as? UInt64 {
-                totalSize = size
+        // O_PATH avoids blocking on special files before we validate the resolved type.
+        let rootFd = try openRootDirectory(root)
+        defer { close(rootFd) }
+
+        let fd = RootfsResolver.openInRoot(dirFd: rootFd, path: path, flags: RootfsResolver.oPath | O_CLOEXEC)
+        guard fd != -1 else {
+            let error = swiftErrno("openat2")
+            if error.code == .ENOENT {
+                throw RPCError(code: .notFound, message: "copy: path not found '\(path)'", cause: error)
             }
+            throw RPCError(code: .internalError, message: "copy: failed to open '\(path)'", cause: error)
         }
+        defer { close(fd) }
+
+        var s = _stat_struct()
+        guard fstat(fd, &s) == 0 else {
+            throw RPCError(code: .internalError, message: "copy: failed to stat '\(path)': \(swiftErrno("fstat"))")
+        }
+        let fileType = s.st_mode & UInt32(S_IFMT)
+        let isArchive = fileType == UInt32(S_IFDIR)
+        guard isArchive || fileType == UInt32(S_IFREG) else {
+            throw RPCError(code: .invalidArgument, message: "copy: cannot copy out '\(path)': unsupported file type")
+        }
+        let totalSize: UInt64 = isArchive ? 0 : UInt64(s.st_size)
 
         // Send metadata response BEFORE connecting to vsock, so host knows what to expect.
         try await response.write(
@@ -590,18 +629,18 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             defer { try? sock.close() }
 
             if isArchive {
-                let fileURL = URL(fileURLWithPath: path)
+                // TODO: archiveDirectory is path-based; running containers can still
+                // race directory copyOut. Close this with an fd-relative archive writer.
+                let source = try FileDescriptorOps.getCanonicalPath(FileDescriptor(rawValue: fd)).string
                 let writer = try ArchiveWriter(configuration: .init(format: .pax, filter: .gzip))
                 try writer.open(fileDescriptor: sock.fileDescriptor)
-                try writer.archiveDirectory(fileURL)
+                try writer.archiveDirectory(URL(fileURLWithPath: source))
                 try writer.finishEncoding()
             } else {
-                let srcFd = open(path, O_RDONLY)
+                // Reopen through the pinned fd after confirming this is a regular file.
+                let srcFd = open("/proc/self/fd/\(fd)", O_RDONLY | O_CLOEXEC)
                 guard srcFd != -1 else {
-                    throw RPCError(
-                        code: .internalError,
-                        message: "copy: failed to open '\(path)': \(swiftErrno("open"))"
-                    )
+                    throw RPCError(code: .internalError, message: "copy: failed to open '\(path)': \(swiftErrno("open"))")
                 }
                 defer { close(srcFd) }
 
@@ -722,11 +761,34 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         async throws -> Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse
     {
         let path = FilePath(request.path)
+        if !request.hasContainerID {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "containerID is required"
+            )
+        }
+
+        guard let operation = request.operation else {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "operation is required"
+            )
+        }
+
+        let container = try await state.get(container: request.containerID)
+        guard let containerPid = await container.pid else {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "container PID is not present"
+            )
+        }
 
         log.debug(
             "filesystemOperation",
             metadata: [
-                "operation": "\(String(describing: request.operation))",
+                "containerID": "\(request.containerID)",
+                "containerPid": "\(containerPid)",
+                "operation": "\(operation)",
                 "path": "\(path)",
             ])
 
@@ -734,6 +796,60 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             throw RPCError(code: .invalidArgument, message: "path must be absolute")
         }
 
+        let selfMountFd = open("/proc/self/ns/mnt", O_RDONLY | O_CLOEXEC)
+        if selfMountFd < 0 {
+            let error = swiftErrno("open")
+            throw RPCError(code: .internalError, message: "failed to open self mount namespace", cause: error)
+        }
+
+        defer { close(selfMountFd) }
+
+        let containerMountFd = open("/proc/\(containerPid)/ns/mnt", O_RDONLY | O_CLOEXEC)
+        if containerMountFd < 0 {
+            let error = swiftErrno("open")
+            throw RPCError(code: .internalError, message: "failed to open container mount namespace", cause: error)
+        }
+
+        defer { close(containerMountFd) }
+
+        var finfo = _stat_struct()
+        let selfMountStat = fstat(selfMountFd, &finfo)
+        if selfMountStat != 0 {
+            let error = swiftErrno("fstat")
+            throw RPCError(code: .internalError, message: "failed to stat self mount namespace", cause: error)
+        }
+        let selfInode = finfo.st_ino
+
+        let containerMountStat = fstat(containerMountFd, &finfo)
+        if containerMountStat != 0 {
+            let error = swiftErrno("fstat")
+            throw RPCError(code: .internalError, message: "failed to stat container mount namespace", cause: error)
+        }
+        let containerInode = finfo.st_ino
+
+        if selfInode == containerInode {
+            try doFilesystemOperation(path: path, operation: operation)
+        } else {
+            try await self.runOnDedicatedThread {
+                if unshare(CLONE_FS) != 0 {
+                    let error = self.swiftErrno("unshare(CLONE_FS)")
+                    throw RPCError(code: .internalError, message: "failed to unshare filesystem namespace", cause: error)
+                }
+                if setns(containerMountFd, CLONE_NEWNS) != 0 {
+                    let error = self.swiftErrno("setns(CLONE_NEWNS)")
+                    throw RPCError(code: .internalError, message: "failed to enter container mount namespace", cause: error)
+                }
+                try self.doFilesystemOperation(path: path, operation: operation)
+            }
+        }
+
+        return .init()
+    }
+
+    private func doFilesystemOperation(
+        path: FilePath,
+        operation: Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest.OneOf_Operation
+    ) throws {
         var finfo = _stat_struct()
         let rc = _stat(path.string, &finfo)
         if rc != 0 {
@@ -753,20 +869,18 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         defer { close(fd) }
 
         do {
-            switch request.operation {
-            case .freeze:
+            switch operation {
+            case .freeze(_):
                 try freezeFilesystem(fd: fd)
-            case .thaw:
+            case .thaw(_):
                 try thawFilesystem(fd: fd)
             case .trim(let params):
                 switch params.schedule {
-                case .oneShot:
+                case .oneShot(_):
                     try trimFilesystem(fd: fd)
                 case .none:
                     throw RPCError(code: .invalidArgument, message: "trim schedule must be specified")
                 }
-            case .none:
-                throw RPCError(code: .invalidArgument, message: "invalid operation")
             }
         } catch {
             log.error(
@@ -776,8 +890,6 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                 ])
             throw RPCError(code: .internalError, message: "filesystemOperation", cause: error)
         }
-
-        return .init()
     }
 
     private func freezeFilesystem(fd: Int32) throws {
@@ -1648,6 +1760,22 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                 "error": "\(error)"
             ])
         return error
+    }
+
+    private func runOnDedicatedThread<T: Sendable>(
+        _ work: @escaping @Sendable () throws -> T
+    ) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            let thread = Thread {
+                do {
+                    let result = try work()
+                    continuation.resume(returning: result)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+            thread.start()
+        }
     }
 
     // NOTE: This is just crummy. It works because today the assumption is

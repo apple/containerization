@@ -69,6 +69,7 @@ struct OCIClientTests: ~Copyable {
         let client = RegistryClient(host: "ghcr.io", authentication: Self.authentication)
         let request = TokenRequest(realm: "https://ghcr.io/token", service: "ghcr.io", clientId: "tests", scope: nil)
         let response = try await client.fetchToken(request: request)
+        #expect(response.isValid(scope: nil))
         #expect(response.getToken() != nil)
     }
 

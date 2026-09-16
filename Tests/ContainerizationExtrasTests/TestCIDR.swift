@@ -146,6 +146,102 @@ struct TestCIDR {
         #expect(!cidr.contains(.v6(ip)))
     }
 
+    // MARK: - Wrapper Agrees With The Concrete Types
+
+    // `CIDR` keeps the address exactly as parsed, so a block written from a
+    // host address ("192.168.1.100/24") stores a value with host bits set.
+    // Containment has to mask both sides, the way `CIDRv4`/`CIDRv6` do, or the
+    // block reports that it excludes its own members.
+    @Test(arguments: [
+        ("192.168.1.100/24", "192.168.1.100"),
+        ("192.168.1.100/24", "192.168.1.0"),
+        ("192.168.1.100/24", "192.168.1.255"),
+        ("10.1.2.3/16", "10.1.99.99"),
+        ("2001:db8::1234/64", "2001:db8::1"),
+        ("2001:db8::1234/64", "2001:db8::1234"),
+    ])
+    func testWrapperContainsMembersOfAHostAddressBlock(cidr: String, ip: String) throws {
+        let block = try CIDR(cidr)
+        #expect(block.contains(try IPAddress(ip)))
+    }
+
+    @Test(arguments: [
+        ("192.168.1.100/24", "192.168.2.1"),
+        ("10.1.2.3/16", "10.2.0.1"),
+        ("2001:db8::1234/64", "2001:db9::1"),
+    ])
+    func testWrapperStillExcludesNonMembers(cidr: String, ip: String) throws {
+        let block = try CIDR(cidr)
+        #expect(!block.contains(try IPAddress(ip)))
+    }
+
+    // The wrapper must never disagree with the type it wraps.
+    @Test(arguments: ["192.168.1.100/24", "10.1.2.3/16", "192.168.1.0/24", "1.2.3.4/32"])
+    func testWrapperMatchesCIDRv4(cidr: String) throws {
+        let wrapper = try CIDR(cidr)
+        let concrete = try CIDRv4(cidr)
+        for probe in ["192.168.1.100", "192.168.1.0", "10.1.99.99", "1.2.3.4", "8.8.8.8"] {
+            let ip = try IPv4Address(probe)
+            #expect(wrapper.contains(.v4(ip)) == concrete.contains(ip), "disagreed on \(probe) for \(cidr)")
+        }
+        #expect(wrapper.lower.description == concrete.lower.description)
+        #expect(wrapper.upper.description == concrete.upper.description)
+    }
+
+    @Test(arguments: ["2001:db8::1234/64", "fe80::1%eth0/64", "2001:db8::/32"])
+    func testWrapperMatchesCIDRv6(cidr: String) throws {
+        let wrapper = try CIDR(cidr)
+        let concrete = try CIDRv6(cidr)
+        for probe in ["2001:db8::1", "2001:db8::1234", "fe80::1%eth0", "fe80::1", "2001:db9::1"] {
+            let ip = try IPv6Address(probe)
+            #expect(wrapper.contains(.v6(ip)) == concrete.contains(ip), "disagreed on \(probe) for \(cidr)")
+        }
+        #expect(wrapper.lower.description == concrete.lower.description)
+        #expect(wrapper.upper.description == concrete.upper.description)
+    }
+
+    // MARK: - Zone Preservation in Bounds
+
+    // `contains` compares zones, so a bound that drops the zone is reported as
+    // outside its own block. Both bounds have to carry the address's zone for
+    // the block to contain them.
+    @Test(arguments: ["fe80::1%eth0/64", "fe80::1%eth0/128", "2001:db8::5%lo0/126"])
+    func testZonedBlockContainsItsOwnBounds(cidr: String) throws {
+        let block = try CIDRv6(cidr)
+        #expect(block.contains(block.lower))
+        #expect(block.contains(block.upper))
+    }
+
+    @Test(arguments: ["fe80::1%eth0/64", "2001:db8::5%lo0/126"])
+    func testBoundsAgreeOnZone(cidr: String) throws {
+        let block = try CIDRv6(cidr)
+        #expect(block.lower.zone == block.address.zone)
+        #expect(block.upper.zone == block.address.zone)
+    }
+
+    @Test func testZonedLowerRendersItsZone() throws {
+        let block = try CIDRv6("2001:db8::5%lo0/126")
+        #expect(block.lower.description == "2001:db8::4%lo0")
+        #expect(block.upper.description == "2001:db8::7%lo0")
+    }
+
+    // The same bounds live on the `CIDR` wrapper, which carries its own copy.
+    @Test func testZonedWrapperContainsItsOwnBounds() throws {
+        let block = try CIDR("fe80::1%eth0/64")
+        #expect(block.contains(block.lower))
+        #expect(block.contains(block.upper))
+        #expect(block.lower.description == "fe80::%eth0")
+    }
+
+    // An unzoned block must keep rendering without a zone suffix.
+    @Test func testUnzonedBoundsCarryNoZone() throws {
+        let block = try CIDRv6("2001:db8::5/126")
+        #expect(block.lower.zone == nil)
+        #expect(block.upper.zone == nil)
+        #expect(block.lower.description == "2001:db8::4")
+        #expect(try CIDR("2001:db8::5/126").lower.description == "2001:db8::4")
+    }
+
     // MARK: - Range Constructor
 
     @Test func testRangeConstructorFindsSmallestBlock() throws {

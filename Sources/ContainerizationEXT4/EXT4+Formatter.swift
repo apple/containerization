@@ -936,7 +936,6 @@ extension EXT4 {
             if let config = journalConfig {
                 compatFeatures |= CompatFeature.hasJournal.rawValue
                 superblock.journalInum = EXT4.JournalInode
-                superblock.journalUUID = filesystemUUID
                 superblock.journalBlocks = journalInodeBlockBackup()
                 superblock.journalBackupType = 1  // s_jnl_backup_type: 1 = s_jnl_blocks[] holds a valid inode backup
                 if let mode = config.defaultMode {
@@ -1265,7 +1264,7 @@ extension EXT4 {
             guard self.inodes[Int(inode) - 1].pointee.linksCount > 0 else {
                 return
             }
-            guard let nameData = name.data(using: .utf8) else {
+            guard let nameData = name.data(using: .utf8), nameData.count <= UInt8.max else {
                 throw Error.invalidName(name)
             }
             let directoryEntrySize = MemoryLayout<DirectoryEntry>.size
