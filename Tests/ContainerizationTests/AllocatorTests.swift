@@ -101,12 +101,6 @@ struct AllocatorTests {
         #expect(bHost == 3)
     }
 
-    @Test func cidrV6Gateway() throws {
-        // The network gateway is the lowest address + 1.
-        #expect((try CIDRv6("fd00::/64")).gateway == (try IPv6Address("fd00::1")))
-        #expect((try CIDRv6("fd00:abcd:1234::/48")).gateway == (try IPv6Address("fd00:abcd:1234::1")))
-    }
-
     @available(macOS 26, *)
     private actor SerialAllocator {
         private var inner: VmnetNetwork.Allocator

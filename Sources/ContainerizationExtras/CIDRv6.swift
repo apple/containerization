@@ -113,3 +113,11 @@ extension CIDRv6: Codable {
         try container.encode(description)
     }
 }
+
+extension CIDRv6 {
+    /// The gateway address of the network. Conventionally the first usable
+    /// address in the subnet (`lower + 1`).
+    public var gateway: IPv6Address {
+        IPv6Address(self.lower.value + 1)
+    }
+}

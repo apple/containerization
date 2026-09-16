@@ -65,10 +65,18 @@ LIBARCHIVE_UPSTREAM_VERSION := v3.7.7
 LIBARCHIVE_LOCAL_DIR := workdir/libarchive
 
 KATA_BINARY_PACKAGE := https://github.com/kata-containers/kata-containers/releases/download/3.17.0/kata-static-3.17.0-arm64.tar.xz
-CLOUD_HYPERVISOR_URL := https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/v52.0/cloud-hypervisor-static-aarch64
+CLOUD_HYPERVISOR_VERSION := v52.0
+CLOUD_HYPERVISOR_REPO := https://github.com/cloud-hypervisor/cloud-hypervisor.git
+CLOUD_HYPERVISOR_URL := https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/$(CLOUD_HYPERVISOR_VERSION)/cloud-hypervisor-static-aarch64
 # SHA256 of the v52.0 aarch64 static binary (verified locally from the
-# upstream release artifact). Bump alongside CLOUD_HYPERVISOR_URL.
+# upstream release artifact). Bump alongside CLOUD_HYPERVISOR_VERSION.
 CLOUD_HYPERVISOR_SHA256 := bf004ddc1a148f47caa87ac49a783b8dbd6bf9bc27abe522ed197df7b982d3b1
+
+# virtiofsd source pin. v1.13.3 is the revision
+# scripts/patches/virtiofsd-skip-cap-drop-with-sandbox-none.patch targets;
+# `make build-virtiofsd` fails loudly if the patch stops applying.
+VIRTIOFSD_VERSION := v1.13.3
+VIRTIOFSD_REPO := https://gitlab.com/virtio-fs/virtiofsd.git
 
 RUNC_VERSION := v1.5.1
 RUNC_ASSET_ARCH := $(if $(filter $(KERNEL_ARCH),arm64),arm64,amd64)
@@ -176,6 +184,39 @@ endif
 linux-test:
 	$(call linux_run,swift test $(SWIFT_CONFIGURATION) --scratch-path $(LINUX_SCRATCH_ROOT)/build-containerization)
 
+.PHONY: fetch-cloud-hypervisor-source
+# Clone cloud-hypervisor at $(CLOUD_HYPERVISOR_VERSION) into
+# .local/cloud-hypervisor. Full history on purpose — `git log -p` and
+# `git blame` on the upstream source are the primary tools for working out
+# why the REST surface behaves the way it does, and they need the history
+# locally to work offline. No-op when a checkout is already there, so an
+# existing clone keeps whatever revision you moved it to.
+fetch-cloud-hypervisor-source:
+ifeq (,$(wildcard .local/cloud-hypervisor/Cargo.toml))
+	@mkdir -p .local
+	@if [ -e .local/cloud-hypervisor ]; then \
+		echo "ERROR: .local/cloud-hypervisor exists but has no Cargo.toml (interrupted clone?)." >&2; \
+		echo "  inspect it, then 'rm -rf .local/cloud-hypervisor' and re-run" >&2; \
+		exit 1; \
+	fi
+	git clone --branch $(CLOUD_HYPERVISOR_VERSION) $(CLOUD_HYPERVISOR_REPO) .local/cloud-hypervisor
+endif
+
+.PHONY: fetch-virtiofsd
+# Clone virtiofsd at $(VIRTIOFSD_VERSION) into .local/virtiofsd. Same
+# full-history rationale as fetch-cloud-hypervisor-source, and likewise a
+# no-op when the checkout already exists.
+fetch-virtiofsd:
+ifeq (,$(wildcard .local/virtiofsd/Cargo.toml))
+	@mkdir -p .local
+	@if [ -e .local/virtiofsd ]; then \
+		echo "ERROR: .local/virtiofsd exists but has no Cargo.toml (interrupted clone?)." >&2; \
+		echo "  inspect it, then 'rm -rf .local/virtiofsd' and re-run" >&2; \
+		exit 1; \
+	fi
+	git clone --branch $(VIRTIOFSD_VERSION) $(VIRTIOFSD_REPO) .local/virtiofsd
+endif
+
 .PHONY: build-cloud-hypervisor
 # Build cloud-hypervisor from the patched source at .local/cloud-hypervisor and
 # install it to bin/cloud-hypervisor. Runs inside the Linux dev container so the
@@ -184,18 +225,10 @@ linux-test:
 # time. Forces HOME=/root since the container inherits the host HOME otherwise,
 # which breaks rustup's $HOME/.cargo path.
 #
-# Prerequisite: clone cloud-hypervisor into .local/cloud-hypervisor (any
-# revision compatible with the v52.0 REST surface this repo targets). There
-# is no fetch target — pin the revision deliberately. Example:
-#   git clone -b v52.0 https://github.com/cloud-hypervisor/cloud-hypervisor \
-#       .local/cloud-hypervisor
-build-cloud-hypervisor:
-ifeq (,$(wildcard .local/cloud-hypervisor/Cargo.toml))
-	@echo "missing .local/cloud-hypervisor source checkout." >&2
-	@echo "clone the cloud-hypervisor repo into .local/cloud-hypervisor before running this target, e.g.:" >&2
-	@echo "  git clone -b v52.0 https://github.com/cloud-hypervisor/cloud-hypervisor .local/cloud-hypervisor" >&2
-	@exit 1
-endif
+# Clones the source via fetch-cloud-hypervisor-source when .local/cloud-hypervisor
+# is absent. To build a different revision, check one out there yourself — the
+# fetch leaves an existing clone alone.
+build-cloud-hypervisor: fetch-cloud-hypervisor-source
 	$(call linux_run,export HOME=/root && if ! command -v curl >/dev/null 2>&1; then apt-get update && apt-get install -y --no-install-recommends curl ca-certificates build-essential pkg-config libssl-dev; fi && if [ ! -x /root/.cargo/bin/cargo ]; then curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal; fi && . /root/.cargo/env && cd .local/cloud-hypervisor && cargo build --release --bin cloud-hypervisor && cp target/release/cloud-hypervisor /workspace/bin/cloud-hypervisor && chmod +x /workspace/bin/cloud-hypervisor)
 
 .PHONY: build-virtiofsd
@@ -204,10 +237,9 @@ endif
 # binary is aarch64-linux-gnu and matches the cloud-hypervisor binary
 # built by `make build-cloud-hypervisor`.
 #
-# Prerequisite: clone virtiofsd into .local/virtiofsd (any revision the
-# scripts/patches/virtiofsd-skip-cap-drop-with-sandbox-none.patch applies
-# cleanly to). There is no fetch target — pin the revision deliberately:
-#   git clone https://gitlab.com/virtio-fs/virtiofsd .local/virtiofsd
+# Clones the source via fetch-virtiofsd when .local/virtiofsd is absent, at
+# the revision the patch below targets. To build a different revision, check
+# one out there yourself — the fetch leaves an existing clone alone.
 #
 # virtiofsd has two hard build deps that aren't in the base dev image:
 #   * libcap-ng-dev — capng crate is unconditional in [dependencies].
@@ -226,13 +258,7 @@ endif
 # (not `command -v curl`) so this target works correctly even after
 # `build-cloud-hypervisor` has already installed curl in the same dev
 # container.
-build-virtiofsd:
-ifeq (,$(wildcard .local/virtiofsd/Cargo.toml))
-	@echo "missing .local/virtiofsd source checkout." >&2
-	@echo "clone the virtiofsd repo into .local/virtiofsd before running this target, e.g.:" >&2
-	@echo "  git clone https://gitlab.com/virtio-fs/virtiofsd .local/virtiofsd" >&2
-	@exit 1
-endif
+build-virtiofsd: fetch-virtiofsd
 	$(call linux_run,export HOME=/root && \
 		if ! pkg-config --exists libcap-ng libseccomp 2>/dev/null; then \
 			apt-get update && apt-get install -y --no-install-recommends \
@@ -294,13 +320,13 @@ endif
 # layers are cached, so the no-change path is a few seconds of overhead.
 #
 # Prereqs:
-#   * .local/cloud-hypervisor and .local/virtiofsd source checkouts
-#     (see build-cloud-hypervisor / build-virtiofsd for clone URLs).
+#   * .local/cloud-hypervisor and .local/virtiofsd source checkouts, cloned
+#     by fetch-cloud-hypervisor-source / fetch-virtiofsd if not already there.
 #   * kernel/vmlinuz-x86_64 (preferred) or kernel/vmlinux-x86_64 present.
 #     Build via `make -C kernel TARGET_ARCH=x86_64` (or `make -C kernel x86_64`).
 #     The script fails hard if neither is present.
 .PHONY: dist-x86_64
-dist-x86_64: linux-image
+dist-x86_64: linux-image fetch-cloud-hypervisor-source fetch-virtiofsd
 	$(call linux_run,./scripts/build-dist-x86_64.sh)
 endif
 
