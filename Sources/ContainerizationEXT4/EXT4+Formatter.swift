@@ -179,7 +179,7 @@ extension EXT4 {
             }
             let linkTreeNodePtr = Ptr(
                 FileTree.FileTreeNode(
-                    inode: InodeNumber(2),  // this field is ignored, using 2 so array operations dont panic
+                    inode: targetNode.inode,
                     name: link.base,
                     parent: parentTreeNodePtr,
                     children: [],
@@ -257,13 +257,11 @@ extension EXT4 {
             parentNode.removeChild(named: pathComponent)
             parentNodePtr.pointee = parentNode
 
-            if let hardlink = pathNode.link {
+            if pathNode.link != nil {
                 // the file we are deleting is a hardlink, decrement the link count
-                let linkedInodePtr = self.inodes[Int(hardlink - 1)]
-                var linkedInode = linkedInodePtr.pointee
-                if linkedInode.linksCount > 1 {
-                    linkedInode.linksCount -= 1
-                    linkedInodePtr.pointee = linkedInode
+                if pathInode.linksCount > 1 {
+                    pathInode.linksCount -= 1
+                    pathInodePtr.pointee = pathInode
                 }
             }
 
