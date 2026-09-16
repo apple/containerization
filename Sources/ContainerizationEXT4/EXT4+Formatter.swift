@@ -193,10 +193,10 @@ extension EXT4 {
         // Deletes the file or directory at the specified path from the filesystem.
         //
         // It performs the following actions
-        // - set link count of the file's inode to 0
-        // - recursively set link count to 0 for its children
-        // - free the inode
-        // - free data blocks
+        // - decrement the link count of the file's inode
+        // - recursively decrement the link count for its children
+        // - free the inode when no names remain
+        // - free data blocks when no names remain
         // - remove directory entry
         //
         // - `path`: The `FilePath` specifying the path of the file or directory to delete.
@@ -257,12 +257,10 @@ extension EXT4 {
             parentNode.removeChild(named: pathComponent)
             parentNodePtr.pointee = parentNode
 
-            if pathNode.link != nil {
-                // the file we are deleting is a hardlink, decrement the link count
-                if pathInode.linksCount > 1 {
-                    pathInode.linksCount -= 1
-                    pathInodePtr.pointee = pathInode
-                }
+            if !pathInode.mode.isDir() && pathInode.linksCount > 1 {
+                pathInode.linksCount -= 1
+                pathInodePtr.pointee = pathInode
+                return
             }
 
             guard inodeNumber >= FirstInode else {
