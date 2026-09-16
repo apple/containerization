@@ -179,7 +179,7 @@ extension EXT4 {
             }
             let linkTreeNodePtr = Ptr(
                 FileTree.FileTreeNode(
-                    inode: InodeNumber(2),  // this field is ignored, using 2 so array operations dont panic
+                    inode: targetNode.inode,
                     name: link.base,
                     parent: parentTreeNodePtr,
                     children: [],
@@ -193,10 +193,10 @@ extension EXT4 {
         // Deletes the file or directory at the specified path from the filesystem.
         //
         // It performs the following actions
-        // - set link count of the file's inode to 0
-        // - recursively set link count to 0 for its children
-        // - free the inode
-        // - free data blocks
+        // - decrement the link count of the file's inode
+        // - recursively decrement the link count for its children
+        // - free the inode when no names remain
+        // - free data blocks when no names remain
         // - remove directory entry
         //
         // - `path`: The `FilePath` specifying the path of the file or directory to delete.
@@ -257,14 +257,16 @@ extension EXT4 {
             parentNode.removeChild(named: pathComponent)
             parentNodePtr.pointee = parentNode
 
-            if let hardlink = pathNode.link {
-                // the file we are deleting is a hardlink, decrement the link count
-                let linkedInodePtr = self.inodes[Int(hardlink - 1)]
-                var linkedInode = linkedInodePtr.pointee
-                if linkedInode.linksCount > 1 {
-                    linkedInode.linksCount -= 1
-                    linkedInodePtr.pointee = linkedInode
+            if !pathInode.mode.isDir() && pathInode.linksCount > 1 {
+                pathInode.linksCount -= 1
+                pathInodePtr.pointee = pathInode
+                if let blocks = pathNode.blocks, blocks.start != blocks.end {
+                    self.unownedBlocks[pathNode.inode, default: []].append(blocks)
                 }
+                if let additional = pathNode.additionalBlocks {
+                    self.unownedBlocks[pathNode.inode, default: []].append(contentsOf: additional)
+                }
+                return
             }
 
             guard inodeNumber >= FirstInode else {
@@ -277,6 +279,9 @@ extension EXT4 {
                 }
             }
             for block in pathNode.additionalBlocks ?? [] {
+                self.deletedBlocks.append((start: block.start, end: block.end))
+            }
+            for block in self.unownedBlocks.removeValue(forKey: pathNode.inode) ?? [] {
                 self.deletedBlocks.append((start: block.start, end: block.end))
             }
             let now = Date().fs()
@@ -984,6 +989,7 @@ extension EXT4 {
         // MARK: Private and internal methods and properties
         private var tree: FileTree
         private var deletedBlocks: [(start: UInt32, end: UInt32)] = []
+        private var unownedBlocks: [InodeNumber: [(start: UInt32, end: UInt32)]] = [:]
 
         // internally accessed by journal setup
         var handle: FileHandle

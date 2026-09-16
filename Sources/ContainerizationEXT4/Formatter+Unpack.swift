@@ -118,7 +118,11 @@ extension EXT4.Formatter {
 
             if path.base.hasPrefix(".wh.") {
                 if path.base == ".wh..wh..opq" {  // whiteout directory
-                    try self.unlink(path: path.dir, directoryWhiteout: true)
+                    do {
+                        try self.unlink(path: path.dir, directoryWhiteout: true)
+                    } catch EXT4.Formatter.Error.notDirectory {
+                        // marked path is not a directory, so there is nothing to clear
+                    }
                     if let progress {
                         await progress([.addItems(1)])
                     }
