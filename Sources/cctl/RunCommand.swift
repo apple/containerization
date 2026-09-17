@@ -156,8 +156,10 @@ extension Application {
                 readOnly: readOnly,
                 networking: true
             ) { config in
+                config.resources = ContainerResources(cpus: cpus, memoryInBytes: memory.mib())
+                // Give the VM memory headroom for the guest kernel and vminitd.
                 config.cpus = cpus
-                config.memoryInBytes = memory.mib()
+                config.memoryInBytes = memory.mib() + ContainerResources.guestMemoryOverhead
                 config.process.setTerminalIO(terminal: current)
                 config.process.arguments = processArguments
                 config.process.workingDirectory = cwd
@@ -596,8 +598,10 @@ extension Application {
                 logger: log
             ) { config in
                 config.process = processConfig
+                config.resources = ContainerResources(cpus: cpusCount, memoryInBytes: memoryBytes)
+                // Give the VM memory headroom for the guest kernel and vminitd.
                 config.cpus = cpusCount
-                config.memoryInBytes = memoryBytes
+                config.memoryInBytes = memoryBytes + ContainerResources.guestMemoryOverhead
                 config.interfaces = networkInterfaces
                 config.useInit = useInit
                 if let dns { config.dns = dns }

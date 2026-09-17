@@ -903,8 +903,9 @@ extension IntegrationSuite {
         let bs = try await bootstrap(id)
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["sleep", "infinity"]
-            config.cpus = 2
-            config.memoryInBytes = 512.mib()
+            config.resources = ContainerResources(cpus: 2, memoryInBytes: 512.mib())
+            config.cpus = 3
+            config.memoryInBytes = 640.mib()
             config.bootLog = bs.bootLog
         }
 
@@ -5810,16 +5811,18 @@ extension IntegrationSuite {
         }
     }
 
-    func testVMResourceOverhead() async throws {
-        let id = "test-vm-resource-overhead"
+    // Verify the VM and the container are sized independently: the sandbox is
+    // exactly the size requested (nothing added on top) while the container's
+    // cgroup limits come solely from `resources`.
+    func testIndependentVMAndContainerSizing() async throws {
+        let id = "test-independent-sizing"
 
         let bs = try await bootstrap(id)
         let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["sleep", "infinity"]
-            config.cpus = 2
-            config.memoryInBytes = 256.mib()
-            config.cpuOverhead = 2
-            config.memoryOverhead = 1024.mib()
+            config.cpus = 4
+            config.memoryInBytes = 1024.mib()
+            config.resources = ContainerResources(cpus: 2, memoryInBytes: 512.mib())
             config.bootLog = bs.bootLog
         }
 
@@ -5827,6 +5830,9 @@ extension IntegrationSuite {
             try await container.create()
             try await container.start()
 
+            // The guest sees exactly the vCPUs asked for. `nproc` reflects the
+            // VM size, not the cgroup quota, so this catches any overhead
+            // silently added to the sandbox.
             let cpuBuffer = BufferWriter()
             let cpuExec = try await container.exec("check-nproc") { config in
                 config.arguments = ["nproc"]
@@ -5844,33 +5850,51 @@ extension IntegrationSuite {
             else {
                 throw IntegrationError.assert(msg: "failed to parse nproc output")
             }
-            let expectedCpus = 4
-            guard cpuCount == expectedCpus else {
-                throw IntegrationError.assert(msg: "nproc \(cpuCount) != expected \(expectedCpus)")
+            let expectedVMCpus = 4
+            guard cpuCount == expectedVMCpus else {
+                throw IntegrationError.assert(msg: "nproc \(cpuCount) != expected \(expectedVMCpus)")
             }
 
+            // The container is capped at 2 CPUs even though the VM has 4.
+            let cgroupCPUBuffer = BufferWriter()
+            let cgroupCPUExec = try await container.exec("check-cgroup-cpu") { config in
+                config.arguments = ["cat", "/sys/fs/cgroup/cpu.max"]
+                config.stdout = cgroupCPUBuffer
+            }
+            try await cgroupCPUExec.start()
+            status = try await cgroupCPUExec.wait()
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "check-cgroup-cpu status \(status) != 0")
+            }
+            try await cgroupCPUExec.delete()
+
+            guard let cpuLimit = String(data: cgroupCPUBuffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                throw IntegrationError.assert(msg: "failed to parse cpu.max")
+            }
+            let expectedCPULimit = "200000 100000"  // 2 CPUs: quota=200000, period=100000
+            guard cpuLimit == expectedCPULimit else {
+                throw IntegrationError.assert(msg: "cpu.max '\(cpuLimit)' != expected '\(expectedCPULimit)'")
+            }
+
+            // The container's memory limit is its own, distinct from the VM's.
             let memBuffer = BufferWriter()
-            let memExec = try await container.exec("check-meminfo") { config in
-                config.arguments = ["sh", "-c", "grep MemTotal /proc/meminfo | awk '{print $2}'"]
+            let memExec = try await container.exec("check-cgroup-memory") { config in
+                config.arguments = ["cat", "/sys/fs/cgroup/memory.max"]
                 config.stdout = memBuffer
             }
             try await memExec.start()
             status = try await memExec.wait()
             guard status.exitCode == 0 else {
-                throw IntegrationError.assert(msg: "meminfo status \(status) != 0")
+                throw IntegrationError.assert(msg: "check-cgroup-memory status \(status) != 0")
             }
             try await memExec.delete()
 
-            guard let memStr = String(data: memBuffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                let memTotalKiB = UInt64(memStr)
-            else {
-                throw IntegrationError.assert(msg: "failed to parse MemTotal")
+            guard let memoryLimit = String(data: memBuffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                throw IntegrationError.assert(msg: "failed to parse memory.max")
             }
-            let memTotalBytes = memTotalKiB * 1024
-            let expectedMin: UInt64 = 1024.mib()
-            guard memTotalBytes > expectedMin else {
-                throw IntegrationError.assert(
-                    msg: "MemTotal \(memTotalBytes) should exceed \(expectedMin)")
+            let expectedMemoryLimit = "\(512.mib())"
+            guard memoryLimit == expectedMemoryLimit else {
+                throw IntegrationError.assert(msg: "memory.max \(memoryLimit) != expected \(expectedMemoryLimit)")
             }
 
             try await container.kill(.kill)

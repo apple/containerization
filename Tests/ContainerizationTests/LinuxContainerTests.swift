@@ -14,9 +14,11 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import ContainerizationError
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
+import Synchronization
 import Testing
 
 @testable import Containerization
@@ -118,5 +120,112 @@ struct LinuxContainerTests {
         }
         #expect(pod.maskedPaths == expectedMasked)
         #expect(pod.readonlyPaths == expectedReadonly)
+    }
+
+    @Test func containerResourcesDefaults() {
+        // The container's cgroup limit is always set — there is no "unlimited"
+        // state — so the defaults must match the VM sizing defaults on both facades.
+        let resources = ContainerResources()
+        #expect(resources.cpus == 4)
+        #expect(resources.memoryInBytes == 1024.mib())
+
+        let explicit = ContainerResources(cpus: 2, memoryInBytes: 512.mib())
+        #expect(explicit.cpus == 2)
+        #expect(explicit.memoryInBytes == 512.mib())
+    }
+
+    /// A `VirtualMachineManager` that records the configuration it is handed and
+    /// then refuses to boot. `LinuxContainer.create()` builds the `VMConfiguration`
+    /// and passes it straight to `vmm.create`, so this captures the VM sizing
+    /// without needing a real VM.
+    private final class StubVMM: VirtualMachineManager {
+        private let captured = Mutex<VMConfiguration?>(nil)
+
+        /// The configuration `LinuxContainer.create()` asked for, if it got that far.
+        var capturedConfiguration: VMConfiguration? {
+            captured.withLock { $0 }
+        }
+
+        func create(config: some VMCreationConfig) async throws -> any VirtualMachineInstance {
+            captured.withLock { $0 = config.configuration }
+            throw ContainerizationError(.unsupported, message: "stub")
+        }
+    }
+
+    @Test func runtimeSpecUsesResourcesNotVMSize() async throws {
+        // Regression guard for the split: the OCI cgroup limit must come from
+        // `resources`, never from the fields that size the VM. If these are ever
+        // reconnected, a caller asking for a big sandbox silently gets a big
+        // cgroup quota too.
+        let vmm = StubVMM()
+        let container = try LinuxContainer(
+            "sizing-test",
+            rootfs: .block(format: "ext4", source: "/dev/null", destination: "/", options: []),
+            vmm: vmm
+        ) { config in
+            config.process.arguments = ["/bin/true"]
+            config.cpus = 8
+            config.memoryInBytes = 2048.mib()
+            config.resources = ContainerResources(cpus: 2, memoryInBytes: 512.mib())
+        }
+
+        let spec = container.generateRuntimeSpec()
+        #expect(spec.linux?.resources?.cpu?.quota == 200_000)
+        #expect(spec.linux?.resources?.cpu?.period == 100_000)
+        #expect(spec.linux?.resources?.memory?.limit == Int64(512.mib()))
+
+        // The other half of the split: the VM must be sized from the VM fields,
+        // with nothing added. Drive `create()` far enough to build the
+        // `VMConfiguration` — the stub records it and then throws instead of
+        // booting, so the error is expected.
+        await #expect(throws: (any Error).self) {
+            try await container.create()
+        }
+
+        let vmConfig = try #require(vmm.capturedConfiguration)
+        #expect(vmConfig.cpus == 8)
+        #expect(vmConfig.memoryInBytes == 2048.mib())
+    }
+
+    @Test func containerConfigurationDefaultResources() {
+        // Both construction paths must agree, and both must match the VM defaults.
+        let viaProperty = LinuxContainer.Configuration()
+        let viaInit = LinuxContainer.Configuration(process: LinuxProcessConfiguration(arguments: ["/bin/sh"]))
+
+        for config in [viaProperty, viaInit] {
+            #expect(config.cpus == 4)
+            #expect(config.memoryInBytes == 1024.mib())
+            #expect(config.resources.cpus == 4)
+            #expect(config.resources.memoryInBytes == 1024.mib())
+        }
+    }
+
+    @Test func podContainerConfigurationDefaultResources() {
+        // Both facades must expose the same field with the same default. Note the
+        // behavior change this encodes: a pod container is now always capped,
+        // where a nil `cpus` previously meant no cgroup limit at all.
+        let config = LinuxPod.ContainerConfiguration()
+        #expect(config.resources.cpus == 4)
+        #expect(config.resources.memoryInBytes == 1024.mib())
+    }
+
+    @Test func guestMemoryOverheadIsOptInOnly() {
+        // Pins the memory headroom the library used to add implicitly, so a
+        // silent change is caught: `cctl` and other consumers add it at the call
+        // site expecting the pre-split sandbox size.
+        #expect(ContainerResources.guestMemoryOverhead == 128.mib())
+
+        // The more important half: the constant is a value, not behavior. A
+        // default configuration must show *no* gap between the sandbox and the
+        // container — if the library ever starts applying the overhead itself,
+        // callers that already add it would double-count.
+        let container = LinuxContainer.Configuration()
+        #expect(container.memoryInBytes == container.resources.memoryInBytes)
+        #expect(container.cpus == container.resources.cpus)
+
+        let pod = LinuxPod.Configuration()
+        let podContainer = LinuxPod.ContainerConfiguration()
+        #expect(pod.memoryInBytes == podContainer.resources.memoryInBytes)
+        #expect(pod.cpus == podContainer.resources.cpus)
     }
 }

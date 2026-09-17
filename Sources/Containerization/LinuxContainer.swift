@@ -53,10 +53,22 @@ public final class LinuxContainer: Container, Sendable {
     public struct Configuration: Sendable {
         /// Configuration for the init process of the container.
         public var process = LinuxProcessConfiguration()
-        /// The amount of cpus for the container.
+        /// The number of vCPUs for the virtual machine the container runs in.
+        ///
+        /// This sizes the sandbox, not the container. The container's own limit
+        /// is ``resources``. Nothing is added to this value.
         public var cpus: Int = 4
-        /// The memory in bytes to give to the container.
+        /// The memory in bytes for the virtual machine the container runs in.
+        ///
+        /// This sizes the sandbox, not the container. The container's own limit
+        /// is ``resources``. Nothing is added to this value, though the VMM
+        /// backend rounds it up to its required alignment.
         public var memoryInBytes: UInt64 = 1024.mib()
+        /// The cgroup limits applied to the container inside the virtual machine.
+        ///
+        /// Defaults to the same values as ``cpus`` and ``memoryInBytes``. Raising
+        /// the sandbox size does not raise this — set both.
+        public var resources = ContainerResources()
         /// The hostname for the container.
         public var hostname: String?
         /// The system control options for the container.
@@ -91,13 +103,6 @@ public final class LinuxContainer: Container, Sendable {
         /// Run the container with a minimal init process that handles signal
         /// forwarding and zombie reaping.
         public var useInit: Bool = false
-        /// Additional CPU cores to allocate for the virtual machine on top
-        /// of the container's configured `cpus` value.
-        public var cpuOverhead: Int = 1
-        /// Additional memory in bytes to allocate for the virtual machine
-        /// on top of the container's configured `memoryInBytes` value.
-        /// The total is aligned to a 1 MiB boundary.
-        public var memoryOverhead: UInt64 = 128.mib()
 
         public init() {}
 
@@ -105,6 +110,7 @@ public final class LinuxContainer: Container, Sendable {
             process: LinuxProcessConfiguration,
             cpus: Int = 4,
             memoryInBytes: UInt64 = 1024.mib(),
+            resources: ContainerResources = ContainerResources(),
             hostname: String? = nil,
             sysctl: [String: String] = [:],
             interfaces: [any Interface] = [],
@@ -117,13 +123,12 @@ public final class LinuxContainer: Container, Sendable {
             virtualization: Bool = false,
             bootLog: BootLog? = nil,
             ociRuntimePath: String? = nil,
-            useInit: Bool = false,
-            cpuOverhead: Int = 1,
-            memoryOverhead: UInt64 = 128.mib()
+            useInit: Bool = false
         ) {
             self.process = process
             self.cpus = cpus
             self.memoryInBytes = memoryInBytes
+            self.resources = resources
             self.hostname = hostname
             self.sysctl = sysctl
             self.interfaces = interfaces
@@ -137,8 +142,6 @@ public final class LinuxContainer: Container, Sendable {
             self.bootLog = bootLog
             self.ociRuntimePath = ociRuntimePath
             self.useInit = useInit
-            self.cpuOverhead = cpuOverhead
-            self.memoryOverhead = memoryOverhead
         }
     }
 
@@ -390,7 +393,7 @@ public final class LinuxContainer: Container, Sendable {
         )
     }
 
-    private func generateRuntimeSpec() -> Spec {
+    package func generateRuntimeSpec() -> Spec {
         var spec = Self.createDefaultRuntimeSpec(id)
 
         // Process toggles.
@@ -417,15 +420,16 @@ public final class LinuxContainer: Container, Sendable {
         // However, if we have a writable layer, the overlay allows writes so we don't mark it read-only.
         spec.root?.readonly = self.rootfs.options.contains("ro") && self.writableLayer == nil
 
-        // Resource limits.
+        // Resource limits for the container itself, independent of the size of
+        // the VM it runs in.
         // CPU: quota/period model where period is 100ms (100,000µs) and quota is cpus * period
         // Memory: limit in bytes
         spec.linux?.resources = LinuxResources(
             memory: LinuxMemory(
-                limit: Int64(config.memoryInBytes)
+                limit: Int64(config.resources.memoryInBytes)
             ),
             cpu: LinuxCPU(
-                quota: Int64(config.cpus * 100_000),
+                quota: Int64(config.resources.cpus * 100_000),
                 period: 100_000
             )
         )
@@ -521,15 +525,14 @@ extension LinuxContainer {
         Self.guestRootfsPath(id)
     }
 
-    /// Number of CPU cores allocated.
+    /// Number of CPU cores the container is limited to.
     public var cpus: Int {
-        config.cpus
+        config.resources.cpus
     }
 
-    /// Amount of memory in bytes allocated for the container.
-    /// This will be aligned to a 1MB boundary if it isn't already.
+    /// Amount of memory in bytes the container is limited to.
     public var memoryInBytes: UInt64 {
-        config.memoryInBytes
+        config.resources.memoryInBytes
     }
 
     /// Network interfaces of the container.
@@ -615,10 +618,6 @@ extension LinuxContainer {
             var modifiedRootfs = self.rootfs
             modifiedRootfs.options.removeAll(where: { $0 == "ro" })
 
-            let vmMemory = self.memoryInBytes + self.config.memoryOverhead
-
-            let vmCpus = self.cpus + self.config.cpuOverhead
-
             // Prepare file mounts. This transforms single-file mounts into directory shares.
             let fileMountContext = try FileMountContext.prepare(mounts: self.config.mounts)
             // This is dumb, but alas.
@@ -631,8 +630,8 @@ extension LinuxContainer {
             }
 
             let vmConfig = VMConfiguration(
-                cpus: vmCpus,
-                memoryInBytes: vmMemory,
+                cpus: self.config.cpus,
+                memoryInBytes: self.config.memoryInBytes,
                 interfaces: self.interfaces,
                 mountsByID: [self.id: containerMounts],
                 bootLog: self.config.bootLog,

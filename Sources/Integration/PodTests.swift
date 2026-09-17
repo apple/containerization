@@ -505,8 +505,7 @@ extension IntegrationSuite {
 
         try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
             config.process.arguments = ["/bin/sleep", "infinity"]
-            config.cpus = 2
-            config.memoryInBytes = 256.mib()
+            config.resources = ContainerResources(cpus: 2, memoryInBytes: 256.mib())
         }
 
         do {
@@ -729,15 +728,13 @@ extension IntegrationSuite {
         // Container1 with 1 CPU and 128 MiB memory
         try await pod.addContainer("container1", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container1")) { config in
             config.process.arguments = ["/bin/sleep", "infinity"]
-            config.cpus = 1
-            config.memoryInBytes = 128.mib()
+            config.resources = ContainerResources(cpus: 1, memoryInBytes: 128.mib())
         }
 
         // Container2 with 2 CPUs and 256 MiB memory
         try await pod.addContainer("container2", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "container2")) { config in
             config.process.arguments = ["/bin/sleep", "infinity"]
-            config.cpus = 2
-            config.memoryInBytes = 256.mib()
+            config.resources = ContainerResources(cpus: 2, memoryInBytes: 256.mib())
         }
 
         do {
