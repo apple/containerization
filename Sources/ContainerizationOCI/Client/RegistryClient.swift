@@ -152,6 +152,32 @@ public final class RegistryClient: ContentClient {
         base.host ?? ""
     }
 
+    /// Builds the base `HTTPClientRequest` for a registry call, applying the headers
+    /// that are constant across authentication and retry attempts.
+    ///
+    /// A `User-Agent` identifying the client is always set so that registries can
+    /// attribute and, where required, gate requests. The HTTP/1.1 specification only
+    /// recommends this header, so some servers (and proxies) reject or mishandle
+    /// requests that omit it. Callers may override it by passing their own
+    /// `User-Agent` entry in `headers`.
+    internal func buildRequest(
+        url: String,
+        method: HTTPMethod,
+        headers: [(String, String)]?
+    ) -> HTTPClientRequest {
+        var request = HTTPClientRequest(url: url)
+        request.method = method
+        request.headers.add(name: "User-Agent", value: clientID)
+        headers?.forEach { (k, v) in
+            if k.lowercased() == "user-agent" {
+                request.headers.replaceOrAdd(name: k, value: v)
+            } else {
+                request.headers.add(name: k, value: v)
+            }
+        }
+        return request
+    }
+
     internal func request<T>(
         components: URLComponents,
         method: HTTPMethod = .GET,
@@ -163,14 +189,11 @@ public final class RegistryClient: ContentClient {
             throw ContainerizationError(.invalidArgument, message: "invalid url \(components.path)")
         }
 
-        var request = HTTPClientRequest(url: path)
-        request.method = method
+        var request = buildRequest(url: path, method: method, headers: headers)
 
         var currentToken: TokenResponse?
         var attemptedBasicAuth = false
 
-        // Add any arbitrary headers
-        headers?.forEach { (k, v) in request.headers.add(name: k, value: v) }
         var retryCount = 0
         var response: HTTPClientResponse?
         while true {
