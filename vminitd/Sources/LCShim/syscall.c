@@ -49,4 +49,17 @@ int CZ_setrlimit(int resource, unsigned long long soft,
   limit.rlim_max = (rlim_t)hard;
   return setrlimit(resource, &limit);
 }
+
+int CZ_statfs(const char *path, CZ_Statfs *out) {
+  struct statfs s;
+  if (statfs(path, &s) != 0) {
+    return -1;
+  }
+  out->f_blocks = (unsigned long long)s.f_blocks;
+  out->f_bfree = (unsigned long long)s.f_bfree;
+  out->f_bsize = (unsigned long long)s.f_bsize;
+  out->f_files = (unsigned long long)s.f_files;
+  out->f_ffree = (unsigned long long)s.f_ffree;
+  return 0;
+}
 #endif
