@@ -22,7 +22,7 @@ import LCShim
 extension OSFile {
     struct SpliceFile: Sendable {
         fileprivate var file: OSFile
-        fileprivate var offset: Int
+        fileprivate var pendingBytes = 0
         fileprivate let pipe = Pipe()
 
         var fileDescriptor: Int32 {
@@ -39,17 +39,14 @@ extension OSFile {
 
         init(fd: Int32) {
             self.file = OSFile(fd: fd)
-            self.offset = 0
         }
 
         init(handle: FileHandle) {
             self.file = OSFile(handle: handle)
-            self.offset = 0
         }
 
-        init(from: OSFile, withOffset: Int = 0) {
+        init(from: OSFile) {
             self.file = from
-            self.offset = withOffset
         }
 
         func close() throws {
@@ -58,47 +55,41 @@ extension OSFile {
     }
 
     static func splice(from: inout SpliceFile, to: inout SpliceFile, count: Int = 1 << 16) throws -> (read: Int, wrote: Int, action: IOAction) {
-        let fromOffset = from.offset
-        let toOffset = to.offset
+        guard count > 0 else { return (0, 0, .success) }
+        var readBytes = 0
+        var writtenBytes = 0
 
         while true {
-            while (from.offset - to.offset) < count {
-                let toRead = count - (from.offset - to.offset)
-                let bytesRead = LCShim.splice(from.fileDescriptor, nil, to.writer, nil, toRead, UInt32(bitPattern: LCShim.SPLICE_F_MOVE | LCShim.SPLICE_F_NONBLOCK))
-                if bytesRead == -1 {
-                    if errno != EAGAIN && errno != EIO {
-                        throw POSIXError(.init(rawValue: errno)!)
+            // Drain this direction's buffered data before reading more or reporting EOF.
+            while to.pendingBytes > 0 {
+                let written = LCShim.splice(to.reader, nil, to.fileDescriptor, nil, to.pendingBytes, UInt32(bitPattern: LCShim.SPLICE_F_MOVE | LCShim.SPLICE_F_NONBLOCK))
+                if written == -1 {
+                    if errno == EINTR { continue }
+                    if errno == EAGAIN || errno == EIO {
+                        return (readBytes, writtenBytes, .again)
                     }
-                    break
+                    throw POSIXError(.init(rawValue: errno)!)
                 }
-                if bytesRead == 0 {
-                    return (0, 0, .eof)
+                if written == 0 {
+                    return (readBytes, writtenBytes, .brokenPipe)
                 }
-                from.offset += bytesRead
-                if bytesRead < toRead {
-                    break
-                }
+                to.pendingBytes -= written
+                writtenBytes += written
             }
-            if from.offset == to.offset {
-                return (from.offset - fromOffset, to.offset - toOffset, .success)
+
+            let read = LCShim.splice(from.fileDescriptor, nil, to.writer, nil, count, UInt32(bitPattern: LCShim.SPLICE_F_MOVE | LCShim.SPLICE_F_NONBLOCK))
+            if read == -1 {
+                if errno == EINTR { continue }
+                if errno == EAGAIN || errno == EIO {
+                    return (readBytes, writtenBytes, .again)
+                }
+                throw POSIXError(.init(rawValue: errno)!)
             }
-            while to.offset < from.offset {
-                let toWrite = from.offset - to.offset
-                let bytesWrote = LCShim.splice(to.reader, nil, to.fileDescriptor, nil, toWrite, UInt32(bitPattern: LCShim.SPLICE_F_MOVE | LCShim.SPLICE_F_NONBLOCK))
-                if bytesWrote == -1 {
-                    if errno != EAGAIN && errno != EIO {
-                        throw POSIXError(.init(rawValue: errno)!)
-                    }
-                    break
-                }
-                to.offset += bytesWrote
-                if bytesWrote == 0 {
-                    return (from.offset - fromOffset, to.offset - toOffset, .brokenPipe)
-                }
-                if bytesWrote < toWrite {
-                    break
-                }
+            if read == 0 {
+                return (readBytes, writtenBytes, .eof)
             }
+            to.pendingBytes += read
+            readBytes += read
         }
     }
 }

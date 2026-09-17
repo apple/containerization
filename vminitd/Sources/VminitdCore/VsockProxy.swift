@@ -21,6 +21,7 @@ import ContainerizationOS
 import Foundation
 import LCShim
 import Logging
+import Synchronization
 
 actor VsockProxy {
     enum Action {
@@ -223,12 +224,7 @@ extension VsockProxy {
                 nonisolated(unsafe) var serverFile = OSFile.SpliceFile(fd: relayTo.fileDescriptor)
                 nonisolated(unsafe) var eofFromServer = false
 
-                // clean up when any of these conditions apply:
-                //   - the client has completely hung up or errored
-                //   - the server has completely hung up or errored
-                //   - both the client and server have half closed via:
-                //     - read hangup on epoll
-                //     - EOF on splice
+                // A full hangup stops writes to that endpoint, but its queued reads must drain.
                 let cleanup = { @Sendable [log, port, path, action] in
                     log?.debug(
                         "cleaning up",
@@ -254,107 +250,73 @@ extension VsockProxy {
                     c.resume()
                 }
 
-                try! ProcessSupervisor.default.registerFd(clientFile.fileDescriptor, mask: [.input, .output]) { mask in
-                    if mask.readyToRead && !eofFromClient {
-                        let (fromEof, toEof) = Self.transferData(
-                            fromFile: &clientFile,
-                            toFile: &serverFile,
-                            description: "readyToRead:toServer",
-                            log: self.log
-                        )
-                        eofFromClient = eofFromClient || fromEof
-                        eofFromServer = eofFromServer || toEof
-                    }
+                // Callbacks can read or close either socket, so finish both registrations first.
+                let registrationLock = Mutex(())
+                registrationLock.withLock { _ in
+                    try! ProcessSupervisor.default.registerFd(clientFile.fileDescriptor, mask: [.input, .output]) { mask in
+                        registrationLock.withLock { _ in
+                            if mask.isHangup {
+                                eofFromServer = true
+                            }
+                            if (mask.readyToRead || mask.isHangup || mask.isRemoteHangup) && !eofFromClient {
+                                let (fromEof, toEof) = Self.transferData(
+                                    fromFile: &clientFile,
+                                    toFile: &serverFile,
+                                    description: "readyToRead:toServer",
+                                    log: self.log
+                                )
+                                eofFromClient = eofFromClient || fromEof
+                                eofFromServer = eofFromServer || toEof
+                            }
 
-                    if mask.readyToWrite && !eofFromServer {
-                        let (fromEof, toEof) = Self.transferData(
-                            fromFile: &serverFile,
-                            toFile: &clientFile,
-                            description: "readyToWrite:toClient",
-                            log: self.log
-                        )
-                        eofFromClient = eofFromClient || toEof
-                        eofFromServer = eofFromServer || fromEof
-                    }
+                            if mask.readyToWrite && !eofFromServer {
+                                let (fromEof, toEof) = Self.transferData(
+                                    fromFile: &serverFile,
+                                    toFile: &clientFile,
+                                    description: "readyToWrite:toClient",
+                                    log: self.log
+                                )
+                                eofFromClient = eofFromClient || toEof
+                                eofFromServer = eofFromServer || fromEof
+                            }
 
-                    if mask.isHangup {
-                        eofFromClient = true
-                        eofFromServer = true
-                    } else if mask.isRemoteHangup && !eofFromClient {
-                        // half close, shut down client to server transfer
-                        // we should see no more EPOLLIN events on the client fd
-                        // and no more EPOLLOUT events on the server fd
-                        eofFromClient = true
-                        if shutdown(serverFile.fileDescriptor, Int32(SHUT_WR)) != 0 {
-                            self.log?.warning(
-                                "failed to shut down client reads",
-                                metadata: [
-                                    "vport": "\(self.port)",
-                                    "uds": "\(self.path)",
-                                    "errno": "\(errno)",
-                                    "eofFromClient": "\(eofFromClient)",
-                                    "eofFromServer": "\(eofFromServer)",
-                                    "clientFd": "\(clientFile.fileDescriptor)",
-                                    "serverFd": "\(serverFile.fileDescriptor)",
-                                ]
-                            )
+                            if eofFromClient && eofFromServer {
+                                return cleanup()
+                            }
                         }
                     }
 
-                    if eofFromClient && eofFromServer {
-                        return cleanup()
-                    }
-                }
+                    try! ProcessSupervisor.default.registerFd(serverFile.fileDescriptor, mask: [.input, .output]) { mask in
+                        registrationLock.withLock { _ in
+                            if mask.isHangup {
+                                eofFromClient = true
+                            }
+                            if (mask.readyToRead || mask.isHangup || mask.isRemoteHangup) && !eofFromServer {
+                                let (fromEof, toEof) = Self.transferData(
+                                    fromFile: &serverFile,
+                                    toFile: &clientFile,
+                                    description: "readyToRead:toClient",
+                                    log: self.log
+                                )
+                                eofFromClient = eofFromClient || toEof
+                                eofFromServer = eofFromServer || fromEof
+                            }
 
-                try! ProcessSupervisor.default.registerFd(serverFile.fileDescriptor, mask: [.input, .output]) { mask in
-                    if mask.readyToRead && !eofFromServer {
-                        let (fromEof, toEof) = Self.transferData(
-                            fromFile: &serverFile,
-                            toFile: &clientFile,
-                            description: "readyToRead:toClient",
-                            log: self.log
-                        )
-                        eofFromClient = eofFromClient || toEof
-                        eofFromServer = eofFromServer || fromEof
-                    }
+                            if mask.readyToWrite && !eofFromClient {
+                                let (fromEof, toEof) = Self.transferData(
+                                    fromFile: &clientFile,
+                                    toFile: &serverFile,
+                                    description: "readyToWrite:toServer",
+                                    log: self.log
+                                )
+                                eofFromClient = eofFromClient || fromEof
+                                eofFromServer = eofFromServer || toEof
+                            }
 
-                    if mask.readyToWrite && !eofFromClient {
-                        let (fromEof, toEof) = Self.transferData(
-                            fromFile: &clientFile,
-                            toFile: &serverFile,
-                            description: "readyToWrite:toServer",
-                            log: self.log
-                        )
-                        eofFromClient = eofFromClient || fromEof
-                        eofFromServer = eofFromServer || toEof
-                    }
-
-                    if mask.isHangup {
-                        eofFromClient = true
-                        eofFromServer = true
-                    } else if mask.isRemoteHangup && !eofFromServer {
-                        // half close, shut down server to client transfer
-                        // we should see no more EPOLLIN events on the server fd
-                        // and no more EPOLLOUT events on the client fd
-                        eofFromServer = true
-                        if shutdown(clientFile.fileDescriptor, Int32(SHUT_WR)) != 0 {
-                            self.log?.warning(
-                                "failed to shut down server reads",
-                                metadata: [
-                                    "vport": "\(self.port)",
-                                    "uds": "\(self.path)",
-                                    "errno": "\(errno)",
-                                    "eofFromClient": "\(eofFromClient)",
-                                    "eofFromServer": "\(eofFromServer)",
-                                    "clientFd": "\(clientFile.fileDescriptor)",
-                                    "serverFd": "\(serverFile.fileDescriptor)",
-                                ]
-                            )
+                            if eofFromClient && eofFromServer {
+                                return cleanup()
+                            }
                         }
-                    }
-
-                    if eofFromClient && eofFromServer {
-                        return cleanup()
                     }
                 }
             } catch {

@@ -1137,6 +1137,121 @@ extension IntegrationSuite {
         }
     }
 
+    func testUnixSocketIntoGuestParallelTraffic() async throws {
+        let id = "test-unixsocket-parallel-traffic"
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "infinity"]
+            config.bootLog = bs.bootLog
+        }
+        var connections: [FileHandle] = []
+        var listener: VsockListener?
+
+        func closeConnections() {
+            for connection in connections {
+                try? connection.close()
+            }
+            connections.removeAll()
+        }
+
+        func read(from connection: FileHandle, context: String) throws -> Data {
+            var event = pollfd(fd: connection.fileDescriptor, events: Int16(POLLIN), revents: 0)
+            let ready = Syscall.retrying { poll(&event, 1, 2_000) }
+            guard ready > 0 else {
+                throw IntegrationError.assert(msg: "forwarded socket timed out waiting for \(context)")
+            }
+            return try connection.read(upToCount: 1) ?? Data()
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+            let vm = try await container.withVirtualMachineInstance { $0 }
+            let hostPort: UInt32 = 2000
+            let guestPort: UInt32 = 2001
+            let hostListener = try vm.listen(hostPort)
+            listener = hostListener
+            defer { try? hostListener.finish() }
+            let vminitd = try await Vminitd(connection: container.dialVsock(port: Vminitd.port), group: Self.eventLoop)
+            let path = URL(filePath: "/run/test-relay.sock")
+            // Route host clients through both guest relays and back to the host listener.
+            try await vminitd.relaySocket(port: hostPort, configuration: .init(source: path, destination: path, direction: .into))
+            try await vminitd.relaySocket(port: guestPort, configuration: .init(source: path, destination: path, direction: .outOf))
+            var accepted = hostListener.makeAsyncIterator()
+
+            for round in 0..<100 {
+                let silentServer = round.isMultiple(of: 10)
+                let acceptDeadline = Task {
+                    try await Task.sleep(for: .seconds(20))
+                    try hostListener.finish()
+                }
+                defer { acceptDeadline.cancel() }
+                var clients: [FileHandle] = []
+                for _ in 0..<16 {
+                    let client = try await vm.dial(guestPort)
+                    connections.append(client)
+                    clients.append(client)
+                }
+                var peers: [FileHandle] = []
+                for _ in clients {
+                    guard let peer = await accepted.next() else {
+                        throw IntegrationError.assert(msg: "guest did not connect to the host listener")
+                    }
+                    connections.append(peer)
+                    peers.append(peer)
+                }
+                acceptDeadline.cancel()
+                // Allow initial writable events to fire while both peers are idle.
+                try await Task.sleep(for: .milliseconds(10))
+                for (index, client) in clients.enumerated() {
+                    try client.write(contentsOf: Data([UInt8(index)]))
+                    if !round.isMultiple(of: 2) {
+                        guard shutdown(client.fileDescriptor, Int32(SHUT_WR)) == 0 else { throw POSIXError.fromErrno() }
+                    }
+                }
+                for peer in peers {
+                    let request = try read(from: peer, context: "request in round \(round)")
+                    if !round.isMultiple(of: 2) {
+                        guard try read(from: peer, context: "request EOF in round \(round)").isEmpty else { throw IntegrationError.assert(msg: "expected request EOF") }
+                    }
+                    if silentServer {
+                        try peer.close()
+                    } else {
+                        try peer.write(contentsOf: request)
+                        if round.isMultiple(of: 2) { try peer.close() }
+                    }
+                }
+                for (index, client) in clients.enumerated() {
+                    let expected = silentServer ? Data() : Data([UInt8(index)])
+                    guard try read(from: client, context: "reply in round \(round)") == expected else {
+                        throw IntegrationError.assert(msg: "forwarded socket reply did not match its request")
+                    }
+                }
+                if !round.isMultiple(of: 2) {
+                    for peer in peers {
+                        guard shutdown(peer.fileDescriptor, Int32(SHUT_WR)) == 0 else { throw POSIXError.fromErrno() }
+                    }
+                }
+                for client in clients {
+                    guard try read(from: client, context: "reply EOF in round \(round)").isEmpty else { throw IntegrationError.assert(msg: "expected reply EOF") }
+                }
+                closeConnections()
+            }
+
+            try await vminitd.close()
+            try await container.stop()
+        } catch {
+            // Release any guest relay blocked on a host peer before stopping the VM.
+            if let listener {
+                try? listener.finish()
+                for await peer in listener { try? peer.close() }
+            }
+            closeConnections()
+            try? await container.stop()
+            throw error
+        }
+    }
+
     // NOTE: Once upon a time our guest agent created any proxied unix sockets at
     // a path that contained the container ID in it. The problem here is if the container
     // ID is comically long we exceed the max length of a unix domain socket path.
