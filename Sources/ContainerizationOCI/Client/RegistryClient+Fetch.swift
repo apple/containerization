@@ -171,7 +171,23 @@ extension RegistryClient {
                 throw ContainerizationError(.invalidArgument, message: "missing required header Content-Length")
             }
 
+            guard expectedBytes <= descriptor.size else {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "declared blob length \(expectedBytes) exceeds descriptor size \(descriptor.size) for \(descriptor.digest)"
+                )
+            }
+
             try await closure(expectedBytes, response.body)
+        }
+    }
+
+    private static func validateReceivedSize(_ received: Int64, _ descriptor: Descriptor) throws {
+        guard received <= descriptor.size else {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "blob download exceeded expected size \(descriptor.size) for \(descriptor.digest)"
+            )
         }
     }
 
@@ -189,6 +205,7 @@ extension RegistryClient {
                 while let buf = try await itr.next() {
                     let readBytes = Int64(buf.readableBytes)
                     received += readBytes
+                    try Self.validateReceivedSize(received, descriptor)
                     let written = try await writer.write(contentsOf: buf)
                     await progress?([
                         .addSize(written)
@@ -233,6 +250,7 @@ extension RegistryClient {
             while let buf = try await itr.next() {
                 let readBytes = Int64(buf.readableBytes)
                 received += readBytes
+                try Self.validateReceivedSize(received, descriptor)
                 await progress?([
                     .addSize(readBytes)
                 ])
