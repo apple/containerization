@@ -16,7 +16,6 @@
 
 #if os(Linux)
 
-import ContainerizationError
 import ContainerizationOS
 import Foundation
 import Logging
@@ -31,52 +30,92 @@ final class IOPair: Sendable {
         let from: IOCloser
         let to: IOCloser
         let buffer: UnsafeMutableBufferPointer<UInt8>
-        var closed: Bool
-        var registeredFd: Int32?
+        var closed = false
+        var closing = false
+        var readFinished = false
+        var bufferedBytes = 0
+        var writeOffset = 0
+        var readFd: Int32?
+        var writeFd: Int32?
+        var registeredFds: [Int32] = []
 
-        func drain() {
-            let readFrom = OSFile(fd: from.fileDescriptor)
-            let writeTo = OSFile(fd: to.fileDescriptor)
+        mutating func drain(logger: Logger?) {
+            guard !self.closed else { return }
+            guard let readFd, let writeFd else {
+                self.close(logger: logger)
+                return
+            }
+            let readFrom = OSFile(fd: readFd)
+            let writeTo = OSFile(fd: writeFd)
 
             while true {
-                let r = readFrom.read(buffer)
-                if r.read > 0 {
+                if self.bufferedBytes > 0 {
                     let view = UnsafeMutableBufferPointer(
-                        start: buffer.baseAddress,
-                        count: r.read
+                        start: self.buffer.baseAddress?.advanced(by: self.writeOffset),
+                        count: self.bufferedBytes
                     )
-
-                    let w = writeTo.write(view)
-                    if w.wrote != r.read {
+                    let result = writeTo.write(view)
+                    self.writeOffset += result.wrote
+                    self.bufferedBytes -= result.wrote
+                    switch result.action {
+                    case .error(let errno):
+                        logger?.error("failed with errno \(errno) while writing for fd \(writeFd)")
+                        fallthrough
+                    case .brokenPipe:
+                        self.close(logger: logger)
                         return
+                    case .again:
+                        return
+                    default:
+                        break
                     }
                 }
-
-                switch r.action {
-                case .eof, .again, .error(_):
+                if self.readFinished {
+                    self.close(logger: logger)
                     return
+                }
+
+                let result = readFrom.read(self.buffer)
+                self.bufferedBytes = result.read
+                self.writeOffset = 0
+                switch result.action {
+                case .error(let errno):
+                    logger?.error("failed with errno \(errno) while reading for fd \(readFd)")
+                    fallthrough
+                case .eof:
+                    self.readFinished = true
+                case .again:
+                    self.readFinished = self.closing
                 default:
                     break
+                }
+                if self.bufferedBytes == 0 {
+                    if self.readFinished {
+                        self.close(logger: logger)
+                    }
+                    return
                 }
             }
         }
 
         mutating func close(logger: Logger?) {
-            if self.closed {
-                return
-            }
+            guard !self.closed else { return }
 
-            // Try and drain IO first.
-            self.drain()
-
-            // Remove the fd from our global epoll instance first.
-            if let fd = self.registeredFd {
+            for fd in self.registeredFds {
                 do {
                     try ProcessSupervisor.default.unregisterFd(fd)
                 } catch {
                     logger?.error("failed to delete fd from epoll \(fd): \(error)")
                 }
-                self.registeredFd = nil
+            }
+            self.registeredFds.removeAll()
+            if let readFd = self.readFd {
+                Foundation.close(readFd)
+                self.readFd = nil
+            }
+            if let writeFd = self.writeFd {
+                Foundation.close(writeFd)
+                self.writeFd = nil
             }
 
             do {
@@ -84,7 +123,6 @@ final class IOPair: Sendable {
             } catch {
                 logger?.error("failed to close reader fd for IOPair: \(error)")
             }
-
             do {
                 try self.to.close()
             } catch {
@@ -102,78 +140,46 @@ final class IOPair: Sendable {
         logger: Logger? = nil
     ) {
         let buffer = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: Int(getpagesize()))
-        self.io = Mutex(
-            IO(
-                from: readFrom,
-                to: writeTo,
-                buffer: buffer,
-                closed: false,
-                registeredFd: nil
-            ))
+        self.io = Mutex(IO(from: readFrom, to: writeTo, buffer: buffer))
         self.reason = reason
         self.logger = logger
     }
 
     func relay(ignoreHup: Bool = false) throws {
         self.logger?.info("setting up relay for \(reason)")
+        try self.io.withLock { io in
+            do {
+                // Own the active descriptors so a deferred drain survives the caller's close.
+                // Distinct descriptors also allow both terminal directions to monitor the shared PTY.
+                let readFd = fcntl(io.from.fileDescriptor, F_DUPFD_CLOEXEC, 0)
+                guard readFd >= 0 else { throw POSIXError.fromErrno() }
+                io.readFd = readFd
+                let writeFd = fcntl(io.to.fileDescriptor, F_DUPFD_CLOEXEC, 0)
+                guard writeFd >= 0 else { throw POSIXError.fromErrno() }
+                io.writeFd = writeFd
 
-        let (readFromFd, writeToFd) = self.io.withLock { io in
-            io.registeredFd = io.from.fileDescriptor
-            return (io.from.fileDescriptor, io.to.fileDescriptor)
-        }
-
-        let readFrom = OSFile(fd: readFromFd)
-        let writeTo = OSFile(fd: writeToFd)
-
-        try ProcessSupervisor.default.registerFd(readFromFd, mask: .input) { mask in
-            self.io.withLock { io in
-                if io.closed {
-                    return
-                }
-
-                if mask.isHangup && !mask.readyToRead {
-                    self.logger?.debug("received EPOLLHUP with no EPOLLIN")
-                    if !ignoreHup {
-                        io.close(logger: self.logger)
-                    }
-                    return
-                }
-
-                // Loop so we drain fully.
-                while true {
-                    let r = readFrom.read(io.buffer)
-                    if r.read > 0 {
-                        let view = UnsafeMutableBufferPointer(
-                            start: io.buffer.baseAddress,
-                            count: r.read
-                        )
-
-                        let w = writeTo.write(view)
-                        if w.wrote != r.read {
-                            self.logger?.error("stopping relay: short write for stdio")
+                try ProcessSupervisor.default.registerFd(writeFd, mask: .output) { mask in
+                    self.io.withLock { io in
+                        if mask.isHangup {
                             io.close(logger: self.logger)
                             return
                         }
-                    }
-
-                    switch r.action {
-                    case .error(let errno):
-                        self.logger?.error("failed with errno \(errno) while reading for fd \(readFromFd)")
-                        fallthrough
-                    case .eof:
-                        self.logger?.debug("closing relay for \(readFromFd)")
-                        io.close(logger: self.logger)
-                        return
-                    case .again:
-                        if mask.isHangup && !ignoreHup {
-                            self.logger?.error("received EPOLLHUP and EAGAIN exiting")
-                            self.close()
-                        }
-                        return
-                    default:
-                        break
+                        io.drain(logger: self.logger)
                     }
                 }
+                io.registeredFds.append(writeFd)
+                try ProcessSupervisor.default.registerFd(readFd, mask: .input) { mask in
+                    self.io.withLock { io in
+                        if mask.isHangup && !ignoreHup {
+                            io.closing = true
+                        }
+                        io.drain(logger: self.logger)
+                    }
+                }
+                io.registeredFds.append(readFd)
+            } catch {
+                io.close(logger: self.logger)
+                throw error
             }
         }
     }
@@ -181,7 +187,8 @@ final class IOPair: Sendable {
     func close() {
         self.io.withLock { io in
             self.logger?.info("closing relay for \(reason)")
-            io.close(logger: self.logger)
+            io.closing = true
+            io.drain(logger: self.logger)
         }
     }
 }

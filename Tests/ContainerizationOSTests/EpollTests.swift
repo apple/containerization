@@ -157,7 +157,7 @@ final class EpollTests {
             close(writeFD)
         }
 
-        try epoll.add(readFD, mask: .input)
+        try epoll.add(readFD, mask: .input, generation: .max)
 
         // Write some data to make the read end readable.
         var byte: UInt8 = 42
@@ -171,6 +171,7 @@ final class EpollTests {
         let event = events!.first { $0.fd == readFD }
         try #require(event != nil, "Should have an event for the read fd")
         #expect(event!.mask.readyToRead)
+        #expect(event!.generation == .max)
     }
 
     @Test

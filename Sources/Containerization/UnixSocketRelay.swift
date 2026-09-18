@@ -138,18 +138,19 @@ extension UnixSocketRelay {
         state.withLock {
             $0.listener = listener
             $0.t = Task {
-                do {
-                    defer { try? listener.finish() }
-                    for await connection in listener {
+                defer { try? listener.finish() }
+                for await connection in listener {
+                    do {
                         try await self.handleGuestVsockConn(
                             vsockConn: connection,
                             hostConnectionPath: hostPath,
                             port: self.port,
                             log: self.log
                         )
+                    } catch {
+                        try? connection.close()
+                        self.log?.error("failed to setup relay between vsock \(self.port) and \(hostPath.path): \(error)")
                     }
-                } catch {
-                    self.log?.error("failed to setup relay between vsock \(self.port) and \(hostPath.path): \(error)")
                 }
             }
         }
@@ -199,15 +200,15 @@ extension UnixSocketRelay {
                 "hostFd": "\(hostSocket.fileDescriptor)",
                 "guestFd": "\(vsockConn.fileDescriptor)",
             ])
-        try hostSocket.connect()
-
         do {
+            try hostSocket.connect()
             try await self.relay(
                 hostConn: hostSocket,
                 guestFd: vsockConn.fileDescriptor
             )
         } catch {
-            log?.error("failed to relay between vsock \(port) and \(hostPath)")
+            try? hostSocket.close()
+            throw error
         }
     }
 
