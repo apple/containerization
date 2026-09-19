@@ -320,14 +320,48 @@ extension Runc {
     }
 
     /// Execute a runc command and return the output
+    ///
+    /// Pass `captureStdout: false` for anything that can leave a process
+    /// behind: a container init inherits runc's stdio and parks until `runc
+    /// start`, so the capture pipe's write end never closes and the read blocks
+    /// on an EOF that only `runc start` can deliver. The descriptor falls back
+    /// to `/dev/null` when the caller supplied no handle.
+    ///
+    /// So that runc's diagnostics survive that, every invocation gets a private
+    /// `--log <file> --log-format json` unless `log` is explicitly configured —
+    /// a regular file has no EOF to wait on. A caller-configured `log` is
+    /// shared across invocations, so nothing is folded into the error from it.
     func execute(
         args: [String],
+        captureStdout: Bool,
         stdin: FileHandle? = nil,
         stdout: FileHandle? = nil,
         stderr: FileHandle? = nil,
         extraFiles: [FileHandle] = [],
         directory: String? = nil
     ) async throws -> (status: Int32, output: Data) {
+        var args = args
+        var logPath: String?
+
+        if self.log == nil {
+            // `--log` / `--log-format` are global flags, so they must precede
+            // the subcommand. `/run` is a writable tmpfs and already hosts
+            // `--root /run/runc`.
+            let path = "/run/runc-log-\(UUID().uuidString).json"
+            var globalArgs = ["--log", path]
+            if self.logFormat == nil {
+                globalArgs += ["--log-format", LogFormat.json.rawValue]
+            }
+            args = globalArgs + args
+            logPath = path
+        }
+
+        defer {
+            if let logPath {
+                try? FileManager.default.removeItem(atPath: logPath)
+            }
+        }
+
         var cmd = Command(
             command,
             arguments: args,
@@ -335,11 +369,14 @@ extension Runc {
             extraFiles: extraFiles
         )
 
-        // Setup IO
-        let outPipe = Pipe()
+        // Setup IO. A capture pipe is only safe when we own both descriptors,
+        // since it is drained in exactly one place below. Without a pipe, a nil
+        // handle makes `Command` wire the descriptor to /dev/null.
+        let capture = captureStdout && stdout == nil && stderr == nil
+        let outPipe: Pipe? = capture ? Pipe() : nil
         cmd.stdin = stdin
-        cmd.stdout = stdout ?? outPipe.fileHandleForWriting
-        cmd.stderr = stderr ?? outPipe.fileHandleForWriting
+        cmd.stdout = stdout ?? outPipe?.fileHandleForWriting
+        cmd.stderr = stderr ?? outPipe?.fileHandleForWriting
 
         if let pdeathSignal = pdeathSignal {
             cmd.attrs.pdeathSignal = pdeathSignal
@@ -360,12 +397,81 @@ extension Runc {
         }
 
         var output = Data()
-        if stdout == nil {
+        if let outPipe {
+            // Drained after the wait, so a capturing command writing more than
+            // one pipe buffer (64KiB) would block. Only `list`, `state`, `ps`
+            // and `version` capture, and `ps` would need ~9000 pids to reach it.
             try? outPipe.fileHandleForWriting.close()
             output = try outPipe.fileHandleForReading.readToEnd() ?? Data()
         }
 
+        // On failure, append whatever runc logged so `Error.commandFailed`
+        // carries a message when stdout went to /dev/null. Gated on failure so
+        // a successful `executeJSON` decodes runc's stdout unmodified.
+        if exitStatus != 0, let logPath {
+            let messages = Self.readLogMessages(at: logPath)
+            if !messages.isEmpty {
+                if !output.isEmpty {
+                    output.append(Data("\n".utf8))
+                }
+                output.append(Data(messages.utf8))
+            }
+        }
+
         return (exitStatus, output)
+    }
+
+    /// Read back the file passed to `--log`, returning the joined `msg` values
+    /// of its JSON lines, preferring `error`/`fatal` entries and falling back to
+    /// every entry when none match. Falls back again to the raw contents when
+    /// the lines aren't the JSON we asked for (an explicitly configured
+    /// `logFormat` of `.text`).
+    ///
+    /// Capped: with `debug` set runc writes dozens of trace lines, and this
+    /// string crosses gRPC to the host inside `Error.commandFailed`.
+    private static func readLogMessages(at path: String) -> String {
+        struct Entry: Decodable {
+            let level: String?
+            let msg: String?
+        }
+
+        // Room for a real runc failure, without shipping a whole trace log.
+        let maxLength = 4096
+
+        guard let data = FileManager.default.contents(atPath: path) else {
+            return ""
+        }
+        let raw = String(data: data, encoding: .utf8) ?? ""
+
+        let decoder = JSONDecoder()
+        var failures: [String] = []
+        var all: [String] = []
+        for line in raw.split(separator: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else {
+                continue
+            }
+            guard let entry = try? decoder.decode(Entry.self, from: Data(trimmed.utf8)),
+                let msg = entry.msg
+            else {
+                continue
+            }
+            all.append(msg)
+            if let level = entry.level, level == "error" || level == "fatal" {
+                failures.append(msg)
+            }
+        }
+
+        let messages = failures.isEmpty ? all : failures
+        let joined =
+            messages.isEmpty
+            ? raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            : messages.joined(separator: "; ")
+
+        guard joined.count > maxLength else {
+            return joined
+        }
+        return String(joined.prefix(maxLength)) + "… (truncated)"
     }
 
     /// Execute command and parse JSON output
@@ -373,7 +479,8 @@ extension Runc {
         args: [String],
         directory: String? = nil
     ) async throws -> T {
-        let (status, output) = try await execute(args: args, directory: directory)
+        // Needs runc's real stdout to decode.
+        let (status, output) = try await execute(args: args, captureStdout: true, directory: directory)
 
         guard status == 0 else {
             let errorOutput = String(data: output, encoding: .utf8) ?? ""
@@ -397,8 +504,12 @@ extension Runc {
         extraFiles: [FileHandle] = [],
         directory: String? = nil
     ) async throws {
+        // Everything that spawns a container init (`create`, `run`, `exec`) and
+        // everything that manipulates one routes through here, so this must
+        // never capture. Errors come from the `--log` file instead.
         let (status, output) = try await execute(
             args: args,
+            captureStdout: false,
             stdin: stdin,
             stdout: stdout,
             stderr: stderr,
@@ -564,9 +675,12 @@ extension Runc {
     }
 
     /// Execute a process in a running container
+    ///
+    /// The process to run comes entirely from `opts.processPath`. With
+    /// `--process` supplied runc never looks at the positional arguments of
+    /// `runc exec [opts] <id> [command...]`, so none are passed.
     func exec(
         id: String,
-        processSpec: String,
         opts: ExecOpts = ExecOpts()
     ) async throws -> Int? {
         var args = baseArgs() + ["exec"]
@@ -587,7 +701,7 @@ extension Runc {
             args += ["--process", processPath]
         }
 
-        args += [id, processSpec]
+        args.append(id)
 
         try await executeVoid(
             args: args,
@@ -704,7 +818,9 @@ extension Runc {
     /// List process IDs in a container
     func ps(id: String) async throws -> [Int] {
         let args = baseArgs() + ["ps", "--format", "json", id]
-        let (status, output) = try await execute(args: args)
+        // Short-lived query that spawns no container init, so the capture pipe
+        // is safe, and we need the pids it prints.
+        let (status, output) = try await execute(args: args, captureStdout: true)
 
         guard status == 0 else {
             let errorOutput = String(data: output, encoding: .utf8) ?? ""
@@ -718,8 +834,13 @@ extension Runc {
 
     /// Get version information
     func version() async throws -> String {
-        let args = [command, "--version"]
-        let (status, output) = try await execute(args: args)
+        // No `command` here: Command prepends the executable itself
+        // (Command.swift builds argv as [executable] + arguments), so including
+        // it would run `runc runc --version`.
+        let args = ["--version"]
+        // Short-lived query that spawns no container init, so the capture pipe
+        // is safe, and the version string is the whole point.
+        let (status, output) = try await execute(args: args, captureStdout: true)
 
         guard status == 0 else {
             let errorOutput = String(data: output, encoding: .utf8) ?? ""

@@ -27,11 +27,13 @@
 # (Sources/cctl/RootfsCommand.swift): directories bin/ sbin/ dev/ sys/
 # proc/self/ run/ tmp/ mnt/ var/, sbin/vminitd + sbin/vmexec at mode 0755, and
 # a proc/self/exe -> sbin/vminitd symlink ("hack for swift init's booting").
+# sbin/runc is staged too, but only when --runc is passed — opt-in, not part
+# of the default rootfs.
 
 set -euo pipefail
 
 usage() {
-    echo "usage: $0 --vminitd PATH --vmexec PATH --ext4 OUT.ext4 [--tar OUT.tar.gz] [--size 512M]" >&2
+    echo "usage: $0 --vminitd PATH --vmexec PATH --ext4 OUT.ext4 [--tar OUT.tar.gz] [--runc PATH] [--size 512M]" >&2
     exit 2
 }
 
@@ -39,6 +41,7 @@ VMINITD=
 VMEXEC=
 EXT4=
 TAR=
+RUNC=
 SIZE=512M
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -46,6 +49,7 @@ while [ $# -gt 0 ]; do
         --vmexec)  VMEXEC=$2;  shift 2 ;;
         --ext4)    EXT4=$2;    shift 2 ;;
         --tar)     TAR=$2;     shift 2 ;;
+        --runc)    RUNC=$2;    shift 2 ;;
         --size)    SIZE=$2;    shift 2 ;;
         *)         usage ;;
     esac
@@ -54,6 +58,7 @@ done
 [ -n "$VMINITD" ] && [ -n "$VMEXEC" ] && [ -n "$EXT4" ] || usage
 [ -f "$VMINITD" ] || { echo "ERROR: vminitd not found: $VMINITD" >&2; exit 1; }
 [ -f "$VMEXEC" ]  || { echo "ERROR: vmexec not found: $VMEXEC"   >&2; exit 1; }
+[ -z "$RUNC" ] || [ -f "$RUNC" ] || { echo "ERROR: runc not found: $RUNC" >&2; exit 1; }
 
 umask 022
 STAGING=$(mktemp -d)
@@ -73,6 +78,8 @@ for d in bin sbin dev sys proc/self run tmp mnt var; do
 done
 install -m 0755 "$VMINITD" "$STAGING/sbin/vminitd"
 install -m 0755 "$VMEXEC" "$STAGING/sbin/vmexec"
+# Optional; selected per-container with `--oci-runtime-path /sbin/runc`.
+[ -z "$RUNC" ] || install -m 0755 "$RUNC" "$STAGING/sbin/runc"
 ln -sf sbin/vminitd "$STAGING/proc/self/exe"
 
 mkdir -p "$(dirname "$EXT4")"

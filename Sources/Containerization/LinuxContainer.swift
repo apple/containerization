@@ -51,6 +51,32 @@ public final class LinuxContainer: Container, Sendable {
 
     /// The configuration for the LinuxContainer.
     public struct Configuration: Sendable {
+        /// The seccomp filter to install on the container's processes.
+        ///
+        /// Only an OCI runtime applies seccomp; `vmexec` ignores
+        /// `spec.linux.seccomp`. Anything other than ``unconfined`` therefore
+        /// requires ``Configuration/ociRuntimePath``.
+        public enum SeccompProfile: Sendable {
+            /// No seccomp filter.
+            ///
+            /// Named as the OCI and CRI ecosystems name it; `none` would be
+            /// ambiguous with `Optional.none` on a `SeccompProfile?`.
+            case unconfined
+            /// The default profile — a syscall allowlist ported from
+            /// containerd, resolved against the container process's
+            /// capabilities. See
+            /// ``ContainerizationOCI/LinuxSeccomp/defaultProfile(capabilities:arch:)``.
+            case `default`
+            /// A caller-supplied profile, applied verbatim and unvalidated.
+            ///
+            /// Decode one with
+            /// ``ContainerizationOCI/LinuxSeccomp/decode(from:)``, which
+            /// rejects Docker-format profiles. Unresolvable syscall names are
+            /// skipped by the runtime rather than reported, so a typo in a deny
+            /// rule is a rule that does nothing.
+            case profile(LinuxSeccomp)
+        }
+
         /// Configuration for the init process of the container.
         public var process = LinuxProcessConfiguration()
         /// The amount of cpus for the container.
@@ -88,6 +114,9 @@ public final class LinuxContainer: Container, Sendable {
         /// EXPERIMENTAL: Path in the root filesystem for the virtual
         /// machine where the OCI runtime used to spawn the container lives.
         public var ociRuntimePath: String?
+        /// The seccomp filter for the container's processes. Defaults to
+        /// ``SeccompProfile/unconfined``; requires ``ociRuntimePath``.
+        public var seccompProfile: SeccompProfile = .unconfined
         /// Run the container with a minimal init process that handles signal
         /// forwarding and zombie reaping.
         public var useInit: Bool = false
@@ -117,6 +146,7 @@ public final class LinuxContainer: Container, Sendable {
             virtualization: Bool = false,
             bootLog: BootLog? = nil,
             ociRuntimePath: String? = nil,
+            seccompProfile: SeccompProfile = .unconfined,
             useInit: Bool = false,
             cpuOverhead: Int = 1,
             memoryOverhead: UInt64 = 128.mib()
@@ -136,6 +166,7 @@ public final class LinuxContainer: Container, Sendable {
             self.virtualization = virtualization
             self.bootLog = bootLog
             self.ociRuntimePath = ociRuntimePath
+            self.seccompProfile = seccompProfile
             self.useInit = useInit
             self.cpuOverhead = cpuOverhead
             self.memoryOverhead = memoryOverhead
@@ -298,6 +329,12 @@ public final class LinuxContainer: Container, Sendable {
     private let vmm: VirtualMachineManager
     private let logger: Logger?
 
+    /// The container's seccomp filter, or `nil` when it runs unfiltered.
+    ///
+    /// Resolved once at init: it is a pure function of the init process's
+    /// capabilities and the guest architecture, and every exec shares it.
+    private let seccomp: LinuxSeccomp?
+
     /// Create a new `LinuxContainer`.
     ///
     /// - Parameters:
@@ -364,6 +401,22 @@ public final class LinuxContainer: Container, Sendable {
                 )
             }
         }
+        switch configuration.seccompProfile {
+        case .unconfined:
+            self.seccomp = nil
+        case .default:
+            try Self.requireOCIRuntimeForSeccomp(configuration)
+            // Built here so an unsupported architecture fails before the caller
+            // has booted a VM. The capabilities are the *init* process's, which
+            // is what runc installs for execs too.
+            self.seccomp = .defaultProfile(
+                capabilities: configuration.process.toOCI().capabilities,
+                arch: try Arch.currentVerified()
+            )
+        case .profile(let profile):
+            try Self.requireOCIRuntimeForSeccomp(configuration)
+            self.seccomp = profile
+        }
         self.id = id
         self.vmm = vmm
         self.hostVsockPorts = VsockPortAllocator(base: 0x1000_0000)
@@ -373,6 +426,18 @@ public final class LinuxContainer: Container, Sendable {
         self.state = AsyncMutex(.initialized)
         self.rootfs = rootfs
         self.writableLayer = writableLayer
+    }
+
+    /// Refuse a seccomp profile that no runtime will install. `vmexec` does not
+    /// read `spec.linux.seccomp`, so such a container would run unfiltered
+    /// while every observable said it was sandboxed.
+    private static func requireOCIRuntimeForSeccomp(_ configuration: Configuration) throws {
+        guard configuration.ociRuntimePath != nil else {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "seccompProfile requires ociRuntimePath: seccomp is applied by the OCI runtime, and the default vmexec launch path ignores it"
+            )
+        }
     }
 
     private static func createDefaultRuntimeSpec(_ id: String) -> Spec {
@@ -390,7 +455,14 @@ public final class LinuxContainer: Container, Sendable {
         )
     }
 
-    private func generateRuntimeSpec() -> Spec {
+    /// What a generated runtime spec is for. The guest keeps only
+    /// `spec.process` (plus `root`, to resolve the user) for an exec.
+    private enum SpecPurpose {
+        case containerInit
+        case exec
+    }
+
+    private func generateRuntimeSpec(for purpose: SpecPurpose) throws -> Spec {
         var spec = Self.createDefaultRuntimeSpec(id)
 
         // Process toggles.
@@ -437,6 +509,23 @@ public final class LinuxContainer: Container, Sendable {
             LinuxNamespace(type: .pid),
             LinuxNamespace(type: .uts),
         ]
+
+        // Init spec only. runc installs seccomp for `runc exec` from the
+        // container's saved config.json, so a profile in an exec's spec would
+        // change nothing in the guest and just add ~12 KB of JSON per exec.
+        if case .containerInit = purpose, let seccomp = self.seccomp {
+            // Not `spec.linux?.seccomp = ...`: that is a silent no-op when
+            // `linux` is nil, and the failure mode is a container running
+            // unfiltered with nothing saying so.
+            guard var linux = spec.linux else {
+                throw ContainerizationError(
+                    .internalError,
+                    message: "cannot apply the seccomp profile: the runtime spec has no linux section"
+                )
+            }
+            linux.seccomp = seccomp
+            spec.linux = linux
+        }
 
         return spec
     }
@@ -498,13 +587,66 @@ public final class LinuxContainer: Container, Sendable {
         let defaultOptions = ["nosuid", "noexec", "nodev"]
         return [
             .any(type: "proc", source: "proc", destination: "/proc"),
-            .any(type: "tmpfs", source: "tmpfs", destination: "/dev", options: ["nosuid", "mode=755", "size=65536k"]),
+            Self.ociDevMount,
             .any(type: "devpts", source: "devpts", destination: "/dev/pts", options: ["nosuid", "noexec", "newinstance", "gid=5", "mode=0620", "ptmxmode=0666"]),
             .any(type: "sysfs", source: "sysfs", destination: "/sys", options: defaultOptions),
             .any(type: "mqueue", source: "mqueue", destination: "/dev/mqueue", options: defaultOptions),
             .any(type: "tmpfs", source: "tmpfs", destination: "/dev/shm", options: defaultOptions + ["mode=1777", "size=65536k"]),
             .any(type: "cgroup2", source: "none", destination: "/sys/fs/cgroup", options: defaultOptions),
         ]
+    }
+
+    /// `/dev` as an OCI runtime expects to find it: a fresh tmpfs. Shared by
+    /// ``defaultOCIMounts()`` and ``mountsForRuntime()`` so the two can't drift.
+    private static let ociDevMount = Mount.any(
+        type: "tmpfs",
+        source: "tmpfs",
+        destination: "/dev",
+        options: ["nosuid", "mode=755", "size=65536k"]
+    )
+
+    /// Whether `mount` puts a devtmpfs on `/dev`.
+    private static func isDevtmpfsOnDev(_ mount: Mount) -> Bool {
+        mount.type == "devtmpfs" && FilePath(mount.destination).lexicallyNormalized().string == "/dev"
+    }
+
+    /// The mounts to attach to the VM and hand to the runtime, with `/dev`
+    /// swapped to tmpfs for an OCI runtime.
+    ///
+    /// ``defaultMounts()`` mounts `/dev` as devtmpfs, which `vmexec` is happy
+    /// with. devtmpfs is a single kernel-wide instance, so runc's
+    /// `mountConsole()` cannot create `/dev/console` there (EPERM) and
+    /// `process.terminal = true` fails before the console socket is contacted.
+    ///
+    /// Only the stock `/dev` entry is rewritten, and only when
+    /// ``Configuration/ociRuntimePath`` is set. Runs at mount-assembly time, so
+    /// the order a configuration closure sets its properties in doesn't matter.
+    private func mountsForRuntime() -> [Mount] {
+        guard self.config.ociRuntimePath != nil else {
+            return self.config.mounts
+        }
+
+        // Only the entry `defaultMounts()` hands out is rewritten; a
+        // hand-written devtmpfs mount is the caller's deliberate choice.
+        let stockDev = Self.defaultMounts().first(where: Self.isDevtmpfsOnDev)
+
+        var mounts = self.config.mounts
+        for index in mounts.indices where Self.isDevtmpfsOnDev(mounts[index]) {
+            // Destinations aren't compared: both sides came through
+            // `isDevtmpfsOnDev`, which normalizes.
+            let isStock = mounts[index].source == stockDev?.source && mounts[index].options == stockDev?.options
+            guard isStock else {
+                // Kept, not replaced -- but say what it costs, because the
+                // failure surfaces from inside the runtime's container init
+                // with no mention of /dev.
+                self.logger?.warning(
+                    "container \(self.id): keeping the requested devtmpfs on /dev. An OCI runtime cannot create /dev/console on the kernel-wide devtmpfs instance, so process.terminal will fail to start; use the default /dev if the container needs a terminal"
+                )
+                continue
+            }
+            mounts[index] = Self.ociDevMount
+        }
+        return mounts
     }
 
     private static func guestRootfsPath(_ id: String) -> String {
@@ -620,7 +762,10 @@ extension LinuxContainer {
             let vmCpus = self.cpus + self.config.cpuOverhead
 
             // Prepare file mounts. This transforms single-file mounts into directory shares.
-            let fileMountContext = try FileMountContext.prepare(mounts: self.config.mounts)
+            // `mountsForRuntime()` is the single point where `config.mounts` is
+            // read, so it covers both the VM's mounts and the OCI spec derived
+            // from them in `start()`.
+            let fileMountContext = try FileMountContext.prepare(mounts: self.mountsForRuntime())
             // This is dumb, but alas.
             let fileMountContextHolder = Mutex<FileMountContext>(fileMountContext)
 
@@ -764,7 +909,7 @@ extension LinuxContainer {
 
             let agent = try await createdState.vm.dialAgent()
             do {
-                var spec = self.generateRuntimeSpec()
+                var spec = try self.generateRuntimeSpec(for: .containerInit)
                 // We don't need the rootfs (or writable layer), nor do OCI runtimes want it included.
                 // Also filter out file mount holding directories. We'll mount those separately under /run.
                 // Transform virtiofs mounts to bind mounts from /run/virtiofs/{tag}
@@ -996,7 +1141,7 @@ extension LinuxContainer {
         try await self.state.withLock { state in
             var startedState = try state.startedState("exec")
 
-            var spec = self.generateRuntimeSpec()
+            var spec = try self.generateRuntimeSpec(for: .exec)
             var config = LinuxProcessConfiguration()
             try configuration(&config)
             spec.process = config.toOCI()
@@ -1036,7 +1181,7 @@ extension LinuxContainer {
         try await self.state.withLock {
             var state = try $0.startedState("exec")
 
-            var spec = self.generateRuntimeSpec()
+            var spec = try self.generateRuntimeSpec(for: .exec)
             spec.process = configuration.toOCI()
 
             let stdio = IOUtil.setup(

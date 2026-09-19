@@ -22,6 +22,54 @@ import ContainerizationOCI
 import ContainerizationOS
 import Foundation
 
+/// The `--seccomp` / `--seccomp-profile` pair, shared by both platforms'
+/// `cctl run`. Factored out because the two `Run` structs live in mutually
+/// exclusive `#if` blocks and CI only ever exercises one at a time.
+enum SeccompFlags {
+    /// Rejects the flag combinations that cannot mean what they say. Call from
+    /// `validate()`.
+    static func validate(seccomp: Bool, profilePath: String?, ociRuntimePath: String?) throws {
+        // Refused rather than silently preferring one: they select different
+        // filters and the container starts either way.
+        if seccomp && profilePath != nil {
+            throw ValidationError(
+                "--seccomp and --seccomp-profile are mutually exclusive: pass --seccomp for the containerd-derived default profile, or --seccomp-profile <path> for your own"
+            )
+        }
+        // vmexec ignores spec.linux.seccomp, so either flag on its own would
+        // report a sandbox that does not exist.
+        if seccomp && ociRuntimePath == nil {
+            throw ValidationError(
+                "--seccomp requires --oci-runtime-path: seccomp is installed by the OCI runtime, and the default vmexec launch path ignores spec.linux.seccomp entirely"
+            )
+        }
+        if profilePath != nil && ociRuntimePath == nil {
+            throw ValidationError(
+                "--seccomp-profile requires --oci-runtime-path: seccomp is installed by the OCI runtime, and the default vmexec launch path ignores spec.linux.seccomp entirely"
+            )
+        }
+    }
+
+    /// Reads and decodes the profile the flags select. Decoding goes through
+    /// ``ContainerizationOCI/LinuxSeccomp/decode(from:)``, which refuses a
+    /// Docker-format file instead of silently dropping its conditions.
+    static func resolve(seccomp: Bool, profilePath: String?) throws -> LinuxContainer.Configuration.SeccompProfile {
+        guard let profilePath else {
+            return seccomp ? .default : .unconfined
+        }
+        let data: Data
+        do {
+            data = try Data(contentsOf: URL(fileURLWithPath: profilePath))
+        } catch {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "cannot read the seccomp profile at '\(profilePath)': \(error.localizedDescription)"
+            )
+        }
+        return .profile(try LinuxSeccomp.decode(from: data))
+    }
+}
+
 #if os(macOS)
 extension Application {
     struct Run: AsyncParsableCommand {
@@ -83,6 +131,30 @@ extension Application {
         @Option(name: .long, help: "Path to OCI runtime to use for spawning the container")
         var ociRuntimePath: String?
 
+        @Flag(
+            name: .long,
+            help: """
+                Apply the default seccomp profile (a syscall allowlist ported \
+                from containerd) to the container. Requires \
+                --oci-runtime-path: seccomp is installed by the OCI runtime, \
+                and the default vmexec launch path ignores it
+                """
+        )
+        var seccomp: Bool = false
+
+        @Option(
+            name: .long,
+            help: """
+                Apply a custom seccomp profile to the container, read from \
+                the given path. The file must be OCI runtime-spec JSON, i.e. \
+                the object that appears at linux.seccomp in a config.json; \
+                Docker-format profiles are rejected. Mutually exclusive with \
+                --seccomp, and requires --oci-runtime-path
+                """,
+            completion: .file()
+        )
+        var seccompProfile: String?
+
         @Flag(name: .long, help: "Make rootfs readonly")
         var readOnly: Bool = false
 
@@ -114,7 +186,15 @@ extension Application {
         @Argument(parsing: .captureForPassthrough)
         var arguments: [String] = []
 
+        func validate() throws {
+            try SeccompFlags.validate(seccomp: seccomp, profilePath: seccompProfile, ociRuntimePath: ociRuntimePath)
+        }
+
         func run() async throws {
+            // Before the image pull: a bad path shouldn't cost a registry round
+            // trip first.
+            let seccompSelection = try SeccompFlags.resolve(seccomp: seccomp, profilePath: seccompProfile)
+
             let kernel = Kernel(
                 path: URL(fileURLWithPath: kernel),
                 platform: .linuxArm
@@ -201,11 +281,9 @@ extension Application {
                 config.hosts = hosts
                 if let ociRuntimePath {
                     config.ociRuntimePath = ociRuntimePath
-                    config.mounts = LinuxContainer.defaultOCIMounts()
                 }
+                config.seccompProfile = seccompSelection
 
-                // Appended after the OCI reset above, which replaces
-                // config.mounts wholesale.
                 config.mounts.append(contentsOf: self.blocks)
 
                 if !self.capAdd.isEmpty {
@@ -340,6 +418,30 @@ extension Application {
         @Option(name: .long, help: "Path to OCI runtime to use for spawning the container")
         var ociRuntimePath: String?
 
+        @Flag(
+            name: .long,
+            help: """
+                Apply the default seccomp profile (a syscall allowlist ported \
+                from containerd) to the container. Requires \
+                --oci-runtime-path: seccomp is installed by the OCI runtime, \
+                and the default vmexec launch path ignores it
+                """
+        )
+        var seccomp: Bool = false
+
+        @Option(
+            name: .long,
+            help: """
+                Apply a custom seccomp profile to the container, read from \
+                the given path. The file must be OCI runtime-spec JSON, i.e. \
+                the object that appears at linux.seccomp in a config.json; \
+                Docker-format profiles are rejected. Mutually exclusive with \
+                --seccomp, and requires --oci-runtime-path
+                """,
+            completion: .file()
+        )
+        var seccompProfile: String?
+
         @Flag(name: .long, help: "Make rootfs readonly")
         var readOnly: Bool = false
 
@@ -440,7 +542,15 @@ extension Application {
         @Argument(parsing: .captureForPassthrough)
         var arguments: [String] = []
 
+        func validate() throws {
+            try SeccompFlags.validate(seccomp: seccomp, profilePath: seccompProfile, ociRuntimePath: ociRuntimePath)
+        }
+
         func run() async throws {
+            // Before the image pull: a bad path shouldn't cost a registry round
+            // trip first.
+            let seccompSelection = try SeccompFlags.resolve(seccomp: seccomp, profilePath: seccompProfile)
+
             #if arch(arm64)
             let kernelPlatform = SystemPlatform.linuxArm
             #elseif arch(x86_64)
@@ -618,11 +728,9 @@ extension Application {
 
                 if let runtimePath {
                     config.ociRuntimePath = runtimePath
-                    config.mounts = LinuxContainer.defaultOCIMounts()
                 }
+                config.seccompProfile = seccompSelection
 
-                // Appended after the OCI reset above, which replaces
-                // config.mounts wholesale.
                 config.mounts.append(contentsOf: extraBlocks)
 
                 if !extraCaps.isEmpty {

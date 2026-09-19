@@ -29,7 +29,10 @@ struct ContainerExitStatus: Sendable {
 ///
 /// This protocol abstracts the underlying container runtime implementation,
 /// allowing for different backends like vmexec or runc.
-protocol ContainerProcess: Sendable {
+///
+/// Class-bound so owners can track a process by identity: `pid` is `nil` before
+/// start and, for the runc implementations, `nil` again after exit.
+protocol ContainerProcess: AnyObject, Sendable {
     /// Unique identifier for the container process
     var id: String { get }
 
