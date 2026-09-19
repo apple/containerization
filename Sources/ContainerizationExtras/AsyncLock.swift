@@ -34,7 +34,7 @@ public actor AsyncLock {
     }
 
     /// withLock provides a scoped locking API to run a function while holding the lock.
-    public func withLock<T: Sendable>(logMetadata: Logger.Metadata? = nil, _ body: @Sendable @escaping (Context) async throws -> T) async rethrows -> T {
+    public func withLock<T: Sendable>(logMetadata: Logger.Metadata? = nil, _ body: @Sendable (Context) async throws -> T) async rethrows -> T {
         log?.debug("acquiring lock", metadata: logMetadata)
         while self.busy {
             await withCheckedContinuation { cc in
