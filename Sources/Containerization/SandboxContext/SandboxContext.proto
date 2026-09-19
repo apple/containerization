@@ -115,6 +115,7 @@ message ProxyVsockRequest {
   string guestPath = 3;
   optional uint32 guestSocketPermissions = 4;
   Action action = 5;
+  optional int32 container_pid = 6;
 }
 
 message ProxyVsockResponse {}
