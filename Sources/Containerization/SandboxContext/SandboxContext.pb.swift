@@ -51,6 +51,7 @@ public nonisolated enum Com_Apple_Containerization_Sandbox_V3_StatCategory: Swif
   case blockIo // = 4
   case network // = 5
   case memoryEvents // = 6
+  case filesystem // = 7
   case UNRECOGNIZED(Int)
 
   public init() {
@@ -66,6 +67,7 @@ public nonisolated enum Com_Apple_Containerization_Sandbox_V3_StatCategory: Swif
     case 4: self = .blockIo
     case 5: self = .network
     case 6: self = .memoryEvents
+    case 7: self = .filesystem
     default: self = .UNRECOGNIZED(rawValue)
     }
   }
@@ -79,6 +81,7 @@ public nonisolated enum Com_Apple_Containerization_Sandbox_V3_StatCategory: Swif
     case .blockIo: return 4
     case .network: return 5
     case .memoryEvents: return 6
+    case .filesystem: return 7
     case .UNRECOGNIZED(let i): return i
     }
   }
@@ -92,6 +95,7 @@ public nonisolated enum Com_Apple_Containerization_Sandbox_V3_StatCategory: Swif
     .blockIo,
     .network,
     .memoryEvents,
+    .filesystem,
   ]
 
 }
@@ -1595,6 +1599,15 @@ public nonisolated struct Com_Apple_Containerization_Sandbox_V3_ContainerStats: 
   /// Clears the value of `memoryEvents`. Subsequent reads from it will return its default value.
   public mutating func clearMemoryEvents() {_uniqueStorage()._memoryEvents = nil}
 
+  public var filesystem: Com_Apple_Containerization_Sandbox_V3_FilesystemStats {
+    get {_storage._filesystem ?? Com_Apple_Containerization_Sandbox_V3_FilesystemStats()}
+    set {_uniqueStorage()._filesystem = newValue}
+  }
+  /// Returns true if `filesystem` has been explicitly set.
+  public var hasFilesystem: Bool {_storage._filesystem != nil}
+  /// Clears the value of `filesystem`. Subsequent reads from it will return its default value.
+  public mutating func clearFilesystem() {_uniqueStorage()._filesystem = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -1768,12 +1781,29 @@ public nonisolated struct Com_Apple_Containerization_Sandbox_V3_MemoryEventStats
   public init() {}
 }
 
+/// Filesystem occupancy for a container's writable rootfs mount, from statfs(2).
+public nonisolated struct Com_Apple_Containerization_Sandbox_V3_FilesystemStats: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// Bytes currently used on the filesystem (f_blocks - f_bfree) * f_frsize.
+  public var usedBytes: UInt64 = 0
+
+  /// Inodes currently used on the filesystem (f_files - f_ffree).
+  public var inodesUsed: UInt64 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
 fileprivate nonisolated let _protobuf_package = "com.apple.containerization.sandbox.v3"
 
 nonisolated extension Com_Apple_Containerization_Sandbox_V3_StatCategory: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0STAT_CATEGORY_UNSPECIFIED\0\u{1}STAT_CATEGORY_PROCESS\0\u{1}STAT_CATEGORY_MEMORY\0\u{1}STAT_CATEGORY_CPU\0\u{1}STAT_CATEGORY_BLOCK_IO\0\u{1}STAT_CATEGORY_NETWORK\0\u{1}STAT_CATEGORY_MEMORY_EVENTS\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0STAT_CATEGORY_UNSPECIFIED\0\u{1}STAT_CATEGORY_PROCESS\0\u{1}STAT_CATEGORY_MEMORY\0\u{1}STAT_CATEGORY_CPU\0\u{1}STAT_CATEGORY_BLOCK_IO\0\u{1}STAT_CATEGORY_NETWORK\0\u{1}STAT_CATEGORY_MEMORY_EVENTS\0\u{1}STAT_CATEGORY_FILESYSTEM\0")
 }
 
 nonisolated extension Com_Apple_Containerization_Sandbox_V3_Stdio: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
@@ -4232,7 +4262,7 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsR
 
 nonisolated extension Com_Apple_Containerization_Sandbox_V3_ContainerStats: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ContainerStats"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}container_id\0\u{1}process\0\u{1}memory\0\u{1}cpu\0\u{3}block_io\0\u{1}networks\0\u{3}memory_events\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}container_id\0\u{1}process\0\u{1}memory\0\u{1}cpu\0\u{3}block_io\0\u{1}networks\0\u{3}memory_events\0\u{1}filesystem\0")
 
   fileprivate class _StorageClass {
     var _containerID: String = String()
@@ -4242,6 +4272,7 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_ContainerStats: Swif
     var _blockIo: Com_Apple_Containerization_Sandbox_V3_BlockIOStats? = nil
     var _networks: [Com_Apple_Containerization_Sandbox_V3_NetworkStats] = []
     var _memoryEvents: Com_Apple_Containerization_Sandbox_V3_MemoryEventStats? = nil
+    var _filesystem: Com_Apple_Containerization_Sandbox_V3_FilesystemStats? = nil
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -4259,6 +4290,7 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_ContainerStats: Swif
       _blockIo = source._blockIo
       _networks = source._networks
       _memoryEvents = source._memoryEvents
+      _filesystem = source._filesystem
     }
   }
 
@@ -4284,6 +4316,7 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_ContainerStats: Swif
         case 5: try { try decoder.decodeSingularMessageField(value: &_storage._blockIo) }()
         case 6: try { try decoder.decodeRepeatedMessageField(value: &_storage._networks) }()
         case 7: try { try decoder.decodeSingularMessageField(value: &_storage._memoryEvents) }()
+        case 8: try { try decoder.decodeSingularMessageField(value: &_storage._filesystem) }()
         default: break
         }
       }
@@ -4317,6 +4350,9 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_ContainerStats: Swif
       try { if let v = _storage._memoryEvents {
         try visitor.visitSingularMessageField(value: v, fieldNumber: 7)
       } }()
+      try { if let v = _storage._filesystem {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 8)
+      } }()
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -4333,6 +4369,7 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_ContainerStats: Swif
         if _storage._blockIo != rhs_storage._blockIo {return false}
         if _storage._networks != rhs_storage._networks {return false}
         if _storage._memoryEvents != rhs_storage._memoryEvents {return false}
+        if _storage._filesystem != rhs_storage._filesystem {return false}
         return true
       }
       if !storagesAreEqual {return false}
@@ -4732,6 +4769,41 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_MemoryEventStats: Sw
     if lhs.oom != rhs.oom {return false}
     if lhs.oomKill != rhs.oomKill {return false}
     if lhs.oomGroupKill != rhs.oomGroupKill {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Com_Apple_Containerization_Sandbox_V3_FilesystemStats: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".FilesystemStats"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}used_bytes\0\u{3}inodes_used\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt64Field(value: &self.usedBytes) }()
+      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.inodesUsed) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.usedBytes != 0 {
+      try visitor.visitSingularUInt64Field(value: self.usedBytes, fieldNumber: 1)
+    }
+    if self.inodesUsed != 0 {
+      try visitor.visitSingularUInt64Field(value: self.inodesUsed, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_FilesystemStats, rhs: Com_Apple_Containerization_Sandbox_V3_FilesystemStats) -> Bool {
+    if lhs.usedBytes != rhs.usedBytes {return false}
+    if lhs.inodesUsed != rhs.inodesUsed {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

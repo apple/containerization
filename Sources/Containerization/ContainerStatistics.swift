@@ -23,6 +23,7 @@ public struct ContainerStatistics: Sendable {
     public var blockIO: BlockIOStatistics?
     public var networks: [NetworkStatistics]?
     public var memoryEvents: MemoryEventStatistics?
+    public var filesystem: FilesystemStatistics?
 
     public init(
         id: String,
@@ -31,7 +32,8 @@ public struct ContainerStatistics: Sendable {
         cpu: CPUStatistics? = nil,
         blockIO: BlockIOStatistics? = nil,
         networks: [NetworkStatistics]? = nil,
-        memoryEvents: MemoryEventStatistics? = nil
+        memoryEvents: MemoryEventStatistics? = nil,
+        filesystem: FilesystemStatistics? = nil
     ) {
         self.id = id
         self.process = process
@@ -40,6 +42,7 @@ public struct ContainerStatistics: Sendable {
         self.blockIO = blockIO
         self.networks = networks
         self.memoryEvents = memoryEvents
+        self.filesystem = filesystem
     }
 
     /// Process statistics for a container.
@@ -220,6 +223,17 @@ public struct ContainerStatistics: Sendable {
             self.oomKill = oomKill
         }
     }
+
+    /// Filesystem occupancy for a container's writable rootfs mount.
+    public struct FilesystemStatistics: Sendable {
+        public var usedBytes: UInt64
+        public var inodesUsed: UInt64
+
+        public init(usedBytes: UInt64, inodesUsed: UInt64) {
+            self.usedBytes = usedBytes
+            self.inodesUsed = inodesUsed
+        }
+    }
 }
 
 /// Categories of statistics that can be requested.
@@ -242,7 +256,9 @@ public struct StatCategory: OptionSet, Sendable {
     public static let network = StatCategory(rawValue: 1 << 4)
     /// Memory event counters (OOM kills, pressure events, etc.).
     public static let memoryEvents = StatCategory(rawValue: 1 << 5)
+    /// Filesystem occupancy statistics.
+    public static let filesystem = StatCategory(rawValue: 1 << 6)
 
     /// All available statistics categories.
-    public static let all: StatCategory = [.process, .memory, .cpu, .blockIO, .network, .memoryEvents]
+    public static let all: StatCategory = [.process, .memory, .cpu, .blockIO, .network, .memoryEvents, .filesystem]
 }

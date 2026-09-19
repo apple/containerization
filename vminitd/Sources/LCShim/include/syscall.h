@@ -104,4 +104,18 @@ int CZ_pidfd_getfd(int pidfd, int targetfd, unsigned int flags);
 
 int CZ_prctl_set_no_new_privs();
 
+// Mirrors the fields of struct statfs needed to compute filesystem usage.
+// struct statfs itself isn't reliably importable from Swift across all
+// target architectures via the Musl/Glibc modulemaps, so this wraps
+// statfs(2) and copies out only the plain-integer fields callers need.
+typedef struct {
+    unsigned long long f_blocks;
+    unsigned long long f_bfree;
+    unsigned long long f_bsize;
+    unsigned long long f_files;
+    unsigned long long f_ffree;
+} CZ_Statfs;
+
+int CZ_statfs(const char *path, CZ_Statfs *out);
+
 #endif

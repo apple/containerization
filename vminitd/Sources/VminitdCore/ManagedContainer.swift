@@ -21,6 +21,7 @@ import ContainerizationError
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
+import LCShim
 import Logging
 
 public actor ManagedContainer {
@@ -237,6 +238,19 @@ extension ManagedContainer {
 
     func getMemoryEvents() throws -> MemoryEvents {
         try self.cgroupManager.getMemoryEvents()
+    }
+
+    func filesystemStats() throws -> (usedBytes: UInt64, inodesUsed: UInt64) {
+        var s = CZ_Statfs()
+        guard CZ_statfs(self.bundle.rootfsPath.path, &s) == 0 else {
+            throw ContainerizationError(
+                .internalError,
+                message: "statfs(\(self.bundle.rootfsPath.path)) failed: errno \(errno)"
+            )
+        }
+        let usedBytes = (s.f_blocks - s.f_bfree) * s.f_bsize
+        let inodesUsed = s.f_files - s.f_ffree
+        return (usedBytes, inodesUsed)
     }
 
     func getExecOrInit(execID: String) throws -> any ContainerProcess {
