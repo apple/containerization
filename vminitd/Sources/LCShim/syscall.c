@@ -18,6 +18,8 @@
 #include <sys/prctl.h>
 #include <sys/resource.h>
 #include <sys/syscall.h>
+#include <signal.h>
+#include <stdint.h>
 #include <unistd.h>
 
 #include "syscall.h"
@@ -36,6 +38,38 @@ int CZ_pidfd_open(pid_t pid, unsigned int flags) {
 int CZ_pidfd_getfd(int pidfd, int targetfd, unsigned int flags) {
   // Musl doesn't have pidfd_getfd.
   return syscall(SYS_pidfd_getfd, pidfd, targetfd, flags);
+}
+
+#ifndef SYS_clone3
+#define SYS_clone3 435
+#endif
+
+#ifndef CLONE_INTO_CGROUP
+#define CLONE_INTO_CGROUP 0x200000000ULL
+#endif
+
+// Keep this layout in sync with Linux's struct clone_args. Defining the
+// syscall ABI locally avoids relying on a particular userspace header age.
+struct cz_clone_args {
+  uint64_t flags;
+  uint64_t pidfd;
+  uint64_t child_tid;
+  uint64_t parent_tid;
+  uint64_t exit_signal;
+  uint64_t stack;
+  uint64_t stack_size;
+  uint64_t tls;
+  uint64_t set_tid;
+  uint64_t set_tid_size;
+  uint64_t cgroup;
+};
+
+pid_t CZ_clone_into_cgroup(int cgroup_fd) {
+  struct cz_clone_args args = {0};
+  args.flags = CLONE_INTO_CGROUP;
+  args.exit_signal = SIGCHLD;
+  args.cgroup = (uint64_t)cgroup_fd;
+  return (pid_t)syscall(SYS_clone3, &args, sizeof(args));
 }
 
 int CZ_prctl_set_no_new_privs() {
