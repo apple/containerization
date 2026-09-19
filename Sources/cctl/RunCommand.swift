@@ -441,18 +441,9 @@ extension Application {
         var arguments: [String] = []
 
         func run() async throws {
-            #if arch(arm64)
-            let kernelPlatform = SystemPlatform.linuxArm
-            #elseif arch(x86_64)
-            let kernelPlatform = SystemPlatform.linuxAmd
-            #else
-            #error("unsupported host architecture for `cctl run` (expected arm64 or x86_64)")
-            #endif
-            let imagePlatform = Platform.current
-
             let kernelObj = Kernel(
                 path: URL(fileURLWithPath: kernel),
-                platform: kernelPlatform
+                platform: .linuxHost
             )
 
             // Wire up the host TTY when there is one. `Terminal.current` walks
@@ -466,9 +457,6 @@ extension Application {
             defer { hostTerminal?.tryReset() }
             let sigwinchStream = AsyncSignalHandler.create(notify: [SIGWINCH])
 
-            // Pull the container image and unpack to a per-container ext4 (same
-            // shape as ContainerManager.unpack on macOS: reuse the existing
-            // rootfs.ext4 if it's already there, fresh-unpack otherwise).
             let imageStore = Application.imageStore
             let reference = try Reference.parse(imageReference)
             reference.normalize()
@@ -478,28 +466,6 @@ extension Application {
             }
             let image = try await imageStore.get(reference: normalizedRef, pull: true)
 
-            let containersRoot = Application.appRoot
-                .appendingPathComponent("containers")
-                .appendingPathComponent(id)
-            try FileManager.default.createDirectory(at: containersRoot, withIntermediateDirectories: true)
-            let rootfsPath = containersRoot.appendingPathComponent("rootfs.ext4")
-
-            var rootfsMount: Containerization.Mount
-            do {
-                let unpacker = EXT4Unpacker(capacityInBytes: fsSizeInMB.mib())
-                rootfsMount = try await unpacker.unpack(image, for: imagePlatform, at: rootfsPath)
-            } catch let err as ContainerizationError where err.code == .exists {
-                rootfsMount = .block(
-                    format: "ext4",
-                    source: rootfsPath.absolutePath(),
-                    destination: "/",
-                    options: []
-                )
-            }
-            if readOnly {
-                rootfsMount.options.append("ro")
-            }
-
             let initfsMount = Mount.block(
                 format: "ext4",
                 source: initfs,
@@ -507,42 +473,16 @@ extension Application {
                 options: ["ro"]
             )
 
-            let manager = try CHVirtualMachineManager(
-                kernel: kernelObj,
-                initialFilesystem: initfsMount,
-                chBinary: chBinary.map { URL(fileURLWithPath: $0) },
-                virtiofsdBinary: virtiofsdBinary.map { URL(fileURLWithPath: $0) },
-                logger: log
-            )
-
-            // Seed process config from the image (entrypoint, env, cwd, user),
-            // then layer user-provided overrides on top — same precedence as
-            // ContainerManager + macOS Run.
-            let imageConfig = try await image.config(for: imagePlatform).config
-            var processConfig = LinuxProcessConfiguration()
-            if let imageConfig {
-                processConfig = .init(from: imageConfig)
-            }
-            processConfig.arguments = try Application.resolveProcessArguments(
-                arguments: arguments,
-                entrypointOverride: entrypointOverride,
-                imageConfig: imageConfig,
-                imageReference: imageReference
-            )
-            processConfig.workingDirectory = cwd
-            if let hostTerminal {
-                processConfig.setTerminalIO(terminal: hostTerminal)
-            }
-
-            var interfaces: [any Interface] = []
-            var dnsConfig: DNS? = nil
-            var hostsConfig: Hosts? = nil
-
+            // The bridge and its NAT rules are the caller's to create and tear
+            // down (`cctl bridge create|delete`). LinuxBridgedNetwork only owns
+            // the per-container TAP, which ContainerManager allocates and
+            // releases along with the rest of the container's state.
+            var network: (any Network)? = nil
             if !noNetwork {
                 let subnetCIDR = try CIDRv4(subnet)
                 let gw = try bridgeGateway.map { try IPv4Address($0) }
 
-                let mgr = BridgeManager(
+                let bridgeManager = BridgeManager(
                     name: bridge,
                     subnet: subnetCIDR,
                     gateway: gw,
@@ -551,59 +491,72 @@ extension Application {
                     enableNAT: enableNAT,
                     logger: log
                 )
-                try mgr.create()
+                try bridgeManager.create()
 
-                var network = try LinuxBridgedNetwork(
+                network = try LinuxBridgedNetwork(
                     subnet: subnetCIDR,
                     gateway: gw,
                     bridge: bridge,
                     mtu: 1500
                 )
-                if let iface = try network.createInterface(id) {
-                    interfaces.append(iface)
-
-                    var h = Hosts.default
-                    h.entries.append(
-                        .init(
-                            ipAddress: iface.ipv4Address.address.description,
-                            hostnames: [id]
-                        ))
-                    hostsConfig = h
-
-                    let resolved =
-                        nameservers.isEmpty
-                        ? Self.readHostNameservers()
-                        : nameservers
-                    dnsConfig = DNS(nameservers: resolved)
-                }
             }
 
-            let cpusCount = cpus
-            let memoryBytes = memory.mib()
-            let networkInterfaces = interfaces
-            let useInit = self.`init`
-            let extraMounts = self.mounts
-            let extraBlocks = self.blocks
-            let extraCaps = self.capAdd
-            let runtimePath = self.ociRuntimePath
-            let dns = dnsConfig
-            let hosts = hostsConfig
-
-            let container = try LinuxContainer(
-                id,
-                rootfs: rootfsMount,
-                vmm: manager,
+            var manager = try ContainerManager(
+                kernel: kernelObj,
+                initfs: initfsMount,
+                imageStore: imageStore,
+                network: network,
+                chBinary: chBinary.map { URL(fileURLWithPath: $0) },
+                virtiofsdBinary: virtiofsdBinary.map { URL(fileURLWithPath: $0) },
                 logger: log
-            ) { config in
-                config.process = processConfig
-                config.cpus = cpusCount
-                config.memoryInBytes = memoryBytes
-                config.interfaces = networkInterfaces
-                config.useInit = useInit
-                if let dns { config.dns = dns }
-                if let hosts { config.hosts = hosts }
+            )
+            defer {
+                try? manager.delete(id)
+            }
 
-                for mount in extraMounts {
+            let imageConfig = try await image.config(for: Platform.current).config
+            let processArguments = try Application.resolveProcessArguments(
+                arguments: arguments,
+                entrypointOverride: entrypointOverride,
+                imageConfig: imageConfig,
+                imageReference: imageReference
+            )
+
+            let container = try await manager.create(
+                id,
+                image: image,
+                rootfsSizeInBytes: fsSizeInMB.mib(),
+                readOnly: readOnly,
+                networking: !noNetwork
+            ) { config in
+                config.cpus = self.cpus
+                config.memoryInBytes = self.memory.mib()
+                config.process.arguments = processArguments
+                config.process.workingDirectory = self.cwd
+                if let hostTerminal {
+                    config.process.setTerminalIO(terminal: hostTerminal)
+                }
+                config.useInit = self.`init`
+
+                if let interface = config.interfaces.first {
+                    var hosts = Hosts.default
+                    hosts.entries.append(
+                        .init(
+                            ipAddress: interface.ipv4Address.address.description,
+                            hostnames: [self.id]
+                        ))
+                    config.hosts = hosts
+
+                    // ContainerManager points DNS at the gateway; cctl prefers
+                    // --ns, falling back to the host resolver.
+                    let resolved =
+                        self.nameservers.isEmpty
+                        ? Self.readHostNameservers()
+                        : self.nameservers
+                    config.dns = DNS(nameservers: resolved)
+                }
+
+                for mount in self.mounts {
                     let paths = mount.split(separator: ":")
                     if paths.count != 2 {
                         throw ContainerizationError(
@@ -616,18 +569,18 @@ extension Application {
                     )
                 }
 
-                if let runtimePath {
-                    config.ociRuntimePath = runtimePath
+                if let ociRuntimePath = self.ociRuntimePath {
+                    config.ociRuntimePath = ociRuntimePath
                     config.mounts = LinuxContainer.defaultOCIMounts()
                 }
 
                 // Appended after the OCI reset above, which replaces
                 // config.mounts wholesale.
-                config.mounts.append(contentsOf: extraBlocks)
+                config.mounts.append(contentsOf: self.blocks)
 
-                if !extraCaps.isEmpty {
+                if !self.capAdd.isEmpty {
                     var caps = LinuxCapabilities.defaultOCICapabilities
-                    for cap in extraCaps {
+                    for cap in self.capAdd {
                         caps.bounding.append(cap)
                         caps.effective.append(cap)
                         caps.permitted.append(cap)

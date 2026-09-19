@@ -14,9 +14,6 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-#if os(macOS)
-
-import Containerization
 import ContainerizationArchive
 import ContainerizationError
 import ContainerizationExtras
@@ -43,6 +40,14 @@ private struct NilGatewayNetwork: Network {
     mutating func releaseInterface(_ id: String) throws {}
 }
 
+/// A VMM that cannot boot. `ContainerManager.create` only builds a
+/// `LinuxContainer`, so nothing here is ever called.
+private struct UnbootableVirtualMachineManager: VirtualMachineManager {
+    func create(config: some VMCreationConfig) async throws -> any VirtualMachineInstance {
+        throw ContainerizationError(.unsupported, message: "test VMM cannot boot")
+    }
+}
+
 @Suite
 struct ContainerManagerTests {
     @Test func testCreateThrowsWhenGatewayMissing() async throws {
@@ -50,17 +55,8 @@ struct ContainerManagerTests {
         let root = fm.uniqueTemporaryDirectory(create: true)
         defer { try? fm.removeItem(at: root) }
 
-        let kernelPath = root.appendingPathComponent("vmlinux")
-        fm.createFile(atPath: kernelPath.path, contents: Data(), attributes: nil)
-        let initfsPath = root.appendingPathComponent("initfs.ext4")
-        fm.createFile(atPath: initfsPath.path, contents: Data(), attributes: nil)
-
-        let kernel = Kernel(path: kernelPath, platform: .linuxArm)
-        let initfs = Mount.block(format: "ext4", source: initfsPath.path, destination: "/")
-
         var manager = try ContainerManager(
-            kernel: kernel,
-            initfs: initfs,
+            vmm: UnbootableVirtualMachineManager(),
             root: root,
             network: NilGatewayNetwork()
         )
@@ -77,7 +73,7 @@ struct ContainerManagerTests {
         let image = images.first!
 
         let rootfsPath = root.appendingPathComponent("rootfs.ext4")
-        fm.createFile(atPath: rootfsPath.path, contents: Data(), attributes: nil)
+        _ = fm.createFile(atPath: rootfsPath.path, contents: Data(), attributes: nil)
         let rootfs = Mount.block(format: "ext4", source: rootfsPath.path, destination: "/")
 
         do {
@@ -96,19 +92,10 @@ struct ContainerManagerTests {
         let root = fm.uniqueTemporaryDirectory(create: true)
         defer { try? fm.removeItem(at: root) }
 
-        let kernelPath = root.appendingPathComponent("vmlinux")
-        fm.createFile(atPath: kernelPath.path, contents: Data(), attributes: nil)
-        let initfsPath = root.appendingPathComponent("initfs.ext4")
-        fm.createFile(atPath: initfsPath.path, contents: Data(), attributes: nil)
-
-        let kernel = Kernel(path: kernelPath, platform: .linuxArm)
-        let initfs = Mount.block(format: "ext4", source: initfsPath.path, destination: "/")
-
         // Use NilGatewayNetwork — with networking: true this would throw invalidState,
         // but with networking: false the network's createInterface() is never called.
         var manager = try ContainerManager(
-            kernel: kernel,
-            initfs: initfs,
+            vmm: UnbootableVirtualMachineManager(),
             root: root,
             network: NilGatewayNetwork()
         )
@@ -125,7 +112,7 @@ struct ContainerManagerTests {
         let image = images.first!
 
         let rootfsPath = root.appendingPathComponent("rootfs.ext4")
-        fm.createFile(atPath: rootfsPath.path, contents: Data(), attributes: nil)
+        _ = fm.createFile(atPath: rootfsPath.path, contents: Data(), attributes: nil)
         let rootfs = Mount.block(format: "ext4", source: rootfsPath.path, destination: "/")
 
         // With networking: false, NilGatewayNetwork.createInterface() is never called,
@@ -153,5 +140,3 @@ struct ContainerManagerTests {
         #expect(closureWasCalled, "configuration closure must be invoked to validate interfaces")
     }
 }
-
-#endif

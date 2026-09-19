@@ -14,20 +14,21 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-#if os(macOS)
-
-import ContainerizationError
 import ContainerizationEXT4
+import ContainerizationError
+import ContainerizationExtras
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
 import Logging
-import ContainerizationExtras
 import SystemPackage
-import Virtualization
 
 /// A manager for creating and running containers.
 /// Supports container networking options.
+///
+/// The VMM-agnostic surface is cross-platform; the convenience initializers
+/// that build a VMM for you are per-platform (`Virtualization.framework` on
+/// macOS, `cloud-hypervisor` on Linux).
 public struct ContainerManager: Sendable {
     public let imageStore: ImageStore
     private let vmm: VirtualMachineManager
@@ -38,162 +39,34 @@ public struct ContainerManager: Sendable {
         self.imageStore.path.appendingPathComponent("containers")
     }
 
-    /// Create a new manager with the provided kernel, initfs mount, image store
-    /// and optional network implementation. This will use a Virtualization.framework
-    /// backed VMM implicitly.
-    public init(
-        kernel: Kernel,
-        initfs: Mount,
-        imageStore: ImageStore,
-        network: Network? = nil,
-        rosetta: Bool = false,
-        nestedVirtualization: Bool = false,
-        logger: Logger? = nil
-    ) throws {
-        self.imageStore = imageStore
-        self.network = network
-        self.logger = logger
-        try Self.createRootDirectory(path: self.imageStore.path)
-        self.vmm = VZVirtualMachineManager(
-            kernel: kernel,
-            initialFilesystem: initfs,
-            rosetta: rosetta,
-            nestedVirtualization: nestedVirtualization,
-            logger: logger
-        )
-    }
-
-    /// Create a new manager with the provided kernel, initfs mount, root state
-    /// directory and optional network implementation. This will use a Virtualization.framework
-    /// backed VMM implicitly.
-    public init(
-        kernel: Kernel,
-        initfs: Mount,
-        root: URL? = nil,
-        network: Network? = nil,
-        rosetta: Bool = false,
-        nestedVirtualization: Bool = false,
-        logger: Logger? = nil
-    ) throws {
-        if let root {
-            self.imageStore = try ImageStore(path: root)
-        } else {
-            self.imageStore = ImageStore.default
-        }
-        self.network = network
-        self.logger = logger
-        try Self.createRootDirectory(path: self.imageStore.path)
-        self.vmm = VZVirtualMachineManager(
-            kernel: kernel,
-            initialFilesystem: initfs,
-            rosetta: rosetta,
-            nestedVirtualization: nestedVirtualization,
-            logger: logger
-        )
-    }
-
-    /// Create a new manager with the provided kernel, initfs reference, image store
-    /// and optional network implementation. This will use a Virtualization.framework
-    /// backed VMM implicitly.
-    public init(
-        kernel: Kernel,
-        initfsReference: String,
-        imageStore: ImageStore,
-        network: Network? = nil,
-        rosetta: Bool = false,
-        nestedVirtualization: Bool = false,
-        logger: Logger? = nil
-    ) async throws {
-        self.imageStore = imageStore
-        self.network = network
-        self.logger = logger
-        try Self.createRootDirectory(path: self.imageStore.path)
-
-        let initPath = self.imageStore.path.appendingPathComponent("initfs.ext4")
-        let initImage = try await self.imageStore.getInitImage(reference: initfsReference)
-        let initfs = try await {
-            do {
-                return try await initImage.initBlock(at: initPath, for: .linuxArm)
-            } catch let err as ContainerizationError {
-                guard err.code == .exists else {
-                    throw err
-                }
-                return .block(
-                    format: "ext4",
-                    source: initPath.absolutePath(),
-                    destination: "/",
-                    options: ["ro"]
-                )
-            }
-        }()
-
-        self.vmm = VZVirtualMachineManager(
-            kernel: kernel,
-            initialFilesystem: initfs,
-            rosetta: rosetta,
-            nestedVirtualization: nestedVirtualization,
-            logger: logger
-        )
-    }
-
-    /// Create a new manager with the provided kernel and image reference for the initfs.
-    /// This will use a Virtualization.framework backed VMM implicitly.
-    public init(
-        kernel: Kernel,
-        initfsReference: String,
-        root: URL? = nil,
-        network: Network? = nil,
-        rosetta: Bool = false,
-        nestedVirtualization: Bool = false,
-        logger: Logger? = nil
-    ) async throws {
-        if let root {
-            self.imageStore = try ImageStore(path: root)
-        } else {
-            self.imageStore = ImageStore.default
-        }
-        self.network = network
-        self.logger = logger
-        try Self.createRootDirectory(path: self.imageStore.path)
-
-        let initPath = self.imageStore.path.appendingPathComponent("initfs.ext4")
-        let initImage = try await self.imageStore.getInitImage(reference: initfsReference)
-        let initfs = try await {
-            do {
-                return try await initImage.initBlock(at: initPath, for: .linuxArm)
-            } catch let err as ContainerizationError {
-                guard err.code == .exists else {
-                    throw err
-                }
-                return .block(
-                    format: "ext4",
-                    source: initPath.absolutePath(),
-                    destination: "/",
-                    options: ["ro"]
-                )
-            }
-        }()
-
-        self.vmm = VZVirtualMachineManager(
-            kernel: kernel,
-            initialFilesystem: initfs,
-            rosetta: rosetta,
-            nestedVirtualization: nestedVirtualization,
-            logger: logger
-        )
-    }
-
-    /// Create a new manager with the provided vmm and network.
+    /// Create a new manager with the provided vmm, image store and network.
     public init(
         vmm: any VirtualMachineManager,
+        imageStore: ImageStore,
         network: Network? = nil,
         logger: Logger? = nil
     ) throws {
-        self.imageStore = ImageStore.default
-        try Self.createRootDirectory(path: self.imageStore.path)
+        self.imageStore = imageStore
         self.network = network
         self.vmm = vmm
         self.logger = logger
+        try Self.createRootDirectory(path: imageStore.path)
+    }
+
+    /// Create a new manager with the provided vmm and network, using the image
+    /// store rooted at `root`, or the default store when `root` is nil.
+    public init(
+        vmm: any VirtualMachineManager,
+        root: URL? = nil,
+        network: Network? = nil,
+        logger: Logger? = nil
+    ) throws {
+        try self.init(
+            vmm: vmm,
+            imageStore: Self.resolveImageStore(at: root),
+            network: network,
+            logger: logger
+        )
     }
 
     private static func createRootDirectory(path: URL) throws {
@@ -201,6 +74,34 @@ public struct ContainerManager: Sendable {
             at: path.appendingPathComponent("containers"),
             withIntermediateDirectories: true
         )
+    }
+
+    /// Returns the image store at `root`, or the default store when nil.
+    fileprivate static func resolveImageStore(at root: URL?) throws -> ImageStore {
+        guard let root else {
+            return ImageStore.default
+        }
+        return try ImageStore(path: root)
+    }
+
+    /// Unpacks the init image for the host architecture into the image store,
+    /// reusing the existing block if one is already present.
+    fileprivate static func initfsBlock(reference: String, imageStore: ImageStore) async throws -> Mount {
+        let initPath = imageStore.path.appendingPathComponent("initfs.ext4")
+        let initImage = try await imageStore.getInitImage(reference: reference)
+        do {
+            return try await initImage.initBlock(at: initPath, for: .linuxHost)
+        } catch let err as ContainerizationError {
+            guard err.code == .exists else {
+                throw err
+            }
+            return .block(
+                format: "ext4",
+                source: initPath.absolutePath(),
+                destination: "/",
+                options: ["ro"]
+            )
+        }
     }
 
     /// Returns a new container from the provided image reference.
@@ -351,6 +252,8 @@ public struct ContainerManager: Sendable {
         try FileManager.default.removeItem(at: path)
     }
 
+    /// Creates the per-container state directory. Fails if one already exists,
+    /// so a duplicate container ID is an error rather than a silent reuse.
     private func createContainerRoot(_ id: String) throws -> URL {
         let path = containerRoot.appendingPathComponent(id)
         try FileManager.default.createDirectory(at: path, withIntermediateDirectories: false)
@@ -358,20 +261,8 @@ public struct ContainerManager: Sendable {
     }
 
     private func unpack(image: Image, destination: URL, size: UInt64, progress: ProgressHandler? = nil) async throws -> Mount {
-        do {
-            let unpacker = EXT4Unpacker(capacityInBytes: size)
-            return try await unpacker.unpack(image, for: .current, at: destination, progress: progress)
-        } catch let err as ContainerizationError {
-            if err.code == .exists {
-                return .block(
-                    format: "ext4",
-                    source: destination.absolutePath(),
-                    destination: "/",
-                    options: []
-                )
-            }
-            throw err
-        }
+        let unpacker = EXT4Unpacker(capacityInBytes: size)
+        return try await unpacker.unpack(image, for: .current, at: destination, progress: progress)
     }
 
     private func createEmptyFilesystem(at destination: URL, size: UInt64) throws -> Mount {
@@ -390,10 +281,212 @@ public struct ContainerManager: Sendable {
     }
 }
 
-extension CIDRv6 {
-    /// The gateway address of the network.
-    public var gateway: IPv6Address {
-        IPv6Address(self.lower.value + 1)
+#if os(macOS)
+
+extension ContainerManager {
+    /// Create a new manager with the provided kernel, initfs mount, image store
+    /// and optional network implementation. This will use a Virtualization.framework
+    /// backed VMM implicitly.
+    public init(
+        kernel: Kernel,
+        initfs: Mount,
+        imageStore: ImageStore,
+        network: Network? = nil,
+        rosetta: Bool = false,
+        nestedVirtualization: Bool = false,
+        logger: Logger? = nil
+    ) throws {
+        try self.init(
+            vmm: VZVirtualMachineManager(
+                kernel: kernel,
+                initialFilesystem: initfs,
+                rosetta: rosetta,
+                nestedVirtualization: nestedVirtualization,
+                logger: logger
+            ),
+            imageStore: imageStore,
+            network: network,
+            logger: logger
+        )
+    }
+
+    /// Create a new manager with the provided kernel, initfs mount, root state
+    /// directory and optional network implementation. This will use a Virtualization.framework
+    /// backed VMM implicitly.
+    public init(
+        kernel: Kernel,
+        initfs: Mount,
+        root: URL? = nil,
+        network: Network? = nil,
+        rosetta: Bool = false,
+        nestedVirtualization: Bool = false,
+        logger: Logger? = nil
+    ) throws {
+        try self.init(
+            kernel: kernel,
+            initfs: initfs,
+            imageStore: Self.resolveImageStore(at: root),
+            network: network,
+            rosetta: rosetta,
+            nestedVirtualization: nestedVirtualization,
+            logger: logger
+        )
+    }
+
+    /// Create a new manager with the provided kernel, initfs reference, image store
+    /// and optional network implementation. This will use a Virtualization.framework
+    /// backed VMM implicitly.
+    public init(
+        kernel: Kernel,
+        initfsReference: String,
+        imageStore: ImageStore,
+        network: Network? = nil,
+        rosetta: Bool = false,
+        nestedVirtualization: Bool = false,
+        logger: Logger? = nil
+    ) async throws {
+        try self.init(
+            kernel: kernel,
+            initfs: await Self.initfsBlock(reference: initfsReference, imageStore: imageStore),
+            imageStore: imageStore,
+            network: network,
+            rosetta: rosetta,
+            nestedVirtualization: nestedVirtualization,
+            logger: logger
+        )
+    }
+
+    /// Create a new manager with the provided kernel and image reference for the initfs.
+    /// This will use a Virtualization.framework backed VMM implicitly.
+    public init(
+        kernel: Kernel,
+        initfsReference: String,
+        root: URL? = nil,
+        network: Network? = nil,
+        rosetta: Bool = false,
+        nestedVirtualization: Bool = false,
+        logger: Logger? = nil
+    ) async throws {
+        try await self.init(
+            kernel: kernel,
+            initfsReference: initfsReference,
+            imageStore: Self.resolveImageStore(at: root),
+            network: network,
+            rosetta: rosetta,
+            nestedVirtualization: nestedVirtualization,
+            logger: logger
+        )
+    }
+}
+
+#endif
+
+#if os(Linux)
+
+extension ContainerManager {
+    /// Create a new manager with the provided kernel, initfs mount, image store
+    /// and optional network implementation. This will use a cloud-hypervisor
+    /// backed VMM implicitly.
+    ///
+    /// `chBinary` and `virtiofsdBinary` default to a `PATH` lookup, and
+    /// `runtimeRoot` to `/run/containerization/ch`.
+    public init(
+        kernel: Kernel,
+        initfs: Mount,
+        imageStore: ImageStore,
+        network: Network? = nil,
+        chBinary: URL? = nil,
+        virtiofsdBinary: URL? = nil,
+        runtimeRoot: URL? = nil,
+        logger: Logger? = nil
+    ) throws {
+        try self.init(
+            vmm: CHVirtualMachineManager(
+                kernel: kernel,
+                initialFilesystem: initfs,
+                chBinary: chBinary,
+                virtiofsdBinary: virtiofsdBinary,
+                runtimeRoot: runtimeRoot,
+                logger: logger
+            ),
+            imageStore: imageStore,
+            network: network,
+            logger: logger
+        )
+    }
+
+    /// Create a new manager with the provided kernel, initfs mount, root state
+    /// directory and optional network implementation. This will use a
+    /// cloud-hypervisor backed VMM implicitly.
+    public init(
+        kernel: Kernel,
+        initfs: Mount,
+        root: URL? = nil,
+        network: Network? = nil,
+        chBinary: URL? = nil,
+        virtiofsdBinary: URL? = nil,
+        runtimeRoot: URL? = nil,
+        logger: Logger? = nil
+    ) throws {
+        try self.init(
+            kernel: kernel,
+            initfs: initfs,
+            imageStore: Self.resolveImageStore(at: root),
+            network: network,
+            chBinary: chBinary,
+            virtiofsdBinary: virtiofsdBinary,
+            runtimeRoot: runtimeRoot,
+            logger: logger
+        )
+    }
+
+    /// Create a new manager with the provided kernel, initfs reference, image store
+    /// and optional network implementation. This will use a cloud-hypervisor
+    /// backed VMM implicitly.
+    public init(
+        kernel: Kernel,
+        initfsReference: String,
+        imageStore: ImageStore,
+        network: Network? = nil,
+        chBinary: URL? = nil,
+        virtiofsdBinary: URL? = nil,
+        runtimeRoot: URL? = nil,
+        logger: Logger? = nil
+    ) async throws {
+        try self.init(
+            kernel: kernel,
+            initfs: await Self.initfsBlock(reference: initfsReference, imageStore: imageStore),
+            imageStore: imageStore,
+            network: network,
+            chBinary: chBinary,
+            virtiofsdBinary: virtiofsdBinary,
+            runtimeRoot: runtimeRoot,
+            logger: logger
+        )
+    }
+
+    /// Create a new manager with the provided kernel and image reference for the initfs.
+    /// This will use a cloud-hypervisor backed VMM implicitly.
+    public init(
+        kernel: Kernel,
+        initfsReference: String,
+        root: URL? = nil,
+        network: Network? = nil,
+        chBinary: URL? = nil,
+        virtiofsdBinary: URL? = nil,
+        runtimeRoot: URL? = nil,
+        logger: Logger? = nil
+    ) async throws {
+        try await self.init(
+            kernel: kernel,
+            initfsReference: initfsReference,
+            imageStore: Self.resolveImageStore(at: root),
+            network: network,
+            chBinary: chBinary,
+            virtiofsdBinary: virtiofsdBinary,
+            runtimeRoot: runtimeRoot,
+            logger: logger
+        )
     }
 }
 
