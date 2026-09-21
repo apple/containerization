@@ -2201,7 +2201,7 @@ extension IntegrationSuite {
             guard writeStatus.exitCode == 0 else {
                 throw IntegrationError.assert(msg: "write exec failed with status \(writeStatus)")
             }
-            try await pod.filesystemOperation("container1", operation: .trim, path: "/data")
+            _ = try await pod.trim("container1", paths: ["/data"])
 
             let readBuffer = BufferWriter()
             let readExec = try await pod.execInContainer("container1", processID: "read-hello") { config in
@@ -2226,7 +2226,113 @@ extension IntegrationSuite {
             _ = try await pod.waitContainer("container1")
             try await pod.stop()
         } catch {
-            try? await pod.filesystemOperation("container1", operation: .thaw, path: "/data")
+            _ = try? await pod.filesystemOperation("container1", operation: .thaw, path: "/data")
+            try? await pod.stop()
+            throw error
+        }
+    }
+
+    func testPodTrimSerializesWithContainerTeardown() async throws {
+        let id = "test-pod-trim-teardown"
+
+        let bs = try await bootstrap(id)
+
+        let diskImageURL = Self.testDir.appending(component: "\(id)-vol.ext4")
+        try? FileManager.default.removeItem(at: diskImageURL)
+        try EXT4.Formatter(FilePath(diskImageURL.absolutePath()), minDiskSize: 256.mib()).close()
+
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.bootLog = bs.bootLog
+            config.volumes = [.init(name: "disk", source: .diskImage(path: diskImageURL), format: "ext4")]
+        }
+
+        try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
+            config.process.arguments = ["/bin/sleep", "1000"]
+            config.mounts.append(.sharedMount(name: "disk", destination: "/disk"))
+        }
+
+        do {
+            try await pod.create()
+            try await pod.startContainer("container1")
+
+            // Give the trim real work, so it is holding descriptors open rather than
+            // returning immediately.
+            try await pod.sh(
+                "container1",
+                processID: "churn",
+                script: "dd if=/dev/zero of=/disk/blob bs=1M count=64 status=none && sync && rm /disk/blob && sync"
+            )
+
+            // Exercise trim and teardown contention for the pod's state lock.
+            // Both must complete without wedging the pod; this does not
+            // deterministically force overlap inside the guest.
+            async let racingTrim: UInt64 = pod.trim("container1")
+            try await pod.stopContainer("container1")
+
+            do {
+                _ = try await racingTrim
+            } catch let error as ContainerizationError where error.code == .invalidState {
+                // Teardown won the lock, so the trim declined rather than running
+                // against a container whose storage had been released.
+            }
+
+            try await pod.stop()
+        } catch {
+            try? await pod.stop()
+            throw error
+        }
+    }
+
+    func testPodTrimSkipsVolumesWithNothingToDiscard() async throws {
+        let id = "test-pod-trim"
+
+        let bs = try await bootstrap(id)
+
+        let diskImageURL = Self.testDir.appending(component: "\(id)-vol.ext4")
+        try? FileManager.default.removeItem(at: diskImageURL)
+        try EXT4.Formatter(FilePath(diskImageURL.absolutePath()), minDiskSize: 256.mib()).close()
+
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.bootLog = bs.bootLog
+            // The scratch volume has no device to discard through, so picking
+            // targets has to leave it out rather than spend a round trip
+            // discovering that.
+            config.volumes = [
+                .init(name: "disk", source: .diskImage(path: diskImageURL), format: "ext4"),
+                .init(name: "scratch", source: .tmpfs(sizeBytes: 16.mib()), format: "tmpfs"),
+            ]
+        }
+
+        try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
+            config.process.arguments = ["/bin/sleep", "1000"]
+            config.mounts += [
+                .sharedMount(name: "disk", destination: "/disk"),
+                .sharedMount(name: "scratch", destination: "/scratch"),
+            ]
+        }
+
+        do {
+            try await pod.create()
+            try await pod.startContainer("container1")
+
+            try await pod.sh("container1", processID: "churn", script: "dd if=/dev/zero of=/disk/blob bs=1M count=64 status=none && sync && rm /disk/blob && sync")
+
+            let filled = try allocatedBytes(of: diskImageURL)
+            let trimmed = try await pod.trim("container1")
+            try await pod.sh("container1", processID: "settle", script: "sync")
+
+            guard trimmed > 0 else {
+                throw IntegrationError.assert(msg: "pod trim reported no bytes discarded")
+            }
+            // A pod volume is mounted once for the pod and bound into the
+            // container, so the trim reaches it through the bind and the host's
+            // disk image is what gives the blocks back.
+            try requireReclaimed("the pod volume", before: filled, after: try allocatedBytes(of: diskImageURL))
+
+            try await pod.killContainer("container1", signal: .kill)
+            _ = try await pod.waitContainer("container1")
+            try await pod.stop()
+        } catch {
             try? await pod.stop()
             throw error
         }

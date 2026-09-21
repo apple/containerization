@@ -598,7 +598,8 @@ struct IntegrationSuite: AsyncParsableCommand {
 
                 // Filesystem operations (TODO: promote to cross-platform once verified on CH)
                 Test("container frozen ext4 clone", testFrozenExt4Clone),
-                Test("container trim ext4 clone", testTrimExt4Clone),
+                Test("container trim returns blocks to the host", testTrimReturnsBlocksToTheHost),
+                Test("container trim returns writable layer blocks to the host", testTrimReturnsWritableLayerBlocksToTheHost),
 
                 // Unix socket forwarding (dynamic vsock listen exceeds CH's prebound stdio pool)
                 Test("unix socket into guest", testUnixSocketIntoGuest),
@@ -622,6 +623,8 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("pod NBD concurrent writes", testPodNBDConcurrentWrites),
                 Test("pod NBD volume identity", testPodNBDVolumeIdentity),
                 Test("pod filesystem operation", testPodFilesystemOperation),
+                Test("pod trim skips volumes with nothing to discard", testPodTrimSkipsVolumesWithNothingToDiscard),
+                Test("pod trim serializes with container teardown", testPodTrimSerializesWithContainerTeardown),
                 Test("pod shared disk image volume", testPodSharedDiskImageVolume),
                 Test("pod shared tmpfs volume", testPodSharedTmpfsVolume),
 

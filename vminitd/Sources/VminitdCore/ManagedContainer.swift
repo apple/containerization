@@ -17,6 +17,7 @@
 #if os(Linux)
 
 import Cgroup
+import Containerization
 import ContainerizationError
 import ContainerizationOCI
 import ContainerizationOS
@@ -281,8 +282,10 @@ extension ContainerizationOCI.Bundle {
 }
 
 extension ManagedContainer {
+    /// The bundle goes in the container's runtime directory, so the `rootfs`
+    /// directory it creates is the same path the host mounts the root filesystem to.
     static func craftBundlePath(id: String) -> URL {
-        URL(fileURLWithPath: "/run/container").appending(path: id)
+        URL(fileURLWithPath: GuestLayout.runtimeDirectory(id))
     }
 
     // Container and exec ids become single path components under the bundle.

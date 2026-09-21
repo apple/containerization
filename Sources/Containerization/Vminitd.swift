@@ -224,6 +224,28 @@ extension Vminitd: VirtualMachineAgent {
             })
     }
 
+    /// Discard free blocks and return the filesystem-reported byte count.
+    /// Throws ``FilesystemCannotDiscard`` when the filesystem cannot issue discards.
+    public func trimFilesystem(_ target: TrimTarget) async throws -> UInt64 {
+        do {
+            let response = try await client.trimFilesystem(
+                .with {
+                    switch target {
+                    case .sandbox(let path):
+                        $0.sandbox = .with { $0.path = path }
+                    case .container(let id, let path):
+                        $0.container = .with {
+                            $0.containerID = id
+                            $0.path = path
+                        }
+                    }
+                })
+            return response.trimmedBytes
+        } catch let error as RPCError where error.code == .failedPrecondition {
+            throw FilesystemCannotDiscard(path: target.path, reason: error.message)
+        }
+    }
+
     public func createProcess(
         id: String,
         containerID: String?,
@@ -644,11 +666,6 @@ extension FilesystemOperation {
             return .freeze(.init())
         case .thaw:
             return .thaw(.init())
-        case .trim:
-            return .trim(
-                .with {
-                    $0.oneShot = .init()
-                })
         }
     }
 }

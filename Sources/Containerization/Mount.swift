@@ -449,4 +449,9 @@ extension Mount {
         }
         return false
     }
+
+    /// Only writable block mounts can return free blocks to a backing image.
+    var isTrimmable: Bool {
+        self.isBlock && !self.readonly
+    }
 }
