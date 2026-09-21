@@ -180,8 +180,11 @@ extension Vminitd: VirtualMachineAgent {
                     ) : nil,
                 filesystem: categories.contains(.filesystem) && protoStats.hasFilesystem
                     ? .init(
-                        usedBytes: protoStats.filesystem.usedBytes,
-                        inodesUsed: protoStats.filesystem.inodesUsed
+                        blockSize: protoStats.filesystem.blockSize,
+                        blocks: protoStats.filesystem.blocks,
+                        freeBlocks: protoStats.filesystem.freeBlocks,
+                        inodes: protoStats.filesystem.inodes,
+                        freeInodes: protoStats.filesystem.freeInodes
                     ) : nil
             )
         }

@@ -225,13 +225,25 @@ public struct ContainerStatistics: Sendable {
     }
 
     /// Filesystem occupancy for a container's writable rootfs mount.
+    /// Filesystem occupancy for a container's writable rootfs mount, from statfs(2).
     public struct FilesystemStatistics: Sendable {
-        public var usedBytes: UInt64
-        public var inodesUsed: UInt64
+        /// f_bsize: block size in bytes; the unit blocks/freeBlocks are counted in.
+        public var blockSize: UInt64
+        /// f_blocks: total blocks in the filesystem.
+        public var blocks: UInt64
+        /// f_bfree: free blocks in the filesystem (includes blocks reserved for root).
+        public var freeBlocks: UInt64
+        /// f_files: total inodes in the filesystem.
+        public var inodes: UInt64
+        /// f_ffree: free inodes in the filesystem.
+        public var freeInodes: UInt64
 
-        public init(usedBytes: UInt64, inodesUsed: UInt64) {
-            self.usedBytes = usedBytes
-            self.inodesUsed = inodesUsed
+        public init(blockSize: UInt64, blocks: UInt64, freeBlocks: UInt64, inodes: UInt64, freeInodes: UInt64) {
+            self.blockSize = blockSize
+            self.blocks = blocks
+            self.freeBlocks = freeBlocks
+            self.inodes = inodes
+            self.freeInodes = freeInodes
         }
     }
 }
