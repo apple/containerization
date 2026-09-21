@@ -142,7 +142,7 @@ public final class LinuxPod: Sendable {
                 return Mount.block(
                     format: self.format,
                     source: url.absoluteString,
-                    destination: LinuxPod.guestVolumePath(name),
+                    destination: GuestLayout.volume(name),
                     options: readOnly ? ["ro"] : [],
                     runtimeOptions: runtimeOptions
                 )
@@ -150,14 +150,14 @@ public final class LinuxPod: Sendable {
                 return Mount.block(
                     format: self.format,
                     source: path.absolutePath(),
-                    destination: LinuxPod.guestVolumePath(name),
+                    destination: GuestLayout.volume(name),
                     options: readOnly ? ["ro"] : []
                 )
             case .tmpfs(let sizeBytes):
                 return Mount.any(
                     type: "tmpfs",
                     source: "tmpfs",
-                    destination: LinuxPod.guestVolumePath(name),
+                    destination: GuestLayout.volume(name),
                     options: sizeBytes.map { ["size=\($0)"] } ?? []
                 )
             }
@@ -282,7 +282,7 @@ public final class LinuxPod: Sendable {
             process: .init(),
             hostname: containerID,
             root: .init(
-                path: Self.guestRootfsPath(containerID),
+                path: GuestLayout.rootfs(containerID),
                 readonly: false
             ),
             linux: .init(
@@ -335,17 +335,6 @@ public final class LinuxPod: Sendable {
         return spec
     }
 
-    static func guestRootfsPath(_ containerID: String) -> String {
-        "/run/container/\(containerID)/rootfs"
-    }
-
-    static func guestSocketStagingPath(_ socketID: String) -> String {
-        "/run/sockets/\(socketID).sock"
-    }
-
-    private static func guestVolumePath(_ volumeName: String) -> String {
-        "/run/volumes/\(volumeName)"
-    }
 }
 
 extension LinuxPod {
@@ -425,7 +414,7 @@ extension LinuxPod {
                     let agent = try await vm.dialAgent()
                     do {
                         var mount = attachment.to
-                        mount.destination = Self.guestRootfsPath(id)
+                        mount.destination = GuestLayout.rootfs(id)
                         try await agent.mount(mount)
 
                         // Filter out shared mounts — those are handled separately as
@@ -504,14 +493,14 @@ extension LinuxPod {
                         if let dns = config.dns ?? self.config.dns {
                             try await agent.configureDNS(
                                 config: dns,
-                                location: Self.guestRootfsPath(id)
+                                location: GuestLayout.rootfs(id)
                             )
                         }
 
                         if let hosts = config.hosts ?? self.config.hosts {
                             try await agent.configureHosts(
                                 config: hosts,
-                                location: Self.guestRootfsPath(id)
+                                location: GuestLayout.rootfs(id)
                             )
                         }
 
@@ -526,7 +515,7 @@ extension LinuxPod {
 
                         try await agent.close()
                     } catch {
-                        try? await agent.umount(path: Self.guestRootfsPath(id), flags: 0)
+                        try? await agent.umount(path: GuestLayout.rootfs(id), flags: 0)
                         try? await agent.close()
                         throw error
                     }
@@ -678,7 +667,7 @@ extension LinuxPod {
                     // Create pause container if PID namespace sharing is enabled
                     if shareProcessNamespace {
                         let pauseID = "pause-\(self.id)"
-                        let pauseRootfsPath = "/run/container/\(pauseID)/rootfs"
+                        let pauseRootfsPath = GuestLayout.rootfs(pauseID)
 
                         // Bind mount /sbin into the pause container rootfs.
                         // This is where the guest agent lives.
@@ -734,7 +723,7 @@ extension LinuxPod {
                             throw ContainerizationError(.notFound, message: "rootfs mount not found for container \(container.id)")
                         }
                         var rootfs = rootfsAttachment.to
-                        rootfs.destination = Self.guestRootfsPath(container.id)
+                        rootfs.destination = GuestLayout.rootfs(container.id)
                         try await agent.mount(rootfs)
                     }
 
@@ -761,7 +750,7 @@ extension LinuxPod {
                             )
                         }
                         let attachment = podVolumeAttachments[index]
-                        let guestPath = Self.guestVolumePath(volume.name)
+                        let guestPath = GuestLayout.volume(volume.name)
                         try await agent.mount(
                             ContainerizationOCI.Mount(
                                 type: volume.format,
@@ -805,13 +794,13 @@ extension LinuxPod {
                         if let dns = container.config.dns ?? self.config.dns {
                             try await agent.configureDNS(
                                 config: dns,
-                                location: Self.guestRootfsPath(container.id)
+                                location: GuestLayout.rootfs(container.id)
                             )
                         }
                         if let hosts = container.config.hosts ?? self.config.hosts {
                             try await agent.configureHosts(
                                 config: hosts,
-                                location: Self.guestRootfsPath(container.id)
+                                location: GuestLayout.rootfs(container.id)
                             )
                         }
                     }
@@ -904,7 +893,7 @@ extension LinuxPod {
                     mounts.append(
                         ContainerizationOCI.Mount(
                             type: "bind",
-                            source: Self.guestSocketStagingPath(socket.id),
+                            source: GuestLayout.socketStaging(socket.id),
                             destination: socket.destination.path,
                             options: ["bind"]
                         ))
@@ -916,7 +905,7 @@ extension LinuxPod {
                         mounts.append(
                             ContainerizationOCI.Mount(
                                 type: "none",
-                                source: Self.guestVolumePath(mount.source),
+                                source: GuestLayout.volume(mount.source),
                                 destination: mount.destination,
                                 options: ["bind"] + mount.options
                             ))
@@ -1031,7 +1020,7 @@ extension LinuxPod {
                 try await createdState.vm.withAgent { agent in
                     // Unmount the rootfs
                     try await agent.umount(
-                        path: Self.guestRootfsPath(containerID),
+                        path: GuestLayout.rootfs(containerID),
                         flags: 0
                     )
                 }
@@ -1088,7 +1077,7 @@ extension LinuxPod {
 
                             try? await createdState.vm.withAgent { agent in
                                 try await agent.umount(
-                                    path: Self.guestRootfsPath(containerID),
+                                    path: GuestLayout.rootfs(containerID),
                                     flags: 0
                                 )
                             }
@@ -1107,7 +1096,7 @@ extension LinuxPod {
                     try? await createdState.vm.withAgent { agent in
                         for volume in self.config.volumes {
                             try? await agent.umount(
-                                path: Self.guestVolumePath(volume.name),
+                                path: GuestLayout.volume(volume.name),
                                 flags: 0
                             )
                         }
@@ -1173,20 +1162,7 @@ extension LinuxPod {
     ) async throws -> LinuxProcess {
         try await self.state.withLock { state in
             let createdState = try state.phase.createdState("execInContainer")
-
-            guard let container = state.containers[containerID] else {
-                throw ContainerizationError(
-                    .notFound,
-                    message: "container \(containerID) not found in pod"
-                )
-            }
-
-            guard container.state == .started else {
-                throw ContainerizationError(
-                    .invalidState,
-                    message: "container \(containerID) must be started to exec"
-                )
-            }
+            let container = try Self.startedContainer(containerID, in: state, for: "exec")
 
             var spec = self.generateRuntimeSpec(containerID: containerID, config: container.config, rootfs: container.rootfs)
             // Inherit environment variables, working directory, user, capabilities, rlimits from container process.
@@ -1270,28 +1246,79 @@ extension LinuxPod {
     public func filesystemOperation(_ containerID: String, operation: FilesystemOperation, path: String) async throws {
         try await self.state.withLock { state in
             let createdState = try state.phase.createdState("filesystemOperation")
-
-            guard let container = state.containers[containerID] else {
-                throw ContainerizationError(
-                    .notFound,
-                    message: "container \(containerID) not found in pod"
-                )
-            }
-
-            guard container.state == .started else {
-                throw ContainerizationError(
-                    .invalidState,
-                    message: "container \(containerID) must be started to perform filesystem operations"
-                )
-            }
+            try Self.startedContainer(containerID, in: state, for: "perform filesystem operations")
 
             try await createdState.vm.withAgent { agent in
-                guard let vminitd = agent as? Vminitd else {
-                    throw ContainerizationError(.unsupported, message: "filesystemOperation requires Vminitd agent")
-                }
-                try await vminitd.filesystemOperation(operation: operation, path: path, containerID: containerID)
+                try await agent.filesystemOperation(operation: operation, path: path, containerID: containerID)
             }
         }
+    }
+
+    /// Return unused blocks from a container's filesystems to the host.
+    ///
+    /// With no paths, trims the writable root filesystem, writable block mounts,
+    /// and referenced writable pod volumes, skipping filesystems that cannot discard.
+    /// Pod volumes are trimmed through their sandbox mounts.
+    ///
+    /// Explicit paths resolve in the container's mount namespace. See
+    /// ``LinuxContainer/trim(paths:)`` for explicit-path behavior and error handling.
+    ///
+    /// - Returns: Filesystem-reported bytes submitted for potential discard. Not
+    ///   measured host space recovered.
+    @discardableResult
+    public func trim(_ containerID: String, paths: [String] = []) async throws -> UInt64 {
+        // Hold the lock through trim so teardown cannot unmount or detach its targets.
+        // Cancellation is checked between filesystems; an in-flight ioctl completes.
+        try await self.state.withLock { state in
+            let vm = try state.phase.createdState("trim").vm
+            let container = try Self.startedContainer(containerID, in: state, for: "trim")
+            let targets = paths.isEmpty ? self.trimTargets(container) : paths.map { TrimTarget.container(id: containerID, path: $0) }
+            return try await vm.trim(targets, skippingWhatCannotDiscard: paths.isEmpty, logger: self.logger)
+        }
+    }
+
+    /// The filesystems a trim can reclaim blocks from for `container`.
+    private func trimTargets(_ container: PodContainer) -> [TrimTarget] {
+        Self.trimTargets(
+            containerID: container.id,
+            rootfs: container.rootfs,
+            mounts: container.config.mounts,
+            volumes: self.config.volumes
+        )
+    }
+
+    /// Root filesystems and shared volumes use their sandbox mounts. A shared
+    /// volume's trim eligibility depends on its backing mount, not its container bind.
+    static func trimTargets(containerID: String, rootfs: Mount, mounts: [Mount], volumes: [PodVolume]) -> [TrimTarget] {
+        let trimmableVolumes = Set(volumes.filter { $0.toMount().isTrimmable }.map(\.name))
+        let root: [TrimTarget] = rootfs.isTrimmable ? [.sandbox(path: GuestLayout.rootfs(containerID))] : []
+        return root
+            + mounts.compactMap { mount in
+                guard case .shared = mount.runtimeOptions else {
+                    return mount.isTrimmable ? .container(id: containerID, path: mount.destination) : nil
+                }
+                guard trimmableVolumes.contains(mount.source) else {
+                    return nil
+                }
+                return .sandbox(path: GuestLayout.volume(mount.source))
+            }
+    }
+
+    @discardableResult
+    private static func startedContainer(_ containerID: String, in state: State, for operation: String) throws -> PodContainer {
+        guard let container = state.containers[containerID] else {
+            throw ContainerizationError(
+                .notFound,
+                message: "container \(containerID) not found in pod"
+            )
+        }
+        guard container.state == .started else {
+            throw ContainerizationError(
+                .invalidState,
+                message: "container \(containerID) must be started to \(operation)"
+            )
+        }
+        return container
     }
 
     /// Close a container's standard input to signal no more input is arriving.
@@ -1346,14 +1373,14 @@ extension LinuxPod {
         var socket = socket
 
         // Adjust paths to be relative to the container's rootfs
-        let rootInGuest = URL(filePath: Self.guestRootfsPath(containerID))
+        let rootInGuest = URL(filePath: GuestLayout.rootfs(containerID))
 
         let port: UInt32
         if socket.direction == .into {
             // Held for the lifetime of the relay, so it is deliberately never
             // released — the relay manager outlives this call.
             port = self.hostVsockPorts.allocate()
-            socket.destination = URL(filePath: Self.guestSocketStagingPath(socket.id))
+            socket.destination = URL(filePath: GuestLayout.socketStaging(socket.id))
         } else {
             port = self.guestVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
             socket.source = rootInGuest.appending(path: socket.source.path)

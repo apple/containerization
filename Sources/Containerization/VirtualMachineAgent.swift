@@ -28,7 +28,22 @@ public struct WriteFileFlags {
 public enum FilesystemOperation: Sendable {
     case freeze
     case thaw
-    case trim
+}
+
+/// A filesystem cannot issue discards; runtime-selected sweeps may skip it.
+/// Distinct from trim failures. Agents without trim support report `.unsupported` instead.
+public struct FilesystemCannotDiscard: Error, Sendable, CustomStringConvertible {
+    public let path: String
+    public let reason: String
+
+    public init(path: String, reason: String) {
+        self.path = path
+        self.reason = reason
+    }
+
+    public var description: String {
+        "\(self.path): \(self.reason)"
+    }
 }
 
 /// A protocol for the agent running inside a virtual machine. If an operation isn't
@@ -42,6 +57,9 @@ public protocol VirtualMachineAgent: Sendable {
     func close() async throws
     // Perform a filesystem operation on the given path.
     func filesystemOperation(operation: FilesystemOperation, path: String, containerID: String?) async throws
+    /// Discard free blocks and return the filesystem-reported byte count.
+    /// Throws ``FilesystemCannotDiscard`` when the filesystem cannot issue discards.
+    func trimFilesystem(_ target: TrimTarget) async throws -> UInt64
 
     // POSIX-y
     func getenv(key: String) async throws -> String
@@ -105,6 +123,10 @@ extension VirtualMachineAgent {
 
     public func sync() async throws {
         throw ContainerizationError(.unsupported, message: "sync")
+    }
+
+    public func trimFilesystem(_ target: TrimTarget) async throws -> UInt64 {
+        throw ContainerizationError(.unsupported, message: "trimFilesystem")
     }
 
 }

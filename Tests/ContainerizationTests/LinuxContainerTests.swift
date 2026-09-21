@@ -14,6 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import ContainerizationError
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
@@ -118,5 +119,84 @@ struct LinuxContainerTests {
         }
         #expect(pod.maskedPaths == expectedMasked)
         #expect(pod.readonlyPaths == expectedReadonly)
+    }
+
+    @Test func trimTargetsOnlyWritableBlockFilesystems() throws {
+        // A trim with no paths has to pick its own targets, and every
+        // filesystem it names that cannot discard fails the whole call.
+        let container = try LinuxContainer("trim", rootfs: Self.ext4("/tmp/rootfs.ext4"), vmm: StubVirtualMachineManager()) { config in
+            config.mounts += [
+                Self.ext4("/tmp/data.ext4", at: "/data"),
+                Self.ext4("/tmp/reference.ext4", at: "/reference", options: ["ro"]),
+                .share(source: "/tmp/share", destination: "/share"),
+            ]
+        }
+
+        // The default mounts are proc, sysfs, tmpfs and friends: no device, nothing
+        // to discard. The root filesystem is named where the runtime mounted it.
+        #expect(
+            container.trimTargets == [
+                .sandbox(path: "/run/container/trim/rootfs"),
+                .container(id: "trim", path: "/data"),
+            ])
+    }
+
+    @Test func trimReachesAWritableLayerThroughTheSandbox() throws {
+        // The container's own root is an overlay, which has no discard of its
+        // own, and the ext4 beneath it is left behind by pivot_root — so the
+        // trim has to name it where the sandbox still has it mounted.
+        let container = try LinuxContainer(
+            "trim-overlay",
+            rootfs: Self.ext4("/tmp/rootfs.ext4"),
+            writableLayer: Self.ext4("/tmp/upper.ext4"),
+            vmm: StubVirtualMachineManager()
+        ) { config in
+            config.mounts = [Self.ext4("/tmp/data.ext4", at: "/data")]
+        }
+
+        #expect(
+            container.trimTargets == [
+                .sandbox(path: "/run/container/trim-overlay/upper"),
+                .container(id: "trim-overlay", path: "/data"),
+            ])
+    }
+
+    @Test func podTrimNamesVolumesWhereThePodMountedThem() throws {
+        // A container reaches a pod volume through a bind, but the pod mounts it
+        // once in the sandbox — which is where the trim has to name it so that it
+        // happens once and keeps working when a container's namespace is gone.
+        let targets = LinuxPod.trimTargets(
+            containerID: "c1",
+            rootfs: Self.ext4("/tmp/rootfs.ext4"),
+            mounts: [
+                Self.ext4("/tmp/data.ext4", at: "/data"),
+                .sharedMount(name: "disk", destination: "/disk"),
+                .sharedMount(name: "scratch", destination: "/scratch"),
+                .sharedMount(name: "archive", destination: "/archive"),
+                .sharedMount(name: "absent", destination: "/absent"),
+            ],
+            volumes: [
+                .init(name: "disk", source: .diskImage(path: URL(filePath: "/tmp/disk.ext4")), format: "ext4"),
+                .init(name: "scratch", source: .tmpfs(), format: "tmpfs"),
+                .init(name: "archive", source: .diskImage(path: URL(filePath: "/tmp/archive.ext4"), readOnly: true), format: "ext4"),
+            ]
+        )
+
+        #expect(
+            targets == [
+                .sandbox(path: "/run/container/c1/rootfs"),
+                .container(id: "c1", path: "/data"),
+                .sandbox(path: "/run/volumes/disk"),
+            ])
+    }
+
+    private static func ext4(_ source: String, at destination: String = "/", options: [String] = []) -> Containerization.Mount {
+        .block(format: "ext4", source: source, destination: destination, options: options)
+    }
+}
+
+private struct StubVirtualMachineManager: VirtualMachineManager {
+    func create(config: some VMCreationConfig) async throws -> any VirtualMachineInstance {
+        throw ContainerizationError(.unsupported, message: "create")
     }
 }

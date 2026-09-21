@@ -32,6 +32,9 @@ service SandboxContext {
   rpc Stat(StatRequest) returns (StatResponse);
   // Perform a filesystem operation on a mounted filesystem.
   rpc FilesystemOperation(FilesystemOperationRequest) returns (FilesystemOperationResponse);
+  // Discard the free blocks of one mounted filesystem, returning what it
+  // reported trimming.
+  rpc TrimFilesystem(TrimFilesystemRequest) returns (TrimFilesystemResponse);
 
   // Create a new process inside the container.
   rpc CreateProcess(CreateProcessRequest) returns (CreateProcessResponse);
@@ -302,24 +305,16 @@ message StatResponse {
   string error = 2; // Non-empty if stat failed.
 }
 
-message FiTrimParams {
-  oneof schedule {
-    OneShot one_shot = 1;
-  }
-
-  message OneShot {}
-}
 message FiFreezeParams {}
 message FiThawParams {}
 
-message FiTrimResult {
-  uint64 trimmed_bytes = 1;
-}
-
 message FilesystemOperationRequest {
+  // Field 2 held a trim, which now has its own RPC.
+  reserved 2;
+  reserved "trim";
+
   string path = 1;
   oneof operation {
-    FiTrimParams trim = 2;
     FiFreezeParams freeze = 3;
     FiThawParams thaw = 4;
   }
@@ -327,9 +322,43 @@ message FilesystemOperationRequest {
 }
 
 message FilesystemOperationResponse {
-  oneof result {
-    FiTrimResult trim = 1;
+  // Field 1 held a trim's result, which now has its own RPC.
+  reserved 1;
+  reserved "trim";
+}
+
+// The filesystem to trim, named by whichever mount namespace can see it.
+//
+// Scheduling is the caller's: this asks once and answers with what the
+// filesystem reported. A policy that repeats it has no single answer to give.
+message TrimFilesystemRequest {
+  // A path in the sandbox's own mount namespace, where the runtime mounts the
+  // filesystems it assembles a container from. The only way to reach a
+  // writable layer: the container's root is then an overlay, which implements
+  // no discard, and the layer beneath it is left behind by pivot_root. Needs
+  // no container process, and the path comes from the runtime rather than from
+  // any container content.
+  message SandboxPath {
+    string path = 1;
   }
+  // A path in a container's own mount namespace, which is what its workload
+  // sees. Names a filesystem the container mounted for itself, such as a block
+  // mount, and so requires the container to be running.
+  message ContainerPath {
+    string containerID = 1;
+    string path = 2;
+  }
+  oneof target {
+    SandboxPath sandbox = 1;
+    ContainerPath container = 2;
+  }
+}
+
+message TrimFilesystemResponse {
+  // What the filesystem reported discarding, which is not the same as space
+  // uniquely reclaimed: a filesystem re-reports a group once anything in it is
+  // freed again.
+  uint64 trimmed_bytes = 1;
 }
 
 message IpLinkSetRequest {

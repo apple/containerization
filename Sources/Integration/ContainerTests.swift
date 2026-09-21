@@ -1836,30 +1836,18 @@ extension IntegrationSuite {
             config.bootLog = bs.bootLog
         }
 
-        func assertExec(_ container: LinuxContainer, id: String, cmd: String) async throws {
-            let exec = try await container.exec(id) { config in
-                config.arguments = ["sh", "-c", cmd]
-            }
-            try await exec.start()
-            let status = try await exec.wait()
-            try await exec.delete()
-            guard status.exitCode == 0 else {
-                throw IntegrationError.assert(msg: "\(id) failed with exit code \(status.exitCode)")
-            }
-        }
-
         do {
             try await container.create()
             try await container.start()
 
             // regular file: "regular file" is exactly 12 bytes
-            try await assertExec(container, id: "create-regular-file", cmd: "echo -n 'regular file' > /tmp/regular-file.txt")
+            try await container.sh("create-regular-file", script: "echo -n 'regular file' > /tmp/regular-file.txt")
             // directory
-            try await assertExec(container, id: "create-dir", cmd: "mkdir /tmp/test-dir")
+            try await container.sh("create-dir", script: "mkdir /tmp/test-dir")
             // relative symlink so stat() resolves the target within the same directory
-            try await assertExec(container, id: "create-symlink", cmd: "ln -s regular-file.txt /tmp/test-link")
+            try await container.sh("create-symlink", script: "ln -s regular-file.txt /tmp/test-link")
             // FIFO
-            try await assertExec(container, id: "create-fifo", cmd: "mkfifo /tmp/test-fifo")
+            try await container.sh("create-fifo", script: "mkfifo /tmp/test-fifo")
 
             let vsock = try await container.dialVsock(port: 1024)
             let vminitd = try await Vminitd(connection: vsock, group: Self.eventLoop)
@@ -4506,7 +4494,7 @@ extension IntegrationSuite {
             _ = try await writerContainer.wait()
             try await writerContainer.stop()
         } catch {
-            try? await writerContainer.filesystemOperation(operation: .thaw, path: "/data")
+            _ = try? await writerContainer.filesystemOperation(operation: .thaw, path: "/data")
             try? await writerContainer.stop()
             throw error
         }
@@ -4570,115 +4558,211 @@ extension IntegrationSuite {
         }
     }
 
-    func testTrimExt4Clone() async throws {
-        let id = "test-trim-ext4-clone"
+    func testTrimReturnsBlocksToTheHost() async throws {
+        let id = "test-trim-returns-blocks"
         let bs = try await bootstrap(id)
 
-        let diskImageURL = Self.testDir.appending(component: "\(id)-data.ext4")
-        try? FileManager.default.removeItem(at: diskImageURL)
+        let dataURL = Self.testDir.appending(component: "\(id)-data.ext4")
+        try? FileManager.default.removeItem(at: dataURL)
+        try EXT4.Formatter(FilePath(dataURL.absolutePath()), minDiskSize: 256.mib()).close()
 
-        let filesystem = try EXT4.Formatter(FilePath(diskImageURL.absolutePath()), minDiskSize: 64.mib())
-        try filesystem.close()
+        // An unformatted block device, writable and block-backed like the ext4
+        // beside it, but with no filesystem to discard from. Only the kernel can
+        // say so, so a trim sweep has to take that answer and carry on.
+        let rawURL = Self.testDir.appending(component: "\(id)-raw.img")
+        try? FileManager.default.removeItem(at: rawURL)
+        try Data().write(to: rawURL)
+        let raw = try FileHandle(forWritingTo: rawURL)
+        try raw.truncate(atOffset: 16.mib())
+        try raw.close()
 
-        let cloneImageURL = Self.testDir.appending(component: "\(id)-data-clone.ext4")
-        try? FileManager.default.removeItem(at: cloneImageURL)
+        let cloneURL = Self.testDir.appending(component: "\(id)-data-clone.ext4")
+        try? FileManager.default.removeItem(at: cloneURL)
 
-        let writerContainer = try LinuxContainer("\(id)-writer", rootfs: bs.rootfs, vmm: bs.vmm) { config in
+        let digestBefore: String
+
+        let rootfsURL = URL(filePath: bs.rootfs.source)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
             config.process.arguments = ["/bin/sleep", "1000"]
-            config.mounts.append(
+            // The undiscardable device comes first, so the sweep has to carry on
+            // past it rather than stopping at the first refusal.
+            config.mounts += [
+                Mount.block(
+                    format: "none",
+                    source: rawURL.absolutePath(),
+                    destination: "/dev/raw-disk",
+                    options: ["bind"]
+                ),
                 Mount.block(
                     format: "ext4",
-                    source: diskImageURL.absolutePath(),
+                    source: dataURL.absolutePath(),
                     destination: "/data"
-                ))
+                ),
+            ]
             config.bootLog = bs.bootLog
         }
 
         do {
-            try await writerContainer.create()
-            try await writerContainer.start()
+            try await container.create()
+            try await container.start()
 
-            let writeExec = try await writerContainer.exec("write-temp") { config in
-                config.arguments = [
-                    "/bin/sh",
-                    "-c",
-                    "dd if=/dev/zero of=/data/trim.dat bs=1M count=8 status=none && sync && rm /data/trim.dat && sync",
-                ]
+            // Churn both the root filesystem and the data mount, so a trim that
+            // reaches only one of them leaves the other's blocks behind.
+            try await container.sh(
+                "churn",
+                script: """
+                    echo keep-me > /data/keep.txt
+                    dd if=/dev/urandom of=/data/keep.bin bs=1M count=4 status=none
+                    mkfifo /data/fifo
+                    ln -s /data /data-link
+                    dd if=/dev/zero of=/root/blob bs=1M count=64 status=none
+                    dd if=/dev/zero of=/data/blob bs=1M count=64 status=none
+                    sync && rm /root/blob /data/blob && sync
+                    """
+            )
+
+            // A trim names a mounted filesystem, so it names a directory. Pointing
+            // it at a FIFO has to come back promptly rather than blocking until a
+            // writer appears, which cancelling the call could not interrupt.
+            do {
+                _ = try await container.trim(paths: ["/data/fifo"])
+                throw IntegrationError.assert(msg: "trimming a FIFO was accepted")
+            } catch is FilesystemCannotDiscard {
+                // Expected.
             }
-            try await writeExec.start()
-            let writeStatus = try await writeExec.wait()
-            try await writeExec.delete()
-            guard writeStatus.exitCode == 0 else {
-                throw IntegrationError.assert(msg: "trim setup exec failed with status \(writeStatus)")
+
+            digestBefore = try await container.output("digest-before", script: "sha256sum /data/keep.bin")
+
+            let filled = (root: try allocatedBytes(of: rootfsURL), data: try allocatedBytes(of: dataURL))
+            let trimmed = try await container.trim()
+            try await container.sh("settle", script: "sync")
+            let reclaimed = (root: try allocatedBytes(of: rootfsURL), data: try allocatedBytes(of: dataURL))
+
+            guard trimmed > 0 else {
+                throw IntegrationError.assert(msg: "trim reported no bytes discarded")
+            }
+            try requireReclaimed("rootfs", before: filled.root, after: reclaimed.root)
+            try requireReclaimed("/data", before: filled.data, after: reclaimed.data)
+
+            // Free new blocks before testing symlink resolution; already-trimmed
+            // groups may report zero bytes.
+            try await container.sh("churn-link", script: "dd if=/dev/zero of=/data/blob bs=1M count=8 status=none && sync && rm /data/blob && sync")
+            guard try await container.trim(paths: ["/data-link"]) > 0 else {
+                throw IntegrationError.assert(msg: "a trim named through a symlink reported nothing")
             }
 
-            try await writerContainer.filesystemOperation(operation: .trim, path: "/data")
+            // Clone the trimmed image for a fresh mount below. Reading it back in
+            // this container could be served from its page cache.
+            try FileManager.default.copyItem(at: dataURL, to: cloneURL)
 
-            try FileManager.default.copyItem(at: diskImageURL, to: cloneImageURL)
-
-            try await writerContainer.kill(.kill)
-            _ = try await writerContainer.wait()
-            try await writerContainer.stop()
+            try await container.kill(.kill)
+            _ = try await container.wait()
+            try await container.stop()
         } catch {
-            try? await writerContainer.stop()
+            try? await container.stop()
             throw error
         }
 
-        let verifyContainer = try LinuxContainer("\(id)-reader", rootfs: bs.rootfs, vmm: bs.vmm) { config in
+        // A fresh mount must preserve retained files and keep deleted files absent.
+        let verified = BufferWriter()
+        let verifier = try LinuxContainer("\(id)-verify", rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = [
+                "/bin/sh", "-c",
+                """
+                grep -q ' /data ext4 ' /proc/mounts || { echo NOT-EXT4; exit 1; }
+                test -e /data/blob && { echo BLOB-CAME-BACK; exit 1; }
+                [ "$(cat /data/keep.txt)" = keep-me ] || { echo KEEP-TXT-CHANGED; exit 1; }
+                sha256sum /data/keep.bin
+                """,
+            ]
+            config.process.stdout = verified
             config.mounts.append(
                 Mount.block(
                     format: "ext4",
-                    source: cloneImageURL.absolutePath(),
+                    source: cloneURL.absolutePath(),
                     destination: "/data"
                 ))
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await verifier.create()
+            try await verifier.start()
+            let status = try await verifier.wait()
+            try await verifier.stop()
+
+            let digestAfter = String(decoding: verified.data, as: UTF8.self)
+            guard status.exitCode == 0, digestAfter == digestBefore else {
+                throw IntegrationError.assert(
+                    msg: "verifying the trimmed /data exited \(status.exitCode): expected '\(digestBefore)', got '\(digestAfter)'")
+            }
+        } catch {
+            try? await verifier.stop()
+            throw error
+        }
+    }
+
+    func testTrimReturnsWritableLayerBlocksToTheHost() async throws {
+        let id = "test-trim-writable-layer"
+        let bs = try await bootstrap(id)
+
+        let layerURL = Self.testDir.appending(component: "\(id)-writable.ext4")
+        try? FileManager.default.removeItem(at: layerURL)
+        try EXT4.Formatter(FilePath(layerURL.absolutePath()), minDiskSize: 512.mib()).close()
+
+        let writableLayer = Mount.block(format: "ext4", source: layerURL.absolutePath(), destination: "/")
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, writableLayer: writableLayer, vmm: bs.vmm) { config in
             config.process.arguments = ["/bin/sleep", "1000"]
             config.bootLog = bs.bootLog
         }
 
         do {
-            try await verifyContainer.create()
-            try await verifyContainer.start()
+            try await container.create()
+            try await container.start()
 
-            let mountBuffer = BufferWriter()
-            let mountExec = try await verifyContainer.exec("verify-mount") { config in
-                config.arguments = ["/bin/sh", "-c", "grep ' /data ' /proc/mounts"]
-                config.stdout = mountBuffer
-            }
-            try await mountExec.start()
-            var status = try await mountExec.wait()
-            try await mountExec.delete()
-            guard status.exitCode == 0 else {
-                throw IntegrationError.assert(msg: "failed to verify /data mount, status \(status)")
-            }
+            // Every write a container with a writable layer makes lands on that
+            // layer, whatever path it used: the root it sees is an overlay whose
+            // upper directory lives there.
+            try await container.sh("churn", script: "dd if=/dev/zero of=/blob bs=1M count=64 status=none && sync && rm /blob && sync")
 
-            let mountOutput = String(decoding: mountBuffer.data, as: UTF8.self)
-            guard mountOutput.contains(" /data ") && mountOutput.contains(" ext4 ") else {
-                throw IntegrationError.assert(msg: "expected ext4 mount at /data, got: \(mountOutput)")
-            }
+            let filled = try allocatedBytes(of: layerURL)
+            let trimmed = try await container.trim()
+            try await container.sh("settle", script: "sync")
+            let reclaimed = try allocatedBytes(of: layerURL)
 
-            let lsBuffer = BufferWriter()
-            let lsExec = try await verifyContainer.exec("verify-no-hello") { config in
-                config.arguments = ["ls", "-1", "/data"]
-                config.stdout = lsBuffer
+            guard trimmed > 0 else {
+                throw IntegrationError.assert(msg: "trim reported no bytes discarded")
             }
-            try await lsExec.start()
-            status = try await lsExec.wait()
-            try await lsExec.delete()
-            guard status.exitCode == 0 else {
-                throw IntegrationError.assert(msg: "ls /data failed with status \(status)")
+            try requireReclaimed("the writable layer", before: filled, after: reclaimed)
+
+            // The container's own root is the overlay, which cannot discard. A
+            // caller that asked for it by name hears so, rather than being told
+            // nothing came back.
+            do {
+                let reported = try await container.trim(paths: ["/"])
+                throw IntegrationError.assert(msg: "trimming the overlay root reported \(reported) rather than failing")
+            } catch is FilesystemCannotDiscard {
+                // Expected.
             }
 
-            let lsOutput = String(decoding: lsBuffer.data, as: UTF8.self)
-            let listedFiles = Set(lsOutput.split(whereSeparator: \.isNewline).map(String.init))
-            guard !listedFiles.contains("trim.dat") else {
-                throw IntegrationError.assert(msg: "expected cloned /data to not contain trim.dat, got: \(lsOutput)")
-            }
+            // Leave fresh reclaimable space behind, so the trim after the workload
+            // exits has something to reclaim and cannot pass as a no-op.
+            try await container.sh("churn-again", script: "dd if=/dev/zero of=/blob bs=1M count=64 status=none && sync && rm /blob && sync")
+            let refilled = try allocatedBytes(of: layerURL)
 
-            try await verifyContainer.kill(.kill)
-            _ = try await verifyContainer.wait()
-            try await verifyContainer.stop()
+            try await container.kill(.kill)
+            _ = try await container.wait()
+
+            // The sandbox's writable-layer mount remains reachable after workload exit.
+            let trimmedAfterExit = try await container.trim()
+            guard trimmedAfterExit > 0 else {
+                throw IntegrationError.assert(msg: "trim after the workload exited reported no bytes discarded")
+            }
+            try requireReclaimed("the writable layer after exit", before: refilled, after: try allocatedBytes(of: layerURL))
+
+            try await container.stop()
         } catch {
-            try? await verifyContainer.stop()
+            try? await container.stop()
             throw error
         }
     }

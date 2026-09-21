@@ -1062,41 +1062,6 @@ public nonisolated struct Com_Apple_Containerization_Sandbox_V3_StatResponse: @u
   fileprivate var _storage = _StorageClass.defaultInstance
 }
 
-public nonisolated struct Com_Apple_Containerization_Sandbox_V3_FiTrimParams: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var schedule: Com_Apple_Containerization_Sandbox_V3_FiTrimParams.OneOf_Schedule? = nil
-
-  public var oneShot: Com_Apple_Containerization_Sandbox_V3_FiTrimParams.OneShot {
-    get {
-      if case .oneShot(let v)? = schedule {return v}
-      return Com_Apple_Containerization_Sandbox_V3_FiTrimParams.OneShot()
-    }
-    set {schedule = .oneShot(newValue)}
-  }
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public nonisolated enum OneOf_Schedule: Equatable, Sendable {
-    case oneShot(Com_Apple_Containerization_Sandbox_V3_FiTrimParams.OneShot)
-
-  }
-
-  public nonisolated struct OneShot: Sendable {
-    // SwiftProtobuf.Message conformance is added in an extension below. See the
-    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-    // methods supported on all messages.
-
-    public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-    public init() {}
-  }
-
-  public init() {}
-}
-
 public nonisolated struct Com_Apple_Containerization_Sandbox_V3_FiFreezeParams: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1117,18 +1082,6 @@ public nonisolated struct Com_Apple_Containerization_Sandbox_V3_FiThawParams: Se
   public init() {}
 }
 
-public nonisolated struct Com_Apple_Containerization_Sandbox_V3_FiTrimResult: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var trimmedBytes: UInt64 = 0
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-}
-
 public nonisolated struct Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1137,14 +1090,6 @@ public nonisolated struct Com_Apple_Containerization_Sandbox_V3_FilesystemOperat
   public var path: String = String()
 
   public var operation: Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest.OneOf_Operation? = nil
-
-  public var trim: Com_Apple_Containerization_Sandbox_V3_FiTrimParams {
-    get {
-      if case .trim(let v)? = operation {return v}
-      return Com_Apple_Containerization_Sandbox_V3_FiTrimParams()
-    }
-    set {operation = .trim(newValue)}
-  }
 
   public var freeze: Com_Apple_Containerization_Sandbox_V3_FiFreezeParams {
     get {
@@ -1174,7 +1119,6 @@ public nonisolated struct Com_Apple_Containerization_Sandbox_V3_FilesystemOperat
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Operation: Equatable, Sendable {
-    case trim(Com_Apple_Containerization_Sandbox_V3_FiTrimParams)
     case freeze(Com_Apple_Containerization_Sandbox_V3_FiFreezeParams)
     case thaw(Com_Apple_Containerization_Sandbox_V3_FiThawParams)
 
@@ -1190,22 +1134,95 @@ public nonisolated struct Com_Apple_Containerization_Sandbox_V3_FilesystemOperat
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var result: Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse.OneOf_Result? = nil
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-  public var trim: Com_Apple_Containerization_Sandbox_V3_FiTrimResult {
+  public init() {}
+}
+
+/// The filesystem to trim, named by whichever mount namespace can see it.
+///
+/// Scheduling is the caller's: this asks once and answers with what the
+/// filesystem reported. A policy that repeats it has no single answer to give.
+public nonisolated struct Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var target: Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest.OneOf_Target? = nil
+
+  public var sandbox: Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest.SandboxPath {
     get {
-      if case .trim(let v)? = result {return v}
-      return Com_Apple_Containerization_Sandbox_V3_FiTrimResult()
+      if case .sandbox(let v)? = target {return v}
+      return Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest.SandboxPath()
     }
-    set {result = .trim(newValue)}
+    set {target = .sandbox(newValue)}
+  }
+
+  public var container: Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest.ContainerPath {
+    get {
+      if case .container(let v)? = target {return v}
+      return Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest.ContainerPath()
+    }
+    set {target = .container(newValue)}
   }
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-  public nonisolated enum OneOf_Result: Equatable, Sendable {
-    case trim(Com_Apple_Containerization_Sandbox_V3_FiTrimResult)
+  public nonisolated enum OneOf_Target: Equatable, Sendable {
+    case sandbox(Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest.SandboxPath)
+    case container(Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest.ContainerPath)
 
   }
+
+  /// A path in the sandbox's own mount namespace, where the runtime mounts the
+  /// filesystems it assembles a container from. The only way to reach a
+  /// writable layer: the container's root is then an overlay, which implements
+  /// no discard, and the layer beneath it is left behind by pivot_root. Needs
+  /// no container process, and the path comes from the runtime rather than from
+  /// any container content.
+  public nonisolated struct SandboxPath: Sendable {
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
+
+    public var path: String = String()
+
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+    public init() {}
+  }
+
+  /// A path in a container's own mount namespace, which is what its workload
+  /// sees. Names a filesystem the container mounted for itself, such as a block
+  /// mount, and so requires the container to be running.
+  public nonisolated struct ContainerPath: Sendable {
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
+
+    public var containerID: String = String()
+
+    public var path: String = String()
+
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+    public init() {}
+  }
+
+  public init() {}
+}
+
+public nonisolated struct Com_Apple_Containerization_Sandbox_V3_TrimFilesystemResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// What the filesystem reported discarding, which is not the same as space
+  /// uniquely reclaimed: a filesystem re-reports a group once anything in it is
+  /// freed again.
+  public var trimmedBytes: UInt64 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 }
@@ -3347,71 +3364,6 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_StatResponse: SwiftP
   }
 }
 
-nonisolated extension Com_Apple_Containerization_Sandbox_V3_FiTrimParams: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".FiTrimParams"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}one_shot\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try {
-        var v: Com_Apple_Containerization_Sandbox_V3_FiTrimParams.OneShot?
-        var hadOneofValue = false
-        if let current = self.schedule {
-          hadOneofValue = true
-          if case .oneShot(let m) = current {v = m}
-        }
-        try decoder.decodeSingularMessageField(value: &v)
-        if let v = v {
-          if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.schedule = .oneShot(v)
-        }
-      }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    try { if case .oneShot(let v)? = self.schedule {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    } }()
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_FiTrimParams, rhs: Com_Apple_Containerization_Sandbox_V3_FiTrimParams) -> Bool {
-    if lhs.schedule != rhs.schedule {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Com_Apple_Containerization_Sandbox_V3_FiTrimParams.OneShot: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = Com_Apple_Containerization_Sandbox_V3_FiTrimParams.protoMessageName + ".OneShot"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    // Load everything into unknown fields
-    while try decoder.nextFieldNumber() != nil {}
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_FiTrimParams.OneShot, rhs: Com_Apple_Containerization_Sandbox_V3_FiTrimParams.OneShot) -> Bool {
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
 nonisolated extension Com_Apple_Containerization_Sandbox_V3_FiFreezeParams: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FiFreezeParams"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
@@ -3450,39 +3402,9 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_FiThawParams: SwiftP
   }
 }
 
-nonisolated extension Com_Apple_Containerization_Sandbox_V3_FiTrimResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".FiTrimResult"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}trimmed_bytes\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularUInt64Field(value: &self.trimmedBytes) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if self.trimmedBytes != 0 {
-      try visitor.visitSingularUInt64Field(value: self.trimmedBytes, fieldNumber: 1)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_FiTrimResult, rhs: Com_Apple_Containerization_Sandbox_V3_FiTrimResult) -> Bool {
-    if lhs.trimmedBytes != rhs.trimmedBytes {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
 nonisolated extension Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FilesystemOperationRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{1}trim\0\u{1}freeze\0\u{1}thaw\0\u{1}containerID\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{2}\u{2}freeze\0\u{1}thaw\0\u{1}containerID\0\u{b}trim\0\u{c}\u{2}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3491,19 +3413,6 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_FilesystemOperationR
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.path) }()
-      case 2: try {
-        var v: Com_Apple_Containerization_Sandbox_V3_FiTrimParams?
-        var hadOneofValue = false
-        if let current = self.operation {
-          hadOneofValue = true
-          if case .trim(let m) = current {v = m}
-        }
-        try decoder.decodeSingularMessageField(value: &v)
-        if let v = v {
-          if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.operation = .trim(v)
-        }
-      }()
       case 3: try {
         var v: Com_Apple_Containerization_Sandbox_V3_FiFreezeParams?
         var hadOneofValue = false
@@ -3545,10 +3454,6 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_FilesystemOperationR
       try visitor.visitSingularStringField(value: self.path, fieldNumber: 1)
     }
     switch self.operation {
-    case .trim?: try {
-      guard case .trim(let v)? = self.operation else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-    }()
     case .freeze?: try {
       guard case .freeze(let v)? = self.operation else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
@@ -3576,7 +3481,26 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_FilesystemOperationR
 
 nonisolated extension Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FilesystemOperationResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}trim\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{b}trim\0\u{c}\u{1}\u{1}")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse, rhs: Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse) -> Bool {
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".TrimFilesystemRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}sandbox\0\u{1}container\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3585,16 +3509,29 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_FilesystemOperationR
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try {
-        var v: Com_Apple_Containerization_Sandbox_V3_FiTrimResult?
+        var v: Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest.SandboxPath?
         var hadOneofValue = false
-        if let current = self.result {
+        if let current = self.target {
           hadOneofValue = true
-          if case .trim(let m) = current {v = m}
+          if case .sandbox(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.result = .trim(v)
+          self.target = .sandbox(v)
+        }
+      }()
+      case 2: try {
+        var v: Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest.ContainerPath?
+        var hadOneofValue = false
+        if let current = self.target {
+          hadOneofValue = true
+          if case .container(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.target = .container(v)
         }
       }()
       default: break
@@ -3607,14 +3544,117 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_FilesystemOperationR
     // allocates stack space for every if/case branch local when no optimizations
     // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
     // https://github.com/apple/swift-protobuf/issues/1182
-    try { if case .trim(let v)? = self.result {
+    switch self.target {
+    case .sandbox?: try {
+      guard case .sandbox(let v)? = self.target else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    } }()
+    }()
+    case .container?: try {
+      guard case .container(let v)? = self.target else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    }()
+    case nil: break
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse, rhs: Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse) -> Bool {
-    if lhs.result != rhs.result {return false}
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest, rhs: Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest) -> Bool {
+    if lhs.target != rhs.target {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest.SandboxPath: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest.protoMessageName + ".SandboxPath"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.path) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.path.isEmpty {
+      try visitor.visitSingularStringField(value: self.path, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest.SandboxPath, rhs: Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest.SandboxPath) -> Bool {
+    if lhs.path != rhs.path {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest.ContainerPath: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest.protoMessageName + ".ContainerPath"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}containerID\0\u{1}path\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.containerID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.path) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.containerID.isEmpty {
+      try visitor.visitSingularStringField(value: self.containerID, fieldNumber: 1)
+    }
+    if !self.path.isEmpty {
+      try visitor.visitSingularStringField(value: self.path, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest.ContainerPath, rhs: Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest.ContainerPath) -> Bool {
+    if lhs.containerID != rhs.containerID {return false}
+    if lhs.path != rhs.path {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Com_Apple_Containerization_Sandbox_V3_TrimFilesystemResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".TrimFilesystemResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}trimmed_bytes\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt64Field(value: &self.trimmedBytes) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.trimmedBytes != 0 {
+      try visitor.visitSingularUInt64Field(value: self.trimmedBytes, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_TrimFilesystemResponse, rhs: Com_Apple_Containerization_Sandbox_V3_TrimFilesystemResponse) -> Bool {
+    if lhs.trimmedBytes != rhs.trimmedBytes {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

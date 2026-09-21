@@ -43,7 +43,6 @@ private let _umount = Musl.umount2
 private let _kill = Musl.kill
 private let _sync = Musl.sync
 typealias _stat_struct = Musl.stat
-private let _stat: @Sendable (UnsafePointer<CChar>, UnsafeMutablePointer<_stat_struct>) -> Int32 = stat
 #elseif canImport(Glibc)
 import Glibc
 private let _mount = Glibc.mount
@@ -51,7 +50,6 @@ private let _umount = Glibc.umount2
 private let _kill = Glibc.kill
 private let _sync = Glibc.sync
 typealias _stat_struct = Glibc.stat
-private let _stat: @Sendable (UnsafePointer<CChar>, UnsafeMutablePointer<_stat_struct>) -> Int32 = stat
 #endif
 
 extension ContainerizationError {
@@ -775,13 +773,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             )
         }
 
-        let container = try await state.get(container: request.containerID)
-        guard let containerPid = await container.pid else {
-            throw ContainerizationError(
-                .invalidArgument,
-                message: "container PID is not present"
-            )
-        }
+        let containerPid = try await self.startedContainerPID(request.containerID)
 
         log.debug(
             "filesystemOperation",
@@ -796,74 +788,132 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             throw RPCError(code: .invalidArgument, message: "path must be absolute")
         }
 
-        let selfMountFd = open("/proc/self/ns/mnt", O_RDONLY | O_CLOEXEC)
-        if selfMountFd < 0 {
-            let error = swiftErrno("open")
-            throw RPCError(code: .internalError, message: "failed to open self mount namespace", cause: error)
+        return try await withContainerMountNamespace(pid: containerPid) {
+            try self.doFilesystemOperation(path: path, operation: operation)
+        }
+    }
+
+    public func trimFilesystem(request: Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest, context: GRPCCore.ServerContext)
+        async throws -> Com_Apple_Containerization_Sandbox_V3_TrimFilesystemResponse
+    {
+        guard let target = request.target else {
+            throw RPCError(code: .invalidArgument, message: "target is required")
         }
 
-        defer { close(selfMountFd) }
+        log.debug("trimFilesystem", metadata: ["target": "\(target)"])
 
-        let containerMountFd = open("/proc/\(containerPid)/ns/mnt", O_RDONLY | O_CLOEXEC)
+        let trimmed: UInt64
+        switch target {
+        case .sandbox(let sandbox):
+            // Writable layers remain mounted in the sandbox; the container's overlay
+            // cannot discard. This target remains accessible after workload exit.
+            trimmed = try await self.runOnDedicatedThread {
+                try self.trimFilesystem(at: FilePath(sandbox.path))
+            }
+        case .container(let container):
+            let pid = try await self.startedContainerPID(container.containerID)
+            trimmed = try await withContainerMountNamespace(pid: pid) {
+                try self.trimFilesystem(at: FilePath(container.path))
+            }
+        }
+        return .with { $0.trimmedBytes = trimmed }
+    }
+
+    /// Locate the process whose mount namespace the request needs to enter.
+    private func startedContainerPID(_ containerID: String) async throws -> Int32 {
+        let container = try await state.get(container: containerID)
+        guard let pid = await container.pid else {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "container PID is not present"
+            )
+        }
+        return pid
+    }
+
+    /// Discard free blocks and return the filesystem-reported byte count.
+    ///
+    /// O_DIRECTORY prevents blocking on FIFOs. Follow symlinks to match mount
+    /// destination resolution.
+    private func trimFilesystem(at path: FilePath) throws -> UInt64 {
+        guard path.isAbsolute else {
+            throw RPCError(code: .invalidArgument, message: "path must be absolute")
+        }
+        let fd = open(path.string, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        if fd < 0 {
+            let code = errno
+            // Non-directory targets cannot be trimmed. Sweeps skip them; explicit
+            // requests report the error. Neither needs an error log.
+            if code == ENOTDIR {
+                log.debug("path is not a mounted filesystem", metadata: ["path": "\(path)"])
+                throw RPCError(code: .failedPrecondition, message: "path is not a mounted filesystem", cause: self.posixError(code))
+            }
+            let error = swiftErrno("open")
+            let rpcCode: RPCError.Code = code == ENOENT ? .notFound : .internalError
+            throw RPCError(code: rpcCode, message: "failed to open path", cause: error)
+        }
+        defer { close(fd) }
+        return try self.trimFilesystem(fd: fd)
+    }
+
+    /// Isolate namespace changes and blocking I/O on a disposable thread outside
+    /// the cooperative pool. Unconditional setns also handles containers sharing
+    /// the sandbox's mount namespace.
+    private func withContainerMountNamespace<T: Sendable>(
+        pid: Int32,
+        _ body: @escaping @Sendable () throws -> T
+    ) async throws -> T {
+        let containerMountFd = open("/proc/\(pid)/ns/mnt", O_RDONLY | O_CLOEXEC)
         if containerMountFd < 0 {
+            let code = errno
+            // The workload may exit before its namespace is opened. Report the
+            // race without an error log.
+            if code == ENOENT {
+                log.debug("container mount namespace is gone", metadata: ["pid": "\(pid)"])
+                throw RPCError(
+                    code: .internalError,
+                    message: "container process \(pid) has exited, and its mount namespace with it",
+                    cause: self.posixError(code)
+                )
+            }
             let error = swiftErrno("open")
             throw RPCError(code: .internalError, message: "failed to open container mount namespace", cause: error)
         }
 
         defer { close(containerMountFd) }
 
-        var finfo = _stat_struct()
-        let selfMountStat = fstat(selfMountFd, &finfo)
-        if selfMountStat != 0 {
-            let error = swiftErrno("fstat")
-            throw RPCError(code: .internalError, message: "failed to stat self mount namespace", cause: error)
-        }
-        let selfInode = finfo.st_ino
-
-        let containerMountStat = fstat(containerMountFd, &finfo)
-        if containerMountStat != 0 {
-            let error = swiftErrno("fstat")
-            throw RPCError(code: .internalError, message: "failed to stat container mount namespace", cause: error)
-        }
-        let containerInode = finfo.st_ino
-
-        if selfInode == containerInode {
-            try doFilesystemOperation(path: path, operation: operation)
-        } else {
-            try await self.runOnDedicatedThread {
-                if unshare(CLONE_FS) != 0 {
-                    let error = self.swiftErrno("unshare(CLONE_FS)")
-                    throw RPCError(code: .internalError, message: "failed to unshare filesystem namespace", cause: error)
-                }
-                if setns(containerMountFd, CLONE_NEWNS) != 0 {
-                    let error = self.swiftErrno("setns(CLONE_NEWNS)")
-                    throw RPCError(code: .internalError, message: "failed to enter container mount namespace", cause: error)
-                }
-                try self.doFilesystemOperation(path: path, operation: operation)
+        return try await self.runOnDedicatedThread {
+            // setns(CLONE_NEWNS) requires the caller's filesystem context to be
+            // its own, which a fresh thread shares with its creator until this.
+            if unshare(CLONE_FS) != 0 {
+                let error = self.swiftErrno("unshare(CLONE_FS)")
+                throw RPCError(code: .internalError, message: "failed to unshare filesystem namespace", cause: error)
             }
+            if setns(containerMountFd, CLONE_NEWNS) != 0 {
+                let error = self.swiftErrno("setns(CLONE_NEWNS)")
+                throw RPCError(code: .internalError, message: "failed to enter container mount namespace", cause: error)
+            }
+            return try body()
         }
-
-        return .init()
     }
 
     private func doFilesystemOperation(
         path: FilePath,
         operation: Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest.OneOf_Operation
-    ) throws {
-        var finfo = _stat_struct()
-        let rc = _stat(path.string, &finfo)
-        if rc != 0 {
-            let error = swiftErrno("stat")
-            throw RPCError(code: .notFound, message: "failed to stat path", cause: error)
-        }
-
-        let fd = open(path.string, O_RDONLY | O_NOFOLLOW)
+    ) throws -> Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse {
+        // O_DIRECTORY prevents freeze/thaw requests from blocking on FIFOs.
+        let fd = open(path.string, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         if fd < 0 {
-            if errno == ELOOP {
-                throw RPCError(code: .internalError, message: "path cannot be a symlink")
-            }
+            let code = errno
             let error = swiftErrno("open")
-            throw RPCError(code: .internalError, message: "failed to open path", cause: error)
+            if code == ELOOP {
+                throw RPCError(code: .invalidArgument, message: "path cannot be a symlink", cause: error)
+            }
+            if code == ENOTDIR {
+                throw RPCError(code: .invalidArgument, message: "path must be a directory", cause: error)
+            }
+            let rpcCode: RPCError.Code = code == ENOENT ? .notFound : .internalError
+            throw RPCError(code: rpcCode, message: "failed to open path", cause: error)
         }
 
         defer { close(fd) }
@@ -874,22 +924,12 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                 try freezeFilesystem(fd: fd)
             case .thaw(_):
                 try thawFilesystem(fd: fd)
-            case .trim(let params):
-                switch params.schedule {
-                case .oneShot(_):
-                    try trimFilesystem(fd: fd)
-                case .none:
-                    throw RPCError(code: .invalidArgument, message: "trim schedule must be specified")
-                }
             }
         } catch {
-            log.error(
-                "filesystemOperation",
-                metadata: [
-                    "error": "\(error)"
-                ])
-            throw RPCError(code: .internalError, message: "filesystemOperation", cause: error)
+            log.error("filesystemOperation", metadata: ["error": "\(error)"])
+            throw error
         }
+        return .init()
     }
 
     private func freezeFilesystem(fd: Int32) throws {
@@ -916,14 +956,23 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         var min_len: UInt64
     }
 
-    private func trimFilesystem(fd: Int32) throws {
+    private func trimFilesystem(fd: Int32) throws -> UInt64 {
         let FITRIM: UInt = 0xC018_5879
         var trange = fitrim_range(start: 0, len: UInt64.max, min_len: 0)
         let rc: CInt = ioctl(fd, FITRIM, &trange)
         if rc != 0 {
+            let code = errno
+            // Unsupported discard or an unreplayed journal can be skipped by a sweep.
+            // EPERM remains an error: it can indicate missing capabilities or a read-only device.
+            if code == EOPNOTSUPP || code == ENOTTY || code == EROFS {
+                log.debug("filesystem cannot discard", metadata: ["errno": "\(code)"])
+                throw RPCError(code: .failedPrecondition, message: "filesystem cannot discard", cause: self.posixError(code))
+            }
             let error = swiftErrno("ioctl(FITRIM)")
             throw RPCError(code: .internalError, message: "trim failed", cause: error)
         }
+        // FITRIM overwrites `len` with what the filesystem reported discarding.
+        return trange.len
     }
 
     public func umount(request: Com_Apple_Containerization_Sandbox_V3_UmountRequest, context: GRPCCore.ServerContext)
@@ -1752,8 +1801,13 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         }
     }
 
+    /// Convert errno without logging expected outcomes that callers handle.
+    private func posixError(_ code: Int32) -> POSIXError {
+        POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
+    }
+
     private func swiftErrno(_ msg: Logger.Message) -> POSIXError {
-        let error = POSIXError(.init(rawValue: errno)!)
+        let error = self.posixError(errno)
         log.error(
             msg,
             metadata: [

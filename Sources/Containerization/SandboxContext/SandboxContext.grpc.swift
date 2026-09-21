@@ -192,6 +192,19 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
                 type: .unary
             )
         }
+        /// Namespace for "TrimFilesystem" metadata.
+        public enum TrimFilesystem: Sendable {
+            /// Request type for "TrimFilesystem".
+            public typealias Input = Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest
+            /// Response type for "TrimFilesystem".
+            public typealias Output = Com_Apple_Containerization_Sandbox_V3_TrimFilesystemResponse
+            /// Descriptor for "TrimFilesystem".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
+                method: "TrimFilesystem",
+                type: .unary
+            )
+        }
         /// Namespace for "CreateProcess" metadata.
         public enum CreateProcess: Sendable {
             /// Request type for "CreateProcess".
@@ -440,6 +453,7 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             Copy.descriptor,
             Stat.descriptor,
             FilesystemOperation.descriptor,
+            TrimFilesystem.descriptor,
             CreateProcess.descriptor,
             DeleteProcess.descriptor,
             StartProcess.descriptor,
@@ -704,6 +718,25 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext {
             request: GRPCCore.StreamingServerRequest<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest>,
             context: GRPCCore.ServerContext
         ) async throws -> GRPCCore.StreamingServerResponse<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse>
+
+        /// Handle the "TrimFilesystem" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Discard the free blocks of one mounted filesystem, returning what it
+        /// > reported trimming.
+        ///
+        /// - Parameters:
+        ///   - request: A streaming request of `Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest` messages.
+        ///   - context: Context providing information about the RPC.
+        /// - Throws: Any error which occurred during the processing of the request. Thrown errors
+        ///     of type `RPCError` are mapped to appropriate statuses. All other errors are converted
+        ///     to an internal error.
+        /// - Returns: A streaming response of `Com_Apple_Containerization_Sandbox_V3_TrimFilesystemResponse` messages.
+        func trimFilesystem(
+            request: GRPCCore.StreamingServerRequest<Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest>,
+            context: GRPCCore.ServerContext
+        ) async throws -> GRPCCore.StreamingServerResponse<Com_Apple_Containerization_Sandbox_V3_TrimFilesystemResponse>
 
         /// Handle the "CreateProcess" method.
         ///
@@ -1261,6 +1294,25 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext {
             context: GRPCCore.ServerContext
         ) async throws -> GRPCCore.ServerResponse<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse>
 
+        /// Handle the "TrimFilesystem" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Discard the free blocks of one mounted filesystem, returning what it
+        /// > reported trimming.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest` message.
+        ///   - context: Context providing information about the RPC.
+        /// - Throws: Any error which occurred during the processing of the request. Thrown errors
+        ///     of type `RPCError` are mapped to appropriate statuses. All other errors are converted
+        ///     to an internal error.
+        /// - Returns: A response containing a single `Com_Apple_Containerization_Sandbox_V3_TrimFilesystemResponse` message.
+        func trimFilesystem(
+            request: GRPCCore.ServerRequest<Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest>,
+            context: GRPCCore.ServerContext
+        ) async throws -> GRPCCore.ServerResponse<Com_Apple_Containerization_Sandbox_V3_TrimFilesystemResponse>
+
         /// Handle the "CreateProcess" method.
         ///
         /// > Source IDL Documentation:
@@ -1816,6 +1868,25 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext {
             context: GRPCCore.ServerContext
         ) async throws -> Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse
 
+        /// Handle the "TrimFilesystem" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Discard the free blocks of one mounted filesystem, returning what it
+        /// > reported trimming.
+        ///
+        /// - Parameters:
+        ///   - request: A `Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest` message.
+        ///   - context: Context providing information about the RPC.
+        /// - Throws: Any error which occurred during the processing of the request. Thrown errors
+        ///     of type `RPCError` are mapped to appropriate statuses. All other errors are converted
+        ///     to an internal error.
+        /// - Returns: A `Com_Apple_Containerization_Sandbox_V3_TrimFilesystemResponse` to respond with.
+        func trimFilesystem(
+            request: Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest,
+            context: GRPCCore.ServerContext
+        ) async throws -> Com_Apple_Containerization_Sandbox_V3_TrimFilesystemResponse
+
         /// Handle the "CreateProcess" method.
         ///
         /// > Source IDL Documentation:
@@ -2280,6 +2351,17 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext.StreamingServiceP
             }
         )
         router.registerHandler(
+            forMethod: Com_Apple_Containerization_Sandbox_V3_SandboxContext.Method.TrimFilesystem.descriptor,
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest>(),
+            serializer: GRPCProtobuf.ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_TrimFilesystemResponse>(),
+            handler: { request, context in
+                try await self.trimFilesystem(
+                    request: request,
+                    context: context
+                )
+            }
+        )
+        router.registerHandler(
             forMethod: Com_Apple_Containerization_Sandbox_V3_SandboxContext.Method.CreateProcess.descriptor,
             deserializer: GRPCProtobuf.ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_CreateProcessRequest>(),
             serializer: GRPCProtobuf.ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_CreateProcessResponse>(),
@@ -2609,6 +2691,17 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext.ServiceProtocol {
         context: GRPCCore.ServerContext
     ) async throws -> GRPCCore.StreamingServerResponse<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse> {
         let response = try await self.filesystemOperation(
+            request: GRPCCore.ServerRequest(stream: request),
+            context: context
+        )
+        return GRPCCore.StreamingServerResponse(single: response)
+    }
+
+    public func trimFilesystem(
+        request: GRPCCore.StreamingServerRequest<Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest>,
+        context: GRPCCore.ServerContext
+    ) async throws -> GRPCCore.StreamingServerResponse<Com_Apple_Containerization_Sandbox_V3_TrimFilesystemResponse> {
+        let response = try await self.trimFilesystem(
             request: GRPCCore.ServerRequest(stream: request),
             context: context
         )
@@ -2970,6 +3063,19 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServiceProt
     ) async throws -> GRPCCore.ServerResponse<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse> {
         return GRPCCore.ServerResponse<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse>(
             message: try await self.filesystemOperation(
+                request: request.message,
+                context: context
+            ),
+            metadata: [:]
+        )
+    }
+
+    public func trimFilesystem(
+        request: GRPCCore.ServerRequest<Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest>,
+        context: GRPCCore.ServerContext
+    ) async throws -> GRPCCore.ServerResponse<Com_Apple_Containerization_Sandbox_V3_TrimFilesystemResponse> {
+        return GRPCCore.ServerResponse<Com_Apple_Containerization_Sandbox_V3_TrimFilesystemResponse>(
+            message: try await self.trimFilesystem(
                 request: request.message,
                 context: context
             ),
@@ -3501,6 +3607,30 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext {
             deserializer: some GRPCCore.MessageDeserializer<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse>,
             options: GRPCCore.CallOptions,
             onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Com_Apple_Containerization_Sandbox_V3_FilesystemOperationResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "TrimFilesystem" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Discard the free blocks of one mounted filesystem, returning what it
+        /// > reported trimming.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest` message.
+        ///   - serializer: A serializer for `Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest` messages.
+        ///   - deserializer: A deserializer for `Com_Apple_Containerization_Sandbox_V3_TrimFilesystemResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func trimFilesystem<Result>(
+            request: GRPCCore.ClientRequest<Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest>,
+            serializer: some GRPCCore.MessageSerializer<Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Com_Apple_Containerization_Sandbox_V3_TrimFilesystemResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Com_Apple_Containerization_Sandbox_V3_TrimFilesystemResponse>) async throws -> Result
         ) async throws -> Result where Result: Sendable
 
         /// Call the "CreateProcess" method.
@@ -4340,6 +4470,41 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext {
             try await self.client.unary(
                 request: request,
                 descriptor: Com_Apple_Containerization_Sandbox_V3_SandboxContext.Method.FilesystemOperation.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "TrimFilesystem" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Discard the free blocks of one mounted filesystem, returning what it
+        /// > reported trimming.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest` message.
+        ///   - serializer: A serializer for `Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest` messages.
+        ///   - deserializer: A deserializer for `Com_Apple_Containerization_Sandbox_V3_TrimFilesystemResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func trimFilesystem<Result>(
+            request: GRPCCore.ClientRequest<Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest>,
+            serializer: some GRPCCore.MessageSerializer<Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Com_Apple_Containerization_Sandbox_V3_TrimFilesystemResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Com_Apple_Containerization_Sandbox_V3_TrimFilesystemResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Com_Apple_Containerization_Sandbox_V3_SandboxContext.Method.TrimFilesystem.descriptor,
                 serializer: serializer,
                 deserializer: deserializer,
                 options: options,
@@ -5313,6 +5478,36 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext.ClientProtocol {
         )
     }
 
+    /// Call the "TrimFilesystem" method.
+    ///
+    /// > Source IDL Documentation:
+    /// >
+    /// > Discard the free blocks of one mounted filesystem, returning what it
+    /// > reported trimming.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func trimFilesystem<Result>(
+        request: GRPCCore.ClientRequest<Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Com_Apple_Containerization_Sandbox_V3_TrimFilesystemResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.trimFilesystem(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_TrimFilesystemResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
     /// Call the "CreateProcess" method.
     ///
     /// > Source IDL Documentation:
@@ -6230,6 +6425,40 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext.ClientProtocol {
             metadata: metadata
         )
         return try await self.filesystemOperation(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "TrimFilesystem" method.
+    ///
+    /// > Source IDL Documentation:
+    /// >
+    /// > Discard the free blocks of one mounted filesystem, returning what it
+    /// > reported trimming.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func trimFilesystem<Result>(
+        _ message: Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Com_Apple_Containerization_Sandbox_V3_TrimFilesystemResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Com_Apple_Containerization_Sandbox_V3_TrimFilesystemRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.trimFilesystem(
             request: request,
             options: options,
             onResponse: handleResponse

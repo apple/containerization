@@ -380,7 +380,7 @@ public final class LinuxContainer: Container, Sendable {
             process: .init(),
             hostname: id,
             root: .init(
-                path: Self.guestRootfsPath(id),
+                path: GuestLayout.rootfs(id),
                 readonly: false
             ),
             linux: .init(
@@ -507,18 +507,11 @@ public final class LinuxContainer: Container, Sendable {
         ]
     }
 
-    private static func guestRootfsPath(_ id: String) -> String {
-        "/run/container/\(id)/rootfs"
-    }
-
-    private static func guestSocketStagingPath(_ socketID: String) -> String {
-        "/run/sockets/\(socketID).sock"
-    }
 }
 
 extension LinuxContainer {
     package var root: String {
-        Self.guestRootfsPath(id)
+        GuestLayout.rootfs(id)
     }
 
     /// Number of CPU cores allocated.
@@ -556,10 +549,10 @@ extension LinuxContainer {
             }
             let writableAttachment = attachments[1]
 
-            let lowerPath = "/run/container/\(self.id)/lower"
-            let upperMountPath = "/run/container/\(self.id)/upper"
-            let upperPath = "/run/container/\(self.id)/upper/diff"
-            let workPath = "/run/container/\(self.id)/upper/work"
+            let lowerPath = GuestLayout.lowerLayer(self.id)
+            let upperMountPath = GuestLayout.writableLayer(self.id)
+            let upperPath = "\(upperMountPath)/diff"
+            let workPath = "\(upperMountPath)/work"
 
             // Mount the image (lower layer) as read-only.
             var lowerMount = rootfsAttachment.to
@@ -699,7 +692,7 @@ extension LinuxContainer {
                     guard let attachments = vm.mounts[self.id] else {
                         throw ContainerizationError(.notFound, message: "rootfs mount not found")
                     }
-                    let rootfsPath = Self.guestRootfsPath(self.id)
+                    let rootfsPath = GuestLayout.rootfs(self.id)
                     try await self.mountRootfs(attachments: attachments, rootfsPath: rootfsPath, agent: agent)
 
                     // Mount file mount holding directories under /run.
@@ -808,7 +801,7 @@ extension LinuxContainer {
                     mounts.append(
                         ContainerizationOCI.Mount(
                             type: "bind",
-                            source: Self.guestSocketStagingPath(socket.id),
+                            source: GuestLayout.socketStaging(socket.id),
                             destination: socket.destination.path,
                             options: ["bind"]
                         ))
@@ -908,14 +901,14 @@ extension LinuxContainer {
                     // Today, we leave EBUSY looping and other fun logic up to the
                     // guest agent.
                     try await agent.umount(
-                        path: Self.guestRootfsPath(self.id),
+                        path: GuestLayout.rootfs(self.id),
                         flags: 0
                     )
 
                     // If we have a writable layer, we also need to unmount the lower and upper layers.
                     if self.writableLayer != nil {
-                        let upperPath = "/run/container/\(self.id)/upper"
-                        let lowerPath = "/run/container/\(self.id)/lower"
+                        let upperPath = GuestLayout.writableLayer(self.id)
+                        let lowerPath = GuestLayout.lowerLayer(self.id)
                         try await agent.umount(path: upperPath, flags: 0)
                         try await agent.umount(path: lowerPath, flags: 0)
                     }
@@ -1135,12 +1128,46 @@ extension LinuxContainer {
         try await self.state.withLock {
             let state = try $0.startedState("filesystemOperation")
             try await state.vm.withAgent { agent in
-                guard let vminitd = agent as? Vminitd else {
-                    throw ContainerizationError(.unsupported, message: "filesystemOperation requires Vminitd agent")
-                }
-                try await vminitd.filesystemOperation(operation: operation, path: path, containerID: self.id)
+                try await agent.filesystemOperation(operation: operation, path: path, containerID: self.id)
             }
         }
+    }
+
+    /// Return unused filesystem blocks to the host.
+    ///
+    /// With no paths, trims the writable root filesystem or overlay backing layer
+    /// and writable block mounts, skipping filesystems that cannot discard.
+    ///
+    /// Explicit paths resolve in the container's mount namespace and report
+    /// ``FilesystemCannotDiscard`` for unsupported filesystems. For an overlay
+    /// root, `trim()` reaches the backing layer; `trim(paths: ["/"])` cannot,
+    /// because overlayfs does not support discard. Prefer the no-argument form
+    /// unless targeting a specific container-visible filesystem.
+    ///
+    /// - Returns: Filesystem-reported bytes submitted for potential discard. Not
+    ///   measured host space recovered.
+    @discardableResult
+    public func trim(paths: [String] = []) async throws -> UInt64 {
+        // Hold the lock through trim so stop cannot unmount or detach its targets.
+        // Cancellation is checked between filesystems; an in-flight ioctl completes.
+        try await self.state.withLock {
+            let vm = try $0.startedState("trim").vm
+            let targets = paths.isEmpty ? self.trimTargets : paths.map { .container(id: self.id, path: $0) }
+            return try await vm.trim(targets, skippingWhatCannotDiscard: paths.isEmpty, logger: self.logger)
+        }
+    }
+
+    /// Runtime-owned roots and layers use sandbox paths; block mounts use the
+    /// container's namespace. Sandbox targets remain accessible after workload exit.
+    var trimTargets: [TrimTarget] {
+        let root: [TrimTarget]
+        if let writableLayer {
+            root = writableLayer.isTrimmable ? [.sandbox(path: GuestLayout.writableLayer(self.id))] : []
+        } else {
+            root = self.rootfs.isTrimmable ? [.sandbox(path: GuestLayout.rootfs(self.id))] : []
+        }
+        return root
+            + self.config.mounts.filter(\.isTrimmable).map { .container(id: self.id, path: $0.destination) }
     }
 
     private func relayUnixSocket(
@@ -1163,7 +1190,7 @@ extension LinuxContainer {
             // Held for the lifetime of the relay, so it is deliberately never
             // released — the relay manager outlives this call.
             port = self.hostVsockPorts.allocate()
-            socket.destination = URL(filePath: Self.guestSocketStagingPath(socket.id))
+            socket.destination = URL(filePath: GuestLayout.socketStaging(socket.id))
         } else {
             port = self.guestVsockPorts.wrappingAdd(1, ordering: .relaxed).oldValue
             socket.source = rootInGuest.appending(path: socket.source.path)
