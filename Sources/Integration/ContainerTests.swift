@@ -884,20 +884,24 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "CPU usage should be > 0, got \(stats.cpu?.usageUsec ?? 0)")
             }
 
-            guard let filesystem = stats.filesystem, filesystem.usedBytes > 0 else {
-                throw IntegrationError.assert(msg: "filesystem usedBytes should be > 0, got \(stats.filesystem?.usedBytes ?? 0)")
+            guard let filesystem = stats.filesystem, filesystem.blocks > filesystem.freeBlocks else {
+                throw IntegrationError.assert(
+                    msg: "filesystem used blocks should be > 0, got blocks=\(stats.filesystem?.blocks ?? 0) freeBlocks=\(stats.filesystem?.freeBlocks ?? 0)")
             }
 
-            guard filesystem.inodesUsed > 0 else {
-                throw IntegrationError.assert(msg: "filesystem inodesUsed should be > 0, got \(filesystem.inodesUsed)")
+            guard filesystem.inodes > filesystem.freeInodes else {
+                throw IntegrationError.assert(msg: "filesystem used inodes should be > 0, got inodes=\(filesystem.inodes) freeInodes=\(filesystem.freeInodes)")
             }
+
+            let usedBytes = (filesystem.blocks - filesystem.freeBlocks) * filesystem.blockSize
+            let inodesUsed = filesystem.inodes - filesystem.freeInodes
 
             print("Container statistics:")
             print("  Processes: \(process.current)")
             print("  Memory: \(memory.usageBytes) bytes")
             print("  CPU: \(cpu.usageUsec) usec")
             print("  Networks: \(stats.networks?.count ?? 0) interfaces")
-            print("  Filesystem: \(filesystem.usedBytes) bytes, \(filesystem.inodesUsed) inodes")
+            print("  Filesystem: \(usedBytes) bytes, \(inodesUsed) inodes")
 
             try await container.stop()
         } catch {
