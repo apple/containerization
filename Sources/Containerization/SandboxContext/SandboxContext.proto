@@ -503,10 +503,17 @@ message MemoryEventStats {
   uint64 oom_group_kill = 6;
 }
 
-// Filesystem occupancy for a container's writable rootfs mount, from statfs(2).
+// Raw statfs(2) fields for a container's writable rootfs mount, sufficient
+// to compute used bytes/inodes host-side.
 message FilesystemStats {
-  // Bytes currently used on the filesystem (f_blocks - f_bfree) * f_frsize.
-  uint64 used_bytes = 1;
-  // Inodes currently used on the filesystem (f_files - f_ffree).
-  uint64 inodes_used = 2;
+  // f_bsize: block size in bytes; the unit blocks/free_blocks are counted in.
+  uint64 block_size = 1;
+  // f_blocks: total blocks in the filesystem.
+  uint64 blocks = 2;
+  // f_bfree: free blocks in the filesystem (includes blocks reserved for root).
+  uint64 free_blocks = 3;
+  // f_files: total inodes in the filesystem.
+  uint64 inodes = 4;
+  // f_ffree: free inodes in the filesystem.
+  uint64 free_inodes = 5;
 }

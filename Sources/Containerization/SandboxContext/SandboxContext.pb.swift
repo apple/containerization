@@ -1781,17 +1781,27 @@ public nonisolated struct Com_Apple_Containerization_Sandbox_V3_MemoryEventStats
   public init() {}
 }
 
-/// Filesystem occupancy for a container's writable rootfs mount, from statfs(2).
+/// Raw statfs(2) fields for a container's writable rootfs mount, sufficient
+/// to compute used bytes/inodes host-side.
 public nonisolated struct Com_Apple_Containerization_Sandbox_V3_FilesystemStats: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  /// Bytes currently used on the filesystem (f_blocks - f_bfree) * f_frsize.
-  public var usedBytes: UInt64 = 0
+  /// f_bsize: block size in bytes; the unit blocks/free_blocks are counted in.
+  public var blockSize: UInt64 = 0
 
-  /// Inodes currently used on the filesystem (f_files - f_ffree).
-  public var inodesUsed: UInt64 = 0
+  /// f_blocks: total blocks in the filesystem.
+  public var blocks: UInt64 = 0
+
+  /// f_bfree: free blocks in the filesystem (includes blocks reserved for root).
+  public var freeBlocks: UInt64 = 0
+
+  /// f_files: total inodes in the filesystem.
+  public var inodes: UInt64 = 0
+
+  /// f_ffree: free inodes in the filesystem.
+  public var freeInodes: UInt64 = 0
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -4776,7 +4786,7 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_MemoryEventStats: Sw
 
 nonisolated extension Com_Apple_Containerization_Sandbox_V3_FilesystemStats: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FilesystemStats"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}used_bytes\0\u{3}inodes_used\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}block_size\0\u{1}blocks\0\u{3}free_blocks\0\u{1}inodes\0\u{3}free_inodes\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -4784,26 +4794,41 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_FilesystemStats: Swi
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularUInt64Field(value: &self.usedBytes) }()
-      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.inodesUsed) }()
+      case 1: try { try decoder.decodeSingularUInt64Field(value: &self.blockSize) }()
+      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.blocks) }()
+      case 3: try { try decoder.decodeSingularUInt64Field(value: &self.freeBlocks) }()
+      case 4: try { try decoder.decodeSingularUInt64Field(value: &self.inodes) }()
+      case 5: try { try decoder.decodeSingularUInt64Field(value: &self.freeInodes) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if self.usedBytes != 0 {
-      try visitor.visitSingularUInt64Field(value: self.usedBytes, fieldNumber: 1)
+    if self.blockSize != 0 {
+      try visitor.visitSingularUInt64Field(value: self.blockSize, fieldNumber: 1)
     }
-    if self.inodesUsed != 0 {
-      try visitor.visitSingularUInt64Field(value: self.inodesUsed, fieldNumber: 2)
+    if self.blocks != 0 {
+      try visitor.visitSingularUInt64Field(value: self.blocks, fieldNumber: 2)
+    }
+    if self.freeBlocks != 0 {
+      try visitor.visitSingularUInt64Field(value: self.freeBlocks, fieldNumber: 3)
+    }
+    if self.inodes != 0 {
+      try visitor.visitSingularUInt64Field(value: self.inodes, fieldNumber: 4)
+    }
+    if self.freeInodes != 0 {
+      try visitor.visitSingularUInt64Field(value: self.freeInodes, fieldNumber: 5)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_FilesystemStats, rhs: Com_Apple_Containerization_Sandbox_V3_FilesystemStats) -> Bool {
-    if lhs.usedBytes != rhs.usedBytes {return false}
-    if lhs.inodesUsed != rhs.inodesUsed {return false}
+    if lhs.blockSize != rhs.blockSize {return false}
+    if lhs.blocks != rhs.blocks {return false}
+    if lhs.freeBlocks != rhs.freeBlocks {return false}
+    if lhs.inodes != rhs.inodes {return false}
+    if lhs.freeInodes != rhs.freeInodes {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

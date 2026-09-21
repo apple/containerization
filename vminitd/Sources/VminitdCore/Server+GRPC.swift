@@ -1725,7 +1725,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                 }
 
                 // Get filesystem usage only if requested
-                var filesystemStats: (usedBytes: UInt64, inodesUsed: UInt64)?
+                var filesystemStats: CZ_Statfs?
                 if wantFilesystem {
                     filesystemStats = try await container.filesystemStats()
                 }
@@ -1809,7 +1809,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         cgStats: Cgroup2Stats?,
         networkStats: [Com_Apple_Containerization_Sandbox_V3_NetworkStats],
         memoryEvents: MemoryEvents?,
-        filesystemStats: (usedBytes: UInt64, inodesUsed: UInt64)?,
+        filesystemStats: CZ_Statfs?,
         wantProcess: Bool,
         wantMemory: Bool,
         wantCPU: Bool,
@@ -1891,8 +1891,11 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
 
             if wantFilesystem, let fs = filesystemStats {
                 $0.filesystem = .with {
-                    $0.usedBytes = fs.usedBytes
-                    $0.inodesUsed = fs.inodesUsed
+                    $0.blockSize = fs.f_bsize
+                    $0.blocks = fs.f_blocks
+                    $0.freeBlocks = fs.f_bfree
+                    $0.inodes = fs.f_files
+                    $0.freeInodes = fs.f_ffree
                 }
             }
         }
