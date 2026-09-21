@@ -428,7 +428,7 @@ message ContainerStats {
   BlockIOStats block_io = 5;
   repeated NetworkStats networks = 6;
   MemoryEventStats memory_events = 7;
-  FilesystemStats filesystem = 8;
+  repeated FilesystemStats filesystem = 8;
 }
 
 message ProcessStats {
@@ -503,17 +503,19 @@ message MemoryEventStats {
   uint64 oom_group_kill = 6;
 }
 
-// Raw statfs(2) fields for a container's writable rootfs mount, sufficient
-// to compute used bytes/inodes host-side.
+// Raw statfs(2) fields for a single mount, sufficient to compute used
+// bytes/inodes host-side.
 message FilesystemStats {
+  // The mount point this entry describes.
+  string mount_point = 1;
   // f_bsize: block size in bytes; the unit blocks/free_blocks are counted in.
-  uint64 block_size = 1;
+  uint64 block_size = 2;
   // f_blocks: total blocks in the filesystem.
-  uint64 blocks = 2;
+  uint64 blocks = 3;
   // f_bfree: free blocks in the filesystem (includes blocks reserved for root).
-  uint64 free_blocks = 3;
+  uint64 free_blocks = 4;
   // f_files: total inodes in the filesystem.
-  uint64 inodes = 4;
+  uint64 inodes = 5;
   // f_ffree: free inodes in the filesystem.
-  uint64 free_inodes = 5;
+  uint64 free_inodes = 6;
 }

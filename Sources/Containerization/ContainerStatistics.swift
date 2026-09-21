@@ -23,7 +23,7 @@ public struct ContainerStatistics: Sendable {
     public var blockIO: BlockIOStatistics?
     public var networks: [NetworkStatistics]?
     public var memoryEvents: MemoryEventStatistics?
-    public var filesystem: FilesystemStatistics?
+    public var filesystem: [FilesystemStatistics]?
 
     public init(
         id: String,
@@ -33,7 +33,7 @@ public struct ContainerStatistics: Sendable {
         blockIO: BlockIOStatistics? = nil,
         networks: [NetworkStatistics]? = nil,
         memoryEvents: MemoryEventStatistics? = nil,
-        filesystem: FilesystemStatistics? = nil
+        filesystem: [FilesystemStatistics]? = nil
     ) {
         self.id = id
         self.process = process
@@ -224,9 +224,10 @@ public struct ContainerStatistics: Sendable {
         }
     }
 
-    /// Filesystem occupancy for a container's writable rootfs mount.
-    /// Filesystem occupancy for a container's writable rootfs mount, from statfs(2).
+    /// Filesystem occupancy for a single mount, from statfs(2).
     public struct FilesystemStatistics: Sendable {
+        /// The mount point this entry describes.
+        public var mountPoint: String
         /// f_bsize: block size in bytes; the unit blocks/freeBlocks are counted in.
         public var blockSize: UInt64
         /// f_blocks: total blocks in the filesystem.
@@ -238,7 +239,8 @@ public struct ContainerStatistics: Sendable {
         /// f_ffree: free inodes in the filesystem.
         public var freeInodes: UInt64
 
-        public init(blockSize: UInt64, blocks: UInt64, freeBlocks: UInt64, inodes: UInt64, freeInodes: UInt64) {
+        public init(mountPoint: String, blockSize: UInt64, blocks: UInt64, freeBlocks: UInt64, inodes: UInt64, freeInodes: UInt64) {
+            self.mountPoint = mountPoint
             self.blockSize = blockSize
             self.blocks = blocks
             self.freeBlocks = freeBlocks

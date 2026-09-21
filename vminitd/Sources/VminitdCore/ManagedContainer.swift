@@ -38,6 +38,10 @@ public actor ManagedContainer {
         self.initProcess.pid
     }
 
+    var rootfsPath: String {
+        self.bundle.rootfsPath.path
+    }
+
     init(
         id: String,
         stdio: HostStdio,
@@ -240,12 +244,12 @@ extension ManagedContainer {
         try self.cgroupManager.getMemoryEvents()
     }
 
-    func filesystemStats() throws -> CZ_Statfs {
+    func filesystemStats(of mount: String) throws -> CZ_Statfs {
         var s = CZ_Statfs()
-        guard CZ_statfs(self.bundle.rootfsPath.path, &s) == 0 else {
+        guard CZ_statfs(mount, &s) == 0 else {
             throw ContainerizationError(
                 .internalError,
-                message: "statfs(\(self.bundle.rootfsPath.path)) failed: errno \(errno)"
+                message: "statfs(\(mount)) failed: errno \(errno)"
             )
         }
         return s

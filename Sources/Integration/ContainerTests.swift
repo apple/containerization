@@ -884,9 +884,9 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "CPU usage should be > 0, got \(stats.cpu?.usageUsec ?? 0)")
             }
 
-            guard let filesystem = stats.filesystem, filesystem.blocks > filesystem.freeBlocks else {
+            guard let filesystem = stats.filesystem?.first, filesystem.blocks > filesystem.freeBlocks else {
                 throw IntegrationError.assert(
-                    msg: "filesystem used blocks should be > 0, got blocks=\(stats.filesystem?.blocks ?? 0) freeBlocks=\(stats.filesystem?.freeBlocks ?? 0)")
+                    msg: "filesystem used blocks should be > 0, got blocks=\(stats.filesystem?.first?.blocks ?? 0) freeBlocks=\(stats.filesystem?.first?.freeBlocks ?? 0)")
             }
 
             guard filesystem.inodes > filesystem.freeInodes else {

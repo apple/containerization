@@ -1725,9 +1725,11 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                 }
 
                 // Get filesystem usage only if requested
-                var filesystemStats: CZ_Statfs?
+                var filesystemStats: [(mountPoint: String, stat: CZ_Statfs)] = []
                 if wantFilesystem {
-                    filesystemStats = try await container.filesystemStats()
+                    let mountPoint = await container.rootfsPath
+                    let stat = try await container.filesystemStats(of: mountPoint)
+                    filesystemStats = [(mountPoint, stat)]
                 }
 
                 containerStats.append(
@@ -1809,7 +1811,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         cgStats: Cgroup2Stats?,
         networkStats: [Com_Apple_Containerization_Sandbox_V3_NetworkStats],
         memoryEvents: MemoryEvents?,
-        filesystemStats: CZ_Statfs?,
+        filesystemStats: [(mountPoint: String, stat: CZ_Statfs)],
         wantProcess: Bool,
         wantMemory: Bool,
         wantCPU: Bool,
@@ -1889,13 +1891,16 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                 }
             }
 
-            if wantFilesystem, let fs = filesystemStats {
-                $0.filesystem = .with {
-                    $0.blockSize = fs.f_bsize
-                    $0.blocks = fs.f_blocks
-                    $0.freeBlocks = fs.f_bfree
-                    $0.inodes = fs.f_files
-                    $0.freeInodes = fs.f_ffree
+            if wantFilesystem {
+                $0.filesystem = filesystemStats.map { entry in
+                    .with {
+                        $0.mountPoint = entry.mountPoint
+                        $0.blockSize = entry.stat.f_bsize
+                        $0.blocks = entry.stat.f_blocks
+                        $0.freeBlocks = entry.stat.f_bfree
+                        $0.inodes = entry.stat.f_files
+                        $0.freeInodes = entry.stat.f_ffree
+                    }
                 }
             }
         }

@@ -178,14 +178,17 @@ extension Vminitd: VirtualMachineAgent {
                         oom: protoStats.memoryEvents.oom,
                         oomKill: protoStats.memoryEvents.oomKill
                     ) : nil,
-                filesystem: categories.contains(.filesystem) && protoStats.hasFilesystem
-                    ? .init(
-                        blockSize: protoStats.filesystem.blockSize,
-                        blocks: protoStats.filesystem.blocks,
-                        freeBlocks: protoStats.filesystem.freeBlocks,
-                        inodes: protoStats.filesystem.inodes,
-                        freeInodes: protoStats.filesystem.freeInodes
-                    ) : nil
+                filesystem: categories.contains(.filesystem)
+                    ? protoStats.filesystem.map { entry in
+                        ContainerStatistics.FilesystemStatistics(
+                            mountPoint: entry.mountPoint,
+                            blockSize: entry.blockSize,
+                            blocks: entry.blocks,
+                            freeBlocks: entry.freeBlocks,
+                            inodes: entry.inodes,
+                            freeInodes: entry.freeInodes
+                        )
+                    } : nil
             )
         }
     }
