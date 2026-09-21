@@ -240,7 +240,7 @@ extension ManagedContainer {
         try self.cgroupManager.getMemoryEvents()
     }
 
-    func filesystemStats() throws -> (usedBytes: UInt64, inodesUsed: UInt64) {
+    func filesystemStats() throws -> CZ_Statfs {
         var s = CZ_Statfs()
         guard CZ_statfs(self.bundle.rootfsPath.path, &s) == 0 else {
             throw ContainerizationError(
@@ -248,9 +248,7 @@ extension ManagedContainer {
                 message: "statfs(\(self.bundle.rootfsPath.path)) failed: errno \(errno)"
             )
         }
-        let usedBytes = (s.f_blocks - s.f_bfree) * s.f_bsize
-        let inodesUsed = s.f_files - s.f_ffree
-        return (usedBytes, inodesUsed)
+        return s
     }
 
     func getExecOrInit(execID: String) throws -> any ContainerProcess {

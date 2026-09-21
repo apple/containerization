@@ -55,11 +55,18 @@ int CZ_statfs(const char *path, CZ_Statfs *out) {
   if (statfs(path, &s) != 0) {
     return -1;
   }
+  out->f_type = (long long)s.f_type;
+  out->f_bsize = (unsigned long long)s.f_bsize;
   out->f_blocks = (unsigned long long)s.f_blocks;
   out->f_bfree = (unsigned long long)s.f_bfree;
-  out->f_bsize = (unsigned long long)s.f_bsize;
+  out->f_bavail = (unsigned long long)s.f_bavail;
   out->f_files = (unsigned long long)s.f_files;
   out->f_ffree = (unsigned long long)s.f_ffree;
+  out->f_fsid = ((long long)s.f_fsid.__val[0] << 32) |
+                (unsigned int)s.f_fsid.__val[1];
+  out->f_namelen = (unsigned long long)s.f_namelen;
+  out->f_frsize = (unsigned long long)s.f_frsize;
+  out->f_flags = (unsigned long long)s.f_flags;
   return 0;
 }
 #endif
