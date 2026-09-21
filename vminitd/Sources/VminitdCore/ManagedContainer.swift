@@ -21,6 +21,7 @@ import ContainerizationError
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
+import LCShim
 import Logging
 
 public actor ManagedContainer {
@@ -38,6 +39,10 @@ public actor ManagedContainer {
 
     public var pid: Int32? {
         self.initProcess.pid
+    }
+
+    var rootfsPath: String {
+        self.bundle.rootfsPath.path
     }
 
     init(
@@ -272,6 +277,17 @@ extension ManagedContainer {
 
     func getMemoryEvents() throws -> MemoryEvents {
         try self.cgroupManager.getMemoryEvents()
+    }
+
+    func filesystemStats(of mount: String) throws -> CZ_Statfs {
+        var s = CZ_Statfs()
+        guard CZ_statfs(mount, &s) == 0 else {
+            throw ContainerizationError(
+                .internalError,
+                message: "statfs(\(mount)) failed: errno \(errno)"
+            )
+        }
+        return s
     }
 
     func getExecOrInit(execID: String) throws -> any ContainerProcess {

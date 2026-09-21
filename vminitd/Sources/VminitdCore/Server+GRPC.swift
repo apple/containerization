@@ -1669,6 +1669,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             let wantBlockIO = wantAll || categories.contains(.blockIo)
             let wantNetwork = wantAll || categories.contains(.network)
             let wantMemoryEvents = wantAll || categories.contains(.memoryEvents)
+            let wantFilesystem = wantAll || categories.contains(.filesystem)
 
             // Get all network interfaces (skip loopback) only if needed
             let interfaces = wantNetwork ? try getNetworkInterfaces() : []
@@ -1723,18 +1724,28 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                     memoryEvents = try await container.getMemoryEvents()
                 }
 
+                // Get filesystem usage only if requested
+                var filesystemStats: [(mountPoint: String, stat: CZ_Statfs)] = []
+                if wantFilesystem {
+                    let mountPoint = await container.rootfsPath
+                    let stat = try await container.filesystemStats(of: mountPoint)
+                    filesystemStats = [(mountPoint, stat)]
+                }
+
                 containerStats.append(
                     mapStatsToProto(
                         containerID: containerID,
                         cgStats: cgStats,
                         networkStats: networkStats,
                         memoryEvents: memoryEvents,
+                        filesystemStats: filesystemStats,
                         wantProcess: wantProcess,
                         wantMemory: wantMemory,
                         wantCPU: wantCPU,
                         wantBlockIO: wantBlockIO,
                         wantNetwork: wantNetwork,
-                        wantMemoryEvents: wantMemoryEvents
+                        wantMemoryEvents: wantMemoryEvents,
+                        wantFilesystem: wantFilesystem
                     )
                 )
             }
@@ -1800,12 +1811,14 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         cgStats: Cgroup2Stats?,
         networkStats: [Com_Apple_Containerization_Sandbox_V3_NetworkStats],
         memoryEvents: MemoryEvents?,
+        filesystemStats: [(mountPoint: String, stat: CZ_Statfs)],
         wantProcess: Bool,
         wantMemory: Bool,
         wantCPU: Bool,
         wantBlockIO: Bool,
         wantNetwork: Bool,
-        wantMemoryEvents: Bool
+        wantMemoryEvents: Bool,
+        wantFilesystem: Bool
     ) -> Com_Apple_Containerization_Sandbox_V3_ContainerStats {
         .with {
             $0.containerID = containerID
@@ -1875,6 +1888,19 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                     $0.max = events.max
                     $0.oom = events.oom
                     $0.oomKill = events.oomKill
+                }
+            }
+
+            if wantFilesystem {
+                $0.filesystem = filesystemStats.map { entry in
+                    .with {
+                        $0.mountPoint = entry.mountPoint
+                        $0.blockSize = entry.stat.f_bsize
+                        $0.blocks = entry.stat.f_blocks
+                        $0.freeBlocks = entry.stat.f_bfree
+                        $0.inodes = entry.stat.f_files
+                        $0.freeInodes = entry.stat.f_ffree
+                    }
                 }
             }
         }

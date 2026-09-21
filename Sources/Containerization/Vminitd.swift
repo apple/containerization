@@ -177,7 +177,18 @@ extension Vminitd: VirtualMachineAgent {
                         max: protoStats.memoryEvents.max,
                         oom: protoStats.memoryEvents.oom,
                         oomKill: protoStats.memoryEvents.oomKill
-                    ) : nil
+                    ) : nil,
+                filesystem: categories.contains(.filesystem)
+                    ? protoStats.filesystem.map { entry in
+                        ContainerStatistics.FilesystemStatistics(
+                            mountPoint: entry.mountPoint,
+                            blockSize: entry.blockSize,
+                            blocks: entry.blocks,
+                            freeBlocks: entry.freeBlocks,
+                            inodes: entry.inodes,
+                            freeInodes: entry.freeInodes
+                        )
+                    } : nil
             )
         }
     }
@@ -631,6 +642,9 @@ extension StatCategory {
         }
         if contains(.memoryEvents) {
             categories.append(.memoryEvents)
+        }
+        if contains(.filesystem) {
+            categories.append(.filesystem)
         }
         return categories
     }

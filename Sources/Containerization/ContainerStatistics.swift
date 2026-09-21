@@ -23,6 +23,7 @@ public struct ContainerStatistics: Sendable {
     public var blockIO: BlockIOStatistics?
     public var networks: [NetworkStatistics]?
     public var memoryEvents: MemoryEventStatistics?
+    public var filesystem: [FilesystemStatistics]?
 
     public init(
         id: String,
@@ -31,7 +32,8 @@ public struct ContainerStatistics: Sendable {
         cpu: CPUStatistics? = nil,
         blockIO: BlockIOStatistics? = nil,
         networks: [NetworkStatistics]? = nil,
-        memoryEvents: MemoryEventStatistics? = nil
+        memoryEvents: MemoryEventStatistics? = nil,
+        filesystem: [FilesystemStatistics]? = nil
     ) {
         self.id = id
         self.process = process
@@ -40,6 +42,7 @@ public struct ContainerStatistics: Sendable {
         self.blockIO = blockIO
         self.networks = networks
         self.memoryEvents = memoryEvents
+        self.filesystem = filesystem
     }
 
     /// Process statistics for a container.
@@ -220,6 +223,31 @@ public struct ContainerStatistics: Sendable {
             self.oomKill = oomKill
         }
     }
+
+    /// Filesystem occupancy for a single mount, from statfs(2).
+    public struct FilesystemStatistics: Sendable {
+        /// The mount point this entry describes.
+        public var mountPoint: String
+        /// f_bsize: block size in bytes; the unit blocks/freeBlocks are counted in.
+        public var blockSize: UInt64
+        /// f_blocks: total blocks in the filesystem.
+        public var blocks: UInt64
+        /// f_bfree: free blocks in the filesystem (includes blocks reserved for root).
+        public var freeBlocks: UInt64
+        /// f_files: total inodes in the filesystem.
+        public var inodes: UInt64
+        /// f_ffree: free inodes in the filesystem.
+        public var freeInodes: UInt64
+
+        public init(mountPoint: String, blockSize: UInt64, blocks: UInt64, freeBlocks: UInt64, inodes: UInt64, freeInodes: UInt64) {
+            self.mountPoint = mountPoint
+            self.blockSize = blockSize
+            self.blocks = blocks
+            self.freeBlocks = freeBlocks
+            self.inodes = inodes
+            self.freeInodes = freeInodes
+        }
+    }
 }
 
 /// Categories of statistics that can be requested.
@@ -242,7 +270,9 @@ public struct StatCategory: OptionSet, Sendable {
     public static let network = StatCategory(rawValue: 1 << 4)
     /// Memory event counters (OOM kills, pressure events, etc.).
     public static let memoryEvents = StatCategory(rawValue: 1 << 5)
+    /// Filesystem occupancy statistics.
+    public static let filesystem = StatCategory(rawValue: 1 << 6)
 
     /// All available statistics categories.
-    public static let all: StatCategory = [.process, .memory, .cpu, .blockIO, .network, .memoryEvents]
+    public static let all: StatCategory = [.process, .memory, .cpu, .blockIO, .network, .memoryEvents, .filesystem]
 }

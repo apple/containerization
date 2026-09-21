@@ -104,4 +104,25 @@ int CZ_pidfd_getfd(int pidfd, int targetfd, unsigned int flags);
 
 int CZ_prctl_set_no_new_privs();
 
+// Mirrors struct statfs (minus its reserved padding). struct statfs itself
+// isn't reliably importable from Swift across all target architectures via
+// the Musl/Glibc modulemaps, so this wraps statfs(2) and copies out plain
+// integer fields instead. f_fsid (a 2-int opaque identifier) is packed into
+// a single 64-bit value.
+typedef struct {
+    long long f_type;
+    unsigned long long f_bsize;
+    unsigned long long f_blocks;
+    unsigned long long f_bfree;
+    unsigned long long f_bavail;
+    unsigned long long f_files;
+    unsigned long long f_ffree;
+    long long f_fsid;
+    unsigned long long f_namelen;
+    unsigned long long f_frsize;
+    unsigned long long f_flags;
+} CZ_Statfs;
+
+int CZ_statfs(const char *path, CZ_Statfs *out);
+
 #endif
