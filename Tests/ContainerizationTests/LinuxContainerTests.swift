@@ -14,6 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import ContainerizationError
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
@@ -118,5 +119,70 @@ struct LinuxContainerTests {
         }
         #expect(pod.maskedPaths == expectedMasked)
         #expect(pod.readonlyPaths == expectedReadonly)
+    }
+
+    /// A `VirtualMachineManager` that cannot create anything. `LinuxContainer.init`
+    /// only stores the manager, so nothing below should reach `create`.
+    private struct UnusableVMM: VirtualMachineManager {
+        func create(config: some VMCreationConfig) async throws -> any VirtualMachineInstance {
+            throw ContainerizationError(.unsupported, message: "test stub: no VM should be created here")
+        }
+    }
+
+    private static let testRootfs = Mount.block(format: "ext4", source: "/tmp/does-not-need-to-exist.ext4", destination: "/")
+
+    @Test func seccompProfileIsValidatedAtInit() throws {
+        var config = LinuxContainer.Configuration()
+        config.process.arguments = ["/bin/true"]
+        config.seccompProfile = .default
+
+        // vmexec ignores spec.linux.seccomp, so a profile without an OCI
+        // runtime is a sandbox that does not exist. Rejected at init, before
+        // the caller has booted a VM.
+        #expect(throws: ContainerizationError.self) {
+            _ = try LinuxContainer("seccomp-without-runtime", rootfs: Self.testRootfs, vmm: UnusableVMM(), configuration: config)
+        }
+
+        config.ociRuntimePath = "/sbin/runc"
+        #expect(throws: Never.self) {
+            _ = try LinuxContainer("seccomp-with-runtime", rootfs: Self.testRootfs, vmm: UnusableVMM(), configuration: config)
+        }
+
+        // The default is unfiltered, and needs no runtime.
+        var unconfined = LinuxContainer.Configuration()
+        unconfined.process.arguments = ["/bin/true"]
+        #expect(throws: Never.self) {
+            _ = try LinuxContainer("no-seccomp", rootfs: Self.testRootfs, vmm: UnusableVMM(), configuration: unconfined)
+        }
+    }
+
+    /// A custom profile is subject to the same rule as `.default`: `vmexec`
+    /// ignores both identically, so neither may be accepted without an OCI
+    /// runtime.
+    @Test func customSeccompProfileIsValidatedAtInit() throws {
+        let profile = LinuxSeccomp(
+            defaultAction: .actAllow,
+            defaultErrnoRet: nil,
+            architectures: [],
+            flags: [],
+            listenerPath: "",
+            listenerMetadata: "",
+            syscalls: [
+                LinuxSyscall(names: ["mkdir", "mkdirat"], action: .actErrno, errnoRet: 13, args: [])
+            ]
+        )
+
+        var config = LinuxContainer.Configuration()
+        config.process.arguments = ["/bin/true"]
+        config.seccompProfile = .profile(profile)
+
+        #expect(throws: ContainerizationError.self) {
+            _ = try LinuxContainer("custom-seccomp-without-runtime", rootfs: Self.testRootfs, vmm: UnusableVMM(), configuration: config)
+        }
+
+        config.ociRuntimePath = "/sbin/runc"
+        #expect(throws: Never.self) {
+            _ = try LinuxContainer("custom-seccomp-with-runtime", rootfs: Self.testRootfs, vmm: UnusableVMM(), configuration: config)
+        }
     }
 }

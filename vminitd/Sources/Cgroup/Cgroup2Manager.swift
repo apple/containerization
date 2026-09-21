@@ -124,9 +124,12 @@ public struct Cgroup2Manager: Sendable {
 
     private static func writeValue(path: URL, value: String, fileName: String) throws {
         let file = path.appending(path: fileName)
+        // errno is read immediately: callers match on ENOENT, so it decides
+        // control flow, and `file.path` allocates a temporary that can clobber it.
         let fd = open(file.path, O_WRONLY, 0)
+        let openErrno = errno
         if fd == -1 {
-            throw Error.errno(errno: errno, message: "failed to open \(file.path)")
+            throw Error.errno(errno: openErrno, message: "failed to open \(file.path)")
         }
         defer { close(fd) }
 
@@ -134,8 +137,9 @@ public struct Cgroup2Manager: Sendable {
         let res = Syscall.retrying {
             bytes.withUnsafeBytes { write(fd, $0.baseAddress!, bytes.count) }
         }
+        let writeErrno = errno
         if res == -1 {
-            throw Error.errno(errno: errno, message: "failed to write to \(file.path)")
+            throw Error.errno(errno: writeErrno, message: "failed to write to \(file.path)")
         }
     }
 
@@ -300,16 +304,32 @@ public struct Cgroup2Manager: Sendable {
                 "path": "\(self.path.path)",
             ])
 
+        // ENOENT counts as success at every step below: an already-absent
+        // cgroup is the end state asked for, which makes delete() idempotent.
         if force {
-            try self.kill()
+            do {
+                try self.kill()
+            } catch Error.errno(let code, _) where code == ENOENT {
+                // Cgroup already gone, or a kernel predating cgroup.kill. The
+                // removal below is still worth attempting.
+                self.logger?.debug(
+                    "cgroup.kill absent, skipping kill",
+                    metadata: [
+                        "path": "\(self.path.path)"
+                    ])
+            }
         }
 
-        // Recursively remove child cgroups first
+        // Recursively remove child cgroups first. This already no-ops on a
+        // missing directory.
         try removeChildCgroups(at: self.path, force: force)
 
+        // errno read immediately; `self.path.path` allocates a temporary that
+        // can clobber it.
         let result = rmdir(self.path.path)
-        if result != 0 {
-            throw Error.errno(errno: errno, message: "failed to remove cgroup directory \(self.path.path)")
+        let err = errno
+        if result != 0 && err != ENOENT {
+            throw Error.errno(errno: err, message: "failed to remove cgroup directory \(self.path.path)")
         }
     }
 
@@ -327,17 +347,29 @@ public struct Cgroup2Manager: Sendable {
 
             if fileManager.fileExists(atPath: childPath.path, isDirectory: &isDirectory) && isDirectory.boolValue {
                 if force {
-                    try Self.writeValue(
-                        path: childPath,
-                        value: "1",
-                        fileName: Self.killFile
-                    )
+                    do {
+                        try Self.writeValue(
+                            path: childPath,
+                            value: "1",
+                            fileName: Self.killFile
+                        )
+                    } catch Error.errno(let code, _) where code == ENOENT {
+                        // Child already gone (runc removes its own subtree, and
+                        // the listing above is a snapshot), or a kernel
+                        // predating cgroup.kill.
+                        self.logger?.debug(
+                            "cgroup.kill absent for child, skipping kill",
+                            metadata: [
+                                "path": "\(childPath.path)"
+                            ])
+                    }
                 }
 
                 try removeChildCgroups(at: childPath, force: force)
                 let result = rmdir(childPath.path)
-                if result != 0 {
-                    throw Error.errno(errno: errno, message: "failed to remove child cgroup \(childPath.path)")
+                let err = errno
+                if result != 0 && err != ENOENT {
+                    throw Error.errno(errno: err, message: "failed to remove child cgroup \(childPath.path)")
                 }
             }
         }

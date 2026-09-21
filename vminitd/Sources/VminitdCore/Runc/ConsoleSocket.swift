@@ -16,21 +16,36 @@
 
 #if os(Linux)
 
+import ContainerizationError
 import ContainerizationOS
 import Foundation
+import Synchronization
 
 /// A Unix socket for receiving PTY master file descriptors from runc
 final class ConsoleSocket: Sendable {
     private let socket: Socket
     private let socketPath: String
 
+    /// A directory this socket created and therefore owns, removed wholesale by
+    /// `close()`.
+    ///
+    /// nil when the caller supplied the path: the parent directory then belongs
+    /// to somebody else and must not be removed.
+    private let ownedDirectory: String?
+
+    /// Guards `close()` against running twice -- `delete()` then `deinit` is
+    /// the normal case. Set as `close()` returns, not on entry, so a failed
+    /// step cannot leave half the teardown undone.
+    private let isClosed = Mutex(false)
+
     /// The path to the console socket
     var path: String { socketPath }
 
     /// Create a new console socket at the specified path
-    init(path: String) throws {
+    init(path: String, ownedDirectory: String? = nil) throws {
         let absPath = path.starts(with: "/") ? path : FileManager.default.currentDirectoryPath + "/" + path
         self.socketPath = absPath
+        self.ownedDirectory = ownedDirectory
 
         let pathURL = URL(fileURLWithPath: absPath)
         let dir = pathURL.deletingLastPathComponent().path
@@ -58,8 +73,16 @@ final class ConsoleSocket: Sendable {
             attributes: nil
         )
 
-        let socket = try ConsoleSocket(path: socketPath)
-        return socket
+        // The per-socket directory exists only to hold this socket, so hand it
+        // over to be reclaimed on close.
+        do {
+            return try ConsoleSocket(path: socketPath, ownedDirectory: socketDir)
+        } catch {
+            // Nothing else can reclaim it: an initializer that threw leaves no
+            // ConsoleSocket to close.
+            try? FileManager.default.removeItem(atPath: socketDir)
+            throw error
+        }
     }
 
     /// Receive the PTY master file descriptor from runc
@@ -69,10 +92,60 @@ final class ConsoleSocket: Sendable {
         return try connection.receiveFileDescriptor()
     }
 
-    /// Close the socket and optionally remove the socket file
+    /// Close the socket and remove what it created on the filesystem.
+    ///
+    /// Idempotent: a second call is a no-op. Every step is attempted even if an
+    /// earlier one failed, and the first failure is what gets thrown.
     func close() throws {
-        try socket.close()
-        try FileManager.default.removeItem(atPath: socketPath)
+        try self.isClosed.withLock { isClosed in
+            guard !isClosed else {
+                return
+            }
+
+            // Marked on the way out regardless of whether the steps below
+            // succeeded; `deinit` cannot report an error, so a retry there
+            // could only fail silently again.
+            defer { isClosed = true }
+
+            var firstFailure: (any Error)? = nil
+
+            do {
+                try self.socket.close()
+            } catch {
+                firstFailure = firstFailure ?? error
+            }
+
+            // Unlinked here rather than left to the directory removal below: a
+            // caller-supplied path has no owned directory. ENOENT is the end
+            // state being asked for.
+            if unlink(self.socketPath) != 0 {
+                let err = errno
+                if err != ENOENT {
+                    firstFailure =
+                        firstFailure
+                        ?? ContainerizationError(
+                            .internalError,
+                            message: "failed to unlink console socket \(self.socketPath): errno \(err)"
+                        )
+                }
+            }
+
+            // Keeps /tmp from collecting one empty runc-console-<uuid> per
+            // terminal process.
+            if let ownedDirectory = self.ownedDirectory,
+                FileManager.default.fileExists(atPath: ownedDirectory)
+            {
+                do {
+                    try FileManager.default.removeItem(atPath: ownedDirectory)
+                } catch {
+                    firstFailure = firstFailure ?? error
+                }
+            }
+
+            if let firstFailure {
+                throw firstFailure
+            }
+        }
     }
 
     deinit {
