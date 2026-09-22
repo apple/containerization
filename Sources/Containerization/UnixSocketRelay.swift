@@ -90,13 +90,7 @@ extension UnixSocketRelay {
 
     private func setupHostVsockDial() async throws {
         let hostConn = configuration.destination
-
-        let socketType = try UnixType(
-            path: hostConn.path,
-            unlinkExisting: true
-        )
-        let hostSocket = try Socket(type: socketType)
-        try hostSocket.listen()
+        let hostSocket = try Self.makeHostListener(configuration)
 
         log?.info(
             "listening on host UDS",
@@ -121,6 +115,26 @@ extension UnixSocketRelay {
                 }
                 try? FileManager.default.removeItem(at: hostConn)
             }
+        }
+    }
+
+    package static func makeHostListener(
+        _ configuration: UnixSocketConfiguration
+    ) throws -> Socket {
+        let socketType = try UnixType(
+            path: configuration.destination.path,
+            perms: configuration.permissions.map {
+                mode_t($0.rawValue)
+            },
+            unlinkExisting: true
+        )
+        let socket = try Socket(type: socketType)
+        do {
+            try socket.listen()
+            return socket
+        } catch {
+            try? socket.close()
+            throw error
         }
     }
 
