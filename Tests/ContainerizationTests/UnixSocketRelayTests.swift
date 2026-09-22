@@ -17,6 +17,7 @@
 import ContainerizationError
 import ContainerizationOS
 import Foundation
+import Synchronization
 import Testing
 
 @testable import Containerization
@@ -117,12 +118,49 @@ struct UnixSocketRelayTests {
         #expect(try host.write(data: response) == response.count)
         #expect(try await read(from: peer.fileDescriptor, count: response.count) == response)
     }
+
+    @Test(.timeLimit(.minutes(1)))
+    func refusedDialsCloseAndListenerRecovers() async throws {
+        let path = URL(filePath: "/tmp/relay-\(UUID().uuidString).sock")
+        defer { try? FileManager.default.removeItem(at: path) }
+        let type = try UnixType(path: path.path)
+        let vm = RelayVirtualMachine()
+        let relay = try UnixSocketRelay(
+            port: vm.listener.port,
+            socket: .init(source: path, destination: path, direction: .outOf),
+            vm: vm
+        )
+        try await relay.start()
+        defer { try? relay.stop() }
+
+        let refused = try Socket(type: type)
+        defer { try? refused.close() }
+        try refused.connect()
+        #expect(try await read(from: refused.fileDescriptor, count: 1).isEmpty)
+
+        let (connection, peer) = try socketPair()
+        defer {
+            try? peer.close()
+            vm.dialConnection.withLock {
+                try? $0?.close()
+                $0 = nil
+            }
+        }
+        vm.dialConnection.withLock { $0 = connection }
+        let host = try Socket(type: type)
+        defer { try? host.close() }
+        try host.connect()
+        let request = Data("guest request".utf8)
+        _ = try host.write(data: request)
+        #expect(try await read(from: peer.fileDescriptor, count: request.count) == request)
+    }
 }
 
 private final class RelayVirtualMachine: VirtualMachineInstance {
     typealias Agent = Vminitd
 
     let listener = VsockListener(port: 1025) { _ in }
+    let dialConnection = Mutex<FileHandle?>(nil)
     var state: VirtualMachineInstanceState { .running }
     var mounts: [String: [AttachedFilesystem]] { [:] }
 
@@ -131,7 +169,11 @@ private final class RelayVirtualMachine: VirtualMachineInstance {
         throw ContainerizationError(.unsupported, message: "dialAgent")
     }
     func dial(_ port: UInt32) async throws -> FileHandle {
-        throw ContainerizationError(.unsupported, message: "dial")
+        try dialConnection.withLock {
+            guard let connection = $0 else { throw POSIXError(.ECONNREFUSED) }
+            $0 = nil
+            return connection
+        }
     }
     func start() async throws {}
     func stop() async throws {}

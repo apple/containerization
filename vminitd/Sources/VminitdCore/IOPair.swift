@@ -65,6 +65,13 @@ final class IOPair: Sendable {
                         self.close(logger: logger)
                         return
                     case .again:
+                        if self.closing {
+                            var event = pollfd(fd: writeFd, events: 0, revents: 0)
+                            while poll(&event, 1, 0) == -1 && errno == EINTR {}
+                            if event.revents & Int16(POLLHUP | POLLERR) != 0 {
+                                self.close(logger: logger)
+                            }
+                        }
                         return
                     default:
                         break
@@ -160,7 +167,7 @@ final class IOPair: Sendable {
 
                 try ProcessSupervisor.default.registerFd(writeFd, mask: .output) { mask in
                     self.io.withLock { io in
-                        if mask.isHangup {
+                        if mask.isHangup && !ignoreHup {
                             io.close(logger: self.logger)
                             return
                         }

@@ -63,7 +63,7 @@ struct IOPairTests {
         }
     }
 
-    private func read(from fd: Int32) throws -> [UInt8] {
+    private func read(from fd: Int32, count: Int? = nil) throws -> [UInt8] {
         let clock = ContinuousClock()
         let deadline = clock.now + .seconds(5)
         var bytes = [UInt8](repeating: 0, count: 4096)
@@ -79,6 +79,7 @@ struct IOPairTests {
             try #require(received >= 0)
             if received == 0 { return result }
             result.append(contentsOf: bytes.prefix(received))
+            if let count, result.count >= count { return result }
         }
     }
 
@@ -86,6 +87,27 @@ struct IOPairTests {
         _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
         var bytes = [UInt8](repeating: 0, count: 4096)
         while Foundation.read(fd, &bytes, bytes.count) > 0 {}
+    }
+
+    private func waitForHangup(_ fd: Int32) throws {
+        let barrier = Pipe()
+        let completed = DispatchSemaphore(value: 0)
+        let barrierFD = barrier.fileHandleForReading.fileDescriptor
+        let barrierWriter = barrier.fileHandleForWriting.fileDescriptor
+        defer {
+            try? ProcessSupervisor.default.unregisterFd(fd)
+            try? ProcessSupervisor.default.unregisterFd(barrierFD)
+            try? barrier.fileHandleForReading.close()
+            try? barrier.fileHandleForWriting.close()
+        }
+        try ProcessSupervisor.default.registerFd(barrierFD, mask: .input) { _ in completed.signal() }
+        try ProcessSupervisor.default.registerFd(fd, mask: .input) { mask in
+            if mask.isHangup {
+                var byte: UInt8 = 1
+                #expect(Foundation.write(barrierWriter, &byte, 1) == 1)
+            }
+        }
+        try #require(completed.wait(timeout: .now() + 5) == .success)
     }
 
     @Test(arguments: [false, true])
@@ -186,8 +208,8 @@ struct IOPairTests {
         #expect(try read(from: output.fileHandleForReading.fileDescriptor) == response)
     }
 
-    @Test
-    func terminalHangupReleasesBlockedInput() throws {
+    @Test(arguments: [false, true])
+    func terminalHangupReleasesBlockedInput(reopenSlave: Bool) throws {
         var masterFD: Int32 = -1
         var slaveFD: Int32 = -1
         try #require(openpty(&masterFD, &slaveFD, nil, nil, nil) == 0)
@@ -202,9 +224,10 @@ struct IOPairTests {
         let sourceClosed = DispatchSemaphore(value: 0)
         let pair = IOPair(
             readFrom: CloseObserver(handle: source.fileHandleForReading, closed: sourceClosed),
-            writeTo: master,
+            writeTo: UnownedIOCloser(master),
             reason: "terminal hangup test"
         )
+        var reopened: FileHandle?
         var didClose = false
         defer {
             if !didClose {
@@ -222,11 +245,21 @@ struct IOPairTests {
             pair.close()
             try? source.fileHandleForReading.close()
             try? source.fileHandleForWriting.close()
+            try? reopened?.close()
             try? master.close()
             try? slave.close()
         }
-        _ = try fill(masterFD)
         try pair.relay(ignoreHup: true)
+        if reopenSlave {
+            try slave.close()
+            try waitForHangup(masterFD)
+            try #require(sourceClosed.wait(timeout: .now()) == .timedOut)
+            let reopenedFD = Foundation.open(path, O_RDWR | O_NOCTTY | O_NONBLOCK)
+            try #require(reopenedFD >= 0)
+            reopened = FileHandle(fileDescriptor: reopenedFD, closeOnDealloc: false)
+            try #require(tcsetattr(reopenedFD, TCSANOW, &attributes) == 0)
+        }
+        let filled = try fill(masterFD)
         let payload = [UInt8](repeating: 0x42, count: 8192)
         try write(payload, to: source.fileHandleForWriting.fileDescriptor)
         let clock = ContinuousClock()
@@ -238,8 +271,15 @@ struct IOPairTests {
             try #require(clock.now < deadline, "Relay did not consume terminal input")
             usleep(1000)
         }
-        try slave.close()
+        if !reopenSlave {
+            try slave.close()
+            try waitForHangup(masterFD)
+        }
         pair.close()
+        if let reopened {
+            try #require(sourceClosed.wait(timeout: .now()) == .timedOut)
+            #expect(try read(from: reopened.fileDescriptor, count: filled + payload.count) == [UInt8](repeating: 0xAA, count: filled) + payload)
+        }
         didClose = sourceClosed.wait(timeout: .now() + 1) == .success
         #expect(didClose)
     }
