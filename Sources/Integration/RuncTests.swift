@@ -194,7 +194,7 @@ extension IntegrationSuite {
     /// Where `bootstrap(id)` will point the guest's serial console, with any
     /// previous run's file removed — it is opened in append mode, and the VMM
     /// does not open it until the VM boots.
-    private func resetBootLog(id: String) -> URL {
+    func resetBootLog(id: String) -> URL {
         let path = URL(filePath: self.bootlogDir).appendingPathComponent("\(id).log")
         try? FileManager.default.removeItem(at: path)
         return path
@@ -203,7 +203,7 @@ extension IntegrationSuite {
     /// The guest's log lines. vminitd logs to the serial console, so this is
     /// where the guest says which code path it took. Read after `stop()`, so the
     /// VM has flushed.
-    private func bootLogLines(at path: URL) throws -> [String] {
+    func bootLogLines(at path: URL) throws -> [String] {
         let data = try Data(contentsOf: path)
         guard let text = String(data: data, encoding: .utf8) else {
             throw IntegrationError.assert(msg: "failed to decode boot log at \(path.path) as UTF8")
@@ -217,7 +217,7 @@ extension IntegrationSuite {
     ///
     /// Both are log assertions: neither has an observable behavioural
     /// difference in this configuration.
-    private func assertRuncExec(execID: String, in lines: [String]) throws {
+    func assertRuncExec(execID: String, in lines: [String]) throws {
         let startSentinel = "starting runc exec process"
         guard lines.contains(where: { $0.contains(startSentinel) && $0.contains(execID) }) else {
             throw IntegrationError.assert(
@@ -597,7 +597,7 @@ extension IntegrationSuite {
     //
     // A missing applet gets its own sentinel: 127 would otherwise satisfy
     // "non-zero" and leave the behavioural check exercising nothing.
-    private static let seccompStatusProbe = """
+    static let seccompStatusProbe = """
         exec 2>&1
         grep '^Seccomp' /proc/self/status
         if command -v unshare >/dev/null 2>&1; then
@@ -610,7 +610,7 @@ extension IntegrationSuite {
         fi
         """
 
-    private struct SeccompProbeResult {
+    struct SeccompProbeResult {
         /// `/proc/self/status`'s `Seccomp:` field. 0 is no filter, 2 is
         /// SECCOMP_MODE_FILTER.
         let mode: String
@@ -624,7 +624,7 @@ extension IntegrationSuite {
     }
 
     /// Parse the probe's `Seccomp:` / `Seccomp_filters:` / `USERNS-*` lines.
-    private static func parseSeccompStatus(_ output: String) -> SeccompProbeResult? {
+    static func parseSeccompStatus(_ output: String) -> SeccompProbeResult? {
         var mode: String?
         var filters: Int?
         var usernsRC: String?

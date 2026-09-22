@@ -616,19 +616,25 @@ public final class LinuxContainer: Container, Sendable {
     /// `mountConsole()` cannot create `/dev/console` there (EPERM) and
     /// `process.terminal = true` fails before the console socket is contacted.
     ///
-    /// Only the stock `/dev` entry is rewritten, and only when
-    /// ``Configuration/ociRuntimePath`` is set. Runs at mount-assembly time, so
-    /// the order a configuration closure sets its properties in doesn't matter.
-    private func mountsForRuntime() -> [Mount] {
-        guard self.config.ociRuntimePath != nil else {
-            return self.config.mounts
+    /// Only the stock `/dev` entry is rewritten, and only when `ociRuntimePath`
+    /// is set. Runs at mount-assembly time, so the order a configuration closure
+    /// sets its properties in doesn't matter. Shared with ``LinuxPod``, which
+    /// takes its runtime path from the pod configuration.
+    static func mountsForRuntime(
+        _ mounts: [Mount],
+        ociRuntimePath: String?,
+        containerID: String,
+        logger: Logger?
+    ) -> [Mount] {
+        guard ociRuntimePath != nil else {
+            return mounts
         }
 
         // Only the entry `defaultMounts()` hands out is rewritten; a
         // hand-written devtmpfs mount is the caller's deliberate choice.
         let stockDev = Self.defaultMounts().first(where: Self.isDevtmpfsOnDev)
 
-        var mounts = self.config.mounts
+        var mounts = mounts
         for index in mounts.indices where Self.isDevtmpfsOnDev(mounts[index]) {
             // Destinations aren't compared: both sides came through
             // `isDevtmpfsOnDev`, which normalizes.
@@ -637,14 +643,23 @@ public final class LinuxContainer: Container, Sendable {
                 // Kept, not replaced -- but say what it costs, because the
                 // failure surfaces from inside the runtime's container init
                 // with no mention of /dev.
-                self.logger?.warning(
-                    "container \(self.id): keeping the requested devtmpfs on /dev. An OCI runtime cannot create /dev/console on the kernel-wide devtmpfs instance, so process.terminal will fail to start; use the default /dev if the container needs a terminal"
+                logger?.warning(
+                    "container \(containerID): keeping the requested devtmpfs on /dev. An OCI runtime cannot create /dev/console on the kernel-wide devtmpfs instance, so process.terminal will fail to start; use the default /dev if the container needs a terminal"
                 )
                 continue
             }
             mounts[index] = Self.ociDevMount
         }
         return mounts
+    }
+
+    private func mountsForRuntime() -> [Mount] {
+        Self.mountsForRuntime(
+            self.config.mounts,
+            ociRuntimePath: self.config.ociRuntimePath,
+            containerID: self.id,
+            logger: self.logger
+        )
     }
 
     private static func guestRootfsPath(_ id: String) -> String {
