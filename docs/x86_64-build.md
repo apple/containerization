@@ -21,13 +21,16 @@ distro shipped in the last few years.
 
 Before the first `make dist-x86_64`:
 
-1. **Source checkouts under `.local/`** — pinned by you, not fetched by the
-   build. There is no fetch target; clone the revision you want shipped:
+1. **Source checkouts under `.local/`** — fetched by the build. `make
+   dist-x86_64` depends on `fetch-cloud-hypervisor-source` and
+   `fetch-virtiofsd`, which clone the pinned tags
+   (`CLOUD_HYPERVISOR_VERSION`, `VIRTIOFSD_VERSION` in the Makefile) with
+   full history. Either target is a no-op once the directory exists, so to
+   ship a different revision, check it out in place:
 
    ```sh
-   git clone -b v52.0 https://github.com/cloud-hypervisor/cloud-hypervisor \
-       .local/cloud-hypervisor
-   git clone https://gitlab.com/virtio-fs/virtiofsd .local/virtiofsd
+   make fetch-cloud-hypervisor-source fetch-virtiofsd
+   git -C .local/cloud-hypervisor checkout <rev>
    ```
 
 2. **An x86_64 kernel** at `kernel/vmlinuz-x86_64` (preferred) or
@@ -198,9 +201,9 @@ triggers a rebuild on the next `make dist-x86_64`.
 
 ## Troubleshooting
 
-- **`ERROR: missing .local/cloud-hypervisor source checkout`** — see
-  Prerequisites. There is no fetch target; clone the revision you want
-  pinned.
+- **`ERROR: missing .local/cloud-hypervisor source checkout`** — the
+  script was run directly rather than via `make dist-x86_64`. Run
+  `make fetch-cloud-hypervisor-source` (or `make fetch-virtiofsd`) first.
 - **`ERROR: no x86_64 kernel found`** — run
   `make -C kernel TARGET_ARCH=x86_64`. The build refuses to ship a
   tarball without a kernel.

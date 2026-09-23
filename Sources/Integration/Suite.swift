@@ -507,6 +507,12 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("multiple execs without delete", testMultipleExecsWithoutDelete),
             Test("sequential execs reuse stdio ports", testSequentialExecsReuseStdioPorts),
 
+            // ContainerManager (VZ on macOS, cloud-hypervisor on Linux)
+            Test("container stop idempotency", testContainerStopIdempotency),
+            Test("container manager", testContainerManagerCreate),
+            Test("container reuse", testContainerReuse),
+            Test("container /dev/console", testContainerDevConsole),
+
             // Capabilities
             Test("container capabilities sys admin", testCapabilitiesSysAdmin),
             Test("container capabilities net admin", testCapabilitiesNetAdmin),
@@ -661,12 +667,6 @@ struct IntegrationSuite: AsyncParsableCommand {
         #if os(macOS)
         let macOSOnlyTests: [Test] =
             [
-                // ContainerManager-based tests (ContainerManager is macOS-only)
-                Test("container stop idempotency", testContainerStopIdempotency),
-                Test("container manager", testContainerManagerCreate),
-                Test("container reuse", testContainerReuse),
-                Test("container /dev/console", testContainerDevConsole),
-
                 // Nested virtualization (VZ-only feature)
                 Test("nested virt", testNestedVirtualizationEnabled),
 
