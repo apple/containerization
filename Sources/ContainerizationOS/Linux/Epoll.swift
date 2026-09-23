@@ -74,6 +74,7 @@ public final class Epoll: Sendable {
     public struct Event: Sendable {
         public let fd: Int32
         public let mask: Mask
+        public let generation: UInt32
     }
 
     private let epollFD: Int32
@@ -98,7 +99,7 @@ public final class Epoll: Sendable {
         // Register the eventfd with epoll for shutdown signaling.
         var event = epoll_event()
         event.events = epollMask(EPOLLIN)
-        event.data.fd = self.eventFD
+        event.data.u64 = UInt64(UInt32(bitPattern: self.eventFD))
         let ctlResult = withUnsafeMutablePointer(to: &event) { ptr in
             epoll_ctl(efd, EPOLL_CTL_ADD, self.eventFD, ptr)
         }
@@ -116,7 +117,7 @@ public final class Epoll: Sendable {
     }
 
     /// Register a file descriptor for edge-triggered monitoring.
-    public func add(_ fd: Int32, mask: Mask) throws {
+    public func add(_ fd: Int32, mask: Mask, generation: UInt32 = 0) throws {
         guard fcntl(fd, F_SETFL, O_NONBLOCK) == 0 else {
             throw POSIXError.fromErrno()
         }
@@ -125,7 +126,7 @@ public final class Epoll: Sendable {
 
         var event = epoll_event()
         event.events = events
-        event.data.fd = fd
+        event.data.u64 = (UInt64(generation) << 32) | UInt64(UInt32(bitPattern: fd))
 
         try withUnsafeMutablePointer(to: &event) { ptr in
             if epoll_ctl(self.epollFD, EPOLL_CTL_ADD, fd, ptr) == -1 {
@@ -167,11 +168,12 @@ public final class Epoll: Sendable {
             var result: [Event] = []
             result.reserveCapacity(Int(n))
             for i in 0..<Int(n) {
-                let fd = events[i].data.fd
+                let fd = Int32(bitPattern: UInt32(truncatingIfNeeded: events[i].data.u64))
                 if fd == self.eventFD {
                     return nil
                 }
-                result.append(Event(fd: fd, mask: Mask(rawValue: events[i].events)))
+                let generation = UInt32(truncatingIfNeeded: events[i].data.u64 >> 32)
+                result.append(Event(fd: fd, mask: Mask(rawValue: events[i].events), generation: generation))
             }
             return result
         }

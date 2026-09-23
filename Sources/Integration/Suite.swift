@@ -676,6 +676,7 @@ struct IntegrationSuite: AsyncParsableCommand {
 
                 // Unix socket forwarding (dynamic vsock listen exceeds CH's prebound stdio pool)
                 Test("unix socket into guest", testUnixSocketIntoGuest),
+                Test("unix socket into guest parallel traffic", testUnixSocketIntoGuestParallelTraffic),
                 Test("unix socket into guest long container id", testUnixSocketIntoGuestLongContainerID),
                 Test("unix socket into guest symlink", testUnixSocketIntoGuestSymlink),
                 Test("pod unix socket into guest symlink", testPodUnixSocketIntoGuestSymlink),

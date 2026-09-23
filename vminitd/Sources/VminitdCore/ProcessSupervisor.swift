@@ -23,7 +23,13 @@ import Synchronization
 
 final class ProcessSupervisor: Sendable {
     private let poller: Epoll
-    private let handlers = Mutex<[Int32: @Sendable (Epoll.Mask) -> Void]>([:])
+    private struct Registration: Sendable {
+        let generation: UInt32
+        let handler: @Sendable (Epoll.Mask) -> Void
+    }
+
+    private let handlers = Mutex<[Int32: Registration]>([:])
+    private let nextGeneration = Atomic<UInt32>(1)
 
     private let queue: DispatchQueue
     // `DispatchSourceSignal` is thread-safe.
@@ -87,8 +93,12 @@ final class ProcessSupervisor: Sendable {
                     return
                 }
                 for event in events {
-                    let handler = self.handlers.withLock { $0[event.fd] }
-                    handler?(event.mask)
+                    let registration = self.handlers.withLock { $0[event.fd] }
+                    // A queued event may belong to a closed fd whose number has been reused.
+                    guard let registration, registration.generation == event.generation else {
+                        continue
+                    }
+                    registration.handler(event.mask)
                 }
             }
         }
@@ -104,9 +114,10 @@ final class ProcessSupervisor: Sendable {
         mask: Epoll.Mask = [.input, .output],
         handler: @escaping @Sendable (Epoll.Mask) -> Void
     ) throws {
-        self.handlers.withLock { $0[fd] = handler }
+        let generation = self.nextGeneration.wrappingAdd(1, ordering: .relaxed).oldValue
+        self.handlers.withLock { $0[fd] = Registration(generation: generation, handler: handler) }
         do {
-            try self.poller.add(fd, mask: mask)
+            try self.poller.add(fd, mask: mask, generation: generation)
         } catch {
             self.handlers.withLock { _ = $0.removeValue(forKey: fd) }
             throw error

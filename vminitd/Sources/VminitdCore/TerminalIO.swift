@@ -123,11 +123,6 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
 
     func close() throws {
         self.state.withLock {
-            // stdout must close before stdin because both IOPairs share the
-            // Terminal fd. stdout registered that fd with epoll (as its read
-            // source) and needs to unregister it while the fd is still valid.
-            // stdin closes the Terminal as its write destination, which would
-            // invalidate the fd before stdout can unregister.
             if let stdout = $0.stdout {
                 stdout.close()
                 $0.stdout = nil
