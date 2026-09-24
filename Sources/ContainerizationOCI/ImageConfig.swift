@@ -124,6 +124,19 @@ public struct History: Codable, Sendable {
 /// Image is the JSON structure which describes some basic information about the image.
 /// This provides the `application/vnd.oci.image.config.v1+json` mediatype when marshalled to JSON.
 public struct Image: Codable, Sendable {
+    enum CodingKeys: String, CodingKey {
+        case created
+        case author
+        case architecture
+        case os
+        case osVersion = "os.version"
+        case osFeatures = "os.features"
+        case variant
+        case config
+        case rootfs
+        case history
+    }
+
     /// created is the combined date and time at which the image was created, formatted as defined by RFC 3339, section 5.6.
     public let created: String?
 
