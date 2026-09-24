@@ -28,7 +28,7 @@ import SystemPackage
 
 extension IntegrationSuite {
     /// Clone a rootfs mount to a new location for use by a container in a pod
-    private func cloneRootfs(_ rootfs: Containerization.Mount, testID: String, containerID: String) throws -> Containerization.Mount {
+    func cloneRootfs(_ rootfs: Containerization.Mount, testID: String, containerID: String) throws -> Containerization.Mount {
         let clonePath = Self.testDir.appending(component: "\(testID)-\(containerID).ext4").absolutePath()
         try? FileManager.default.removeItem(atPath: clonePath)
         return try rootfs.clone(to: clonePath)

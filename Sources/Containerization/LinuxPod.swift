@@ -50,6 +50,12 @@ public final class LinuxPod: Sendable {
         public var bootLog: BootLog?
         /// Whether containers in the pod should share a PID namespace.
         /// When enabled, all containers can see each other's processes.
+        ///
+        /// The pause process that owns the namespace runs unfiltered — it is
+        /// launched by `vmexec`, which ignores `spec.linux.seccomp` — so a
+        /// ``seccompProfile`` does not cover everything visible in the
+        /// namespace. It runs as uid 0 with an empty capability set, in its own
+        /// mount namespace.
         public var shareProcessNamespace: Bool = false
         /// The default hostname for all containers in the pod.
         /// Individual containers can override this by setting their own `hostname` configuration.
@@ -62,6 +68,16 @@ public final class LinuxPod: Sendable {
         public var hosts: Hosts?
         /// Volumes attached to the pod. Can be shared with multiple containers.
         public var volumes: [PodVolume] = []
+        /// EXPERIMENTAL: Path in the root filesystem for the virtual machine
+        /// where the OCI runtime used to spawn the pod's containers lives.
+        /// Applies to every container in the pod.
+        public var ociRuntimePath: String?
+        /// The default seccomp filter for the pod's containers. Defaults to
+        /// ``LinuxContainer/Configuration/SeccompProfile/unconfined``; requires
+        /// ``ociRuntimePath``. Individual containers can override this by
+        /// setting their own `seccompProfile` configuration. Does not cover the
+        /// pause process — see ``shareProcessNamespace``.
+        public var seccompProfile: LinuxContainer.Configuration.SeccompProfile = .unconfined
         /// Extension objects that participate in the VM instance lifecycle.
         public var extensions: [any Sendable] = []
 
@@ -98,6 +114,11 @@ public final class LinuxPod: Sendable {
         public var dns: DNS?
         /// The hosts file configuration for the container.
         public var hosts: Hosts?
+        /// The seccomp filter for the container's processes. Overrides the
+        /// pod-level ``Configuration/seccompProfile`` when set. Anything other
+        /// than ``LinuxContainer/Configuration/SeccompProfile/unconfined``
+        /// requires the pod's ``Configuration/ociRuntimePath``.
+        public var seccompProfile: LinuxContainer.Configuration.SeccompProfile?
         /// Run the container with a minimal init process that handles signal
         /// forwarding and zombie reaping.
         public var useInit: Bool = false
@@ -167,6 +188,8 @@ public final class LinuxPod: Sendable {
         let id: String
         let rootfs: Mount
         let config: ContainerConfiguration
+        /// The container's own profile, or the pod's when it set none.
+        let seccomp: ResolvedSeccomp
         var state: ContainerState
         var process: LinuxProcess?
         var fileMountContext: FileMountContext
@@ -248,6 +271,19 @@ public final class LinuxPod: Sendable {
     private let vmm: VirtualMachineManager
     private let logger: Logger?
 
+    /// A pod or container seccomp setting, resolved as far as it can be without
+    /// a container's process configuration. `.default` needs the init process's
+    /// capabilities, which differ per container, so it carries the verified
+    /// architecture and the profile itself is built in ``generateRuntimeSpec``.
+    private enum ResolvedSeccomp: Sendable {
+        case unconfined
+        case defaultProfile(arch: Arch)
+        case profile(LinuxSeccomp)
+    }
+
+    /// The pod-level filter, applied to containers that set none of their own.
+    private let seccomp: ResolvedSeccomp
+
     /// Create a new `LinuxPod`. A `VirtualMachineManager` instance must be
     /// provided that will handle launching the virtual machine the containers
     /// will execute inside of. `vm` sizes that virtual machine.
@@ -274,8 +310,41 @@ public final class LinuxPod: Sendable {
         var config = Configuration()
         try configuration(&config)
 
+        self.seccomp = try Self.resolveSeccomp(config.seccompProfile, ociRuntimePath: config.ociRuntimePath)
+
         self.config = config
         self.state = AsyncMutex(State(phase: .initialized, containers: [:], pauseProcess: nil))
+    }
+
+    /// Resolve a seccomp setting against the pod's runtime, rejecting a profile
+    /// that no runtime will install. `vmexec` does not read
+    /// `spec.linux.seccomp`, so such a container would run unfiltered while
+    /// every observable said it was sandboxed.
+    private static func resolveSeccomp(
+        _ profile: LinuxContainer.Configuration.SeccompProfile,
+        ociRuntimePath: String?
+    ) throws -> ResolvedSeccomp {
+        switch profile {
+        case .unconfined:
+            return .unconfined
+        case .default:
+            try Self.requireOCIRuntime(ociRuntimePath)
+            // Verified here so an unsupported architecture fails before the
+            // caller has booted a VM.
+            return .defaultProfile(arch: try Arch.currentVerified())
+        case .profile(let profile):
+            try Self.requireOCIRuntime(ociRuntimePath)
+            return .profile(profile)
+        }
+    }
+
+    private static func requireOCIRuntime(_ ociRuntimePath: String?) throws {
+        guard ociRuntimePath != nil else {
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "seccompProfile requires ociRuntimePath: seccomp is applied by the OCI runtime, and the default vmexec launch path ignores it"
+            )
+        }
     }
 
     private static func createDefaultRuntimeSpec(_ containerID: String, podID: String) -> Spec {
@@ -293,7 +362,20 @@ public final class LinuxPod: Sendable {
         )
     }
 
-    private func generateRuntimeSpec(containerID: String, config: ContainerConfiguration, rootfs: Mount) -> Spec {
+    /// What a generated runtime spec is for. The guest keeps only
+    /// `spec.process` (plus `root`, to resolve the user) for an exec.
+    private enum SpecPurpose {
+        case containerInit
+        case exec
+    }
+
+    private func generateRuntimeSpec(
+        containerID: String,
+        config: ContainerConfiguration,
+        rootfs: Mount,
+        seccomp: ResolvedSeccomp,
+        purpose: SpecPurpose
+    ) throws -> Spec {
         var spec = Self.createDefaultRuntimeSpec(containerID, podID: self.id)
 
         // Process configuration
@@ -329,7 +411,38 @@ public final class LinuxPod: Sendable {
             limit: Int64(config.memoryInBytes)
         )
 
+        // Init spec only. runc installs seccomp for `runc exec` from the
+        // container's saved config.json, so a profile in an exec's spec would
+        // change nothing in the guest and just add ~12 KB of JSON per exec.
+        if case .containerInit = purpose, let profile = Self.seccompProfile(seccomp, for: config) {
+            // Not `spec.linux?.seccomp = ...`: that is a silent no-op when
+            // `linux` is nil, and the failure mode is a container running
+            // unfiltered with nothing saying so.
+            guard var linux = spec.linux else {
+                throw ContainerizationError(
+                    .internalError,
+                    message: "cannot apply the seccomp profile: the runtime spec has no linux section"
+                )
+            }
+            linux.seccomp = profile
+            spec.linux = linux
+        }
+
         return spec
+    }
+
+    /// A container's seccomp filter, or `nil` when it runs unfiltered. The
+    /// default profile is resolved against that container's init-process
+    /// capabilities, which is what runc installs for its execs too.
+    private static func seccompProfile(_ resolved: ResolvedSeccomp, for config: ContainerConfiguration) -> LinuxSeccomp? {
+        switch resolved {
+        case .unconfined:
+            return nil
+        case .defaultProfile(let arch):
+            return .defaultProfile(capabilities: config.process.toOCI().capabilities, arch: arch)
+        case .profile(let profile):
+            return profile
+        }
     }
 
     static func guestRootfsPath(_ containerID: String) -> String {
@@ -388,6 +501,26 @@ extension LinuxPod {
             var config = ContainerConfiguration()
             try configuration(&config)
 
+            // A container's own profile wins over the pod's. Resolved here so a
+            // profile the runtime cannot install is rejected at add time,
+            // before the VM boots or the container is hotplugged.
+            let seccomp: ResolvedSeccomp
+            if let override = config.seccompProfile {
+                seccomp = try Self.resolveSeccomp(override, ociRuntimePath: self.config.ociRuntimePath)
+            } else {
+                seccomp = self.seccomp
+            }
+
+            // An OCI runtime needs a tmpfs on /dev. Written back into the stored
+            // config so every later read of `container.config.mounts` sees the
+            // rewrite, not just the VM mounts derived from it here.
+            config.mounts = LinuxContainer.mountsForRuntime(
+                config.mounts,
+                ociRuntimePath: self.config.ociRuntimePath,
+                containerID: id,
+                logger: self.logger
+            )
+
             let fileMountContext = try FileMountContext.prepare(mounts: config.mounts)
 
             switch state.phase {
@@ -396,6 +529,7 @@ extension LinuxPod {
                     id: id,
                     rootfs: rootfs,
                     config: config,
+                    seccomp: seccomp,
                     state: .registered,
                     process: nil,
                     fileMountContext: fileMountContext
@@ -532,6 +666,7 @@ extension LinuxPod {
                         id: id,
                         rootfs: rootfs,
                         config: config,
+                        seccomp: seccomp,
                         state: .created,
                         process: nil,
                         fileMountContext: updatedFileMountContext
@@ -706,7 +841,11 @@ extension LinuxPod {
                             LinuxNamespace(type: .uts),
                         ]
 
-                        // Create LinuxProcess for pause container
+                        // Create LinuxProcess for pause container. It stays on
+                        // vmexec under any pod runtime: its rootfs is a bind of
+                        // the guest's /sbin, not an image, and the containers
+                        // join its PID namespace by path either way. vmexec
+                        // ignores spec.linux.seccomp, so it runs unfiltered.
                         let process = LinuxProcess(
                             pauseID,
                             containerID: pauseID,
@@ -859,7 +998,13 @@ extension LinuxPod {
 
             let agent = try await createdState.vm.dialAgent()
             do {
-                var spec = self.generateRuntimeSpec(containerID: containerID, config: container.config, rootfs: container.rootfs)
+                var spec = try self.generateRuntimeSpec(
+                    containerID: containerID,
+                    config: container.config,
+                    rootfs: container.rootfs,
+                    seccomp: container.seccomp,
+                    purpose: .containerInit
+                )
                 // We don't need the rootfs, nor do OCI runtimes want it included.
                 // Also filter out file mount holding directories - we mount those separately under /run.
                 // Transform virtiofs mounts to bind mounts from /run/virtiofs/{tag}
@@ -962,7 +1107,7 @@ extension LinuxPod {
                     spec: spec,
                     io: stdio,
                     portAllocator: self.hostVsockPorts,
-                    ociRuntimePath: nil,
+                    ociRuntimePath: self.config.ociRuntimePath,
                     agent: agent,
                     vm: createdState.vm,
                     logger: self.logger
@@ -1185,7 +1330,13 @@ extension LinuxPod {
                 )
             }
 
-            var spec = self.generateRuntimeSpec(containerID: containerID, config: container.config, rootfs: container.rootfs)
+            var spec = try self.generateRuntimeSpec(
+                containerID: containerID,
+                config: container.config,
+                rootfs: container.rootfs,
+                seccomp: container.seccomp,
+                purpose: .exec
+            )
             // Inherit environment variables, working directory, user, capabilities, rlimits from container process.
             // Reset: process arguments, terminal, stdio as these are not supposed to be inherited.
             var config = container.config.process
@@ -1210,7 +1361,7 @@ extension LinuxPod {
                 spec: spec,
                 io: stdio,
                 portAllocator: self.hostVsockPorts,
-                ociRuntimePath: nil,
+                ociRuntimePath: self.config.ociRuntimePath,
                 agent: agent,
                 vm: createdState.vm,
                 logger: self.logger

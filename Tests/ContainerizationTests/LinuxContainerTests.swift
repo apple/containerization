@@ -277,4 +277,80 @@ struct LinuxContainerTests {
         #expect(vm.memoryInBytes == podContainer.memoryInBytes)
         #expect(vm.cpus == podContainer.cpus)
     }
+
+    /// A pod carries the same rule as a container: `vmexec` ignores
+    /// `spec.linux.seccomp`, so a profile without an OCI runtime is rejected
+    /// before a VM is booted.
+    @Test func podSeccompProfileIsValidatedAtInit() throws {
+        #expect(throws: ContainerizationError.self) {
+            _ = try LinuxPod("pod-seccomp-without-runtime", vmm: UnusableVMM()) { config in
+                config.seccompProfile = .default
+            }
+        }
+
+        #expect(throws: Never.self) {
+            _ = try LinuxPod("pod-seccomp-with-runtime", vmm: UnusableVMM()) { config in
+                config.ociRuntimePath = "/sbin/runc"
+                config.seccompProfile = .default
+            }
+        }
+
+        // The default is unfiltered, and needs no runtime.
+        #expect(throws: Never.self) {
+            _ = try LinuxPod("pod-no-seccomp", vmm: UnusableVMM()) { _ in }
+        }
+    }
+
+    /// A container's own profile carries the same rule as the pod's, and is
+    /// checked when the container is added rather than when the VM boots.
+    @Test func podContainerSeccompOverrideIsValidatedAtAdd() async throws {
+        let unfilteredPod = try LinuxPod("pod-override-without-runtime", vmm: UnusableVMM()) { _ in }
+        await #expect(throws: ContainerizationError.self) {
+            try await unfilteredPod.addContainer("c", rootfs: Self.testRootfs) { config in
+                config.seccompProfile = .default
+            }
+        }
+
+        let runcPod = try LinuxPod("pod-override-with-runtime", vmm: UnusableVMM()) { config in
+            config.ociRuntimePath = "/sbin/runc"
+            config.seccompProfile = .default
+        }
+        // A container may tighten...
+        await #expect(throws: Never.self) {
+            try await runcPod.addContainer("filtered", rootfs: Self.testRootfs) { config in
+                config.seccompProfile = .default
+            }
+        }
+        // ...or opt out of the pod's profile entirely.
+        await #expect(throws: Never.self) {
+            try await runcPod.addContainer("unfiltered", rootfs: Self.testRootfs) { config in
+                config.seccompProfile = .unconfined
+            }
+        }
+        // Setting nothing inherits the pod's, which needs no extra check.
+        await #expect(throws: Never.self) {
+            try await runcPod.addContainer("inherited", rootfs: Self.testRootfs) { _ in }
+        }
+    }
+
+    /// runc cannot create `/dev/console` on the kernel-wide devtmpfs instance,
+    /// so the stock `/dev` becomes a tmpfs whenever a runtime is set. Shared by
+    /// `LinuxContainer` and `LinuxPod`.
+    @Test func ociRuntimeRewritesStockDevMount() {
+        let defaults = LinuxContainer.defaultMounts()
+
+        let vmexec = LinuxContainer.mountsForRuntime(defaults, ociRuntimePath: nil, containerID: "c", logger: nil)
+        #expect(vmexec.first { $0.destination == "/dev" }?.type == "devtmpfs")
+
+        let runc = LinuxContainer.mountsForRuntime(defaults, ociRuntimePath: "/sbin/runc", containerID: "c", logger: nil)
+        let dev = runc.first { $0.destination == "/dev" }
+        #expect(dev?.type == "tmpfs")
+        #expect(runc.count == defaults.count)
+
+        // A hand-written devtmpfs is the caller's deliberate choice and is left
+        // alone.
+        let custom = [Containerization.Mount.any(type: "devtmpfs", source: "devtmpfs", destination: "/dev", options: ["mode=777"])]
+        let kept = LinuxContainer.mountsForRuntime(custom, ociRuntimePath: "/sbin/runc", containerID: "c", logger: nil)
+        #expect(kept.first?.type == "devtmpfs")
+    }
 }

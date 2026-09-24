@@ -656,6 +656,12 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("runc process seccomp off by default", testRuncProcessSeccompDisabledByDefault),
             Test("runc container exec seccomp default profile", testRuncContainerExecSeccompDefault),
             Test("runc process custom seccomp profile", testRuncProcessCustomSeccompProfile),
+            Test("runc pod multiple containers", testRuncPodMultipleContainers),
+            Test("runc pod exec in container", testRuncPodExecInContainer),
+            Test("runc pod seccomp default profile", testRuncPodSeccompDefault),
+            Test("runc pod seccomp container override", testRuncPodSeccompContainerOverride),
+            Test("runc pod shared PID namespace", testRuncPodSharedPIDNamespace),
+            Test("runc pod process tty ensure TERM", testRuncPodProcessTty),
         ]
 
         #if os(macOS)
