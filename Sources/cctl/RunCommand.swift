@@ -234,7 +234,9 @@ extension Application {
                 image: image,
                 rootfsSizeInBytes: fsSizeInMB.mib(),
                 readOnly: readOnly,
-                networking: true
+                networking: true,
+                // Give the VM memory headroom for the guest kernel and vminitd.
+                vm: VMResources(cpus: cpus, memoryInBytes: memory.mib() + VMResources.guestMemoryOverhead)
             ) { config in
                 config.cpus = cpus
                 config.memoryInBytes = memory.mib()
@@ -703,6 +705,8 @@ extension Application {
                 id,
                 rootfs: rootfsMount,
                 vmm: manager,
+                // Give the VM memory headroom for the guest kernel and vminitd.
+                vm: VMResources(cpus: cpusCount, memoryInBytes: memoryBytes + VMResources.guestMemoryOverhead),
                 logger: log
             ) { config in
                 config.process = processConfig

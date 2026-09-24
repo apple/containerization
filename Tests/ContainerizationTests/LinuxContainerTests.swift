@@ -18,6 +18,7 @@ import ContainerizationError
 import ContainerizationOCI
 import ContainerizationOS
 import Foundation
+import Synchronization
 import Testing
 
 @testable import Containerization
@@ -184,5 +185,96 @@ struct LinuxContainerTests {
         #expect(throws: Never.self) {
             _ = try LinuxContainer("custom-seccomp-with-runtime", rootfs: Self.testRootfs, vmm: UnusableVMM(), configuration: config)
         }
+    }
+
+    @Test func vmResourcesDefaults() {
+        for resources in [VMResources(), VMResources.default] {
+            #expect(resources.cpus == 4)
+            #expect(resources.memoryInBytes == 1024.mib())
+        }
+
+        let explicit = VMResources(cpus: 2, memoryInBytes: 512.mib())
+        #expect(explicit.cpus == 2)
+        #expect(explicit.memoryInBytes == 512.mib())
+    }
+
+    /// A `VirtualMachineManager` that records the configuration it is handed and
+    /// then refuses to boot. `LinuxContainer.create()` builds the `VMConfiguration`
+    /// and passes it straight to `vmm.create`, so this captures the VM sizing
+    /// without needing a real VM.
+    private final class StubVMM: VirtualMachineManager {
+        private let captured = Mutex<VMConfiguration?>(nil)
+
+        /// The configuration `LinuxContainer.create()` asked for, if it got that far.
+        var capturedConfiguration: VMConfiguration? {
+            captured.withLock { $0 }
+        }
+
+        func create(config: some VMCreationConfig) async throws -> any VirtualMachineInstance {
+            captured.withLock { $0 = config.configuration }
+            throw ContainerizationError(.unsupported, message: "stub")
+        }
+    }
+
+    @Test func runtimeSpecUsesContainerLimitsNotVMSize() async throws {
+        // The OCI cgroup limit comes from the container configuration, the VM size from `vm`.
+        let vmm = StubVMM()
+        let container = try LinuxContainer(
+            "sizing-test",
+            rootfs: .block(format: "ext4", source: "/dev/null", destination: "/", options: []),
+            vmm: vmm,
+            vm: VMResources(cpus: 8, memoryInBytes: 2048.mib())
+        ) { config in
+            config.process.arguments = ["/bin/true"]
+            config.cpus = 2
+            config.memoryInBytes = 512.mib()
+        }
+
+        let spec = try container.generateRuntimeSpec(for: .containerInit)
+        #expect(spec.linux?.resources?.cpu?.quota == 200_000)
+        #expect(spec.linux?.resources?.cpu?.period == 100_000)
+        #expect(spec.linux?.resources?.memory?.limit == Int64(512.mib()))
+
+        // The VM must be sized from `vm`, with nothing added. Drive `create()` far enough to build the
+        // `VMConfiguration` — the stub records it and then throws instead of
+        // booting, so the error is expected.
+        await #expect(throws: (any Error).self) {
+            try await container.create()
+        }
+
+        let vmConfig = try #require(vmm.capturedConfiguration)
+        #expect(vmConfig.cpus == 8)
+        #expect(vmConfig.memoryInBytes == 2048.mib())
+    }
+
+    @Test func containerConfigurationDefaultLimits() {
+        let viaProperty = LinuxContainer.Configuration()
+        let viaInit = LinuxContainer.Configuration(process: LinuxProcessConfiguration(arguments: ["/bin/sh"]))
+
+        for config in [viaProperty, viaInit] {
+            #expect(config.cpus == 4)
+            #expect(config.memoryInBytes == 1024.mib())
+        }
+    }
+
+    @Test func podContainerConfigurationDefaultLimits() {
+        // A pod container is always capped; a nil `cpus` previously meant no cgroup limit.
+        let config = LinuxPod.ContainerConfiguration()
+        #expect(config.cpus == 4)
+        #expect(config.memoryInBytes == 1024.mib())
+    }
+
+    @Test func guestMemoryOverheadIsOptInOnly() {
+        // `cctl` adds this at the call site; the library must never apply it itself.
+        #expect(VMResources.guestMemoryOverhead == 128.mib())
+
+        let vm = VMResources.default
+        let container = LinuxContainer.Configuration()
+        #expect(vm.memoryInBytes == container.memoryInBytes)
+        #expect(vm.cpus == container.cpus)
+
+        let podContainer = LinuxPod.ContainerConfiguration()
+        #expect(vm.memoryInBytes == podContainer.memoryInBytes)
+        #expect(vm.cpus == podContainer.cpus)
     }
 }
