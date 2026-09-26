@@ -22,8 +22,8 @@ import Testing
 
 @Suite("vmexec Console")
 struct ConsoleTests {
-    @Test("configureStdIO preserves output larger than the tty buffer")
-    func configureStdIOPreservesLargeOutput() throws {
+    @Test("configureStdIO sets raw mode and preserves large output")
+    func configureStdIOSetsRawModeAndPreservesLargeOutput() throws {
         let console = try Console()
         defer { try? console.close() }
 
@@ -35,6 +35,10 @@ struct ConsoleTests {
         if child == 0 {
             do {
                 try console.configureStdIO()
+                var attributes = termios()
+                guard tcgetattr(STDIN_FILENO, &attributes) == 0 else { _exit(1) }
+                guard attributes.c_lflag & tcflag_t(ICANON | ECHO | ISIG) == 0 else { _exit(2) }
+
                 expected.withUnsafeBytes { bytes in
                     guard let baseAddress = bytes.baseAddress else { _exit(1) }
                     var written = 0
@@ -79,7 +83,9 @@ struct ConsoleTests {
         var status: Int32 = 0
         #expect(waitpid(child, &status, 0) == child)
         #expect((status & 0x7f) == 0)
-        #expect(((status >> 8) & 0xff) == 0)
+        let exitCode = (status >> 8) & 0xff
+        #expect(exitCode == 0)
+        guard exitCode == 0 else { return }
         #expect(received == expected)
     }
 }
