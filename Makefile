@@ -174,7 +174,7 @@ endif
 
 .PHONY: linux-test
 linux-test:
-	$(call linux_run,swift test $(SWIFT_CONFIGURATION) --scratch-path $(LINUX_SCRATCH_ROOT)/build-containerization)
+	$(call linux_run,swift test $(SWIFT_CONFIGURATION) --scratch-path $(LINUX_SCRATCH_ROOT)/build-containerization && swift test --package-path vminitd $(SWIFT_CONFIGURATION) --scratch-path $(LINUX_SCRATCH_ROOT)/build-vminitd-test)
 
 .PHONY: build-cloud-hypervisor
 # Build cloud-hypervisor from the patched source at .local/cloud-hypervisor and
