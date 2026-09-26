@@ -58,3 +58,6 @@ jobs:
 
       - name: Run unit tests
         run: swift test --disable-automatic-resolution -Xswiftc -warnings-as-errors
+
+      - name: Run vmexec unit tests
+        run: swift test --package-path vminitd --disable-automatic-resolution -Xswiftc -warnings-as-errors
