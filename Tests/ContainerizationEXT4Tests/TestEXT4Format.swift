@@ -259,4 +259,23 @@ struct Ext4FormatEmptyRangeTests {
         let formatter = try EXT4.Formatter(fsPath, minDiskSize: 32.kib())
         try formatter.close()
     }
+
+    @Test func partialLastBlockGroupPreservesRequestedSize() throws {
+        let fsPath = FilePath(
+            FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: false))
+        defer { try? FileManager.default.removeItem(at: fsPath.url) }
+
+        let formatter = try EXT4.Formatter(fsPath, minDiskSize: 160.mib())
+        try formatter.close()
+
+        let file = try FileHandle(forReadingFrom: fsPath.url)
+        #expect(try file.seekToEnd() == 160.mib())
+
+        let ext4 = try EXT4.EXT4Reader(blockDevice: fsPath)
+        #expect(ext4.superBlock.blocksCountLow == 40_960)
+
+        let partialGroup = try ext4.getGroupDescriptor(1)
+        #expect(partialGroup.freeBlocksCountLow == 7_678)
+    }
 }
