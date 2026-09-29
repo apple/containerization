@@ -662,6 +662,8 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("runc pod seccomp container override", testRuncPodSeccompContainerOverride),
             Test("runc pod shared PID namespace", testRuncPodSharedPIDNamespace),
             Test("runc pod process tty ensure TERM", testRuncPodProcessTty),
+            Test("runc pod kill after exit", testRuncPodKillAfterExit),
+            Test("runc pod network sysctl", testRuncPodNetworkSysctl),
         ]
 
         #if os(macOS)
