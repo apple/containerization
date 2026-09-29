@@ -54,11 +54,26 @@ public actor ManagedContainer {
     ) async throws {
         try Self.validate(id: id)
 
+        var spec = spec
+
         var cgroupsPath: String
         if let cgPath = spec.linux?.cgroupsPath {
             cgroupsPath = cgPath
         } else {
             cgroupsPath = "/container/\(id)"
+        }
+
+        // An OCI runtime refuses a `net.*` sysctl unless the container's spec owns a
+        // network namespace, which none do here — containers share the VM's, which is
+        // how they get the pod's address. Apply those keys directly instead and hand
+        // the runtime only the rest. The remaining keys are ipc- or uts-namespaced and
+        // the spec does declare those, so the runtime accepts them.
+        if ociRuntimePath != nil, let sysctls = spec.linux?.sysctl, !sysctls.isEmpty {
+            let networkKeys = sysctls.filter { $0.key.hasPrefix("net.") }
+            if !networkKeys.isEmpty {
+                try Self.applyNetworkSysctls(networkKeys, log: log)
+                spec.linux?.sysctl = sysctls.filter { !$0.key.hasPrefix("net.") }
+            }
         }
 
         let bundle = try ContainerizationOCI.Bundle.create(
@@ -332,6 +347,40 @@ extension ContainerizationOCI.Bundle {
 }
 
 extension ManagedContainer {
+    /// Writes `net.*` sysctls to the VM's own `/proc/sys`.
+    ///
+    /// vminitd is PID 1 in the VM and nothing unshares a network namespace, so these
+    /// land in the namespace every container in the pod shares — the scope a pod-level
+    /// sysctl means. Values are written once per container that declares them, which is
+    /// idempotent.
+    static func applyNetworkSysctls(_ sysctls: [String: String], log: Logger) throws {
+        for (key, value) in sysctls.sorted(by: { $0.key < $1.key }) {
+            let path = "/proc/sys/" + key.replacingOccurrences(of: ".", with: "/")
+            // Raw open/write rather than Data.write(to:): procfs rejects the
+            // create-and-rename Foundation may use, and these are single-write files.
+            let fd = open(path, O_WRONLY, 0)
+            let openErrno = errno
+            if fd == -1 {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "failed to open \(path) for sysctl \(key): \(String(cString: strerror(openErrno)))"
+                )
+            }
+            defer { close(fd) }
+
+            let bytes = Array(value.utf8)
+            let written = bytes.withUnsafeBytes { write(fd, $0.baseAddress, bytes.count) }
+            let writeErrno = errno
+            if written != bytes.count {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "failed to set sysctl \(key)=\(value): \(String(cString: strerror(writeErrno)))"
+                )
+            }
+            log.debug("applied sysctl \(key)=\(value)")
+        }
+    }
+
     static func craftBundlePath(id: String) -> URL {
         URL(fileURLWithPath: "/run/container").appending(path: id)
     }

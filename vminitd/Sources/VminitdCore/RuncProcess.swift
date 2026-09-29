@@ -255,6 +255,17 @@ final class RuncProcess: ContainerProcess, Sendable {
     }
 
     func kill(_ signal: Int32) async throws {
+        // `runc kill` exits 1 with "container not running" once the init process has
+        // exited, so signalling an exited container has to be a no-op here: CRI
+        // requires StopContainer to succeed on an already-stopped container. Same
+        // guard `resize` below and `RuncExecProcess.kill` already apply.
+        let exited = self.state.withLock {
+            if case .exited = $0.state { return true }
+            return false
+        }
+        if exited {
+            return
+        }
         self.log.info("sending signal \(signal) to runc container \(id)")
         try await self.runc.kill(id: self.id, signal: signal)
     }

@@ -358,4 +358,89 @@ extension IntegrationSuite {
             throw error
         }
     }
+
+    /// `runc kill` fails with "container not running" once the init process has exited,
+    /// and CRI requires StopContainer to succeed on a stopped container.
+    func testRuncPodKillAfterExit() async throws {
+        let runtime = try Self.requireRunc()
+        let id = "test-runc-pod-kill-after-exit"
+
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm, vm: .default) { config in
+            config.ociRuntimePath = runtime
+            config.bootLog = bs.bootLog
+        }
+
+        try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
+            config.process.arguments = ["/bin/true"]
+        }
+
+        do {
+            try await withDeadline(seconds: 60, "runc pod kill-after-exit create") { try await pod.create() }
+            try await withDeadline(seconds: 60, "runc pod kill-after-exit start") { try await pod.startContainer("container1") }
+            let status = try await withDeadline(seconds: 60, "runc pod kill-after-exit wait") { try await pod.waitContainer("container1") }
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "container status \(status) != 0")
+            }
+
+            try await withDeadline(seconds: 60, "runc pod kill-after-exit kill") {
+                try await pod.killContainer("container1", signal: .kill)
+            }
+
+            try await withDeadline(seconds: 60, "runc pod kill-after-exit stop") { try await pod.stop() }
+        } catch {
+            try? await withDeadline(seconds: 60, "runc pod kill-after-exit stop after failure") { try await pod.stop() }
+            throw error
+        }
+    }
+
+    /// An OCI runtime refuses a `net.*` sysctl unless the container's spec owns a network
+    /// namespace, which pod containers never do. The guest applies those keys itself, so
+    /// the container starts and the workload observes the value.
+    func testRuncPodNetworkSysctl() async throws {
+        let runtime = try Self.requireRunc()
+        let id = "test-runc-pod-network-sysctl"
+
+        let bs = try await bootstrap(id)
+        let pod = try LinuxPod(id, vmm: bs.vmm, vm: .default) { config in
+            config.ociRuntimePath = runtime
+            config.bootLog = bs.bootLog
+        }
+
+        let buffer = BufferWriter()
+        try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
+            // A net.* key runc would reject, alongside an ipc-namespaced one it accepts,
+            // so the test covers the partition rather than just the net.* path.
+            config.sysctl = [
+                "net.ipv4.ip_local_port_range": "20000 30000",
+                "kernel.shm_rmid_forced": "1",
+            ]
+            config.process.arguments = [
+                "/bin/sh", "-c",
+                "echo net=$(cat /proc/sys/net/ipv4/ip_local_port_range | tr -s ' \\t' ',') shm=$(cat /proc/sys/kernel/shm_rmid_forced)",
+            ]
+            config.process.stdout = buffer
+        }
+
+        do {
+            try await withDeadline(seconds: 60, "runc pod sysctl create") { try await pod.create() }
+            try await withDeadline(seconds: 60, "runc pod sysctl start") { try await pod.startContainer("container1") }
+            let status = try await withDeadline(seconds: 60, "runc pod sysctl wait") { try await pod.waitContainer("container1") }
+            try await withDeadline(seconds: 60, "runc pod sysctl stop") { try await pod.stop() }
+
+            let output = String(data: buffer.data, encoding: .utf8) ?? "<non-utf8 output>"
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "sysctl probe failed (exit \(status.exitCode)): \(output)")
+            }
+            guard output.contains("net=20000,30000") else {
+                throw IntegrationError.assert(msg: "net.ipv4.ip_local_port_range not applied in guest: \(output)")
+            }
+            guard output.contains("shm=1") else {
+                throw IntegrationError.assert(msg: "kernel.shm_rmid_forced not applied by the runtime: \(output)")
+            }
+        } catch {
+            try? await withDeadline(seconds: 60, "runc pod sysctl stop after failure") { try await pod.stop() }
+            throw error
+        }
+    }
 }
