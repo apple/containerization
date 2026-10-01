@@ -760,7 +760,7 @@ private func runContainerSession(
             try stopped.save(appRoot: Sandboxy.appRoot)
 
             ProgressUI.printStatus(
-                "Instance \u{1b}[1m\(instanceName)\u{1b}[0m saved. Resume with: sandboxy run --name \(instanceName) \(agentName)"
+                "Instance \u{1b}[1m\(instanceName)\u{1b}[0m saved. Reuse with: sandboxy run --name \(instanceName) \(agentName)"
             )
         }
 
