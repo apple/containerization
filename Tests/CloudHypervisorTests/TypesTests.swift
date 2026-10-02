@@ -74,6 +74,52 @@ struct TypesTests {
         #expect(!jsonString.contains("\"mergeable\""))
     }
 
+    @Test("CpusConfig encodes features, core scheduling and nested with OpenAPI keys")
+    func cpusConfigOptionalFields() throws {
+        let cfg = CloudHypervisor.CpusConfig(
+            bootVcpus: 2,
+            maxVcpus: 2,
+            features: CloudHypervisor.CpuFeatures(amx: true),
+            coreScheduling: .Vcpu,
+            nested: false
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(cfg)
+        let jsonString = try #require(String(data: data, encoding: .utf8))
+        #expect(
+            jsonString
+                == #"{"boot_vcpus":2,"core_scheduling":"Vcpu","features":{"amx":true},"max_vcpus":2,"nested":false}"#
+        )
+        let decoded = try JSONDecoder().decode(CloudHypervisor.CpusConfig.self, from: data)
+        #expect(decoded == cfg)
+    }
+
+    @Test("CpusConfig omits nil optional fields from JSON")
+    func cpusConfigNilOmission() throws {
+        let data = try JSONEncoder().encode(CloudHypervisor.CpusConfig(bootVcpus: 1, maxVcpus: 1))
+        let jsonString = try #require(String(data: data, encoding: .utf8))
+        #expect(!jsonString.contains("\"features\""))
+        #expect(!jsonString.contains("\"core_scheduling\""))
+        #expect(!jsonString.contains("\"nested\""))
+    }
+
+    @Test("MemoryConfig encodes hugepages and prefault")
+    func memoryConfigHugepagesPrefault() throws {
+        let cfg = CloudHypervisor.MemoryConfig(size: UInt64(1) << 30, hugepages: true, prefault: true)
+        let data = try JSONEncoder().encode(cfg)
+        let jsonString = try #require(String(data: data, encoding: .utf8))
+        #expect(jsonString.contains("\"hugepages\":true"))
+        #expect(jsonString.contains("\"prefault\":true"))
+        let decoded = try JSONDecoder().decode(CloudHypervisor.MemoryConfig.self, from: data)
+        #expect(decoded == cfg)
+
+        let plain = try JSONEncoder().encode(CloudHypervisor.MemoryConfig(size: UInt64(1) << 30))
+        let plainString = try #require(String(data: plain, encoding: .utf8))
+        #expect(!plainString.contains("\"hugepages\""))
+        #expect(!plainString.contains("\"prefault\""))
+    }
+
     @Test("PayloadConfig round-trips through JSON")
     func payloadConfigRoundTrip() throws {
         let cfg = CloudHypervisor.PayloadConfig(
