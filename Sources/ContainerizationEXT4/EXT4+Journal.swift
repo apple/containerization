@@ -43,7 +43,6 @@ extension EXT4.Formatter {
         try skipJournalBlocks(count: journalBlocks - 1)
         try setupJournalInode(
             startBlock: journalStartBlock,
-            blockCount: journalBlocks,
             endBlock: journalEndBlock
         )
         return journalBlocks
@@ -141,11 +140,12 @@ extension EXT4.Formatter {
         try self.handle.seek(toOffset: self.pos + totalBytes)
     }
 
-    private func setupJournalInode(startBlock: UInt32, blockCount: UInt32, endBlock: UInt32) throws {
+    private func setupJournalInode(startBlock: UInt32, endBlock: UInt32) throws {
         var journalInode = EXT4.Inode()
         journalInode.mode = EXT4.Inode.Mode(.S_IFREG, 0o600)
         journalInode.uid = 0
         journalInode.gid = 0
+        let blockCount = endBlock - startBlock
         let size = UInt64(blockCount) * UInt64(self.blockSize)
         journalInode.sizeLow = size.lo
         journalInode.sizeHigh = size.hi
