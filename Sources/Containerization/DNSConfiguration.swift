@@ -23,9 +23,14 @@ public struct DNS: Sendable {
     /// The set of default nameservers to use if none are provided
     /// in the constructor.
     public static let defaultNameservers = ["1.1.1.1"]
+    // Redirect-target ports must be unprivileged (>= 1024).
+    private static let minimumRedirectPort: UInt16 = 1024
 
     /// The nameservers a container should use.
     public var nameservers: [String]
+    /// Optional nftables DNS redirect targets: each (IPv4 address, port) pair
+    /// consumed by the guest alongside the corresponding nameserver.
+    public var redirectTargets: [(ip: String, port: UInt16)]
     /// The DNS domain to use.
     public var domain: String?
     /// The DNS search domains to use.
@@ -35,11 +40,13 @@ public struct DNS: Sendable {
 
     public init(
         nameservers: [String] = defaultNameservers,
+        redirectTargets: [(ip: String, port: UInt16)] = [],
         domain: String? = nil,
         searchDomains: [String] = [],
         options: [String] = []
     ) {
         self.nameservers = nameservers
+        self.redirectTargets = redirectTargets
         self.domain = domain
         self.searchDomains = searchDomains
         self.options = options
@@ -47,11 +54,13 @@ public struct DNS: Sendable {
 
     /// Validates the DNS configuration.
     ///
-    /// Ensures that all nameserver entries are valid IPv4 or IPv6 addresses.
+    /// Ensures that all nameserver entries are valid IPv4 or IPv6 addresses,
+    /// each redirect target is a valid IPv4 address with a port >= 1024.
     /// Arbitrary hostnames are not permitted as nameservers.
     ///
     /// - Throws: ``ContainerizationError`` with code `.invalidArgument` if
-    ///   any nameserver is not a valid IP address.
+    ///   any nameserver is not a valid IP address or any redirect target is
+    ///   not a valid `ipv4:port` (>= 1024).
     public func validate() throws {
         for nameserver in nameservers {
             let isValidIPv4 = (try? IPv4Address(nameserver)) != nil
@@ -63,12 +72,30 @@ public struct DNS: Sendable {
                 )
             }
         }
+        for (ip, port) in redirectTargets {
+            guard (try? IPv4Address(ip)) != nil else {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "DNS redirect target '\(ip):\(port)' is not a valid IPv4 address"
+                )
+            }
+            guard port >= Self.minimumRedirectPort else {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "DNS redirect target '\(ip):\(port)' specifies port \(port), which must be >= 1024"
+                )
+            }
+        }
     }
 }
 
 extension DNS {
     public var resolvConf: String {
         var text = ""
+
+        if !redirectTargets.isEmpty {
+            text += "# DNS traffic may be redirected by an nftables rule; verify with: nft list ruleset\n"
+        }
 
         if !nameservers.isEmpty {
             text += nameservers.map { "nameserver \($0)" }.joined(separator: "\n") + "\n"
