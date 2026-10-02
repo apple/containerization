@@ -52,6 +52,9 @@ public final class CHVirtualMachineInstance: Sendable {
         public var initialFilesystem: Mount?
         public var bootLog: BootLog?
         public var extensions: [any Sendable] = []
+        /// Have cloud-hypervisor open every virtio-blk disk image with O_DIRECT,
+        /// at boot and on hotplug, so guest block I/O bypasses the host page cache.
+        public var directDiskIO: Bool = false
 
         public init() {
             self.cpus = 4
@@ -216,6 +219,7 @@ public final class CHVirtualMachineInstance: Sendable {
             client: self.client,
             workDir: workDir,
             virtiofsdBinary: virtiofsdBinary,
+            directDiskIO: config.directDiskIO,
             allocator: allocator,
             initialMounts: inventory.attachments,
             logger: logger
@@ -517,6 +521,9 @@ extension CHVirtualMachineInstance {
             if var disk = bd.mount.chDiskConfig(id: chId) {
                 if bd.containerId == nil {
                     disk.readonly = true
+                }
+                if config.directDiskIO {
+                    disk.direct = true
                 }
                 disks.append(disk)
             }

@@ -30,6 +30,7 @@ public struct CHVirtualMachineManager: VirtualMachineManager {
     private let initialFilesystem: Mount
     private let chBinary: URL
     private let virtiofsdBinaryOverride: URL?
+    private let directDiskIO: Bool
     private let runtimeRoot: URL
     private let group: (any EventLoopGroup)?
     private let logger: Logger?
@@ -44,6 +45,8 @@ public struct CHVirtualMachineManager: VirtualMachineManager {
     ///     lazily — only when a virtiofs share is actually used. A VM that
     ///     boots with only block-device mounts can run without virtiofsd
     ///     installed at all.
+    ///   - directDiskIO: Have cloud-hypervisor open every virtio-blk disk image
+    ///     of the VMs of this manager with O_DIRECT. Defaults to false.
     ///   - runtimeRoot: Directory under which per-VM working directories are
     ///     created. Defaults to `/run/containerization/ch`. The directory is
     ///     created with mode `0o700` so per-VM UDS sockets (api.sock,
@@ -58,6 +61,7 @@ public struct CHVirtualMachineManager: VirtualMachineManager {
         initialFilesystem: Mount,
         chBinary: URL? = nil,
         virtiofsdBinary: URL? = nil,
+        directDiskIO: Bool = false,
         runtimeRoot: URL? = nil,
         group: (any EventLoopGroup)? = nil,
         logger: Logger? = nil
@@ -77,6 +81,7 @@ public struct CHVirtualMachineManager: VirtualMachineManager {
             }
         }
         self.virtiofsdBinaryOverride = virtiofsdBinary
+        self.directDiskIO = directDiskIO
         let runtimeRoot = runtimeRoot ?? URL(fileURLWithPath: "/run/containerization/ch")
         try FileManager.default.createDirectory(
             at: runtimeRoot,
@@ -102,6 +107,7 @@ public struct CHVirtualMachineManager: VirtualMachineManager {
         instanceConfig.mountsByID = vmConfig.mountsByID
         instanceConfig.bootLog = vmConfig.bootLog
         instanceConfig.extensions = vmConfig.extensions
+        instanceConfig.directDiskIO = directDiskIO
         instanceConfig.kernel = kernel
         instanceConfig.initialFilesystem = initialFilesystem
 
