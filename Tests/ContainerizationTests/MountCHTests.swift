@@ -49,6 +49,31 @@ struct MountCHTests {
         #expect(any.chDiskConfig(id: "x") == nil)
     }
 
+    @Test("block mount with the 'directio' runtime option produces DiskConfig with direct=true")
+    func blockDirectIO() {
+        let mount = Mount.block(format: "ext4", source: "/foo.img", destination: "/data", runtimeOptions: ["directio"])
+        let cfg = mount.chDiskConfig(id: "blk-0")
+        #expect(cfg?.direct == true)
+        #expect(cfg?.readonly == false)
+    }
+
+    @Test(
+        "only the exact runtime option 'directio' sets direct",
+        arguments: [
+            ["directio=true"],
+            ["directio=false"],
+            ["directio="],
+            ["DirectIO"],
+            ["vzDiskImageCachingMode=uncached", "vzDiskImageSynchronizationMode=none"],
+        ]
+    )
+    func otherRuntimeOptionsAreIgnored(runtimeOptions: [String]) {
+        let mount = Mount.block(format: "ext4", source: "/foo.img", destination: "/data", runtimeOptions: runtimeOptions)
+        let cfg = mount.chDiskConfig(id: "blk-0")
+        #expect(cfg != nil)
+        #expect(cfg?.direct == nil)
+    }
+
     @Test("share mount produces FsConfig with tag and socket")
     func shareMount() {
         let mount = Mount.share(source: "/host/dir", destination: "/guest/dir")

@@ -511,6 +511,8 @@ extension CHVirtualMachineInstance {
 
         // Disks: rootfs forced read-only at the device level; container disks
         // honor their `ro` option through chDiskConfig.
+        // Every disk also gets the per-device runtime options of its mount, such
+        // as `directio`, through chDiskConfig.
         var disks: [CloudHypervisor.DiskConfig] = []
         for bd in bootDisks {
             let chId = bd.containerId.map { "blk-\($0)-\(bd.letter)" } ?? "rootfs"

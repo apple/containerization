@@ -98,15 +98,14 @@ final class CHHotplugProvider: HotplugProvider {
         case .virtioblk:
             let letter = try allocator.allocate()
             let chId = "blk-\(id)-\(letter)"
-            let disk = CloudHypervisor.DiskConfig(
-                path: rootfs.source,
-                readonly: rootfs.options.contains("ro"),
-                id: chId,
-                imageType: .raw
-            )
 
+            // chDiskConfig applies the per-device runtime options of the mount, such as
+            // `directio`, the same as for boot disks.
             let pci: CloudHypervisor.PciDeviceInfo
             do {
+                guard let disk = rootfs.chDiskConfig(id: chId) else {
+                    throw ContainerizationError(.invalidArgument, message: "mount \(rootfs.source) is not a virtio-blk device")
+                }
                 pci = try await chCall { try await self.client.vmAddDisk(disk) }
             } catch {
                 try? allocator.release(letter)
