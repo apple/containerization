@@ -271,11 +271,10 @@ extension Application {
                 }
 
                 // Add host entry for the container using just the IP (not CIDR)
-                if #available(macOS 26, *), !config.interfaces.isEmpty {
-                    let interface = config.interfaces[0]
+                if #available(macOS 26, *), let addr = config.interfaces.first?.ipv4Address {
                     hosts.entries.append(
                         Hosts.Entry(
-                            ipAddress: interface.ipv4Address.address.description,
+                            ipAddress: addr.address.description,
                             hostnames: [id]
                         ))
                 }
@@ -675,11 +674,13 @@ extension Application {
                     interfaces.append(iface)
 
                     var h = Hosts.default
-                    h.entries.append(
-                        .init(
-                            ipAddress: iface.ipv4Address.address.description,
-                            hostnames: [id]
-                        ))
+                    if let addr = iface.ipv4Address {
+                        h.entries.append(
+                            .init(
+                                ipAddress: addr.address.description,
+                                hostnames: [id]
+                            ))
+                    }
                     hostsConfig = h
 
                     let resolved =
