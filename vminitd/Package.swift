@@ -67,5 +67,9 @@ let package = Package(
                 .product(name: "VminitdCore", package: "containerization"),
             ]
         ),
+        .testTarget(
+            name: "vmexecTests",
+            dependencies: ["vmexec"]
+        ),
     ]
 )
