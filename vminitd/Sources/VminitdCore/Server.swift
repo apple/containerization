@@ -16,7 +16,9 @@
 
 #if os(Linux)
 
+import Cgroup
 import ContainerizationError
+import ContainerizationOCI
 import Foundation
 import GRPCCore
 import GRPCNIOTransportHTTP2
@@ -26,8 +28,11 @@ import NIOCore
 import NIOPosix
 
 public final class Initd: Sendable {
+    static let PID: Int32 = 1
+
     public actor State {
         private(set) var containers: [String: ManagedContainer] = [:]
+        private(set) var rootProcesses: [String: ManagedProcess] = [:]
         var proxies: [String: VsockProxy] = [:]
 
         public typealias ContainerDeletedHandler = @Sendable (String) async -> Void
@@ -90,6 +95,105 @@ public final class Initd: Sendable {
                     await handler(id)
                 }
             }
+        }
+
+        static func craftRootBundlePath(id: String) -> URL {
+            URL(fileURLWithPath: "/run/vminitd-root").appending(path: id)
+        }
+
+        // A sibling of /vminitd: a cgroup holding vminitd cannot delegate controllers to children.
+        static func craftRootCgroupPath(id: String) -> URL {
+            URL(filePath: "/vminitd-root").appending(path: id)
+        }
+
+        func createRootProcess(
+            id: String,
+            stdio: HostStdio,
+            process: ContainerizationOCI.Process,
+            resources: ContainerizationOCI.LinuxResources?,
+            log: Logger
+        ) throws {
+            // The id becomes a path component of the bundle and cgroup.
+            try ManagedContainer.validate(id: id)
+
+            guard rootProcesses[id] == nil else {
+                throw ContainerizationError(.exists, message: "root process \(id) already exists")
+            }
+            // closeStdin and resize are not routed for root processes, so stdin would never see EOF.
+            guard stdio.stdin == nil, !stdio.terminal else {
+                throw ContainerizationError(.invalidArgument, message: "root process \(id): stdin and terminal are not supported")
+            }
+
+            // Root cgroups outlive delete, so an id is single-use: reuse would inherit stale limits.
+            let cgroupPath = Self.craftRootCgroupPath(id: id)
+            let cgroupDir = Cgroup2Manager.defaultMountPoint.appending(path: cgroupPath.path)
+            guard !FileManager.default.fileExists(atPath: cgroupDir.path) else {
+                throw ContainerizationError(.exists, message: "root process id \(id) was already used")
+            }
+
+            let cgroup = Cgroup2Manager(group: cgroupPath, logger: log)
+            try cgroup.create()
+
+            do {
+                try cgroup.toggleAllAvailableControllers(enable: true)
+                if let resources {
+                    try cgroup.applyResources(resources: resources)
+                }
+
+                // A minimal bundle only used to hold the exec's process.json; exec mode does not
+                // pivot into rootfs, so no real rootfs is required.
+                let bundle = try ContainerizationOCI.Bundle.create(
+                    path: Self.craftRootBundlePath(id: id),
+                    spec: ContainerizationOCI.Spec(process: process)
+                )
+                try bundle.createExecSpec(id: id, process: process)
+                let managed = try ManagedProcess(
+                    id: id,
+                    stdio: stdio,
+                    bundle: bundle,
+                    owningPid: Initd.PID,
+                    cgroup: cgroup,
+                    log: log
+                )
+                rootProcesses[id] = managed
+            } catch {
+                try? FileManager.default.removeItem(at: Self.craftRootBundlePath(id: id))
+                try? cgroup.delete()
+                throw error
+            }
+        }
+
+        func startRootProcess(id: String) async throws -> Int32 {
+            let managed = try rootProcess(id: id)
+            // Route through the supervisor (mirror ManagedContainer.start) so an early-exiting
+            // process is reaped and does not become a zombie.
+            return try await ProcessSupervisor.default.start(process: managed)
+        }
+
+        func waitRootProcess(id: String) async throws -> ContainerExitStatus {
+            let managed = try rootProcess(id: id)
+            return await managed.wait()
+        }
+
+        func killRootProcess(id: String, signal: Int32) async throws {
+            try await rootProcess(id: id).kill(signal)
+        }
+
+        // Releases bookkeeping only. The process keeps running if alive, and the cgroup, with
+        // any process left in it, lives until the VM stops.
+        func deleteRootProcess(id: String) async throws {
+            let managed = try rootProcess(id: id)
+
+            try await managed.delete()
+            try FileManager.default.removeItem(at: Self.craftRootBundlePath(id: id))
+            rootProcesses.removeValue(forKey: id)
+        }
+
+        private func rootProcess(id: String) throws -> ManagedProcess {
+            guard let managed = rootProcesses[id] else {
+                throw ContainerizationError(.notFound, message: "root process \(id) not found")
+            }
+            return managed
         }
     }
 

@@ -265,6 +265,35 @@ struct PodVolumeTests {
         #expect(mount.type == "xfs")
     }
 
+    @Test func podVolumeVirtiofsDefaultsToReadOnly() {
+        let volume = LinuxPod.PodVolume(
+            name: "share",
+            source: .virtiofs(path: URL(filePath: "/tmp/share")),
+            format: "virtiofs"
+        )
+
+        let mount = volume.toMount()
+
+        #expect(mount.type == "virtiofs")
+        #expect(mount.source == "/tmp/share")
+        #expect(mount.destination == "/run/volumes/share")
+        #expect(mount.options == ["ro"])
+        guard case .virtiofs = mount.runtimeOptions else {
+            Issue.record("Expected virtiofs runtime options")
+            return
+        }
+    }
+
+    @Test func podVolumeVirtiofsWritableHasNoReadOnlyOption() {
+        let volume = LinuxPod.PodVolume(
+            name: "share",
+            source: .virtiofs(path: URL(filePath: "/tmp/share"), readOnly: false),
+            format: "virtiofs"
+        )
+
+        #expect(volume.toMount().options.isEmpty)
+    }
+
     @Test func podVolumeDiskImageSourceCreation() {
         let volume = LinuxPod.PodVolume(
             name: "disk-data",

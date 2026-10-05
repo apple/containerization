@@ -6,6 +6,7 @@ libexec
 xcuserdata/
 DerivedData/
 .swiftpm/
+.sourcekit-lsp/
 .netrc
 workdir/
 installer/

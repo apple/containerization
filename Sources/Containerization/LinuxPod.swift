@@ -142,6 +142,8 @@ public final class LinuxPod: Sendable {
             case diskImage(path: URL, readOnly: Bool = false)
             /// An in-memory (tmpfs) volume mounted inside the guest.
             case tmpfs(sizeBytes: UInt64? = nil)
+            /// A host directory shared over virtio-fs.
+            case virtiofs(path: URL, readOnly: Bool = true)
         }
 
         /// The logical name of this volume. Containers reference this name
@@ -185,6 +187,12 @@ public final class LinuxPod: Sendable {
                     source: "tmpfs",
                     destination: LinuxPod.guestVolumePath(name),
                     options: sizeBytes.map { ["size=\($0)"] } ?? []
+                )
+            case .virtiofs(let path, let readOnly):
+                return Mount.share(
+                    source: path.absolutePath(),
+                    destination: LinuxPod.guestVolumePath(name),
+                    options: readOnly ? ["ro"] : []
                 )
             }
         }
@@ -907,6 +915,19 @@ extension LinuxPod {
                         }
                         let attachment = podVolumeAttachments[index]
                         let guestPath = Self.guestVolumePath(volume.name)
+
+                        // create() mounts every virtiofs tag at /run/virtiofs/<tag> on both VZ and CH.
+                        if case .virtiofs(_, let readOnly) = volume.source {
+                            try await agent.mount(
+                                ContainerizationOCI.Mount(
+                                    type: "",
+                                    source: "/run/virtiofs/\(attachment.source)",
+                                    destination: guestPath,
+                                    options: readOnly ? ["bind", "ro"] : ["bind"]
+                                ))
+                            continue
+                        }
+
                         try await agent.mount(
                             ContainerizationOCI.Mount(
                                 type: volume.format,
@@ -959,6 +980,11 @@ extension LinuxPod {
                                 location: Self.guestRootfsPath(container.id)
                             )
                         }
+                    }
+
+                    // The VM root's /etc/resolv.conf links to /run/etc/resolv.conf.
+                    if let dns = self.config.dns {
+                        try await agent.configureDNS(config: dns, location: "/run")
                     }
                 }
 
