@@ -57,7 +57,13 @@ endif
 ROOT_DIR := $(shell git rev-parse --show-toplevel)
 BUILD_BIN_DIR = $(shell $(SWIFT) build -c $(BUILD_CONFIGURATION) $(SWIFT_SCRATCH_FLAGS) --show-bin-path)
 COV_DATA_DIR = $(shell $(SWIFT) test --show-coverage-path | xargs dirname)
-COV_REPORT_FILE = $(ROOT_DIR)/code-coverage-report
+COV_REPORT_DIR = $(ROOT_DIR)/code-coverage-report
+# swiftbuild emits one bundle per test target; native emits containerizationPackageTests.xctest.
+COV_TEST_BIN = $(addprefix -object ,$(wildcard $(BUILD_BIN_DIR)/*.xctest/Contents/MacOS/*))
+COV_IGNORE = --ignore-filename-regex=".build/" \
+	--ignore-filename-regex=".pb.swift" \
+	--ignore-filename-regex=".proto" \
+	--ignore-filename-regex=".grpc.swift"
 
 # Variables for libarchive integration
 LIBARCHIVE_UPSTREAM_REPO := https://github.com/libarchive/libarchive
@@ -400,14 +406,28 @@ test:
 .PHONY: coverage
 coverage: test
 	@echo Generating code coverage report...
+	@rm -rf $(COV_REPORT_DIR)
+	@mkdir -p $(COV_REPORT_DIR)
 	@xcrun llvm-cov show --compilation-dir=`pwd` \
 		-instr-profile=$(COV_DATA_DIR)/default.profdata \
-		--ignore-filename-regex=".build/" \
-		--ignore-filename-regex=".pb.swift" \
-		--ignore-filename-regex=".proto" \
-		--ignore-filename-regex=".grpc.swift" \
-		$(BUILD_BIN_DIR)/containerizationPackageTests.xctest/Contents/MacOS/containerizationPackageTests > $(COV_REPORT_FILE)
-	@echo Code coverage report generated: $(COV_REPORT_FILE)
+		$(COV_IGNORE) \
+		--format=html \
+		-output-dir=$(COV_REPORT_DIR)/html \
+		$(COV_TEST_BIN)
+	@xcrun llvm-cov export --compilation-dir=`pwd` \
+		-instr-profile=$(COV_DATA_DIR)/default.profdata \
+		$(COV_IGNORE) \
+		-format=text \
+		$(COV_TEST_BIN) > $(COV_REPORT_DIR)/coverage.json
+	@echo Code coverage report generated: $(COV_REPORT_DIR)/html/index.html
+	@echo Code coverage JSON generated: $(COV_REPORT_DIR)/coverage.json
+	@echo ""
+	@echo "Coverage summary:"
+	@jq -r '.data[0].totals as $$t | \
+		"  lines:     \($$t.lines.percent | . * 100 | round | . / 100)% (\($$t.lines.covered) of \($$t.lines.count))\n" + \
+		"  functions: \($$t.functions.percent | . * 100 | round | . / 100)% (\($$t.functions.covered) of \($$t.functions.count))\n" + \
+		"  regions:   \($$t.regions.percent | . * 100 | round | . / 100)% (\($$t.regions.covered) of \($$t.regions.count))"' \
+		$(COV_REPORT_DIR)/coverage.json
 
 .PHONY: integration
 integration:
@@ -535,6 +555,6 @@ clean:
 	@rm -rf bin/
 	@rm -rf _site/
 	@rm -rf _serve/
-	@rm -f $(COV_REPORT_FILE)
+	@rm -rf $(COV_REPORT_DIR)
 	@$(SWIFT) package clean
 	@"$(MAKE)" -C vminitd clean
