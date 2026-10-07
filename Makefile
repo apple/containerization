@@ -22,7 +22,10 @@ WARNINGS_AS_ERRORS ?= true
 SCRATCH_ROOT ?=
 SCRATCH_PATH ?= $(if $(SCRATCH_ROOT),$(SCRATCH_ROOT)/build-containerization)
 SWIFT_SCRATCH_FLAGS := $(if $(SCRATCH_PATH),--scratch-path $(SCRATCH_PATH))
-SWIFT_CONFIGURATION := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors) --disable-automatic-resolution $(SWIFT_SCRATCH_FLAGS)
+# Extra swift build flags, appended last so callers can add to (rather than
+# replace) the configuration above.
+SWIFT_CONFIGURATION_EXTRA ?=
+SWIFT_CONFIGURATION := $(if $(filter-out false,$(WARNINGS_AS_ERRORS)),-Xswiftc -warnings-as-errors) --disable-automatic-resolution $(SWIFT_SCRATCH_FLAGS) $(SWIFT_CONFIGURATION_EXTRA)
 
 # Commonly used locations
 UNAME_S := $(shell uname -s)
