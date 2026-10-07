@@ -802,7 +802,7 @@ struct FileDescriptorPathSecureTests {
         try FileManager.default.createSymbolicLink(atPath: sandbox.root.appending("dirlink").string, withDestinationPath: "../outside/dir")
         try FileManager.default.createSymbolicLink(atPath: sandbox.root.appending("a/up").string, withDestinationPath: "../../outside/dir")
 
-        let fd = try FileDescriptorOps.openFile(sandbox.rootFd, relativePath: "a/b/file")
+        let fd = try FileDescriptorOps.openFile(sandbox.rootFd, relativePath: "a/b/file", symlinks: .refuse)
         defer { try? fd.close() }
         var buffer = [UInt8](repeating: 0, count: 16)
         let count = read(fd.rawValue, &buffer, buffer.count)
@@ -822,7 +822,7 @@ struct FileDescriptorPathSecureTests {
             ("", .invalidRelativePath),
         ]
         for (path, expected) in cases {
-            #expect(throws: expected, "\(path)") { _ = try FileDescriptorOps.openFile(sandbox.rootFd, relativePath: FilePath(path)) }
+            #expect(throws: expected, "\(path)") { _ = try FileDescriptorOps.openFile(sandbox.rootFd, relativePath: FilePath(path), symlinks: .refuse) }
         }
     }
 
@@ -837,18 +837,155 @@ struct FileDescriptorPathSecureTests {
         try writeText("plain", to: sandbox.root.appending("plain"))
         try FileManager.default.createSymbolicLink(atPath: sandbox.root.appending("dirlink").string, withDestinationPath: "../outside/dir")
 
-        #expect(try FileDescriptorOps.status(sandbox.rootFd, relativePath: "a/b/file")?.type == .regular)
-        #expect(try FileDescriptorOps.status(sandbox.rootFd, relativePath: "a/b/file")?.size == 6)
-        #expect(try FileDescriptorOps.status(sandbox.rootFd, relativePath: "a/b")?.type == .directory)
-        #expect(try FileDescriptorOps.status(sandbox.rootFd, relativePath: "dirlink")?.type == .symlink, "the link itself")
-        #expect(try FileDescriptorOps.status(sandbox.rootFd, relativePath: "")?.type == .directory, "an empty path is the directory itself")
-        #expect(try FileDescriptorOps.status(sandbox.rootFd, relativePath: "a/b/missing") == nil)
-        #expect(try FileDescriptorOps.status(sandbox.rootFd, relativePath: "missing/file") == nil)
+        #expect(try FileDescriptorOps.status(sandbox.rootFd, relativePath: "a/b/file", symlinks: .refuse)?.type == .regular)
+        #expect(try FileDescriptorOps.status(sandbox.rootFd, relativePath: "a/b/file", symlinks: .refuse)?.size == 6)
+        #expect(try FileDescriptorOps.status(sandbox.rootFd, relativePath: "a/b", symlinks: .refuse)?.type == .directory)
+        #expect(try FileDescriptorOps.status(sandbox.rootFd, relativePath: "dirlink", symlinks: .refuse)?.type == .symlink, "the link itself")
+        #expect(try FileDescriptorOps.status(sandbox.rootFd, relativePath: "", symlinks: .refuse)?.type == .directory, "an empty path is the directory itself")
+        #expect(try FileDescriptorOps.status(sandbox.rootFd, relativePath: "a/b/missing", symlinks: .refuse) == nil)
+        #expect(try FileDescriptorOps.status(sandbox.rootFd, relativePath: "missing/file", symlinks: .refuse) == nil)
 
-        #expect(throws: FileDescriptorOps.Error.cannotFollowSymlink) { _ = try FileDescriptorOps.status(sandbox.rootFd, relativePath: "dirlink/target") }
-        #expect(throws: FileDescriptorOps.Error.conflict(.regular)) { _ = try FileDescriptorOps.status(sandbox.rootFd, relativePath: "plain/x") }
-        #expect(throws: FileDescriptorOps.Error.invalidRelativePath) { _ = try FileDescriptorOps.status(sandbox.rootFd, relativePath: "../outside") }
-        #expect(throws: FileDescriptorOps.Error.invalidRelativePath) { _ = try FileDescriptorOps.status(sandbox.rootFd, relativePath: "/etc") }
+        #expect(throws: FileDescriptorOps.Error.cannotFollowSymlink) { _ = try FileDescriptorOps.status(sandbox.rootFd, relativePath: "dirlink/target", symlinks: .refuse) }
+        #expect(throws: FileDescriptorOps.Error.conflict(.regular)) { _ = try FileDescriptorOps.status(sandbox.rootFd, relativePath: "plain/x", symlinks: .refuse) }
+        #expect(throws: FileDescriptorOps.Error.invalidRelativePath) { _ = try FileDescriptorOps.status(sandbox.rootFd, relativePath: "../outside", symlinks: .refuse) }
+        #expect(throws: FileDescriptorOps.Error.invalidRelativePath) { _ = try FileDescriptorOps.status(sandbox.rootFd, relativePath: "/etc", symlinks: .refuse) }
+    }
+
+    // MARK: - Following symlinks beneath a directory
+
+    private func link(_ name: String, to target: String, in directory: FilePath) throws {
+        try FileManager.default.createSymbolicLink(atPath: directory.appending(name).string, withDestinationPath: target)
+    }
+
+    private func readAll(_ fd: FileDescriptor) -> String {
+        var buffer = [UInt8](repeating: 0, count: 64)
+        let count = read(fd.rawValue, &buffer, buffer.count)
+        return String(decoding: buffer.prefix(max(count, 0)), as: UTF8.self)
+    }
+
+    @Test("Test followBeneath resolves the symlinks of a legacy docker archive and refuse does not")
+    func testFollowBeneathLegacyDockerArchiveLayout() throws {
+        let sandbox = try makeSandbox()
+        defer { sandbox.cleanup() }
+        // `docker save` before v25 stored a layer shared by several images once, and linked to it.
+        try FileManager.default.createDirectory(atPath: sandbox.root.appending("aaa").string, withIntermediateDirectories: false)
+        try FileManager.default.createDirectory(atPath: sandbox.root.appending("bbb").string, withIntermediateDirectories: false)
+        try writeText("layer-a", to: sandbox.root.appending("aaa/layer.tar"))
+        try link("layer.tar", to: "../aaa/layer.tar", in: sandbox.root.appending("bbb"))
+
+        let fd = try FileDescriptorOps.openFile(sandbox.rootFd, relativePath: "bbb/layer.tar", symlinks: .followBeneath)
+        defer { try? fd.close() }
+        #expect(readAll(fd) == "layer-a")
+        #expect(fcntl(fd.rawValue, F_GETFD) & FD_CLOEXEC != 0)
+
+        #expect(throws: FileDescriptorOps.Error.cannotFollowSymlink) {
+            _ = try FileDescriptorOps.openFile(sandbox.rootFd, relativePath: "bbb/layer.tar", symlinks: .refuse)
+        }
+    }
+
+    @Test("Test followBeneath follows links in parent positions, chains of links, and links that use ..")
+    func testFollowBeneathResolvesLinks() throws {
+        let sandbox = try makeSandbox()
+        defer { sandbox.cleanup() }
+        try FileManager.default.createDirectory(atPath: sandbox.root.appending("real/deep").string, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: sandbox.root.appending("other").string, withIntermediateDirectories: false)
+        try writeText("deep-file", to: sandbox.root.appending("real/deep/file"))
+        try writeText("other-file", to: sandbox.root.appending("other/file"))
+        try link("dirlink", to: "real", in: sandbox.root)  // a directory link in a parent position
+        try link("c", to: "real/deep/file", in: sandbox.root)  // c -> b -> a -> the file
+        try link("b", to: "c", in: sandbox.root)
+        try link("a", to: "b", in: sandbox.root)
+        try link("up", to: "../other", in: sandbox.root.appending("real"))  // real/up -> ../other, stays beneath root
+        try link("dot", to: "./real/./deep/../deep/file", in: sandbox.root)
+
+        let expectations = [
+            ("dirlink/deep/file", "deep-file"),
+            ("a", "deep-file"),
+            ("real/up/file", "other-file"),
+            ("dirlink/up/file", "other-file"),
+            ("dot", "deep-file"),
+        ]
+        for (path, expected) in expectations {
+            let fd = try FileDescriptorOps.openFile(sandbox.rootFd, relativePath: FilePath(path), symlinks: .followBeneath)
+            defer { try? fd.close() }
+            #expect(readAll(fd) == expected, "\(path)")
+        }
+    }
+
+    @Test("Test followBeneath refuses links that leave the directory, absolute links, loops, and long chains")
+    func testFollowBeneathRefusals() throws {
+        let sandbox = try makeSandbox()
+        defer { sandbox.cleanup() }
+        try writeText("SECRET", to: sandbox.outside.appending("target"))
+        try FileManager.default.createDirectory(atPath: sandbox.root.appending("sub/deep").string, withIntermediateDirectories: true)
+        try writeText("ok", to: sandbox.root.appending("sub/deep/file"))
+        try link("abs", to: sandbox.outside.appending("target").string, in: sandbox.root)  // absolute target
+        try link("escape", to: "../outside/target", in: sandbox.root)  // one level above the root
+        try link("deepescape", to: "sub/deep/../../../outside/target", in: sandbox.root)  // stays inside until the last ..
+        try link("direscape", to: "../outside", in: sandbox.root)  // a directory link out
+        try link("loop1", to: "loop2", in: sandbox.root)
+        try link("loop2", to: "loop1", in: sandbox.root)
+        try link("self", to: "self", in: sandbox.root)
+        // A chain one link longer than allowed.
+        let limit = FileDescriptorOps.maximumSymlinksFollowed
+        for index in 0...limit {
+            try link("chain\(index)", to: index == limit ? "sub/deep/file" : "chain\(index + 1)", in: sandbox.root)
+        }
+        // A chain exactly as long as allowed still works.
+        try link("short\(limit - 1)", to: "sub/deep/file", in: sandbox.root)
+        for index in 0..<(limit - 1) {
+            try link("short\(index)", to: "short\(index + 1)", in: sandbox.root)
+        }
+
+        for path in ["abs", "escape", "deepescape", "direscape/target", "loop1", "self", "chain0"] {
+            #expect(throws: FileDescriptorOps.Error.cannotFollowSymlink, "\(path)") {
+                _ = try FileDescriptorOps.openFile(sandbox.rootFd, relativePath: FilePath(path), symlinks: .followBeneath)
+            }
+        }
+        let fd = try FileDescriptorOps.openFile(sandbox.rootFd, relativePath: "short0", symlinks: .followBeneath)
+        defer { try? fd.close() }
+        #expect(readAll(fd) == "ok", "a chain of exactly \(limit) links is allowed")
+    }
+
+    @Test("Test followBeneath reports links that lead to a directory, or to nothing, as errors")
+    func testFollowBeneathNonFileTargets() throws {
+        let sandbox = try makeSandbox()
+        defer { sandbox.cleanup() }
+        try FileManager.default.createDirectory(atPath: sandbox.root.appending("sub").string, withIntermediateDirectories: false)
+        try link("todir", to: "sub", in: sandbox.root)
+        try link("todot", to: ".", in: sandbox.root.appending("sub"))
+        try link("dangling", to: "missing", in: sandbox.root)
+
+        #expect(throws: FileDescriptorOps.Error.conflict(.directory)) {
+            _ = try FileDescriptorOps.openFile(sandbox.rootFd, relativePath: "todir", symlinks: .followBeneath)
+        }
+        #expect(throws: FileDescriptorOps.Error.conflict(.directory)) {
+            _ = try FileDescriptorOps.openFile(sandbox.rootFd, relativePath: "sub/todot", symlinks: .followBeneath)
+        }
+        #expect(throws: FileDescriptorOps.Error.notFound) {
+            _ = try FileDescriptorOps.openFile(sandbox.rootFd, relativePath: "dangling", symlinks: .followBeneath)
+        }
+    }
+
+    @Test("Test status with followBeneath follows parents but still describes a final symlink itself")
+    func testStatusFollowBeneath() throws {
+        let sandbox = try makeSandbox()
+        defer { sandbox.cleanup() }
+        try FileManager.default.createDirectory(atPath: sandbox.root.appending("real").string, withIntermediateDirectories: false)
+        try writeText("hello", to: sandbox.root.appending("real/file"))
+        try link("dirlink", to: "real", in: sandbox.root)
+        try link("filelink", to: "real/file", in: sandbox.root)
+        try link("escape", to: "../outside", in: sandbox.root)
+
+        #expect(try FileDescriptorOps.status(sandbox.rootFd, relativePath: "dirlink/file", symlinks: .followBeneath)?.size == 5)
+        #expect(try FileDescriptorOps.status(sandbox.rootFd, relativePath: "filelink", symlinks: .followBeneath)?.type == .symlink)
+        #expect(try FileDescriptorOps.status(sandbox.rootFd, relativePath: "dirlink/missing", symlinks: .followBeneath) == nil)
+        #expect(throws: FileDescriptorOps.Error.cannotFollowSymlink) {
+            _ = try FileDescriptorOps.status(sandbox.rootFd, relativePath: "escape/anything", symlinks: .followBeneath)
+        }
+        #expect(throws: FileDescriptorOps.Error.cannotFollowSymlink) {
+            _ = try FileDescriptorOps.status(sandbox.rootFd, relativePath: "dirlink/file", symlinks: .refuse)
+        }
     }
 
     private final class StopFlag: @unchecked Sendable {
@@ -868,8 +1005,10 @@ struct FileDescriptorPathSecureTests {
         }
     }
 
-    @Test("Test openFile(relativePath:) never reads outside the root while components are swapped for symlinks")
-    func testOpenFileRaceNeverEscapes() throws {
+    @Test(
+        "Test openFile(relativePath:) never reads outside the root while components are swapped for symlinks",
+        arguments: [FileDescriptorOps.SymlinkPolicy.refuse, .followBeneath])
+    func testOpenFileRaceNeverEscapes(symlinks: FileDescriptorOps.SymlinkPolicy) throws {
         let sandbox = try makeSandbox()
         defer { sandbox.cleanup() }
         try writeText("SECRET", to: sandbox.outside.appending("bait"))
@@ -877,20 +1016,20 @@ struct FileDescriptorPathSecureTests {
         try writeText("SAFE", to: sandbox.root.appending("dir/bait"))
 
         let root = sandbox.root.string
-        let outside = sandbox.outside.string
         let stop = StopFlag()
         let finished = DispatchSemaphore(value: 0)
         DispatchQueue.global().async {
             let fm = FileManager.default
             while !stop.isSet {
-                // Swap the last component between a regular file and a symlink to the secret.
+                // Swap the last component between a regular file and a symlink to the secret. The link is relative,
+                // so it is the kind that `followBeneath` would follow if it stayed beneath the root.
                 try? fm.removeItem(atPath: "\(root)/dir/bait")
-                try? fm.createSymbolicLink(atPath: "\(root)/dir/bait", withDestinationPath: "\(outside)/bait")
+                try? fm.createSymbolicLink(atPath: "\(root)/dir/bait", withDestinationPath: "../../outside/bait")
                 try? fm.removeItem(atPath: "\(root)/dir/bait")
                 try? Data("SAFE".utf8).write(to: URL(fileURLWithPath: "\(root)/dir/bait"))
                 // Swap the parent directory between a real directory and a symlink to the outside.
                 try? fm.moveItem(atPath: "\(root)/dir", toPath: "\(root)/dir.hold")
-                try? fm.createSymbolicLink(atPath: "\(root)/dir", withDestinationPath: outside)
+                try? fm.createSymbolicLink(atPath: "\(root)/dir", withDestinationPath: "../outside")
                 try? fm.removeItem(atPath: "\(root)/dir")
                 try? fm.moveItem(atPath: "\(root)/dir.hold", toPath: "\(root)/dir")
             }
@@ -901,7 +1040,7 @@ struct FileDescriptorPathSecureTests {
         var opened = 0
         let deadline = Date().addingTimeInterval(1.0)
         while Date() < deadline {
-            guard let fd = try? FileDescriptorOps.openFile(sandbox.rootFd, relativePath: "dir/bait") else {
+            guard let fd = try? FileDescriptorOps.openFile(sandbox.rootFd, relativePath: "dir/bait", symlinks: symlinks) else {
                 continue
             }
             var buffer = [UInt8](repeating: 0, count: 16)

@@ -90,82 +90,143 @@ extension FileDescriptorOps {
         try completion(current)
     }
 
+    /// What to do when a symlink is found while resolving a path.
+    public enum SymlinkPolicy: Sendable, Equatable {
+        /// Refuse any symlink in the path, including the last component. This is the safe choice
+        /// for anything that does not need symlinks to work.
+        case refuse
+
+        /// Follow a symlink, but only to a place beneath the directory the walk started from.
+        ///
+        /// Symlinks are resolved here, one component at a time, against directory descriptors
+        /// that are already open, and never by the kernel. A relative target may use `..` as
+        /// long as the result stays beneath the starting directory. An absolute target, a target
+        /// that would leave the starting directory, and a chain of more than
+        /// ``maximumSymlinksFollowed`` links are all refused as ``Error/cannotFollowSymlink``.
+        ///
+        /// Use it for trees that legitimately contain relative symlinks, such as a legacy
+        /// docker-archive where a layer shared between images is a link to another image's copy.
+        case followBeneath
+    }
+
+    /// The most symlinks that ``SymlinkPolicy/followBeneath`` follows while resolving one path.
+    public static let maximumSymlinksFollowed = 40
+
     /// Opens the existing regular file at `relativePath` below `fd` for reading.
     ///
-    /// Every component is opened relative to the previous one without following
-    /// symlinks, and the file is checked after it is open. A symlink anywhere in the
-    /// path, including the last component, is refused, and a swap of any component
-    /// for a symlink while this runs cannot redirect the open. The returned descriptor
-    /// is close-on-exec and the caller must close it.
+    /// Every component is opened relative to the previous one with `O_NOFOLLOW`, and the file is
+    /// checked after it is open, so a swap of any component for a symlink while this runs
+    /// cannot redirect the open. How symlinks that are already there are treated is up to `symlinks`.
+    /// The returned descriptor is close-on-exec and the caller must close it.
     ///
     /// - Parameters:
     ///   - fd: An open file descriptor for the directory to start from.
     ///   - relativePath: The file to open. It must be relative, must not contain a `..` component, and must name something.
+    ///   - symlinks: What to do about symlinks in the path, including the last component. There is no default.
     /// - Throws: ``Error/invalidRelativePath`` for an absolute path, one containing `..`, or an empty path;
     ///   ``Error/notFound`` if the file or a parent does not exist; ``Error/cannotFollowSymlink`` if a symlink
-    ///   is in the path; ``Error/conflict(_:)`` if a parent is not a directory or the file is not a regular
-    ///   file; and ``Error/systemError(_:_:)`` for anything else.
-    public static func openFile(_ fd: FileDescriptor, relativePath: FilePath) throws -> FileDescriptor {
+    ///   is refused or cannot be followed beneath `fd`; ``Error/conflict(_:)`` if a parent is not a directory or
+    ///   the path does not end at a regular file; and ``Error/systemError(_:_:)`` for anything else.
+    public static func openFile(_ fd: FileDescriptor, relativePath: FilePath, symlinks: SymlinkPolicy) throws -> FileDescriptor {
         try validateRelativePath(relativePath)
-        var components = Array(relativePath.components)
-        guard let name = components.popLast() else {
+        let components = Array(relativePath.components)
+        guard !components.isEmpty else {
             throw Error.invalidRelativePath
         }
-        return try withDirectory(fd, components) { parent in
-            try openFile(parent, name)
-        }
+        return try resolveBeneath(
+            fd, components, symlinks: symlinks,
+            atEntry: { parent, name in try openFile(parent, name) },
+            atDirectory: { _ in throw Error.conflict(.directory) })
     }
 
-    /// Returns the metadata of the entry at `relativePath` below `fd`, without following
-    /// symlinks, or `nil` if the entry or one of its parents does not exist. For a symlink this
-    /// is the metadata of the link itself. An empty path describes `fd` itself.
+    /// Returns the metadata of the entry at `relativePath` below `fd`, or `nil` if the entry or
+    /// one of its parents does not exist. An empty path describes `fd` itself.
     ///
-    /// A symlink in a parent position is refused, so the answer always describes an entry
-    /// that is really beneath `fd`.
+    /// The entry itself is never followed: for a symlink this is the metadata of the link. How
+    /// symlinks in the parent positions are treated is up to `symlinks`, so the answer always
+    /// describes an entry that is really beneath `fd`.
     ///
     /// - Throws: ``Error/invalidRelativePath`` for an absolute path or one containing `..`;
-    ///   ``Error/cannotFollowSymlink`` if a symlink is in a parent position; ``Error/conflict(_:)`` if a
-    ///   parent is not a directory; and ``Error/systemError(_:_:)`` for anything else.
-    public static func status(_ fd: FileDescriptor, relativePath: FilePath) throws -> FileStatus? {
+    ///   ``Error/cannotFollowSymlink`` if a symlink in a parent position is refused or cannot be followed
+    ///   beneath `fd`; ``Error/conflict(_:)`` if a parent is not a directory; and
+    ///   ``Error/systemError(_:_:)`` for anything else.
+    public static func status(_ fd: FileDescriptor, relativePath: FilePath, symlinks: SymlinkPolicy) throws -> FileStatus? {
         try validateRelativePath(relativePath)
-        var components = Array(relativePath.components)
-        guard let name = components.popLast() else {
+        let components = Array(relativePath.components)
+        guard !components.isEmpty else {
             return try status(of: fd)
         }
         do {
-            return try withDirectory(fd, components) { parent in
-                try status(parent, name)
-            }
+            return try resolveBeneath(
+                fd, components, symlinks: symlinks,
+                atEntry: { parent, name in try status(parent, name) },
+                atDirectory: { directory in try status(of: directory) })
         } catch Error.notFound {
             return nil
         }
     }
 
-    /// Runs `body` with a descriptor for the directory reached by walking `components` from
-    /// `fd`, without following symlinks. With no components, `body` gets `fd` itself.
-    private static func withDirectory<T>(
-        _ fd: FileDescriptor,
+    /// Walks `components` from `root`, opening each parent with `O_NOFOLLOW`, and calls `atEntry` with
+    /// the directory that holds the last component. If `atEntry` throws ``Error/cannotFollowSymlink``
+    /// because the last component is a symlink, and `symlinks` allows it, the link is followed.
+    ///
+    /// The walk keeps a stack of open directory descriptors. `..` in a symlink target pops the stack and is
+    /// refused at the bottom, which is what keeps every followed link beneath `root`. If the path resolves
+    /// to a directory without ever reaching a last component, for example a link to `..`, `atDirectory` runs.
+    private static func resolveBeneath<T>(
+        _ root: FileDescriptor,
         _ components: [FilePath.Component],
-        _ body: (FileDescriptor) throws -> T
+        symlinks: SymlinkPolicy,
+        atEntry: (_ parent: FileDescriptor, _ name: FilePath.Component) throws -> T,
+        atDirectory: (_ directory: FileDescriptor) throws -> T
     ) throws -> T {
-        var current = fd
-        var ownsCurrent = false
+        var pending = Array(components.reversed())
+        var directories = [root]
+        var symlinksFollowed = 0
         defer {
-            if ownsCurrent {
-                try? current.close()
+            // The first entry is the caller's descriptor.
+            for directory in directories.dropFirst() {
+                try? directory.close()
             }
         }
 
-        for component in components {
-            let next = try openDirectory(current, component)
-            if ownsCurrent {
-                try? current.close()
+        func follow(_ name: FilePath.Component, in parent: FileDescriptor) throws {
+            symlinksFollowed += 1
+            guard symlinksFollowed <= maximumSymlinksFollowed else {
+                throw Error.cannotFollowSymlink
             }
-            current = next
-            ownsCurrent = true
+            let target = FilePath(try readSymlink(parent, name))
+            guard !target.isAbsolute, !target.components.isEmpty else {
+                throw Error.cannotFollowSymlink
+            }
+            // The target is resolved next, relative to the directory that holds the link.
+            pending.append(contentsOf: target.components.reversed())
         }
 
-        return try body(current)
+        while let name = pending.popLast() {
+            if name.string == "." {
+                continue
+            }
+            if name.string == ".." {
+                guard directories.count > 1, let popped = directories.popLast() else {
+                    throw Error.cannotFollowSymlink
+                }
+                try? popped.close()
+                continue
+            }
+
+            let parent = directories[directories.count - 1]
+            do {
+                if pending.isEmpty {
+                    return try atEntry(parent, name)
+                }
+                directories.append(try openDirectory(parent, name))
+            } catch Error.cannotFollowSymlink where symlinks == .followBeneath {
+                try follow(name, in: parent)
+            }
+        }
+
+        return try atDirectory(directories[directories.count - 1])
     }
 
     private static func openOrCreateDirectory(
