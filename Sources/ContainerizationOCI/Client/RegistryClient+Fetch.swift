@@ -19,6 +19,7 @@ import ContainerizationError
 import ContainerizationExtras
 import Crypto
 import Foundation
+import NIOCore
 import NIOFoundationCompat
 
 #if os(macOS)
@@ -147,6 +148,20 @@ extension RegistryClient {
         descriptor: Descriptor,
         closure: (Int64, HTTPClientResponse.Body) async throws -> Void
     ) async throws {
+        try await self.fetchBlob(name: name, descriptor: descriptor, offset: 0) { (expectedBytes, _, body) in
+            try await closure(expectedBytes, body)
+        }
+    }
+
+    /// Fetch a blob from remote registry, requesting bytes from `offset` onward.
+    /// The closure receives the body's length and the blob offset it starts at,
+    /// which is 0 if the registry ignored the range.
+    func fetchBlob(
+        name: String,
+        descriptor: Descriptor,
+        offset: Int64,
+        closure: (_ length: Int64, _ bodyOffset: Int64, HTTPClientResponse.Body) async throws -> Void
+    ) async throws {
         var components = base
         components.path = "/v2/\(name)/blobs/\(descriptor.digest)"
 
@@ -155,12 +170,28 @@ extension RegistryClient {
             throw ContainerizationError(.invalidArgument, message: "missing media type for descriptor \(descriptor.digest)")
         }
 
-        let headers = [
+        var headers = [
             ("Accept", mediaType)
         ]
+        if offset > 0 {
+            headers.append(("Range", "bytes=\(offset)-"))
+        }
 
         try await request(components: components, headers: headers) { response in
-            guard response.status == .ok else {
+            let bodyOffset: Int64
+            switch response.status {
+            case .ok:
+                bodyOffset = 0
+            case .partialContent where offset > 0:
+                let contentRange = response.headers.first(name: "Content-Range")
+                guard let contentRange, contentRange.hasPrefix("bytes \(offset)-") else {
+                    throw ContainerizationError(
+                        .invalidArgument,
+                        message: "unexpected Content-Range \(contentRange ?? "none") for \(descriptor.digest)"
+                    )
+                }
+                bodyOffset = offset
+            default:
                 let url = components.url?.absoluteString ?? "unknown"
                 let reason = await ErrorResponse.fromResponseBody(response.body)?.jsonString
                 throw Error.invalidStatus(url: url, response.status, reason: reason)
@@ -171,14 +202,79 @@ extension RegistryClient {
                 throw ContainerizationError(.invalidArgument, message: "missing required header Content-Length")
             }
 
-            guard expectedBytes <= descriptor.size else {
+            guard bodyOffset + expectedBytes <= descriptor.size else {
                 throw ContainerizationError(
                     .invalidArgument,
-                    message: "declared blob length \(expectedBytes) exceeds descriptor size \(descriptor.size) for \(descriptor.digest)"
+                    message: "declared range end \(bodyOffset + expectedBytes) exceeds descriptor size \(descriptor.size) for \(descriptor.digest)"
                 )
             }
 
-            try await closure(expectedBytes, response.body)
+            try await closure(expectedBytes, bodyOffset, response.body)
+        }
+    }
+
+    /// Fetch a blob, resuming with a Range request if the connection drops mid-transfer.
+    /// `closure` is called with the blob's bytes in order, each exactly once, across all attempts.
+    private func fetchBlobResuming(
+        name: String,
+        descriptor: Descriptor,
+        closure: (ByteBuffer) async throws -> Void
+    ) async throws -> Int64 {
+        var received: Int64 = 0
+        var retryCount = 0
+        while true {
+            let receivedBeforeAttempt = received
+            var closureFailed = false
+            var bodyStarted = false
+            do {
+                try await self.fetchBlob(name: name, descriptor: descriptor, offset: received) { (_, bodyOffset, body) in
+                    bodyStarted = true
+                    // Bytes of this body that were already consumed by an earlier attempt.
+                    var skip = received - bodyOffset
+                    for try await var buf in body {
+                        if skip > 0 {
+                            let dropped = min(skip, Int64(buf.readableBytes))
+                            buf.moveReaderIndex(forwardBy: Int(dropped))
+                            skip -= dropped
+                            if buf.readableBytes == 0 {
+                                continue
+                            }
+                        }
+                        try Self.validateReceivedSize(received + Int64(buf.readableBytes), descriptor)
+                        do {
+                            try await closure(buf)
+                        } catch {
+                            closureFailed = true
+                            throw error
+                        }
+                        received += Int64(buf.readableBytes)
+                    }
+                }
+                return received
+            } catch {
+                // `request` already retries failures before the body; only retry a dropped body here.
+                if !bodyStarted
+                    || closureFailed
+                    || error is ContainerizationError
+                    || error is RegistryClient.Error
+                    || error is CancellationError
+                {
+                    throw error
+                }
+                // The whole blob arrived; the connection dropped after the last byte.
+                if received == descriptor.size {
+                    return received
+                }
+                // Only count consecutive attempts that made no progress.
+                if received > receivedBeforeAttempt {
+                    retryCount = 0
+                }
+                guard let retryOptions = self.retryOptions, retryCount < retryOptions.maxRetries else {
+                    throw error
+                }
+                retryCount += 1
+                try await Task.sleep(nanoseconds: retryOptions.retryInterval)
+            }
         }
     }
 
@@ -200,24 +296,19 @@ extension RegistryClient {
         let handle = try await fs.openFile(forWritingAt: FilePath(file.absolutePath()), options: .newFile(replaceExisting: true))
         var writer = handle.bufferedWriter()
         do {
-            try await self.fetchBlob(name: name, descriptor: descriptor) { (size, body) in
-                var itr = body.makeAsyncIterator()
-                while let buf = try await itr.next() {
-                    let readBytes = Int64(buf.readableBytes)
-                    received += readBytes
-                    try Self.validateReceivedSize(received, descriptor)
-                    let written = try await writer.write(contentsOf: buf)
-                    await progress?([
-                        .addSize(written)
-                    ])
-                    guard written == readBytes else {
-                        throw ContainerizationError(
-                            .internalError,
-                            message: "could not write \(readBytes) bytes to file \(file)"
-                        )
-                    }
-                    hasher.update(data: buf.readableBytesView)
+            received = try await self.fetchBlobResuming(name: name, descriptor: descriptor) { buf in
+                let readBytes = Int64(buf.readableBytes)
+                let written = try await writer.write(contentsOf: buf)
+                await progress?([
+                    .addSize(written)
+                ])
+                guard written == readBytes else {
+                    throw ContainerizationError(
+                        .internalError,
+                        message: "could not write \(readBytes) bytes to file \(file)"
+                    )
                 }
+                hasher.update(data: buf.readableBytesView)
             }
             try await writer.flush()
             try await handle.close()
@@ -237,26 +328,19 @@ extension RegistryClient {
     /// Fetch a blob from remote registry and write the contents into a file in the provided directory.
     public func fetchBlob(name: String, descriptor: Descriptor, into file: URL, progress: ProgressHandler?) async throws -> (Int64, SHA256Digest) {
         var hasher = SHA256()
-        var received: Int64 = 0
         guard FileManager.default.createFile(atPath: file.path, contents: nil) else {
             throw ContainerizationError(.internalError, message: "cannot create file at path \(file.path)")
         }
-        try await self.fetchBlob(name: name, descriptor: descriptor) { (size, body) in
-            let fd = try FileHandle(forWritingTo: file)
-            defer {
-                try? fd.close()
-            }
-            var itr = body.makeAsyncIterator()
-            while let buf = try await itr.next() {
-                let readBytes = Int64(buf.readableBytes)
-                received += readBytes
-                try Self.validateReceivedSize(received, descriptor)
-                await progress?([
-                    .addSize(readBytes)
-                ])
-                try fd.write(contentsOf: buf.readableBytesView)
-                hasher.update(data: buf.readableBytesView)
-            }
+        let fd = try FileHandle(forWritingTo: file)
+        defer {
+            try? fd.close()
+        }
+        let received = try await self.fetchBlobResuming(name: name, descriptor: descriptor) { buf in
+            await progress?([
+                .addSize(Int64(buf.readableBytes))
+            ])
+            try fd.write(contentsOf: buf.readableBytesView)
+            hasher.update(data: buf.readableBytesView)
         }
         let computedDigest = hasher.finalize()
         return (received, computedDigest)
