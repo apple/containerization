@@ -262,22 +262,28 @@ extension ArchiveReader {
     /// Rejects member paths that escape the root directory or traverse
     /// symbolic links, and uses a "last entry wins" replacement policy
     /// for an existing file at a path to be extracted.
+    ///
+    /// Absolute member names are extracted beneath `directory` with the leading
+    /// slash removed, matching the default behavior of `bsdtar`. Member names
+    /// containing a `..` component are rejected and reported in the returned list.
     public func extractContents(to directory: URL) throws -> [String] {
         // Create the root directory with standard permissions
         // and create a FileDescriptor for secure path traversal.
         let fm = FileManager.default
         let rootFilePath = FilePath(directory.path)
         try fm.createDirectory(atPath: directory.path, withIntermediateDirectories: true)
-        let rootFileDescriptor = try FileDescriptor.open(rootFilePath, .readOnly)
+        let rootFileDescriptor = try FileDescriptor.open(rootFilePath, .readOnly, options: [.closeOnExec])
         defer { try? rootFileDescriptor.close() }
 
         // Iterate and extract archive entries, collecting rejected paths.
         var foundEntry = false
         var rejectedPaths = [String]()
         for (entry, dataReader) in self.makeStreamingIterator() {
-            guard let memberPath = (entry.path.map { FilePath($0) }) else {
+            guard let entryPath = entry.path else {
                 continue
             }
+            let originalPath = FilePath(entryPath)
+            let memberPath = Self.relativeMemberPath(entryPath)
             foundEntry = true
 
             // Try to extract the entry, catching path validation errors
@@ -289,7 +295,8 @@ extension ArchiveReader {
             )
 
             if !extracted {
-                rejectedPaths.append(memberPath.string)
+                // Report the name as it appears in the archive.
+                rejectedPaths.append(originalPath.string)
             }
         }
         try throwIfStreamFailed()
@@ -321,6 +328,20 @@ extension ArchiveReader {
         throw ArchiveError.failedToExtractArchive(" \(path) not found in archive")
     }
 
+    /// Turns an archive member name into a path relative to the extraction root.
+    ///
+    /// Archive formats allow absolute member names. Like the default behavior of
+    /// `bsdtar`, this strips the leading slash so the member is extracted beneath
+    /// the root instead of being rejected. It does not remove `..` components:
+    /// `FileDescriptorOps` rejects those.
+    private static func relativeMemberPath(_ name: String) -> FilePath {
+        let path = FilePath(name)
+        guard path.isAbsolute else {
+            return path
+        }
+        return FilePath(root: nil, path.components)
+    }
+
     /// Extracts a single archive entry.
     /// Returns false if the entry was rejected due to path validation errors.
     /// Throws on system errors.
@@ -345,7 +366,7 @@ extension ArchiveReader {
 
                     // Open file for writing using openat with O_NOFOLLOW to prevent TOC-TOU attacks
                     let fileMode = entry.permissions & 0o777  // Mask to permission bits only
-                    let fileFd = openat(fd.rawValue, lastComponent.string, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, fileMode)
+                    let fileFd = openat(fd.rawValue, lastComponent.string, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, fileMode)
                     guard fileFd >= 0 else {
                         throw ArchiveError.failedToExtractArchive("failed to create file: \(memberPath)")
                     }

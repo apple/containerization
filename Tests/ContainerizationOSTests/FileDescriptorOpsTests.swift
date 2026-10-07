@@ -569,6 +569,97 @@ struct FileDescriptorPathSecureTests {
         #expect(FileManager.default.fileExists(atPath: tempPath.string))
     }
 
+    @Test("Test mkdir rejects an absolute path and creates nothing")
+    func testMkdirRejectsAbsolutePath() throws {
+        let basePath = try createTempDirectory()
+        defer { try? FileManager.default.removeItem(atPath: basePath.string) }
+
+        let rootPath = basePath.appending("root")
+        let targetPath = basePath.appending("absolute-target")
+        try FileManager.default.createDirectory(atPath: rootPath.string, withIntermediateDirectories: false)
+
+        let rootFd = try FileDescriptor.open(rootPath, .readOnly, options: [.directory])
+        defer { try? rootFd.close() }
+
+        for makeIntermediates in [false, true] {
+            var completionCalled = false
+            #expect(throws: FileDescriptorOps.Error.invalidRelativePath) {
+                try FileDescriptorOps.mkdir(rootFd, targetPath.appending("child"), makeIntermediates: makeIntermediates) { _ in
+                    completionCalled = true
+                }
+            }
+            #expect(!completionCalled)
+        }
+
+        // Nothing is created at the absolute location, or re-anchored under the root.
+        #expect(!FileManager.default.fileExists(atPath: targetPath.string))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: rootPath.string).isEmpty)
+    }
+
+    @Test("Test directory descriptors opened by mkdir are close-on-exec")
+    func testMkdirDescriptorsAreCloseOnExec() throws {
+        let rootPath = try createTempDirectory()
+        defer { try? FileManager.default.removeItem(atPath: rootPath.string) }
+
+        let rootFd = try FileDescriptor.open(rootPath, .readOnly, options: [.directory])
+        defer { try? rootFd.close() }
+
+        var completionCalled = false
+        try FileDescriptorOps.mkdir(rootFd, FilePath("a/b/c"), makeIntermediates: true) { dirFd in
+            completionCalled = true
+            let flags = fcntl(dirFd.rawValue, F_GETFD)
+            #expect(flags >= 0)
+            #expect(flags & FD_CLOEXEC != 0, "descriptor handed to completion must be close-on-exec")
+        }
+        #expect(completionCalled)
+    }
+
+    @Test("Test directory descriptors opened by enumerate are close-on-exec")
+    func testEnumerateDescriptorsAreCloseOnExec() throws {
+        let rootPath = try createTempDirectory()
+        defer { try? FileManager.default.removeItem(atPath: rootPath.string) }
+        try FileManager.default.createDirectory(
+            atPath: rootPath.appending("a/b").string, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: URL(fileURLWithPath: rootPath.appending("a/b/file.txt").string))
+
+        let rootFd = try FileDescriptor.open(rootPath, .readOnly, options: [.directory])
+        defer { try? rootFd.close() }
+
+        // Entries below the top level are reported with a descriptor that enumerate opened itself.
+        var checked = 0
+        try FileDescriptorOps.enumerate(rootFd) { path, _, parentFd in
+            guard path.components.count > 1 else { return }
+            let flags = fcntl(parentFd.rawValue, F_GETFD)
+            #expect(flags >= 0)
+            #expect(flags & FD_CLOEXEC != 0, "descriptor for \(path.string) must be close-on-exec")
+            checked += 1
+        }
+        #expect(checked == 2)  // a/b and a/b/file.txt
+    }
+
+    @Test("Test unlinkRecursive removes a nested tree without following symlinks")
+    func testUnlinkRecursiveDoesNotFollowSymlinks() throws {
+        let basePath = try createTempDirectory()
+        defer { try? FileManager.default.removeItem(atPath: basePath.string) }
+
+        let rootPath = basePath.appending("root")
+        let outsidePath = basePath.appending("outside")
+        try FileManager.default.createDirectory(atPath: rootPath.appending("tree/sub").string, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: outsidePath.string, withIntermediateDirectories: false)
+        try Data("keep".utf8).write(to: URL(fileURLWithPath: outsidePath.appending("keep.txt").string))
+        try FileManager.default.createSymbolicLink(
+            atPath: rootPath.appending("tree/sub/link").string, withDestinationPath: outsidePath.string)
+
+        let rootFd = try FileDescriptor.open(rootPath, .readOnly, options: [.directory])
+        defer { try? rootFd.close() }
+
+        let name = FilePath.Component("tree")
+        try FileDescriptorOps.unlinkRecursive(rootFd, filename: name)
+
+        #expect(!FileManager.default.fileExists(atPath: rootPath.appending("tree").string))
+        #expect(FileManager.default.fileExists(atPath: outsidePath.appending("keep.txt").string))
+    }
+
     @Test("Test mkdir with empty path calls completion with parent")
     func testMkdirEmptyPath() throws {
         let rootPath = try createTempDirectory()

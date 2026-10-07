@@ -18,7 +18,6 @@ import SystemPackage
 
 #if canImport(Darwin)
 import Darwin
-private let os_dup = Darwin.dup
 private let os_S_IFMT = mode_t(Darwin.S_IFMT)
 private let os_S_IFREG = mode_t(Darwin.S_IFREG)
 private let os_S_IFDIR = mode_t(Darwin.S_IFDIR)
@@ -26,26 +25,33 @@ private let os_S_IFLNK = mode_t(Darwin.S_IFLNK)
 #elseif canImport(Musl)
 import CSystem
 import Musl
-private let os_dup = Musl.dup
 private let os_S_IFMT = Musl.S_IFMT
 private let os_S_IFREG = Musl.S_IFREG
 private let os_S_IFDIR = Musl.S_IFDIR
 private let os_S_IFLNK = Musl.S_IFLNK
 #elseif canImport(Glibc)
 import Glibc
-private let os_dup = Glibc.dup
 private let os_S_IFMT = mode_t(Glibc.S_IFMT)
 private let os_S_IFREG = mode_t(Glibc.S_IFREG)
 private let os_S_IFDIR = mode_t(Glibc.S_IFDIR)
 private let os_S_IFLNK = mode_t(Glibc.S_IFLNK)
 #endif
 
+/// Duplicates `fd` with `FD_CLOEXEC` set on the new descriptor. Plain `dup(2)`
+/// clears the flag, which would let a child process inherit a handle to a
+/// directory that was opened close-on-exec.
+private func dupCloseOnExec(_ fd: Int32) -> Int32 {
+    fcntl(fd, F_DUPFD_CLOEXEC, 0)
+}
+
 /// Static utility functions for secure, symlink-safe filesystem operations
 /// anchored to a file descriptor.
 ///
 /// All operations use `openat`/`mkdirat`/`unlinkat` anchored to the supplied
-/// file descriptor, preventing path traversal and TOCTOU races. The type is
-/// never instantiated; it exists solely as a namespace.
+/// file descriptor. Every path component is opened with `O_NOFOLLOW`, so a
+/// symlink is never followed while walking a path, and every descriptor this
+/// type opens or duplicates is close-on-exec so it is not inherited by child
+/// processes. The type is never instantiated; it exists solely as a namespace.
 public enum FileDescriptorOps {
 
     // MARK: - Nested types
@@ -85,7 +91,18 @@ public enum FileDescriptorOps {
 
     // MARK: - Public API
 
-    /// Creates a directory relative to `fd`, rejecting paths that traverse symlinks.
+    /// Creates a directory relative to `fd` without following symlinks.
+    ///
+    /// Each component of `relativePath` is opened with `O_NOFOLLOW|O_DIRECTORY`
+    /// relative to the previous one, so a symlink in the path is never followed.
+    /// An existing directory is reused. Anything else that is in the way, including
+    /// a symlink, is **removed and replaced** with a directory. Removal is
+    /// recursive for a non-empty directory. This replace behavior only applies to
+    /// the components `mkdir` visits, and a missing intermediate is created only
+    /// when `makeIntermediates` is true.
+    ///
+    /// An empty path runs `completion` with `fd` itself. `relativePath` must be
+    /// relative and must not contain a `..` component.
     ///
     /// - Parameters:
     ///   - fd: An open file descriptor for the parent directory.
@@ -113,6 +130,9 @@ public enum FileDescriptorOps {
 
     /// Recursively removes a direct child of the directory at `fd`.
     ///
+    /// Symlinks are removed, not followed. `.` and `..` are ignored. A child that
+    /// does not exist is not an error.
+    ///
     /// - Parameters:
     ///   - fd: An open file descriptor for the parent directory.
     ///   - filename: The name of the child to remove.
@@ -134,7 +154,7 @@ public enum FileDescriptorOps {
             throw Error.systemError("file removal during file descriptor unlink", errno)
         }
 
-        let componentFd = openat(fd.rawValue, filename.string, O_NOFOLLOW | O_RDONLY | O_DIRECTORY)
+        let componentFd = openat(fd.rawValue, filename.string, O_NOFOLLOW | O_RDONLY | O_DIRECTORY | O_CLOEXEC)
         guard componentFd >= 0 else {
             throw Error.systemError("directory open during file descriptor unlink", errno)
         }
@@ -142,9 +162,14 @@ public enum FileDescriptorOps {
         defer { try? componentFileDescriptor.close() }
 
         // Open the directory stream using a duplicate fd that closedir() will close.
-        let ownedFd = os_dup(componentFd)
+        let ownedFd = dupCloseOnExec(componentFd)
+        guard ownedFd >= 0 else {
+            throw Error.systemError("directory dup during file descriptor unlink", errno)
+        }
         guard let dir = fdopendir(ownedFd) else {
-            throw Error.systemError("directory opendir during file descriptor unlink", errno)
+            let savedErrno = errno
+            close(ownedFd)
+            throw Error.systemError("directory opendir during file descriptor unlink", savedErrno)
         }
         defer { closedir(dir) }
 
@@ -183,7 +208,7 @@ public enum FileDescriptorOps {
     ///     for the directory that contains the entry. The last component of `path`
     ///     is the entry's filename; together with `parentFd` it allows the body to
     ///     open the entry via
-    ///     `openat(parentFd.rawValue, path.lastComponent!.string, O_NOFOLLOW …)`
+    ///     `openat(parentFd.rawValue, path.lastComponent!.string, O_NOFOLLOW | O_CLOEXEC …)`
     ///     without reconstructing an absolute path, preserving the TOCTOU safety
     ///     of the traversal end-to-end. `parentFd` must not be closed within the
     ///     body call, or used after the call returns. Throw to abort.
@@ -237,7 +262,7 @@ public enum FileDescriptorOps {
         }
         let childComponents = FilePath.ComponentView(relativeComponents.dropFirst())
 
-        var componentFd = openat(fd.rawValue, currentComponent.string, O_NOFOLLOW | O_RDONLY | O_DIRECTORY)
+        var componentFd = openat(fd.rawValue, currentComponent.string, O_NOFOLLOW | O_RDONLY | O_DIRECTORY | O_CLOEXEC)
         if componentFd < 0 {
             guard makeIntermediates || childComponents.isEmpty else {
                 throw Error.invalidPathComponent
@@ -250,7 +275,7 @@ public enum FileDescriptorOps {
                 throw Error.systemError("directory creation during file descriptor mkdir", errno)
             }
 
-            componentFd = openat(fd.rawValue, currentComponent.string, O_NOFOLLOW | O_RDONLY | O_DIRECTORY)
+            componentFd = openat(fd.rawValue, currentComponent.string, O_NOFOLLOW | O_RDONLY | O_DIRECTORY | O_CLOEXEC)
             guard componentFd >= 0 else {
                 throw Error.systemError("directory open during file descriptor mkdir", errno)
             }
@@ -276,7 +301,7 @@ public enum FileDescriptorOps {
     ) throws {
         // fdopendir takes ownership of the fd passed to it and closes it via
         // closedir. Duplicate so the caller's fd remains open.
-        let dupFd = os_dup(fd.rawValue)
+        let dupFd = dupCloseOnExec(fd.rawValue)
         guard dupFd >= 0 else {
             throw Error.systemError("dup during file descriptor enumerate", errno)
         }
@@ -309,7 +334,7 @@ public enum FileDescriptorOps {
             // Open the child directory with O_NOFOLLOW to guarantee we are
             // entering a real directory and not a symlink that was swapped in
             // between readdir and here.
-            let childFd = openat(fd.rawValue, name, O_NOFOLLOW | O_RDONLY | O_DIRECTORY)
+            let childFd = openat(fd.rawValue, name, O_NOFOLLOW | O_RDONLY | O_DIRECTORY | O_CLOEXEC)
             guard childFd >= 0 else {
                 throw Error.systemError("openat during file descriptor enumerate", errno)
             }
@@ -338,7 +363,14 @@ public enum FileDescriptorOps {
         }
     }
 
+    /// Rejects anything that is not a plain relative path: an absolute path, or a
+    /// path with a `..` component. An empty path is allowed and means "the
+    /// directory itself". Callers that accept untrusted names, such as archive
+    /// member names, decide whether to strip or reject before calling in.
     private static func validateRelativePath(_ path: FilePath) throws {
+        guard !path.isAbsolute else {
+            throw Error.invalidRelativePath
+        }
         guard !(path.components.contains { $0 == ".." }) else {
             throw Error.invalidRelativePath
         }
