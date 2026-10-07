@@ -45,7 +45,8 @@ private func dupCloseOnExec(_ fd: Int32) -> Int32 {
 }
 
 /// Static utility functions for secure, symlink-safe filesystem operations
-/// anchored to a file descriptor.
+/// anchored to a file descriptor, with consistent semantics for both
+/// Darwin and Linux.
 ///
 /// All operations use `openat`/`mkdirat`/`unlinkat` anchored to the supplied
 /// file descriptor. Every path component is opened with `O_NOFOLLOW`, so a
@@ -210,6 +211,31 @@ public enum FileDescriptorOps {
                 throw Error.notFound
             }
             throw Error.systemError("entry removal during file descriptor unlink", errno)
+        }
+    }
+
+    /// Renames the entry `fromName` in the directory `fromDirectory` to `toName` in the directory
+    /// `toDirectory`. The two directories may be the same.
+    ///
+    /// The rename is atomic, and neither name is followed: a symlink is renamed, not its target.
+    ///
+    /// **This replaces an existing destination.** If `toName` exists and is not a directory, it is
+    /// replaced in one step, and a symlink is replaced rather than written through. As for
+    /// `rename(2)`, a directory may only replace an empty directory, and not the reverse.
+    ///
+    /// - Throws: ``Error/notFound`` if `fromName` does not exist, and ``Error/systemError(_:_:)``
+    ///   for anything else.
+    public static func rename(
+        _ fromDirectory: FileDescriptor,
+        _ fromName: FilePath.Component,
+        to toDirectory: FileDescriptor,
+        _ toName: FilePath.Component
+    ) throws {
+        guard renameat(fromDirectory.rawValue, fromName.string, toDirectory.rawValue, toName.string) == 0 else {
+            if errno == ENOENT {
+                throw Error.notFound
+            }
+            throw Error.systemError("rename during file descriptor rename", errno)
         }
     }
 
