@@ -31,6 +31,17 @@ import Glibc
 let os_close = Glibc.close
 #endif
 
+#if canImport(Darwin)
+/// Whether this macOS honors `O_RESOLVE_BENEATH` in `open`, which it does from macOS 15.4.
+private let kernelHasResolveBeneath = ProcessInfo.processInfo.isOperatingSystemAtLeast(
+    OperatingSystemVersion(majorVersion: 15, minorVersion: 4, patchVersion: 0))
+
+/// The errno a path refused by `O_RESOLVE_BENEATH` fails with: `EACCES` before macOS 26.0, and `ENOTCAPABLE` from it.
+private let resolveBeneathRefusalErrno =
+    ProcessInfo.processInfo.isOperatingSystemAtLeast(OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0))
+    ? ENOTCAPABLE : EACCES
+#endif
+
 struct FileDescriptorPathSecureTests {
     @Test(
         "Test creation of stub file under directory successfully created by secure mkdir",
@@ -1197,6 +1208,35 @@ struct FileDescriptorPathSecureTests {
         #expect(torn == 0, "\(torn) of \(reads) reads saw a partly written or mixed file")
         #expect(reads > 0)
     }
+
+    // MARK: - O_RESOLVE_BENEATH
+
+    #if canImport(Darwin)
+    @Test("Test the O_RESOLVE_BENEATH flag is used exactly where the kernel supports it")
+    func testResolveBeneathFlagMatchesOSVersion() {
+        #expect((FileDescriptorOps.resolveBeneathFlag != 0) == kernelHasResolveBeneath)
+    }
+
+    @Test("Test the O_RESOLVE_BENEATH value defined here is the kernel's", .enabled(if: kernelHasResolveBeneath))
+    func testResolveBeneathValueIsHonoredByTheKernel() throws {
+        let sandbox = try makeSandbox()
+        defer { sandbox.cleanup() }
+        let flag = FileDescriptorOps.resolveBeneathFlag
+        #expect(flag != 0)
+
+        // A path that leaves the directory is refused by the kernel...
+        let escaped = openat(sandbox.rootFd.rawValue, "../outside", O_RDONLY | O_DIRECTORY | flag)
+        let escapedErrno = errno
+        if escaped >= 0 { close(escaped) }
+        #expect(escaped < 0)
+        #expect(escapedErrno == resolveBeneathRefusalErrno, "unexpected errno \(escapedErrno)")
+
+        // ...and the same open without the flag works, so the refusal is due to the flag.
+        let control = openat(sandbox.rootFd.rawValue, "../outside", O_RDONLY | O_DIRECTORY)
+        #expect(control >= 0)
+        if control >= 0 { close(control) }
+    }
+    #endif
 
     // MARK: - mkdir replaces what is in the way
 

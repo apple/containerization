@@ -44,15 +44,56 @@ private func dupCloseOnExec(_ fd: Int32) -> Int32 {
     fcntl(fd, F_DUPFD_CLOEXEC, 0)
 }
 
-/// Static utility functions for secure, symlink-safe filesystem operations
-/// anchored to a file descriptor, with consistent semantics for both
-/// Darwin and Linux.
+/// Secure, symlink-safe filesystem operations anchored to a directory file descriptor, with
+/// the same semantics on Darwin and Linux.
 ///
-/// All operations use `openat`/`mkdirat`/`unlinkat` anchored to the supplied
-/// file descriptor. Every path component is opened with `O_NOFOLLOW`, so a
-/// symlink is never followed while walking a path, and every descriptor this
-/// type opens or duplicates is close-on-exec so it is not inherited by child
-/// processes. The type is never instantiated; it exists solely as a namespace.
+/// Use these in place of path-based `FileManager` or `open(2)` calls whenever any part of a
+/// path comes from somewhere you do not control, such as the member names of an archive or
+/// the requests of a remote peer. A path-based call resolves the whole path again each time
+/// it is used, and follows whatever symlinks it finds, so a symlink planted in the path, or
+/// swapped in between a check and a use, can redirect it.
+///
+/// ## Guarantees
+///
+/// - Every operation is relative to a directory descriptor. Nothing here resolves a path from
+///   the root of the file system.
+/// - A symlink is never followed unless the caller explicitly asks for it with
+///   ``SymlinkPolicy/followBeneath``. Even then, the link is resolved in this type, one
+///   component at a time, against directory descriptors that are already open, and it can
+///   never lead above the directory the walk started from.
+/// - The primitives never remove or replace anything unless the caller asks for it by name:
+///   ``unlink(_:_:)``, ``unlinkRecursive(_:filename:)``, or ``rename(_:_:to:_:)``. A composite says in
+///   its documentation what it replaces. For example, ``mkdir(_:_:permissions:makeIntermediates:completion:)``
+///   replaces a file or symlink that is in the way of a directory it needs, and never removes a directory.
+/// - Every descriptor this type opens or duplicates is close-on-exec, so it is not inherited
+///   by child processes.
+/// - Problems are reported as typed ``Error`` values, not as `errno` values that differ
+///   between platforms.
+///
+/// ## Two layers
+///
+/// The **primitives**, in `FileDescriptorOps.swift`, each do one thing relative to a
+/// directory descriptor and take no policy. If something is in the way, they report what.
+///
+/// The **composites**, in `FileDescriptorOps+Composite.swift`, combine primitives into
+/// sequences that several callers need and that are easy to get wrong, such as creating a
+/// path and then working inside it, or replacing a file atomically. Where a composite has to
+/// choose what to do about a symlink, it takes that choice as an explicit argument
+/// (``SymlinkPolicy``). Composites use only the public primitives.
+///
+/// ## Platform notes
+///
+/// Safety here comes from opening each path component with `O_NOFOLLOW` against a pinned
+/// directory descriptor. That works the same way everywhere.
+///
+/// Where the kernel supports `O_RESOLVE_BENEATH`, it is also passed to `openat`, as a second
+/// line of defense against a bug in this type's own path validation. It is available from
+/// macOS 15.4 (`xnu-11417.101.15`) and not before, and this package supports macOS 15.0 and
+/// later. Because its value is shared with another flag on older kernels, it is only ever
+/// passed after an `#available` check. It is not used on Linux, where `openat2(2)` with
+/// `RESOLVE_BENEATH` (Linux 5.6 and later) would be the equivalent.
+///
+/// The type is never instantiated; it exists solely as a namespace.
 public enum FileDescriptorOps {
 
     // MARK: - Nested types
@@ -153,7 +194,7 @@ public enum FileDescriptorOps {
     ///   if it is a symlink, ``Error/conflict(_:)`` if it is some other kind of
     ///   non-directory, and ``Error/systemError(_:_:)`` for anything else.
     public static func openDirectory(_ fd: FileDescriptor, _ name: FilePath.Component) throws -> FileDescriptor {
-        let newFd = openat(fd.rawValue, name.string, O_NOFOLLOW | O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        let newFd = openat(fd.rawValue, name.string, O_NOFOLLOW | O_RDONLY | O_DIRECTORY | O_CLOEXEC | resolveBeneathFlag)
         if newFd >= 0 {
             return FileDescriptor(rawValue: newFd)
         }
@@ -276,7 +317,7 @@ public enum FileDescriptorOps {
     ///   if it is a symlink, ``Error/conflict(_:)`` if it is not a regular file, and
     ///   ``Error/systemError(_:_:)`` for anything else.
     public static func openFile(_ fd: FileDescriptor, _ name: FilePath.Component) throws -> FileDescriptor {
-        let newFd = openat(fd.rawValue, name.string, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_NOCTTY | O_CLOEXEC)
+        let newFd = openat(fd.rawValue, name.string, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_NOCTTY | O_CLOEXEC | resolveBeneathFlag)
         guard newFd >= 0 else {
             let openErrno = errno
             switch try entryType(fd, name) {
@@ -324,7 +365,7 @@ public enum FileDescriptorOps {
         let newFd = openat(
             fd.rawValue,
             name.string,
-            O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+            O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC | resolveBeneathFlag,
             permissions?.rawValue ?? 0o644
         )
         guard newFd >= 0 else {
@@ -425,7 +466,7 @@ public enum FileDescriptorOps {
             throw Error.systemError("file removal during file descriptor unlink", errno)
         }
 
-        let componentFd = openat(fd.rawValue, filename.string, O_NOFOLLOW | O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        let componentFd = openat(fd.rawValue, filename.string, O_NOFOLLOW | O_RDONLY | O_DIRECTORY | O_CLOEXEC | resolveBeneathFlag)
         guard componentFd >= 0 else {
             throw Error.systemError("directory open during file descriptor unlink", errno)
         }
@@ -520,6 +561,28 @@ public enum FileDescriptorOps {
 
     // MARK: - Private helpers
 
+    /// `O_RESOLVE_BENEATH` where the kernel supports it, and 0 everywhere else.
+    ///
+    /// With this flag the kernel refuses an `openat` whose path is absolute or would leave the
+    /// directory it is relative to. Every path passed to `openat` here is a single validated
+    /// component, so it changes nothing when the code is correct. It exists to turn a bug in
+    /// the validation into a failed open instead of an escape.
+    ///
+    /// `open(2)` and `openat(2)` honor the flag from macOS 15.4 (`xnu-11417.101.15`), and
+    /// not before. A refused path fails with `EACCES` on macOS 15.4 and later 15.x releases, and
+    /// with `ENOTCAPABLE` from macOS 26.0 (`xnu-12377.1.9`). Its value, `0x1000`, is `FMARK` on
+    /// older kernels, so the flag must not be passed to one: the `#available` check is the only
+    /// thing that makes it safe. The value is defined here, and not taken from the SDK, so this
+    /// builds with an SDK that predates the flag.
+    static var resolveBeneathFlag: Int32 {
+        #if canImport(Darwin)
+        if #available(macOS 15.4, *) {
+            return 0x1000
+        }
+        #endif
+        return 0
+    }
+
     private static func enumerateHelper(
         _ fd: FileDescriptor,
         relativePath: FilePath,
@@ -560,7 +623,7 @@ public enum FileDescriptorOps {
             // Open the child directory with O_NOFOLLOW to guarantee we are
             // entering a real directory and not a symlink that was swapped in
             // between readdir and here.
-            let childFd = openat(fd.rawValue, name, O_NOFOLLOW | O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+            let childFd = openat(fd.rawValue, name, O_NOFOLLOW | O_RDONLY | O_DIRECTORY | O_CLOEXEC | resolveBeneathFlag)
             guard childFd >= 0 else {
                 throw Error.systemError("openat during file descriptor enumerate", errno)
             }
