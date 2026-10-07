@@ -569,6 +569,221 @@ struct FileDescriptorPathSecureTests {
         #expect(FileManager.default.fileExists(atPath: tempPath.string))
     }
 
+    // MARK: - Primitives
+
+    @Test("Test entryType reports each kind without following symlinks")
+    func testEntryType() throws {
+        let rootPath = try createTempDirectory()
+        defer { try? FileManager.default.removeItem(atPath: rootPath.string) }
+        try Data("x".utf8).write(to: URL(fileURLWithPath: rootPath.appending("file").string))
+        try FileManager.default.createDirectory(atPath: rootPath.appending("dir").string, withIntermediateDirectories: false)
+        try FileManager.default.createSymbolicLink(atPath: rootPath.appending("link").string, withDestinationPath: "dir")
+        #expect(mkfifo(rootPath.appending("fifo").string, 0o644) == 0)
+
+        let rootFd = try FileDescriptor.open(rootPath, .readOnly, options: [.directory])
+        defer { try? rootFd.close() }
+
+        let file: FileDescriptorOps.EntryType? = try FileDescriptorOps.entryType(rootFd, "file")
+        let dir: FileDescriptorOps.EntryType? = try FileDescriptorOps.entryType(rootFd, "dir")
+        let link: FileDescriptorOps.EntryType? = try FileDescriptorOps.entryType(rootFd, "link")
+        let fifo: FileDescriptorOps.EntryType? = try FileDescriptorOps.entryType(rootFd, "fifo")
+        let missing: FileDescriptorOps.EntryType? = try FileDescriptorOps.entryType(rootFd, "missing")
+        #expect(file == .regular)
+        #expect(dir == .directory)
+        #expect(link == .symlink, "a symlink to a directory is reported as a symlink")
+        #expect(fifo == .other)
+        #expect(missing == nil)
+    }
+
+    @Test("Test openDirectory opens directories and classifies what is in the way")
+    func testOpenDirectory() throws {
+        let basePath = try createTempDirectory()
+        defer { try? FileManager.default.removeItem(atPath: basePath.string) }
+        let rootPath = basePath.appending("root")
+        try FileManager.default.createDirectory(atPath: rootPath.appending("dir").string, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: basePath.appending("outside").string, withIntermediateDirectories: false)
+        try Data("x".utf8).write(to: URL(fileURLWithPath: rootPath.appending("file").string))
+        try FileManager.default.createSymbolicLink(atPath: rootPath.appending("link").string, withDestinationPath: "../outside")
+
+        let rootFd = try FileDescriptor.open(rootPath, .readOnly, options: [.directory])
+        defer { try? rootFd.close() }
+
+        let opened = try FileDescriptorOps.openDirectory(rootFd, "dir")
+        defer { try? opened.close() }
+        #expect(fcntl(opened.rawValue, F_GETFD) & FD_CLOEXEC != 0)
+
+        #expect(throws: FileDescriptorOps.Error.notFound) { _ = try FileDescriptorOps.openDirectory(rootFd, "missing") }
+        #expect(throws: FileDescriptorOps.Error.cannotFollowSymlink) { _ = try FileDescriptorOps.openDirectory(rootFd, "link") }
+        #expect(throws: FileDescriptorOps.Error.conflict(.regular)) { _ = try FileDescriptorOps.openDirectory(rootFd, "file") }
+    }
+
+    @Test("Test makeDirectory creates a directory and refuses to touch anything that exists")
+    func testMakeDirectory() throws {
+        let basePath = try createTempDirectory()
+        defer { try? FileManager.default.removeItem(atPath: basePath.string) }
+        let rootPath = basePath.appending("root")
+        try FileManager.default.createDirectory(atPath: rootPath.appending("dir").string, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: basePath.appending("outside").string, withIntermediateDirectories: false)
+        try Data("x".utf8).write(to: URL(fileURLWithPath: rootPath.appending("file").string))
+        try FileManager.default.createSymbolicLink(atPath: rootPath.appending("link").string, withDestinationPath: "../outside")
+
+        let rootFd = try FileDescriptor.open(rootPath, .readOnly, options: [.directory])
+        defer { try? rootFd.close() }
+
+        try FileDescriptorOps.makeDirectory(rootFd, "new", permissions: FilePermissions(rawValue: 0o700))
+        var isDirectory: ObjCBool = false
+        #expect(FileManager.default.fileExists(atPath: rootPath.appending("new").string, isDirectory: &isDirectory) && isDirectory.boolValue)
+
+        for name in ["dir", "file", "link"] as [FilePath.Component] {
+            #expect(throws: FileDescriptorOps.Error.alreadyExists) { try FileDescriptorOps.makeDirectory(rootFd, name) }
+        }
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: rootPath.appending("link").string) == "../outside")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: basePath.appending("outside").string).isEmpty)
+    }
+
+    @Test("Test unlink removes files and symlinks but never directories or symlink targets")
+    func testUnlink() throws {
+        let basePath = try createTempDirectory()
+        defer { try? FileManager.default.removeItem(atPath: basePath.string) }
+        let rootPath = basePath.appending("root")
+        let outsidePath = basePath.appending("outside")
+        try FileManager.default.createDirectory(atPath: rootPath.appending("dir").string, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: outsidePath.string, withIntermediateDirectories: false)
+        try Data("keep".utf8).write(to: URL(fileURLWithPath: outsidePath.appending("target").string))
+        try Data("x".utf8).write(to: URL(fileURLWithPath: rootPath.appending("file").string))
+        try FileManager.default.createSymbolicLink(atPath: rootPath.appending("link").string, withDestinationPath: "../outside/target")
+
+        let rootFd = try FileDescriptor.open(rootPath, .readOnly, options: [.directory])
+        defer { try? rootFd.close() }
+
+        try FileDescriptorOps.unlink(rootFd, "file")
+        try FileDescriptorOps.unlink(rootFd, "link")
+        #expect(!FileManager.default.fileExists(atPath: rootPath.appending("file").string))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: rootPath.string) == ["dir"])
+        #expect(FileManager.default.fileExists(atPath: outsidePath.appending("target").string), "the target of a removed symlink must be untouched")
+
+        #expect(throws: FileDescriptorOps.Error.notFound) { try FileDescriptorOps.unlink(rootFd, "missing") }
+        #expect(throws: (any Swift.Error).self) { try FileDescriptorOps.unlink(rootFd, "dir") }
+        #expect(FileManager.default.fileExists(atPath: rootPath.appending("dir").string), "unlink must not remove a directory")
+    }
+
+    // MARK: - mkdir replaces what is in the way
+
+    @Test("Test mkdir replaces a file or symlink that is in the way, and never writes through a symlink")
+    func testMkdirReplacesWhatIsInTheWay() throws {
+        struct Case {
+            let name: String
+            let path: String
+            let setup: (_ root: FilePath, _ outside: FilePath) throws -> Void
+        }
+        let writeFile: (FilePath, FilePath) throws -> Void = { root, _ in
+            try Data("old".utf8).write(to: URL(fileURLWithPath: root.appending("f").string))
+        }
+        let writeLink: (FilePath, FilePath) throws -> Void = { root, outside in
+            try FileManager.default.createSymbolicLink(atPath: root.appending("l").string, withDestinationPath: outside.string)
+        }
+        let cases = [
+            Case(name: "file at the last component", path: "f", setup: writeFile),
+            Case(name: "symlink at the last component", path: "l", setup: writeLink),
+            Case(name: "file at an intermediate component", path: "f/x", setup: writeFile),
+            Case(name: "symlink at an intermediate component", path: "l/x", setup: writeLink),
+        ]
+
+        for testCase in cases {
+            let basePath = try createTempDirectory()
+            defer { try? FileManager.default.removeItem(atPath: basePath.string) }
+            let rootPath = basePath.appending("root")
+            let outsidePath = basePath.appending("outside")
+            try FileManager.default.createDirectory(atPath: rootPath.string, withIntermediateDirectories: false)
+            try FileManager.default.createDirectory(atPath: outsidePath.string, withIntermediateDirectories: false)
+            try testCase.setup(rootPath, outsidePath)
+
+            let rootFd = try FileDescriptor.open(rootPath, .readOnly, options: [.directory])
+            defer { try? rootFd.close() }
+
+            var completionCalled = false
+            try FileDescriptorOps.mkdir(rootFd, FilePath(testCase.path), makeIntermediates: true) { _ in
+                completionCalled = true
+            }
+
+            #expect(completionCalled, "\(testCase.name)")
+            let first = String(testCase.path.split(separator: "/")[0])
+            let kind = try FileManager.default.attributesOfItem(atPath: rootPath.appending(first).string)[.type] as? FileAttributeType
+            #expect(kind == .typeDirectory, "\(testCase.name): what was in the way must be replaced by a directory")
+            #expect(try FileManager.default.contentsOfDirectory(atPath: outsidePath.string).isEmpty, "\(testCase.name): nothing may be created outside the root")
+        }
+    }
+
+    @Test("Test mkdir without makeIntermediates leaves what is in the way of an intermediate directory alone")
+    func testMkdirWithoutIntermediatesLeavesWhatIsInTheWay() throws {
+        let basePath = try createTempDirectory()
+        defer { try? FileManager.default.removeItem(atPath: basePath.string) }
+        let rootPath = basePath.appending("root")
+        let outsidePath = basePath.appending("outside")
+        try FileManager.default.createDirectory(atPath: rootPath.string, withIntermediateDirectories: false)
+        try FileManager.default.createDirectory(atPath: outsidePath.string, withIntermediateDirectories: false)
+        try Data("old".utf8).write(to: URL(fileURLWithPath: rootPath.appending("f").string))
+        try FileManager.default.createSymbolicLink(atPath: rootPath.appending("l").string, withDestinationPath: outsidePath.string)
+
+        let rootFd = try FileDescriptor.open(rootPath, .readOnly, options: [.directory])
+        defer { try? rootFd.close() }
+
+        for path in ["f/x", "l/x"] {
+            #expect(throws: FileDescriptorOps.Error.invalidPathComponent, "\(path)") {
+                try FileDescriptorOps.mkdir(rootFd, FilePath(path))
+            }
+        }
+
+        #expect(try String(contentsOfFile: rootPath.appending("f").string, encoding: .utf8) == "old")
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: rootPath.appending("l").string) == outsidePath.string)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: outsidePath.string).isEmpty)
+    }
+
+    @Test("Test mkdir replaces a symlink with a directory and never writes through it")
+    func testMkdirReplacesSymlinkAndNeverWritesThrough() throws {
+        let basePath = try createTempDirectory()
+        defer { try? FileManager.default.removeItem(atPath: basePath.string) }
+        let rootPath = basePath.appending("root")
+        let outsidePath = basePath.appending("outside")
+        try FileManager.default.createDirectory(atPath: rootPath.string, withIntermediateDirectories: false)
+        try FileManager.default.createDirectory(atPath: outsidePath.string, withIntermediateDirectories: false)
+        try FileManager.default.createSymbolicLink(atPath: rootPath.appending("l").string, withDestinationPath: outsidePath.string)
+
+        let rootFd = try FileDescriptor.open(rootPath, .readOnly, options: [.directory])
+        defer { try? rootFd.close() }
+
+        try FileDescriptorOps.mkdir(rootFd, FilePath("l/x"), makeIntermediates: true) { dirFd in
+            let fd = openat(dirFd.rawValue, "stub", O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o644)
+            #expect(fd >= 0)
+            if fd >= 0 { close(fd) }
+        }
+
+        #expect(FileManager.default.fileExists(atPath: rootPath.appending("l/x/stub").string))
+        #expect(try FileManager.default.attributesOfItem(atPath: rootPath.appending("l").string)[.type] as? FileAttributeType == .typeDirectory)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: outsidePath.string).isEmpty, "nothing may be written through the replaced symlink")
+    }
+
+    @Test("Test mkdir never removes a directory it cannot open", .enabled(if: geteuid() != 0))
+    func testMkdirDoesNotRemoveUnopenableDirectory() throws {
+        let rootPath = try createTempDirectory()
+        defer { try? FileManager.default.removeItem(atPath: rootPath.string) }
+        let lockedPath = rootPath.appending("locked")
+        try FileManager.default.createDirectory(atPath: lockedPath.string, withIntermediateDirectories: false)
+        try Data("keep".utf8).write(to: URL(fileURLWithPath: lockedPath.appending("keep").string))
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: lockedPath.string)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: lockedPath.string) }
+
+        let rootFd = try FileDescriptor.open(rootPath, .readOnly, options: [.directory])
+        defer { try? rootFd.close() }
+
+        #expect(throws: (any Swift.Error).self) {
+            try FileDescriptorOps.mkdir(rootFd, FilePath("locked/child"), makeIntermediates: true)
+        }
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: lockedPath.string)
+        #expect(FileManager.default.fileExists(atPath: lockedPath.appending("keep").string), "a directory that cannot be opened must not be removed")
+    }
+
     @Test("Test mkdir rejects an absolute path and creates nothing")
     func testMkdirRejectsAbsolutePath() throws {
         let basePath = try createTempDirectory()

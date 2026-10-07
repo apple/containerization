@@ -57,9 +57,18 @@ public enum FileDescriptorOps {
     // MARK: - Nested types
 
     public enum Error: Swift.Error, CustomStringConvertible, Equatable {
+        /// The path is not a plain relative path: it is absolute, or contains a `..` component.
         case invalidRelativePath
+        /// An intermediate path component is missing or is not a directory.
         case invalidPathComponent
+        /// The entry is a symlink, which these operations never follow.
         case cannotFollowSymlink
+        /// The entry does not exist.
+        case notFound
+        /// The entry already exists.
+        case alreadyExists
+        /// A non-directory entry of the given type is in the way of an operation that needs a directory.
+        case conflict(EntryType)
         case systemError(String, Int32)
 
         public var description: String {
@@ -70,6 +79,12 @@ public enum FileDescriptorOps {
                 return "an intermediate path component is missing or is not a directory"
             case .cannotFollowSymlink:
                 return "cannot follow a symlink in a file descriptor operation"
+            case .notFound:
+                return "no such entry in file descriptor operation"
+            case .alreadyExists:
+                return "entry already exists in file descriptor operation"
+            case .conflict(let type):
+                return "a \(type) entry is in the way of a file descriptor operation"
             case .systemError(let operation, let err):
                 return "\(operation) returned error: \(err)"
             }
@@ -89,43 +104,100 @@ public enum FileDescriptorOps {
         case other
     }
 
-    // MARK: - Public API
+    // MARK: - Primitives
+    //
+    // Each primitive does one thing relative to a directory descriptor, never
+    // follows a symlink, and never removes or replaces anything it was not asked
+    // to. Operations that combine primitives, or that have to choose what to do
+    // when something is in the way, live in `FileDescriptorOps+Composite.swift`.
 
-    /// Creates a directory relative to `fd` without following symlinks.
+    /// Returns the type of the entry `name` in the directory `fd`, without following
+    /// a symlink, or `nil` if there is no such entry.
     ///
-    /// Each component of `relativePath` is opened with `O_NOFOLLOW|O_DIRECTORY`
-    /// relative to the previous one, so a symlink in the path is never followed.
-    /// An existing directory is reused. Anything else that is in the way, including
-    /// a symlink, is **removed and replaced** with a directory. Removal is
-    /// recursive for a non-empty directory. This replace behavior only applies to
-    /// the components `mkdir` visits, and a missing intermediate is created only
-    /// when `makeIntermediates` is true.
-    ///
-    /// An empty path runs `completion` with `fd` itself. `relativePath` must be
-    /// relative and must not contain a `..` component.
+    /// - Parameters:
+    ///   - fd: An open file descriptor for a directory.
+    ///   - name: The name of a direct child of that directory.
+    /// - Throws: `FileDescriptorOps.Error.systemError` if the entry cannot be inspected.
+    public static func entryType(_ fd: FileDescriptor, _ name: FilePath.Component) throws -> EntryType? {
+        var stbuf = stat()
+        guard fstatat(fd.rawValue, name.string, &stbuf, AT_SYMLINK_NOFOLLOW) == 0 else {
+            if errno == ENOENT {
+                return nil
+            }
+            throw Error.systemError("stat during file descriptor entry type lookup", errno)
+        }
+        return entryType(forMode: stbuf.st_mode)
+    }
+
+    /// Opens the existing directory `name` in the directory `fd`, without following
+    /// a symlink. The returned descriptor is close-on-exec and the caller must close it.
     ///
     /// - Parameters:
     ///   - fd: An open file descriptor for the parent directory.
-    ///   - relativePath: The path to create, relative to `fd`.
+    ///   - name: The name of a direct child of that directory.
+    /// - Throws: ``Error/notFound`` if there is no such entry, ``Error/cannotFollowSymlink``
+    ///   if it is a symlink, ``Error/conflict(_:)`` if it is some other kind of
+    ///   non-directory, and ``Error/systemError(_:_:)`` for anything else.
+    public static func openDirectory(_ fd: FileDescriptor, _ name: FilePath.Component) throws -> FileDescriptor {
+        let newFd = openat(fd.rawValue, name.string, O_NOFOLLOW | O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        if newFd >= 0 {
+            return FileDescriptor(rawValue: newFd)
+        }
+
+        // The failure code for "a symlink or file is in the way" differs between
+        // platforms, so look at what is actually there.
+        let openErrno = errno
+        switch try entryType(fd, name) {
+        case nil:
+            throw Error.notFound
+        case .symlink:
+            throw Error.cannotFollowSymlink
+        case .regular:
+            throw Error.conflict(.regular)
+        case .other:
+            throw Error.conflict(.other)
+        case .directory:
+            throw Error.systemError("directory open during file descriptor open", openErrno)
+        }
+    }
+
+    /// Creates the directory `name` in the directory `fd`.
+    ///
+    /// - Parameters:
+    ///   - fd: An open file descriptor for the parent directory.
+    ///   - name: The name of the directory to create.
     ///   - permissions: The permissions to give the directory (default 0o755).
-    ///   - makeIntermediates: Create or replace intermediate components as needed.
-    ///   - completion: A function that operates on the new directory fd.
-    /// - Throws: `FileDescriptorOps.Error` if path validation or system errors occur.
-    public static func mkdir(
+    /// - Throws: ``Error/alreadyExists`` if anything with that name exists, including a
+    ///   symlink, and ``Error/systemError(_:_:)`` for anything else.
+    public static func makeDirectory(
         _ fd: FileDescriptor,
-        _ relativePath: FilePath,
-        permissions: FilePermissions? = nil,
-        makeIntermediates: Bool = false,
-        completion: (FileDescriptor) throws -> Void = { _ in }
+        _ name: FilePath.Component,
+        permissions: FilePermissions? = nil
     ) throws {
-        try validateRelativePath(relativePath)
-        try mkdir(
-            fd,
-            relativePath.components,
-            permissions: permissions,
-            makeIntermediates: makeIntermediates,
-            completion: completion
-        )
+        guard mkdirat(fd.rawValue, name.string, permissions?.rawValue ?? 0o755) == 0 else {
+            if errno == EEXIST {
+                throw Error.alreadyExists
+            }
+            throw Error.systemError("directory creation during file descriptor mkdir", errno)
+        }
+    }
+
+    /// Removes the non-directory entry `name` from the directory `fd`. A symlink is
+    /// removed, not followed. This never removes a directory: use
+    /// ``unlinkRecursive(_:filename:)`` for that.
+    ///
+    /// - Parameters:
+    ///   - fd: An open file descriptor for the parent directory.
+    ///   - name: The name of the entry to remove.
+    /// - Throws: ``Error/notFound`` if there is no such entry, and
+    ///   ``Error/systemError(_:_:)`` for anything else, including when the entry is a directory.
+    public static func unlink(_ fd: FileDescriptor, _ name: FilePath.Component) throws {
+        guard unlinkat(fd.rawValue, name.string, 0) == 0 else {
+            if errno == ENOENT {
+                throw Error.notFound
+            }
+            throw Error.systemError("entry removal during file descriptor unlink", errno)
+        }
     }
 
     /// Recursively removes a direct child of the directory at `fd`.
@@ -249,51 +321,6 @@ public enum FileDescriptorOps {
 
     // MARK: - Private helpers
 
-    private static func mkdir(
-        _ fd: FileDescriptor,
-        _ relativeComponents: FilePath.ComponentView,
-        permissions: FilePermissions? = nil,
-        makeIntermediates: Bool,
-        completion: (FileDescriptor) throws -> Void
-    ) throws {
-        guard let currentComponent = relativeComponents.first else {
-            try completion(fd)
-            return
-        }
-        let childComponents = FilePath.ComponentView(relativeComponents.dropFirst())
-
-        var componentFd = openat(fd.rawValue, currentComponent.string, O_NOFOLLOW | O_RDONLY | O_DIRECTORY | O_CLOEXEC)
-        if componentFd < 0 {
-            guard makeIntermediates || childComponents.isEmpty else {
-                throw Error.invalidPathComponent
-            }
-            if errno != ENOENT {
-                try unlinkRecursive(fd, filename: currentComponent)
-            }
-
-            guard mkdirat(fd.rawValue, currentComponent.string, permissions?.rawValue ?? 0o755) == 0 else {
-                throw Error.systemError("directory creation during file descriptor mkdir", errno)
-            }
-
-            componentFd = openat(fd.rawValue, currentComponent.string, O_NOFOLLOW | O_RDONLY | O_DIRECTORY | O_CLOEXEC)
-            guard componentFd >= 0 else {
-                throw Error.systemError("directory open during file descriptor mkdir", errno)
-            }
-        }
-
-        let componentFileDescriptor = FileDescriptor(rawValue: componentFd)
-        defer { try? componentFileDescriptor.close() }
-
-        guard !childComponents.isEmpty else {
-            try completion(componentFileDescriptor)
-            return
-        }
-
-        try mkdir(
-            componentFileDescriptor, childComponents,
-            permissions: permissions, makeIntermediates: makeIntermediates, completion: completion)
-    }
-
     private static func enumerateHelper(
         _ fd: FileDescriptor,
         relativePath: FilePath,
@@ -353,12 +380,16 @@ public enum FileDescriptorOps {
             // Some filesystems (NFS, ext2/3) report DT_UNKNOWN; fall back to fstatat.
             var stbuf = stat()
             guard fstatat(parentFd, name, &stbuf, AT_SYMLINK_NOFOLLOW) == 0 else { return .other }
-            switch stbuf.st_mode & os_S_IFMT {
-            case os_S_IFREG: return .regular
-            case os_S_IFDIR: return .directory
-            case os_S_IFLNK: return .symlink
-            default: return .other
-            }
+            return entryType(forMode: stbuf.st_mode)
+        default: return .other
+        }
+    }
+
+    private static func entryType(forMode mode: mode_t) -> EntryType {
+        switch mode & os_S_IFMT {
+        case os_S_IFREG: return .regular
+        case os_S_IFDIR: return .directory
+        case os_S_IFLNK: return .symlink
         default: return .other
         }
     }
@@ -367,7 +398,7 @@ public enum FileDescriptorOps {
     /// path with a `..` component. An empty path is allowed and means "the
     /// directory itself". Callers that accept untrusted names, such as archive
     /// member names, decide whether to strip or reject before calling in.
-    private static func validateRelativePath(_ path: FilePath) throws {
+    static func validateRelativePath(_ path: FilePath) throws {
         guard !path.isAbsolute else {
             throw Error.invalidRelativePath
         }

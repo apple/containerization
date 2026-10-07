@@ -402,10 +402,11 @@ extension ArchiveReader {
         } catch let error as FileDescriptorOps.Error {
             // Just reject path validation errors, don't fail the extraction
             switch error {
-            case .systemError:
-                // Fail for system errors
+            case .systemError, .notFound, .alreadyExists:
+                // Fail for system errors, and for entries that appeared or disappeared
+                // underneath us, which means something else is modifying the tree.
                 throw error
-            case .invalidRelativePath, .invalidPathComponent, .cannotFollowSymlink:
+            case .invalidRelativePath, .invalidPathComponent, .cannotFollowSymlink, .conflict:
                 return false
             }
         }
