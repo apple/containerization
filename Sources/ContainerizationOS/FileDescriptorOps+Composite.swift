@@ -90,6 +90,84 @@ extension FileDescriptorOps {
         try completion(current)
     }
 
+    /// Opens the existing regular file at `relativePath` below `fd` for reading.
+    ///
+    /// Every component is opened relative to the previous one without following
+    /// symlinks, and the file is checked after it is open. A symlink anywhere in the
+    /// path, including the last component, is refused, and a swap of any component
+    /// for a symlink while this runs cannot redirect the open. The returned descriptor
+    /// is close-on-exec and the caller must close it.
+    ///
+    /// - Parameters:
+    ///   - fd: An open file descriptor for the directory to start from.
+    ///   - relativePath: The file to open. It must be relative, must not contain a `..` component, and must name something.
+    /// - Throws: ``Error/invalidRelativePath`` for an absolute path, one containing `..`, or an empty path;
+    ///   ``Error/notFound`` if the file or a parent does not exist; ``Error/cannotFollowSymlink`` if a symlink
+    ///   is in the path; ``Error/conflict(_:)`` if a parent is not a directory or the file is not a regular
+    ///   file; and ``Error/systemError(_:_:)`` for anything else.
+    public static func openFile(_ fd: FileDescriptor, relativePath: FilePath) throws -> FileDescriptor {
+        try validateRelativePath(relativePath)
+        var components = Array(relativePath.components)
+        guard let name = components.popLast() else {
+            throw Error.invalidRelativePath
+        }
+        return try withDirectory(fd, components) { parent in
+            try openFile(parent, name)
+        }
+    }
+
+    /// Returns the metadata of the entry at `relativePath` below `fd`, without following
+    /// symlinks, or `nil` if the entry or one of its parents does not exist. For a symlink this
+    /// is the metadata of the link itself. An empty path describes `fd` itself.
+    ///
+    /// A symlink in a parent position is refused, so the answer always describes an entry
+    /// that is really beneath `fd`.
+    ///
+    /// - Throws: ``Error/invalidRelativePath`` for an absolute path or one containing `..`;
+    ///   ``Error/cannotFollowSymlink`` if a symlink is in a parent position; ``Error/conflict(_:)`` if a
+    ///   parent is not a directory; and ``Error/systemError(_:_:)`` for anything else.
+    public static func status(_ fd: FileDescriptor, relativePath: FilePath) throws -> FileStatus? {
+        try validateRelativePath(relativePath)
+        var components = Array(relativePath.components)
+        guard let name = components.popLast() else {
+            return try status(of: fd)
+        }
+        do {
+            return try withDirectory(fd, components) { parent in
+                try status(parent, name)
+            }
+        } catch Error.notFound {
+            return nil
+        }
+    }
+
+    /// Runs `body` with a descriptor for the directory reached by walking `components` from
+    /// `fd`, without following symlinks. With no components, `body` gets `fd` itself.
+    private static func withDirectory<T>(
+        _ fd: FileDescriptor,
+        _ components: [FilePath.Component],
+        _ body: (FileDescriptor) throws -> T
+    ) throws -> T {
+        var current = fd
+        var ownsCurrent = false
+        defer {
+            if ownsCurrent {
+                try? current.close()
+            }
+        }
+
+        for component in components {
+            let next = try openDirectory(current, component)
+            if ownsCurrent {
+                try? current.close()
+            }
+            current = next
+            ownsCurrent = true
+        }
+
+        return try body(current)
+    }
+
     private static func openOrCreateDirectory(
         _ parent: FileDescriptor,
         _ name: FilePath.Component,

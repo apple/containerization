@@ -67,7 +67,8 @@ public enum FileDescriptorOps {
         case notFound
         /// The entry already exists.
         case alreadyExists
-        /// A non-directory entry of the given type is in the way of an operation that needs a directory.
+        /// The entry has a type the operation cannot use, for example a non-directory
+        /// where a directory is needed, or anything but a regular file where a file is read.
         case conflict(EntryType)
         case systemError(String, Int32)
 
@@ -102,6 +103,18 @@ public enum FileDescriptorOps {
         case symlink
         /// Any other entry type (device node, named pipe, socket, etc.).
         case other
+    }
+
+    /// The metadata of a directory entry, as reported by `stat(2)` without following symlinks.
+    public struct FileStatus: Sendable, Equatable {
+        public var type: EntryType
+        /// The permission bits, including setuid, setgid and sticky.
+        public var permissions: FilePermissions
+        public var size: Int64
+        public var userID: UInt32
+        public var groupID: UInt32
+        public var modificationSeconds: Int64
+        public var modificationNanoseconds: Int
     }
 
     // MARK: - Primitives
@@ -197,6 +210,166 @@ public enum FileDescriptorOps {
                 throw Error.notFound
             }
             throw Error.systemError("entry removal during file descriptor unlink", errno)
+        }
+    }
+
+    /// Returns the metadata of an open descriptor.
+    ///
+    /// - Throws: ``Error/systemError(_:_:)`` if the descriptor cannot be inspected.
+    public static func status(of fd: FileDescriptor) throws -> FileStatus {
+        var stbuf = stat()
+        guard fstat(fd.rawValue, &stbuf) == 0 else {
+            throw Error.systemError("stat during file descriptor status", errno)
+        }
+        return fileStatus(from: stbuf)
+    }
+
+    /// Returns the metadata of the entry `name` in the directory `fd`, without following
+    /// a symlink, or `nil` if there is no such entry. For a symlink this is the metadata of
+    /// the link itself.
+    ///
+    /// - Throws: ``Error/systemError(_:_:)`` if the entry cannot be inspected.
+    public static func status(_ fd: FileDescriptor, _ name: FilePath.Component) throws -> FileStatus? {
+        var stbuf = stat()
+        guard fstatat(fd.rawValue, name.string, &stbuf, AT_SYMLINK_NOFOLLOW) == 0 else {
+            if errno == ENOENT {
+                return nil
+            }
+            throw Error.systemError("stat during file descriptor status", errno)
+        }
+        return fileStatus(from: stbuf)
+    }
+
+    /// Opens the existing regular file `name` in the directory `fd` for reading, without
+    /// following a symlink. The returned descriptor is close-on-exec and the caller must close it.
+    ///
+    /// The file is opened non-blocking and checked after it is open, so a FIFO, device or
+    /// socket in its place is refused instead of blocking the caller or being read.
+    ///
+    /// - Throws: ``Error/notFound`` if there is no such entry, ``Error/cannotFollowSymlink``
+    ///   if it is a symlink, ``Error/conflict(_:)`` if it is not a regular file, and
+    ///   ``Error/systemError(_:_:)`` for anything else.
+    public static func openFile(_ fd: FileDescriptor, _ name: FilePath.Component) throws -> FileDescriptor {
+        let newFd = openat(fd.rawValue, name.string, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_NOCTTY | O_CLOEXEC)
+        guard newFd >= 0 else {
+            let openErrno = errno
+            switch try entryType(fd, name) {
+            case nil:
+                throw Error.notFound
+            case .symlink:
+                throw Error.cannotFollowSymlink
+            case .other:
+                throw Error.conflict(.other)
+            case .regular, .directory:
+                throw Error.systemError("file open during file descriptor open", openErrno)
+            }
+        }
+
+        let opened = FileDescriptor(rawValue: newFd)
+        do {
+            let type = try status(of: opened).type
+            guard type == .regular else {
+                throw Error.conflict(type)
+            }
+            return opened
+        } catch {
+            try? opened.close()
+            throw error
+        }
+    }
+
+    /// Creates the new regular file `name` in the directory `fd`, open for writing. The
+    /// returned descriptor is close-on-exec and the caller must close it.
+    ///
+    /// The file is created exclusively and without following a symlink, so this never writes
+    /// through, or over, anything that already exists.
+    ///
+    /// - Parameters:
+    ///   - fd: An open file descriptor for the parent directory.
+    ///   - name: The name of the file to create.
+    ///   - permissions: The permissions to give the file (default 0o644), subject to the umask.
+    /// - Throws: ``Error/alreadyExists`` if anything with that name exists, including a
+    ///   symlink, and ``Error/systemError(_:_:)`` for anything else.
+    public static func createFile(
+        _ fd: FileDescriptor,
+        _ name: FilePath.Component,
+        permissions: FilePermissions? = nil
+    ) throws -> FileDescriptor {
+        let newFd = openat(
+            fd.rawValue,
+            name.string,
+            O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+            permissions?.rawValue ?? 0o644
+        )
+        guard newFd >= 0 else {
+            if errno == EEXIST {
+                throw Error.alreadyExists
+            }
+            throw Error.systemError("file creation during file descriptor create", errno)
+        }
+        return FileDescriptor(rawValue: newFd)
+    }
+
+    /// Creates the symlink `name` in the directory `fd`, pointing at `target`.
+    ///
+    /// `target` is stored as given and is never resolved, so it may be absolute or contain `..`.
+    ///
+    /// - Throws: ``Error/alreadyExists`` if anything with that name exists, and
+    ///   ``Error/systemError(_:_:)`` for anything else.
+    public static func makeSymlink(_ fd: FileDescriptor, _ name: FilePath.Component, target: String) throws {
+        guard symlinkat(target, fd.rawValue, name.string) == 0 else {
+            if errno == EEXIST {
+                throw Error.alreadyExists
+            }
+            throw Error.systemError("symlink creation during file descriptor symlink", errno)
+        }
+    }
+
+    /// The longest symlink target ``readSymlink(_:_:)`` will read, in bytes.
+    ///
+    /// This is a sanity bound, not the limit of any particular platform, and `PATH_MAX` is the wrong
+    /// number to use for it. `PATH_MAX` is only the longest path that the system calls accept as an
+    /// argument (4096 on Linux, 1024 on macOS). It is not a promise about what a filesystem can store
+    /// or report, so a filesystem that is not bound by it would have links refused that really exist.
+    /// 16 KiB is four times the largest `PATH_MAX` of the platforms supported here, so every link those
+    /// platforms can create is read in full, while a filesystem that misbehaves still cannot make
+    /// this allocate much.
+    private static let maximumSymlinkTargetLength = 16 * 1024
+
+    /// Returns the target of the symlink `name` in the directory `fd`, without following it.
+    /// The target is decoded as UTF-8, and invalid sequences are replaced. A target longer than
+    /// 16 KiB is refused.
+    ///
+    /// - Throws: ``Error/notFound`` if there is no such entry, ``Error/conflict(_:)`` if it is
+    ///   not a symlink, and ``Error/systemError(_:_:)`` for anything else, including a target that is too long.
+    public static func readSymlink(_ fd: FileDescriptor, _ name: FilePath.Component) throws -> String {
+        // Grow the buffer until the target fits, instead of asking for its length first (the `st_size` of
+        // `fstatat`) and sizing one buffer to match. A symlink is not locked, so it can be replaced between
+        // the two calls, and a buffer sized for the old target would silently cut off a longer new one.
+        // Here a read that fills the buffer is never trusted, so a target that is returned was read in full.
+        var capacity = 256
+        while true {
+            var buffer = [CChar](repeating: 0, count: capacity)
+            let count = readlinkat(fd.rawValue, name.string, &buffer, capacity)
+            guard count >= 0 else {
+                let readlinkErrno = errno
+                switch try entryType(fd, name) {
+                case nil:
+                    throw Error.notFound
+                case .symlink:
+                    throw Error.systemError("symlink read during file descriptor readlink", readlinkErrno)
+                case let type?:
+                    throw Error.conflict(type)
+                }
+            }
+            if count < capacity {
+                return String(decoding: buffer.prefix(count).map { UInt8(bitPattern: $0) }, as: UTF8.self)
+            }
+            // The buffer was filled, so the target may have been cut off. Retry with a larger one.
+            guard capacity < maximumSymlinkTargetLength else {
+                throw Error.systemError("symlink read during file descriptor readlink", ENAMETOOLONG)
+            }
+            capacity *= 2
         }
     }
 
@@ -392,6 +565,23 @@ public enum FileDescriptorOps {
         case os_S_IFLNK: return .symlink
         default: return .other
         }
+    }
+
+    private static func fileStatus(from stbuf: stat) -> FileStatus {
+        #if canImport(Darwin)
+        let mtime = stbuf.st_mtimespec
+        #else
+        let mtime = stbuf.st_mtim
+        #endif
+        return FileStatus(
+            type: entryType(forMode: stbuf.st_mode),
+            permissions: FilePermissions(rawValue: stbuf.st_mode & 0o7777),
+            size: Int64(stbuf.st_size),
+            userID: UInt32(stbuf.st_uid),
+            groupID: UInt32(stbuf.st_gid),
+            modificationSeconds: Int64(mtime.tv_sec),
+            modificationNanoseconds: Int(mtime.tv_nsec)
+        )
     }
 
     /// Rejects anything that is not a plain relative path: an absolute path, or a
