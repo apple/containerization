@@ -33,7 +33,7 @@ public protocol CHInterface {
 /// responsibility.
 public struct TAPInterface: CHInterface, Interface, Sendable {
     public let tapName: String
-    public let ipv4Address: CIDRv4
+    public let ipv4Address: CIDRv4?
     public let ipv4Gateway: IPv4Address?
     public let macAddress: MACAddress?
     public let mtu: UInt32
