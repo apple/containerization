@@ -522,6 +522,13 @@ extension EXT4 {
         var leaves: [ExtentLeaf]
     }
 
+    struct FileExtent {
+        let logicalBlock: UInt32
+        let physicalBlock: UInt32
+        let length: UInt32
+        let initialized: Bool
+    }
+
     struct DirectoryEntry {
         let inode: InodeNumber
         let recordLength: UInt16
