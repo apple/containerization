@@ -119,19 +119,7 @@ extension EXT4.EXT4Reader {
             return Data()
         }
 
-        var out = Data(count: Int(want))
-        let wrote = try out.withUnsafeMutableBytes {
-            try performRead(
-                inodeNumber: context.inodeNumber,
-                start: context.start,
-                wantedBytes: want,
-                into: $0
-            )
-        }
-        if wrote < Int(want) {
-            out.removeSubrange(wrote..<Int(want))
-        }
-        return out
+        return try readFileBytesFromExtents(inodeNum: context.inodeNumber, offset: context.start, count: want)
     }
 
     private func prepareRead(
@@ -161,42 +149,42 @@ extension EXT4.EXT4Reader {
         wantedBytes: UInt64,
         into buffer: UnsafeMutableRawBufferPointer
     ) throws -> Int {
-        if wantedBytes == 0 {
+        guard wantedBytes > 0, let extents = try self.getFileExtents(inode: inodeNumber) else {
+            return 0
+        }
+        let count = Int(min(wantedBytes, UInt64(buffer.count)))
+        return try read(extents, from: start, into: UnsafeMutableRawBufferPointer(rebasing: buffer[..<count]))
+    }
+
+    /// Fills `buffer` with file contents starting at byte `start`, zero-filling holes and unwritten extents.
+    /// Returns the number of bytes written, which is less than `buffer.count` only if the device read came up short.
+    func read(_ extents: [EXT4.FileExtent], from start: UInt64, into buffer: UnsafeMutableRawBufferPointer) throws -> Int {
+        for extent in extents where extent.initialized && extent.length > 0 {
+            try validateBlockAddress(extent.physicalBlock)
+            try validateBlockAddress(extent.physicalBlock + extent.length - 1)
+        }
+
+        guard let base = buffer.baseAddress, buffer.count > 0 else {
             return 0
         }
 
-        guard let extents = try self.getExtents(inode: inodeNumber), !extents.isEmpty else {
-            return 0
-        }
-
-        for (physStartBlk, physEndBlk) in extents {
-            try validateBlockAddress(physStartBlk)
-            if physEndBlk > physStartBlk {
-                try validateBlockAddress(physEndBlk - 1)
-            }
-        }
-
-        guard let base = buffer.baseAddress else {
-            return 0
-        }
-
-        let desiredBytes = Int(min(wantedBytes, UInt64(buffer.count)))
-        if desiredBytes == 0 {
-            return 0
-        }
-
+        let desiredBytes = buffer.count
         let blockSizeBytes = self.blockSize
         let reqStart = start
         let reqEnd = start + UInt64(desiredBytes)
-        var logicalOffset: UInt64 = 0
         var bytesWritten = 0
 
-        for (physStartBlk, physEndBlk) in extents {
-            let extentBytes = UInt64(physEndBlk - physStartBlk) * blockSizeBytes
-            let logicalEnd = logicalOffset + extentBytes
+        var previousEnd: UInt64 = 0
+        for extent in extents {
+            let logicalOffset = UInt64(extent.logicalBlock) * blockSizeBytes
+            let logicalEnd = logicalOffset + UInt64(extent.length) * blockSizeBytes
+            guard logicalOffset >= previousEnd else {
+                // Extents must be sorted and non-overlapping.
+                throw EXT4.Error.invalidExtents
+            }
+            previousEnd = logicalEnd
 
             if logicalEnd <= reqStart {
-                logicalOffset = logicalEnd
                 continue
             }
             if logicalOffset >= reqEnd {
@@ -205,14 +193,18 @@ extension EXT4.EXT4Reader {
 
             let overlapStart = max(logicalOffset, reqStart)
             let overlapEnd = min(logicalEnd, reqEnd)
+            Self.zeroFill(base, written: &bytesWritten, upTo: Int(overlapStart - reqStart))
+            if !extent.initialized {
+                Self.zeroFill(base, written: &bytesWritten, upTo: Int(overlapEnd - reqStart))
+                continue
+            }
             var remaining = overlapEnd - overlapStart
             if remaining == 0 {
-                logicalOffset = logicalEnd
                 continue
             }
 
             let offsetIntoExtent = overlapStart - logicalOffset
-            let absoluteByteOffset = (UInt64(physStartBlk) * blockSizeBytes) + offsetIntoExtent
+            let absoluteByteOffset = (UInt64(extent.physicalBlock) * blockSizeBytes) + offsetIntoExtent
 
             do {
                 try self.handle.seek(toOffset: absoluteByteOffset)
@@ -258,13 +250,22 @@ extension EXT4.EXT4Reader {
                 }
             }
 
-            logicalOffset = logicalEnd
             if bytesWritten >= desiredBytes {
                 break
             }
         }
+        Self.zeroFill(base, written: &bytesWritten, upTo: desiredBytes)
 
         return bytesWritten
+    }
+
+    /// Zeroes `buffer[written..<end]` and advances `written` to `end`. Used for holes and unwritten extents.
+    private static func zeroFill(_ buffer: UnsafeMutableRawPointer, written: inout Int, upTo end: Int) {
+        guard end > written else {
+            return
+        }
+        buffer.advanced(by: written).initializeMemory(as: UInt8.self, repeating: 0, count: end - written)
+        written = end
     }
 
     // MARK: - Internals inside EXT4Reader
@@ -400,85 +401,11 @@ extension EXT4.EXT4Reader {
 
     /// Low-level read using extents, with explicit offset & length (in bytes).
     private func readFileBytesFromExtents(inodeNum: EXT4.InodeNumber, offset: UInt64, count: UInt64) throws -> Data {
-        guard let extents = try self.getExtents(inode: inodeNum), !extents.isEmpty else {
-            return Data()
+        var out = Data(count: Int(count))
+        let wrote = try out.withUnsafeMutableBytes {
+            try performRead(inodeNumber: inodeNum, start: offset, wantedBytes: count, into: $0)
         }
-
-        // Validate all extent blocks are within device bounds
-        for (startBlk, endBlk) in extents {
-            try validateBlockAddress(startBlk)
-            if endBlk > startBlk {
-                try validateBlockAddress(endBlk - 1)
-            }
-        }
-
-        var out = Data(capacity: Int(count))
-        var logicalOffset: UInt64 = 0
-        var bytesReadSuccessfully: Int = 0
-        let reqStart = offset
-        let reqEnd = offset + count
-        let bs = self.blockSize
-
-        for (startBlk, endBlk) in extents {
-            let extentBytes = UInt64(endBlk - startBlk) * bs
-            let logicalEnd = logicalOffset + extentBytes
-            if logicalEnd <= reqStart {
-                logicalOffset = logicalEnd
-                continue
-            }
-            if logicalOffset >= reqEnd { break }
-
-            let ovlStart = max(logicalOffset, reqStart)
-            let ovlEnd = min(logicalEnd, reqEnd)
-            let ovlLen = ovlEnd - ovlStart
-            if ovlLen == 0 {
-                logicalOffset = logicalEnd
-                continue
-            }
-
-            let offsetIntoExtent = ovlStart - logicalOffset
-            let absByteOffset = UInt64(startBlk) * bs + offsetIntoExtent
-
-            do {
-                try self.handle.seek(toOffset: absByteOffset)
-            } catch {
-                if bytesReadSuccessfully > 0 {
-                    // Return partial data that was successfully read
-                    return out
-                }
-                throw EXT4.PathIOError.invalidPath("failed to seek to offset \(absByteOffset): \(error)")
-            }
-
-            var left = ovlLen
-            while left > 0 {
-                let chunk = Int(min(left, 1 << 20))
-
-                do {
-                    guard let data = try self.handle.read(upToCount: chunk) else {
-                        let blk = UInt32(absByteOffset / bs)
-                        throw EXT4.Error.couldNotReadBlock(blk)
-                    }
-
-                    out.append(data)
-                    bytesReadSuccessfully += data.count
-                    left -= UInt64(data.count)
-
-                    if data.count < chunk && left > 0 {
-                        // Partial read - return what we have
-                        return out
-                    }
-                } catch {
-                    if bytesReadSuccessfully > 0 {
-                        // Return partial data on error
-                        return out
-                    }
-                    throw error
-                }
-            }
-            logicalOffset = logicalEnd
-            if out.count >= Int(count) { break }
-        }
-        if out.count > Int(count) { out.removeSubrange(Int(count)..<out.count) }
+        out.removeSubrange(wrote..<out.count)
         return out
     }
 
