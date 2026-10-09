@@ -252,7 +252,7 @@ extension ImageStore {
                 }
                 toProcess = children
             }
-            return supportedPlatforms
+            return supportedPlatforms.uniqued { $0 }
         }
 
     }
