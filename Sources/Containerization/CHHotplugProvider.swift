@@ -49,6 +49,7 @@ final class CHHotplugProvider: HotplugProvider {
     private let client: CloudHypervisor.Client
     private let workDir: URL
     private let virtiofsdBinaryOverride: URL?
+    private let directDiskIO: Bool
     private let allocator: any AddressAllocator<Character>
     private let _mounts: Mutex<[String: [AttachedFilesystem]]>
     private let _records: Mutex<[String: [HotplugRecord]]>
@@ -64,6 +65,7 @@ final class CHHotplugProvider: HotplugProvider {
         client: CloudHypervisor.Client,
         workDir: URL,
         virtiofsdBinary: URL?,
+        directDiskIO: Bool = false,
         allocator: any AddressAllocator<Character>,
         initialMounts: [String: [AttachedFilesystem]],
         logger: Logger?
@@ -71,6 +73,7 @@ final class CHHotplugProvider: HotplugProvider {
         self.client = client
         self.workDir = workDir
         self.virtiofsdBinaryOverride = virtiofsdBinary
+        self.directDiskIO = directDiskIO
         self.allocator = allocator
         self._mounts = Mutex(initialMounts)
         self._records = Mutex([:])
@@ -101,6 +104,7 @@ final class CHHotplugProvider: HotplugProvider {
             let disk = CloudHypervisor.DiskConfig(
                 path: rootfs.source,
                 readonly: rootfs.options.contains("ro"),
+                direct: directDiskIO ? true : nil,
                 id: chId,
                 imageType: .raw
             )
