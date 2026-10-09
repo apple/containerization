@@ -62,7 +62,7 @@ private func dupCloseOnExec(_ fd: Int32) -> Int32 {
 ///   component at a time, against directory descriptors that are already open, and it can
 ///   never lead above the directory the walk started from.
 /// - The primitives never remove or replace anything unless the caller asks for it by name:
-///   ``unlink(_:_:)``, ``unlinkRecursive(_:filename:)``, or ``rename(_:_:to:_:)``. A composite says in
+///   ``unlink(_:_:)`` or ``unlinkRecursive(_:filename:)``. A composite says in
 ///   its documentation what it replaces. For example, ``mkdir(_:_:permissions:makeIntermediates:completion:)``
 ///   replaces a file or symlink that is in the way of a directory it needs, and never removes a directory.
 /// - Every descriptor this type opens or duplicates is close-on-exec, so it is not inherited
@@ -77,7 +77,7 @@ private func dupCloseOnExec(_ fd: Int32) -> Int32 {
 ///
 /// The **composites**, in `FileDescriptorOps+Composite.swift`, combine primitives into
 /// sequences that several callers need and that are easy to get wrong, such as creating a
-/// path and then working inside it, or replacing a file atomically. Where a composite has to
+/// path and then working inside it, or opening a file beneath a directory. Where a composite has to
 /// choose what to do about a symlink, it takes that choice as an explicit argument
 /// (``SymlinkPolicy``). Composites use only the public primitives.
 ///
@@ -245,31 +245,6 @@ public enum FileDescriptorOps {
                 throw Error.notFound
             }
             throw Error.systemError("entry removal during file descriptor unlink", errno)
-        }
-    }
-
-    /// Renames the entry `fromName` in the directory `fromDirectory` to `toName` in the directory
-    /// `toDirectory`. The two directories may be the same.
-    ///
-    /// The rename is atomic, and neither name is followed: a symlink is renamed, not its target.
-    ///
-    /// **This replaces an existing destination.** If `toName` exists and is not a directory, it is
-    /// replaced in one step, and a symlink is replaced rather than written through. As for
-    /// `rename(2)`, a directory may only replace an empty directory, and not the reverse.
-    ///
-    /// - Throws: ``Error/notFound`` if `fromName` does not exist, and ``Error/systemError(_:_:)``
-    ///   for anything else.
-    public static func rename(
-        _ fromDirectory: FileDescriptor,
-        _ fromName: FilePath.Component,
-        to toDirectory: FileDescriptor,
-        _ toName: FilePath.Component
-    ) throws {
-        guard renameat(fromDirectory.rawValue, fromName.string, toDirectory.rawValue, toName.string) == 0 else {
-            if errno == ENOENT {
-                throw Error.notFound
-            }
-            throw Error.systemError("rename during file descriptor rename", errno)
         }
     }
 

@@ -229,50 +229,6 @@ extension FileDescriptorOps {
         return try atDirectory(directories[directories.count - 1])
     }
 
-    /// Writes the file `name` in `directory` so that a reader sees either the old contents or the new
-    /// contents, never a partly written file.
-    ///
-    /// The new contents are written to a temporary file in the same directory, which is created
-    /// exclusively, and then renamed over `name`. If `name` is a symlink, the link itself is replaced
-    /// and its target is never written to. If `write` throws, the temporary file is removed and
-    /// whatever was at `name` is left as it was.
-    ///
-    /// The new file does not inherit the permissions or ownership of the file it replaces. It
-    /// is atomic with respect to other readers, but it does not flush to disk.
-    ///
-    /// - Parameters:
-    ///   - directory: An open file descriptor for the directory that holds the file.
-    ///   - name: The name of the file to write.
-    ///   - permissions: The permissions to give the new file (default 0o644), subject to the umask.
-    ///   - write: Writes the new contents to the descriptor it is given. It must not close the descriptor.
-    /// - Throws: Errors from `write`, and ``Error/systemError(_:_:)`` if the temporary file cannot be
-    ///   created or renamed into place, for example because `name` is a non-empty directory.
-    public static func replaceFile(
-        in directory: FileDescriptor,
-        named name: FilePath.Component,
-        permissions: FilePermissions? = nil,
-        write: (FileDescriptor) throws -> Void
-    ) throws {
-        guard let temporaryName = FilePath.Component(".tmp-" + String(UInt64.random(in: .min ... .max), radix: 16)) else {
-            throw Error.invalidPathComponent
-        }
-
-        let file = try createFile(directory, temporaryName, permissions: permissions)
-        var isOpen = true
-        do {
-            try write(file)
-            isOpen = false
-            try file.close()
-            try rename(directory, temporaryName, to: directory, name)
-        } catch {
-            if isOpen {
-                try? file.close()
-            }
-            try? unlink(directory, temporaryName)
-            throw error
-        }
-    }
-
     private static func openOrCreateDirectory(
         _ parent: FileDescriptor,
         _ name: FilePath.Component,
