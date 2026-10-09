@@ -174,14 +174,7 @@ public enum FileDescriptorOps {
     ///   - name: The name of a direct child of that directory.
     /// - Throws: `FileDescriptorOps.Error.systemError` if the entry cannot be inspected.
     public static func entryType(_ fd: FileDescriptor, _ name: FilePath.Component) throws -> EntryType? {
-        var stbuf = stat()
-        guard fstatat(fd.rawValue, name.string, &stbuf, AT_SYMLINK_NOFOLLOW) == 0 else {
-            if errno == ENOENT {
-                return nil
-            }
-            throw Error.systemError("stat during file descriptor entry type lookup", errno)
-        }
-        return entryType(forMode: stbuf.st_mode)
+        try status(fd, name)?.type
     }
 
     /// Opens the existing directory `name` in the directory `fd`, without following
