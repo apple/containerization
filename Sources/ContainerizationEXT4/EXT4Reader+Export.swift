@@ -88,43 +88,10 @@ extension EXT4.EXT4Reader {
                 try writer.writeEntry(entry: entry, data: nil)
             } else if mode.isReg() {
                 entry.fileType = .regular
-                var data = Data()
-                var remaining: UInt64 = size
-                if let block = item.blocks {
-                    for dataBlock in block.start..<block.end {
-                        try self.seek(block: dataBlock)
-                        var count: UInt64
-                        if remaining > self.blockSize {
-                            count = self.blockSize
-                        } else {
-                            count = remaining
-                        }
-                        guard let dataBytes = try self.handle.read(upToCount: Int(count)) else {
-                            throw EXT4.Error.couldNotReadBlock(dataBlock)
-                        }
-                        data.append(dataBytes)
-                        remaining -= UInt64(dataBytes.count)
-                    }
-                }
-                if let additionalBlocks = item.additionalBlocks {
-                    for block in additionalBlocks {
-                        for dataBlock in block.start..<block.end {
-                            try self.seek(block: dataBlock)
-                            var count: UInt64
-                            if remaining > self.blockSize {
-                                count = self.blockSize
-                            } else {
-                                count = remaining
-                            }
-                            guard let dataBytes = try self.handle.read(upToCount: Int(count)) else {
-                                throw EXT4.Error.couldNotReadBlock(dataBlock)
-                            }
-                            data.append(dataBytes)
-                            remaining -= UInt64(dataBytes.count)
-                        }
-                    }
-                }
-                try writer.writeEntry(entry: entry, data: data)
+                let transaction = writer.makeTransactionWriter()
+                try transaction.writeHeader(entry: entry)
+                try self.writeContents(of: item.inode, size: size, path: pathStr, to: transaction)
+                try transaction.finish()
             } else if mode.isLink() {
                 entry.fileType = .symbolicLink
                 if size < 60 {
@@ -161,6 +128,63 @@ extension EXT4.EXT4Reader {
             try writer.writeEntry(entry: entry, data: nil)
         }
         try writer.finishEncoding()
+    }
+
+    private func writeContents(of inode: EXT4.InodeNumber, size: UInt64, path: String, to writer: ArchiveWriterTransaction) throws {
+        guard let extents = try self.getFileExtents(inode: inode) else {
+            // Inline-data and block-mapped files aren't supported.
+            guard size == 0 else {
+                throw EXT4.Error.invalidExtents
+            }
+            return
+        }
+
+        let chunkSize = UInt64(1 << 20)
+        var zeros = Data()
+        var written: UInt64 = 0
+
+        func writeZeros(upTo end: UInt64) throws {
+            if written < end && zeros.isEmpty {
+                zeros = Data(count: Int(min(size, chunkSize)))
+            }
+            while written < end {
+                let count = Int(min(end - written, chunkSize))
+                try zeros.withUnsafeBytes { try writer.writeChunk(data: UnsafeRawBufferPointer(rebasing: $0[0..<count])) }
+                written += UInt64(count)
+            }
+        }
+
+        for extent in extents {
+            let extentStart = UInt64(extent.logicalBlock) * self.blockSize
+            guard extentStart >= written else {
+                // Extents must be sorted and non-overlapping.
+                throw EXT4.Error.invalidExtents
+            }
+            if extentStart >= size {
+                break
+            }
+            let extentEnd = min(extentStart + UInt64(extent.length) * self.blockSize, size)
+            try writeZeros(upTo: extentStart)
+            guard extent.initialized else {
+                try writeZeros(upTo: extentEnd)
+                continue
+            }
+            try self.seek(block: extent.physicalBlock)
+            while written < extentEnd {
+                let count = Int(min(extentEnd - written, chunkSize))
+                guard let data = try self.handle.read(upToCount: count), data.count == count else {
+                    let block = UInt64(extent.physicalBlock) + (written - extentStart) / self.blockSize
+                    throw EXT4.Error.couldNotReadBlock(UInt32(truncatingIfNeeded: block))
+                }
+                try data.withUnsafeBytes { try writer.writeChunk(data: $0) }
+                written += UInt64(count)
+            }
+        }
+        try writeZeros(upTo: size)
+
+        guard written == size else {
+            throw EXT4.Error.fileSizeMismatch(path, size, written)
+        }
     }
 
     @available(*, deprecated, renamed: "readInlineExtendedAttributes(from:)")
