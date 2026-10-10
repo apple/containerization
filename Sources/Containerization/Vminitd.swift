@@ -31,6 +31,8 @@ public struct Vminitd: Sendable {
 
     let client: Com_Apple_Containerization_Sandbox_V3_SandboxContext.Client<HTTP2ClientTransport.WrappedChannel>
     public let grpcClient: GRPCClient<HTTP2ClientTransport.WrappedChannel>
+    // The FileHandle retains the Virtualization connection that owns this descriptor.
+    private let retainedConnection: FileHandle
     private let connectionTask: Task<Void, Error>
 
     public init(connection: FileHandle, group: any EventLoopGroup) async throws {
@@ -54,6 +56,7 @@ public struct Vminitd: Sendable {
         let grpcClient = GRPCClient(transport: transport)
         self.grpcClient = grpcClient
         self.client = Com_Apple_Containerization_Sandbox_V3_SandboxContext.Client(wrapping: self.grpcClient)
+        self.retainedConnection = connection
         // Not very structured concurrency friendly, but we'd need to expose a way on the protocol to "run" the
         // agent otherwise, which some agents might not even need.
         self.connectionTask = Task {
