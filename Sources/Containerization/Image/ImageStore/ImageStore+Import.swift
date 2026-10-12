@@ -44,6 +44,7 @@ extension ImageStore {
         /// Pull the required image layers for the provided descriptor and platform(s) into the given directory using the provided client. Returns a descriptor to the Index manifest.
         public func `import`(root: Descriptor, matcher: (ContainerizationOCI.Platform) -> Bool) async throws -> Descriptor {
             var toProcess = [root]
+            var skipped: [Descriptor] = []
             while !toProcess.isEmpty {
                 // Count the total number of blobs and their size
                 if let progress {
@@ -57,8 +58,20 @@ extension ImageStore {
                     ])
                 }
 
-                try await self.fetchAll(toProcess)
-                let children = try await self.walk(toProcess)
+                // An index may list manifests whose content is not in the source (for example, an
+                // archive saved for a single platform). Tolerate that for manifests that are listed
+                // by an index, and keep going with those that are present.
+                let absent = try await self.fetchAll(toProcess, tolerating: { $0.digest != root.digest && $0.isManifest })
+                skipped.append(contentsOf: absent)
+                let absentDigests = Set(absent.map { $0.digest })
+                let present = toProcess.filter { !absentDigests.contains($0.digest) }
+                if present.isEmpty {
+                    throw ContainerizationError(
+                        .notFound,
+                        message: "none of the platforms listed by index \(root.digest) are present in the source: missing \(Self.describe(skipped))"
+                    )
+                }
+                let children = try await self.walk(present)
                 let filtered = try filterPlatforms(matcher: matcher, children)
                 toProcess = filtered.uniqued { $0.digest }
             }
@@ -120,26 +133,53 @@ extension ImageStore {
             return out
         }
 
-        private func fetchAll(_ descriptors: [Descriptor]) async throws {
-            try await withThrowingTaskGroup(of: Void.self) { group in
+        /// Fetches all of the descriptors. Returns the descriptors that satisfy `tolerating` and
+        /// whose content is not available from the client, instead of failing the whole operation.
+        private func fetchAll(_ descriptors: [Descriptor], tolerating: @Sendable @escaping (Descriptor) -> Bool) async throws -> [Descriptor] {
+            let fetchOrSkip: @Sendable (Descriptor) async throws -> Descriptor? = { desc in
+                do {
+                    try await self.fetch(desc)
+                    return nil
+                } catch LocalOCILayoutClient.Error.missingContent where tolerating(desc) {
+                    // Keep the progress totals consistent with the work that will not happen.
+                    await self.progress?([
+                        .addSize(desc.size),
+                        .addItems(1),
+                    ])
+                    return desc
+                }
+            }
+            return try await withThrowingTaskGroup(of: Descriptor?.self) { group in
+                var absent: [Descriptor] = []
                 var iterator = descriptors.makeIterator()
                 // Start initial batch of concurrent downloads based on maxConcurrentDownloads
                 for _ in 0..<self.maxConcurrentDownloads {
                     if let desc = iterator.next() {
                         group.addTask {
-                            try await self.fetch(desc)
+                            try await fetchOrSkip(desc)
                         }
                     }
                 }
                 // As tasks complete, add new ones to maintain concurrency
-                for try await _ in group {
+                for try await result in group {
+                    if let result {
+                        absent.append(result)
+                    }
                     if let desc = iterator.next() {
                         group.addTask {
-                            try await self.fetch(desc)
+                            try await fetchOrSkip(desc)
                         }
                     }
                 }
+                return absent
             }
+        }
+
+        private static func describe(_ descriptors: [Descriptor]) -> String {
+            descriptors.map { desc in
+                let platform = desc.platform.map { $0.description } ?? "unknown platform"
+                return "\(platform) (\(desc.digest))"
+            }.joined(separator: ", ")
         }
 
         private func fetch(_ descriptor: Descriptor) async throws {
@@ -255,5 +295,11 @@ extension ImageStore {
             return supportedPlatforms.uniqued { $0 }
         }
 
+    }
+}
+
+extension Descriptor {
+    fileprivate var isManifest: Bool {
+        mediaType == MediaTypes.imageManifest || mediaType == MediaTypes.dockerManifest
     }
 }

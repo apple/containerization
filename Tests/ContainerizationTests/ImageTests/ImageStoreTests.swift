@@ -17,6 +17,7 @@
 //
 
 import ContainerizationArchive
+import ContainerizationError
 import ContainerizationExtras
 import ContainerizationOCI
 import Foundation
@@ -126,5 +127,58 @@ public class ImageStoreTests: ContainsAuth {
 
         let retrieved = try await self.store.get(reference: reference)
         #expect(retrieved.reference == reference)
+    }
+
+    // Digests of the manifests listed by the index in scratch.tar.
+    private static let scratchArm64Manifest = "872d74070f985083ac362527084460ff5a21815dfabd6e8de8baf677206340ee"
+    private static let scratchAmd64Manifest = "3f2b0792ca7c9418ca2483c03bef2e3d3ea23205d0add5bd5cc55cdbc993027e"
+    private static let scratchAttestationManifests = [
+        "31191d9dccfa844f1e7e9e8dbca4e226e373404e459fa9fe9344c8f5cb18c21b",
+        "cf9289c9a9cb3e926973c9d9668bf8faa5ec559157e03b4710324220e70da360",
+    ]
+
+    private func extractScratch(removing digests: [String]) throws -> URL {
+        let tempDir = FileManager.default.uniqueTemporaryDirectory()
+        let tarPath = Foundation.Bundle.module.url(forResource: "scratch", withExtension: "tar")!
+        let reader = try ArchiveReader(format: .pax, filter: .none, file: tarPath)
+        let rejectedPaths = try reader.extractContents(to: tempDir)
+        #expect(rejectedPaths.count == 0, "unexpected rejected paths [\(rejectedPaths)]")
+        for digest in digests {
+            try FileManager.default.removeItem(at: tempDir.appending(path: "blobs/sha256/\(digest)"))
+        }
+        return tempDir
+    }
+
+    @Test func testLoadIndexWithAbsentPlatformManifests() async throws {
+        // Mimic an archive saved for a single platform, but that still carries the full index.
+        let tempDir = try extractScratch(removing: [Self.scratchAmd64Manifest] + Self.scratchAttestationManifests)
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let loaded = try await self.store.load(from: tempDir)
+        #expect(loaded.count == 1)
+
+        // The index is preserved as is, and the content that was present is usable.
+        let image = try await self.store.get(reference: "registry.local/integration-tests/scratch:latest")
+        let index = try await image.index()
+        #expect(index.manifests.count == 4)
+        let arm64 = ContainerizationOCI.Platform(arch: "arm64", os: "linux")
+        _ = try await image.manifest(for: arm64)
+    }
+
+    @Test func testLoadIndexWithNoPresentPlatformManifests() async throws {
+        let tempDir = try extractScratch(removing: [Self.scratchArm64Manifest, Self.scratchAmd64Manifest] + Self.scratchAttestationManifests)
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let error = await #expect(throws: ContainerizationError.self) {
+            _ = try await self.store.load(from: tempDir)
+        }
+        let message = error?.description ?? ""
+        #expect(message.contains("linux/arm64"), "\(message)")
+        #expect(message.contains("linux/amd64"), "\(message)")
+        #expect(message.contains(Self.scratchAmd64Manifest), "\(message)")
     }
 }
