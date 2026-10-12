@@ -495,6 +495,7 @@ struct IntegrationSuite: AsyncParsableCommand {
 
             // Statistics / cgroups / memory
             Test("container statistics", testContainerStatistics),
+            Test("container network protocol statistics", testContainerNetworkProtocolStatistics),
             Test("container cgroup limits", testCgroupLimits),
             Test("container memory events OOM kill", testMemoryEventsOOMKill),
 

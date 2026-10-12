@@ -1718,6 +1718,17 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                     }
                 }
 
+                // Protocol counters are per network namespace, so read them from the
+                // container's own (the VM's, unless the container has a private one).
+                var protocolStats: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolStats?
+                if wantNetwork {
+                    do {
+                        protocolStats = Self.mapProtocolStats(try ProcNetSnmp.read(pid: await container.pid))
+                    } catch {
+                        log.warning("failed to read protocol stats", metadata: ["error": "\(error)"])
+                    }
+                }
+
                 // Get memory events only if requested
                 var memoryEvents: MemoryEvents?
                 if wantMemoryEvents {
@@ -1737,6 +1748,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                         containerID: containerID,
                         cgStats: cgStats,
                         networkStats: networkStats,
+                        protocolStats: protocolStats,
                         memoryEvents: memoryEvents,
                         filesystemStats: filesystemStats,
                         wantProcess: wantProcess,
@@ -1806,10 +1818,28 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             .filter { $0.hasPrefix("eth") }
     }
 
+    private static func mapProtocolStats(_ snmp: ProcNetSnmp) -> Com_Apple_Containerization_Sandbox_V3_NetworkProtocolStats {
+        func counters(_ c: ProcNetSnmp.Counters) -> Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters {
+            .with {
+                $0.receivedPackets = c.receivedPackets
+                $0.transmittedPackets = c.transmittedPackets
+                $0.receivedBytes = c.receivedBytes
+                $0.transmittedBytes = c.transmittedBytes
+            }
+        }
+        return .with {
+            $0.tcp = counters(snmp.tcp)
+            $0.udp = counters(snmp.udp)
+            $0.icmp = counters(snmp.icmp)
+            $0.ip = counters(snmp.ip)
+        }
+    }
+
     private func mapStatsToProto(
         containerID: String,
         cgStats: Cgroup2Stats?,
         networkStats: [Com_Apple_Containerization_Sandbox_V3_NetworkStats],
+        protocolStats: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolStats?,
         memoryEvents: MemoryEvents?,
         filesystemStats: [(mountPoint: String, stat: CZ_Statfs)],
         wantProcess: Bool,
@@ -1879,6 +1909,9 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
 
             if wantNetwork {
                 $0.networks = networkStats
+                if let protocolStats {
+                    $0.protocols = protocolStats
+                }
             }
 
             if wantMemoryEvents, let events = memoryEvents {

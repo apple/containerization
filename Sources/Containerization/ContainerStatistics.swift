@@ -24,6 +24,8 @@ public struct ContainerStatistics: Sendable {
     public var networks: [NetworkStatistics]?
     public var memoryEvents: MemoryEventStatistics?
     public var filesystem: [FilesystemStatistics]?
+    /// Per-protocol traffic for the network namespace. `nil` if not requested or not reported by the guest.
+    public var protocols: NetworkProtocolStatistics?
 
     public init(
         id: String,
@@ -33,7 +35,8 @@ public struct ContainerStatistics: Sendable {
         blockIO: BlockIOStatistics? = nil,
         networks: [NetworkStatistics]? = nil,
         memoryEvents: MemoryEventStatistics? = nil,
-        filesystem: [FilesystemStatistics]? = nil
+        filesystem: [FilesystemStatistics]? = nil,
+        protocols: NetworkProtocolStatistics? = nil
     ) {
         self.id = id
         self.process = process
@@ -43,6 +46,7 @@ public struct ContainerStatistics: Sendable {
         self.networks = networks
         self.memoryEvents = memoryEvents
         self.filesystem = filesystem
+        self.protocols = protocols
     }
 
     /// Process statistics for a container.
@@ -199,6 +203,44 @@ public struct ContainerStatistics: Sendable {
             self.transmittedBytes = transmittedBytes
             self.receivedErrors = receivedErrors
             self.transmittedErrors = transmittedErrors
+        }
+    }
+
+    /// Packet and byte counters for one protocol.
+    public struct NetworkProtocolCounters: Sendable {
+        public var receivedPackets: UInt64
+        public var transmittedPackets: UInt64
+        /// Zero when the protocol has no byte counter (Linux only has one for IP as a whole).
+        public var receivedBytes: UInt64
+        public var transmittedBytes: UInt64
+
+        public init(
+            receivedPackets: UInt64 = 0,
+            transmittedPackets: UInt64 = 0,
+            receivedBytes: UInt64 = 0,
+            transmittedBytes: UInt64 = 0
+        ) {
+            self.receivedPackets = receivedPackets
+            self.transmittedPackets = transmittedPackets
+            self.receivedBytes = receivedBytes
+            self.transmittedBytes = transmittedBytes
+        }
+    }
+
+    /// Per-protocol traffic for the container's network namespace (not per interface; includes loopback).
+    /// Containers sharing a namespace, as all containers in a VM do by default, report identical values.
+    public struct NetworkProtocolStatistics: Sendable {
+        public var tcp: NetworkProtocolCounters
+        public var udp: NetworkProtocolCounters
+        public var icmp: NetworkProtocolCounters
+        /// All IP traffic. What is not tcp/udp/icmp (raw IP, other protocols) is the remainder.
+        public var ip: NetworkProtocolCounters
+
+        public init(tcp: NetworkProtocolCounters, udp: NetworkProtocolCounters, icmp: NetworkProtocolCounters, ip: NetworkProtocolCounters) {
+            self.tcp = tcp
+            self.udp = udp
+            self.icmp = icmp
+            self.ip = ip
         }
     }
 

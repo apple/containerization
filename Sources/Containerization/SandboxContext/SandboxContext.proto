@@ -429,6 +429,7 @@ message ContainerStats {
   repeated NetworkStats networks = 6;
   MemoryEventStats memory_events = 7;
   repeated FilesystemStats filesystem = 8;
+  NetworkProtocolStats protocols = 9;
 }
 
 message ProcessStats {
@@ -485,6 +486,26 @@ message NetworkStats {
   uint64 transmittedBytes = 5;
   uint64 receivedErrors = 6;
   uint64 transmittedErrors = 7;
+}
+
+// Packet and byte counters for one protocol.
+message NetworkProtocolCounters {
+  uint64 received_packets = 1;
+  uint64 transmitted_packets = 2;
+  // Zero when the protocol has no byte counter (Linux only has one for IP as a whole).
+  uint64 received_bytes = 3;
+  uint64 transmitted_bytes = 4;
+}
+
+// Per-protocol traffic for the container's network namespace (not per interface;
+// includes loopback). Containers sharing a namespace, as all containers in a VM do
+// by default, report identical values. Part of the network category.
+message NetworkProtocolStats {
+  NetworkProtocolCounters tcp = 1;
+  NetworkProtocolCounters udp = 2;
+  NetworkProtocolCounters icmp = 3;
+  // All IP traffic. Whatever is not tcp/udp/icmp (raw IP, other protocols) is the remainder.
+  NetworkProtocolCounters ip = 4;
 }
 
 // Memory event counters from cgroup2's memory.events file.

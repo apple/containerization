@@ -1604,6 +1604,15 @@ public nonisolated struct Com_Apple_Containerization_Sandbox_V3_ContainerStats: 
     set {_uniqueStorage()._filesystem = newValue}
   }
 
+  public var protocols: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolStats {
+    get {_storage._protocols ?? Com_Apple_Containerization_Sandbox_V3_NetworkProtocolStats()}
+    set {_uniqueStorage()._protocols = newValue}
+  }
+  /// Returns true if `protocols` has been explicitly set.
+  public var hasProtocols: Bool {_storage._protocols != nil}
+  /// Clears the value of `protocols`. Subsequent reads from it will return its default value.
+  public mutating func clearProtocols() {_uniqueStorage()._protocols = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -1746,6 +1755,81 @@ public nonisolated struct Com_Apple_Containerization_Sandbox_V3_NetworkStats: Se
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
+}
+
+/// Packet and byte counters for one protocol.
+public nonisolated struct Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var receivedPackets: UInt64 = 0
+
+  public var transmittedPackets: UInt64 = 0
+
+  /// Zero when the protocol has no byte counter (Linux only has one for IP as a whole).
+  public var receivedBytes: UInt64 = 0
+
+  public var transmittedBytes: UInt64 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+/// Per-protocol traffic for the container's network namespace (not per interface;
+/// includes loopback). Containers sharing a namespace, as all containers in a VM do
+/// by default, report identical values. Part of the network category.
+public nonisolated struct Com_Apple_Containerization_Sandbox_V3_NetworkProtocolStats: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var tcp: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters {
+    get {_tcp ?? Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters()}
+    set {_tcp = newValue}
+  }
+  /// Returns true if `tcp` has been explicitly set.
+  public var hasTcp: Bool {self._tcp != nil}
+  /// Clears the value of `tcp`. Subsequent reads from it will return its default value.
+  public mutating func clearTcp() {self._tcp = nil}
+
+  public var udp: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters {
+    get {_udp ?? Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters()}
+    set {_udp = newValue}
+  }
+  /// Returns true if `udp` has been explicitly set.
+  public var hasUdp: Bool {self._udp != nil}
+  /// Clears the value of `udp`. Subsequent reads from it will return its default value.
+  public mutating func clearUdp() {self._udp = nil}
+
+  public var icmp: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters {
+    get {_icmp ?? Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters()}
+    set {_icmp = newValue}
+  }
+  /// Returns true if `icmp` has been explicitly set.
+  public var hasIcmp: Bool {self._icmp != nil}
+  /// Clears the value of `icmp`. Subsequent reads from it will return its default value.
+  public mutating func clearIcmp() {self._icmp = nil}
+
+  /// All IP traffic. Whatever is not tcp/udp/icmp (raw IP, other protocols) is the remainder.
+  public var ip: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters {
+    get {_ip ?? Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters()}
+    set {_ip = newValue}
+  }
+  /// Returns true if `ip` has been explicitly set.
+  public var hasIp: Bool {self._ip != nil}
+  /// Clears the value of `ip`. Subsequent reads from it will return its default value.
+  public mutating func clearIp() {self._ip = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _tcp: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters? = nil
+  fileprivate var _udp: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters? = nil
+  fileprivate var _icmp: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters? = nil
+  fileprivate var _ip: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters? = nil
 }
 
 /// Memory event counters from cgroup2's memory.events file.
@@ -4271,7 +4355,7 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsR
 
 nonisolated extension Com_Apple_Containerization_Sandbox_V3_ContainerStats: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ContainerStats"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}container_id\0\u{1}process\0\u{1}memory\0\u{1}cpu\0\u{3}block_io\0\u{1}networks\0\u{3}memory_events\0\u{1}filesystem\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}container_id\0\u{1}process\0\u{1}memory\0\u{1}cpu\0\u{3}block_io\0\u{1}networks\0\u{3}memory_events\0\u{1}filesystem\0\u{1}protocols\0")
 
   fileprivate class _StorageClass {
     var _containerID: String = String()
@@ -4282,6 +4366,7 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_ContainerStats: Swif
     var _networks: [Com_Apple_Containerization_Sandbox_V3_NetworkStats] = []
     var _memoryEvents: Com_Apple_Containerization_Sandbox_V3_MemoryEventStats? = nil
     var _filesystem: [Com_Apple_Containerization_Sandbox_V3_FilesystemStats] = []
+    var _protocols: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolStats? = nil
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -4300,6 +4385,7 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_ContainerStats: Swif
       _networks = source._networks
       _memoryEvents = source._memoryEvents
       _filesystem = source._filesystem
+      _protocols = source._protocols
     }
   }
 
@@ -4326,6 +4412,7 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_ContainerStats: Swif
         case 6: try { try decoder.decodeRepeatedMessageField(value: &_storage._networks) }()
         case 7: try { try decoder.decodeSingularMessageField(value: &_storage._memoryEvents) }()
         case 8: try { try decoder.decodeRepeatedMessageField(value: &_storage._filesystem) }()
+        case 9: try { try decoder.decodeSingularMessageField(value: &_storage._protocols) }()
         default: break
         }
       }
@@ -4362,6 +4449,9 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_ContainerStats: Swif
       if !_storage._filesystem.isEmpty {
         try visitor.visitRepeatedMessageField(value: _storage._filesystem, fieldNumber: 8)
       }
+      try { if let v = _storage._protocols {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 9)
+      } }()
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -4379,6 +4469,7 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_ContainerStats: Swif
         if _storage._networks != rhs_storage._networks {return false}
         if _storage._memoryEvents != rhs_storage._memoryEvents {return false}
         if _storage._filesystem != rhs_storage._filesystem {return false}
+        if _storage._protocols != rhs_storage._protocols {return false}
         return true
       }
       if !storagesAreEqual {return false}
@@ -4723,6 +4814,100 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_NetworkStats: SwiftP
     if lhs.transmittedBytes != rhs.transmittedBytes {return false}
     if lhs.receivedErrors != rhs.receivedErrors {return false}
     if lhs.transmittedErrors != rhs.transmittedErrors {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".NetworkProtocolCounters"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}received_packets\0\u{3}transmitted_packets\0\u{3}received_bytes\0\u{3}transmitted_bytes\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt64Field(value: &self.receivedPackets) }()
+      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.transmittedPackets) }()
+      case 3: try { try decoder.decodeSingularUInt64Field(value: &self.receivedBytes) }()
+      case 4: try { try decoder.decodeSingularUInt64Field(value: &self.transmittedBytes) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.receivedPackets != 0 {
+      try visitor.visitSingularUInt64Field(value: self.receivedPackets, fieldNumber: 1)
+    }
+    if self.transmittedPackets != 0 {
+      try visitor.visitSingularUInt64Field(value: self.transmittedPackets, fieldNumber: 2)
+    }
+    if self.receivedBytes != 0 {
+      try visitor.visitSingularUInt64Field(value: self.receivedBytes, fieldNumber: 3)
+    }
+    if self.transmittedBytes != 0 {
+      try visitor.visitSingularUInt64Field(value: self.transmittedBytes, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters, rhs: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters) -> Bool {
+    if lhs.receivedPackets != rhs.receivedPackets {return false}
+    if lhs.transmittedPackets != rhs.transmittedPackets {return false}
+    if lhs.receivedBytes != rhs.receivedBytes {return false}
+    if lhs.transmittedBytes != rhs.transmittedBytes {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Com_Apple_Containerization_Sandbox_V3_NetworkProtocolStats: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".NetworkProtocolStats"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}tcp\0\u{1}udp\0\u{1}icmp\0\u{1}ip\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._tcp) }()
+      case 2: try { try decoder.decodeSingularMessageField(value: &self._udp) }()
+      case 3: try { try decoder.decodeSingularMessageField(value: &self._icmp) }()
+      case 4: try { try decoder.decodeSingularMessageField(value: &self._ip) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._tcp {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._udp {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    } }()
+    try { if let v = self._icmp {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+    } }()
+    try { if let v = self._ip {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolStats, rhs: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolStats) -> Bool {
+    if lhs._tcp != rhs._tcp {return false}
+    if lhs._udp != rhs._udp {return false}
+    if lhs._icmp != rhs._icmp {return false}
+    if lhs._ip != rhs._ip {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
