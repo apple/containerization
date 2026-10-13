@@ -111,6 +111,16 @@ public struct ProcNetSnmp: Sendable, Equatable {
     }
 
     /// Returns `[protocol: [field: value]]` from alternating header/value lines.
+    ///
+    /// Given
+    /// ```
+    /// Udp: InDatagrams NoPorts InErrors
+    /// Udp: 300 1 0
+    /// Tcp: RtoAlgorithm MaxConn InSegs
+    /// Tcp: 1 -1 600
+    /// ```
+    /// this returns `["Udp": ["InDatagrams": 300, "NoPorts": 1, "InErrors": 0], "Tcp": ["RtoAlgorithm": 1, "InSegs": 600]]`.
+    /// `MaxConn` is left out because `-1` doesn't parse as unsigned.
     private static func tables(_ contents: String) -> [String: [String: UInt64]] {
         var result: [String: [String: UInt64]] = [:]
         var header: (proto: String, names: [Substring])?
