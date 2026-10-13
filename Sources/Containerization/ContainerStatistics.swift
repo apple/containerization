@@ -194,8 +194,8 @@ public struct ContainerStatistics: Sendable {
             transmittedBytes: UInt64,
             receivedErrors: UInt64,
             transmittedErrors: UInt64,
-            receivedDropped: UInt64 = 0,
-            transmittedDropped: UInt64 = 0
+            receivedDropped: UInt64,
+            transmittedDropped: UInt64
         ) {
             self.interface = interface
             self.receivedPackets = receivedPackets
