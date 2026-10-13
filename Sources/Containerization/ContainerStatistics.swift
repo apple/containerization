@@ -213,17 +213,43 @@ public struct ContainerStatistics: Sendable {
         /// Zero when the protocol has no byte counter (Linux only has one for IP as a whole).
         public var receivedBytes: UInt64
         public var transmittedBytes: UInt64
+        /// Packets the stack discarded for lack of resources or a destination.
+        ///
+        /// The kernel attributes drops and errors to different causes for each protocol, so
+        /// values are comparable over time for one protocol but not across protocols. Zero
+        /// when the kernel has no matching counter, which is not the same as "none happened".
+        /// - TCP: listen queue overflow, socket backlog and receive queue drops (receive only).
+        /// - UDP: full socket buffer or no socket on the port (receive); full send buffer (transmit).
+        /// - ICMP: no drop counters.
+        /// - IP: discarded valid packets and missing routes.
+        public var receivedDrops: UInt64
+        public var transmittedDrops: UInt64
+        /// Packets that were malformed or failed processing.
+        /// - TCP: bad checksum or header (receive only).
+        /// - UDP: e.g. bad checksum, excluding full-buffer drops (receive only).
+        /// - ICMP: receive and transmit errors.
+        /// - IP: bad header, bad address or unknown protocol (receive); fragmentation failures (transmit).
+        public var receivedErrors: UInt64
+        public var transmittedErrors: UInt64
 
         public init(
             receivedPackets: UInt64 = 0,
             transmittedPackets: UInt64 = 0,
             receivedBytes: UInt64 = 0,
-            transmittedBytes: UInt64 = 0
+            transmittedBytes: UInt64 = 0,
+            receivedDrops: UInt64 = 0,
+            transmittedDrops: UInt64 = 0,
+            receivedErrors: UInt64 = 0,
+            transmittedErrors: UInt64 = 0
         ) {
             self.receivedPackets = receivedPackets
             self.transmittedPackets = transmittedPackets
             self.receivedBytes = receivedBytes
             self.transmittedBytes = transmittedBytes
+            self.receivedDrops = receivedDrops
+            self.transmittedDrops = transmittedDrops
+            self.receivedErrors = receivedErrors
+            self.transmittedErrors = transmittedErrors
         }
     }
 

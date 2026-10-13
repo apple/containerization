@@ -52,6 +52,49 @@ struct ProcNetSnmpTests {
         #expect(s.ip.transmittedBytes == 654321)
     }
 
+    static let errorsSnmp = """
+        Ip: InHdrErrors InAddrErrors InUnknownProtos InDiscards OutDiscards OutNoRoutes FragFails
+        Ip: 1 2 3 4 5 6 7
+        Icmp: InErrors OutErrors
+        Icmp: 8 9
+        Tcp: InErrs
+        Tcp: 10
+        Udp: NoPorts InErrors RcvbufErrors SndbufErrors
+        Udp: 11 20 12 13
+        """
+
+    static let errorsNetstat = """
+        TcpExt: ListenDrops TCPBacklogDrop TCPRcvQDrop
+        TcpExt: 14 15 16
+        IpExt: InNoRoutes
+        IpExt: 17
+        """
+
+    @Test func parsesDropsAndErrors() {
+        let s = ProcNetSnmp(snmp: Self.errorsSnmp, netstat: Self.errorsNetstat)
+        #expect(s.tcp.receivedDrops == 14 + 15 + 16)
+        #expect(s.tcp.receivedErrors == 10)
+        #expect(s.tcp.transmittedDrops == 0)
+        #expect(s.tcp.transmittedErrors == 0)
+        // RcvbufErrors + NoPorts; InErrors minus the RcvbufErrors it already includes.
+        #expect(s.udp.receivedDrops == 12 + 11)
+        #expect(s.udp.receivedErrors == 20 - 12)
+        #expect(s.udp.transmittedDrops == 13)
+        #expect(s.icmp.receivedErrors == 8)
+        #expect(s.icmp.transmittedErrors == 9)
+        #expect(s.icmp.receivedDrops == 0)
+        #expect(s.ip.receivedDrops == 4 + 17)
+        #expect(s.ip.receivedErrors == 1 + 2 + 3)
+        #expect(s.ip.transmittedDrops == 5 + 6)
+        #expect(s.ip.transmittedErrors == 7)
+    }
+
+    @Test func udpErrorsClampWhenRcvbufExceedsInErrors() {
+        let s = ProcNetSnmp(snmp: "Udp: InErrors RcvbufErrors\nUdp: 3 5\n")
+        #expect(s.udp.receivedErrors == 0)
+        #expect(s.udp.receivedDrops == 5)
+    }
+
     @Test func missingNetstatLeavesIPBytesZero() {
         let s = ProcNetSnmp(snmp: Self.snmp)
         #expect(s.ip.receivedPackets == 1000)

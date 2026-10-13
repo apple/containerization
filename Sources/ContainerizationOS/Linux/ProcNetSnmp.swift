@@ -33,6 +33,13 @@ public struct ProcNetSnmp: Sendable, Equatable {
         public var transmittedPackets: UInt64 = 0
         public var receivedBytes: UInt64 = 0
         public var transmittedBytes: UInt64 = 0
+        /// Packets discarded for lack of resources or a destination. The kernel's
+        /// causes differ per protocol; see the field mapping in `init(snmp:netstat:)`.
+        public var receivedDrops: UInt64 = 0
+        public var transmittedDrops: UInt64 = 0
+        /// Malformed or failed packets. Causes differ per protocol, as for drops.
+        public var receivedErrors: UInt64 = 0
+        public var transmittedErrors: UInt64 = 0
 
         public init() {}
     }
@@ -66,6 +73,32 @@ public struct ProcNetSnmp: Sendable, Equatable {
         ip.transmittedPackets = snmpTables["Ip"]?["OutRequests"] ?? 0
         ip.receivedBytes = netstatTables["IpExt"]?["InOctets"] ?? 0
         ip.transmittedBytes = netstatTables["IpExt"]?["OutOctets"] ?? 0
+
+        // Drops and errors. The kernel has no uniform notion of either, so each
+        // protocol maps the counters that fit best; unavailable ones stay zero.
+        func sum(_ table: [String: UInt64]?, _ names: String...) -> UInt64 {
+            names.reduce(0) { $0 &+ (table?[$1] ?? 0) }
+        }
+        let tcpExt = netstatTables["TcpExt"]
+        let udpTable = snmpTables["Udp"]
+        let ipTable = snmpTables["Ip"]
+
+        tcp.receivedDrops = sum(tcpExt, "ListenDrops", "TCPBacklogDrop", "TCPRcvQDrop")
+        tcp.receivedErrors = snmpTables["Tcp"]?["InErrs"] ?? 0
+
+        // Udp InErrors already includes RcvbufErrors, so subtract it to keep the two disjoint.
+        udp.receivedDrops = sum(udpTable, "RcvbufErrors", "NoPorts")
+        udp.receivedErrors = (udpTable?["InErrors"] ?? 0).subtractingClamped(udpTable?["RcvbufErrors"] ?? 0)
+        udp.transmittedDrops = udpTable?["SndbufErrors"] ?? 0
+
+        icmp.receivedErrors = snmpTables["Icmp"]?["InErrors"] ?? 0
+        icmp.transmittedErrors = snmpTables["Icmp"]?["OutErrors"] ?? 0
+
+        // InNoRoutes lives in IpExt (netstat), not Ip (snmp).
+        ip.receivedDrops = sum(ipTable, "InDiscards") &+ sum(netstatTables["IpExt"], "InNoRoutes")
+        ip.receivedErrors = sum(ipTable, "InHdrErrors", "InAddrErrors", "InUnknownProtos")
+        ip.transmittedDrops = sum(ipTable, "OutDiscards", "OutNoRoutes")
+        ip.transmittedErrors = ipTable?["FragFails"] ?? 0
     }
 
     /// Read the counters for the network namespace of process `pid`, or of the
@@ -103,5 +136,11 @@ public struct ProcNetSnmp: Sendable, Equatable {
             header = nil
         }
         return result
+    }
+}
+
+extension UInt64 {
+    fileprivate func subtractingClamped(_ other: UInt64) -> UInt64 {
+        self > other ? self - other : 0
     }
 }

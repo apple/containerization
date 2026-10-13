@@ -1825,6 +1825,10 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                 $0.transmittedPackets = c.transmittedPackets
                 $0.receivedBytes = c.receivedBytes
                 $0.transmittedBytes = c.transmittedBytes
+                $0.receivedDrops = c.receivedDrops
+                $0.transmittedDrops = c.transmittedDrops
+                $0.receivedErrors = c.receivedErrors
+                $0.transmittedErrors = c.transmittedErrors
             }
         }
         return .with {

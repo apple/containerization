@@ -675,7 +675,11 @@ extension ContainerStatistics.NetworkProtocolCounters {
             receivedPackets: proto.receivedPackets,
             transmittedPackets: proto.transmittedPackets,
             receivedBytes: proto.receivedBytes,
-            transmittedBytes: proto.transmittedBytes
+            transmittedBytes: proto.transmittedBytes,
+            receivedDrops: proto.receivedDrops,
+            transmittedDrops: proto.transmittedDrops,
+            receivedErrors: proto.receivedErrors,
+            transmittedErrors: proto.transmittedErrors
         )
     }
 }

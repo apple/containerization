@@ -967,6 +967,41 @@ extension IntegrationSuite {
                     msg: "ip bytes should increase, got rx \(before.ip.receivedBytes)->\(after.ip.receivedBytes) tx \(before.ip.transmittedBytes)->\(after.ip.transmittedBytes)")
             }
 
+            // Datagrams to a closed loopback port have no socket to land on, which
+            // the kernel counts as a UDP receive drop (Udp NoPorts).
+            let datagrams: UInt64 = 3
+            let send = try await container.exec("udp-closed-port") { config in
+                config.arguments = ["sh", "-c", "for i in $(seq \(datagrams)); do echo x | nc -u -w 1 127.0.0.1 9; done; true"]
+            }
+            try await send.start()
+            let sendStatus = try await send.wait()
+            try await send.delete()
+            guard sendStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "udp send failed with exit code \(sendStatus.exitCode)")
+            }
+
+            guard let last = try await container.statistics(categories: .network).protocols else {
+                throw IntegrationError.assert(msg: "expected protocols to be present after udp traffic")
+            }
+
+            let udpDrops = last.udp.receivedDrops - after.udp.receivedDrops
+            guard udpDrops >= datagrams else {
+                throw IntegrationError.assert(msg: "expected udp receivedDrops to grow by >= \(datagrams), got \(udpDrops)")
+            }
+
+            // Drop and error counters are cumulative, so none may go backwards.
+            let pairs: [(String, ContainerStatistics.NetworkProtocolCounters, ContainerStatistics.NetworkProtocolCounters)] = [
+                ("tcp", before.tcp, last.tcp), ("udp", before.udp, last.udp), ("icmp", before.icmp, last.icmp), ("ip", before.ip, last.ip),
+            ]
+            for (name, old, new) in pairs {
+                guard
+                    new.receivedDrops >= old.receivedDrops, new.transmittedDrops >= old.transmittedDrops,
+                    new.receivedErrors >= old.receivedErrors, new.transmittedErrors >= old.transmittedErrors
+                else {
+                    throw IntegrationError.assert(msg: "\(name) drop/error counters decreased: \(old) -> \(new)")
+                }
+            }
+
             try await container.kill(.kill)
             try await container.wait()
             try await container.stop()
