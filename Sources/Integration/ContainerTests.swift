@@ -5248,6 +5248,71 @@ extension IntegrationSuite {
     }
 
     @available(macOS 26.0, *)
+    func testContainerNetworkInterfaceStatistics() async throws {
+        let id = "test-container-network-interface-statistics"
+        let bs = try await bootstrap(id)
+
+        let network = try VmnetNetwork()
+        var manager = try ContainerManager(vmm: bs.vmm, network: network)
+        defer {
+            try? manager.delete(id)
+        }
+
+        let container = try await manager.create(
+            id,
+            image: bs.image,
+            rootfs: bs.rootfs
+        ) { config in
+            config.process.arguments = ["sleep", "infinity"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            func eth0(_ stats: ContainerStatistics) throws -> ContainerStatistics.NetworkStatistics {
+                guard let eth0 = stats.networks?.first(where: { $0.interface == "eth0" }) else {
+                    throw IntegrationError.assert(msg: "expected eth0 in network statistics, got \(stats.networks?.map(\.interface) ?? [])")
+                }
+                return eth0
+            }
+
+            let before = try eth0(try await container.statistics(categories: .network))
+
+            // Generate some traffic across the interface. The gateway may not answer
+            // ping, so the exit code is ignored; the packets still go out eth0.
+            let exec = try await container.exec("ping-gateway") { config in
+                config.arguments = ["sh", "-c", "ping -c 3 -W 1 $(ip route | awk '/default/ {print $3; exit}'); true"]
+            }
+            try await exec.start()
+            _ = try await exec.wait()
+            try await exec.delete()
+
+            let after = try eth0(try await container.statistics(categories: .network))
+
+            guard after.transmittedPackets > before.transmittedPackets else {
+                throw IntegrationError.assert(msg: "expected eth0 transmittedPackets to grow, got \(before.transmittedPackets) -> \(after.transmittedPackets)")
+            }
+
+            // Drop counters are cumulative, so they must never go backwards.
+            guard after.receivedDropped >= before.receivedDropped, after.transmittedDropped >= before.transmittedDropped else {
+                throw IntegrationError.assert(
+                    msg:
+                        "eth0 dropped counters decreased: rx \(before.receivedDropped)->\(after.receivedDropped) tx \(before.transmittedDropped)->\(after.transmittedDropped)"
+                )
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
+    @available(macOS 26.0, *)
     func testNetworkingEnabledIPv6() async throws {
         let id = "test-networking-enabled-ipv6"
         let bs = try await bootstrap(id)

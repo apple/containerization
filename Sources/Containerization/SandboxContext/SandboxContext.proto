@@ -486,6 +486,9 @@ message NetworkStats {
   uint64 transmittedBytes = 5;
   uint64 receivedErrors = 6;
   uint64 transmittedErrors = 7;
+  // Packets the device dropped (e.g. full rx ring or tx queue), from rtnl_link_stats64.
+  uint64 receivedDropped = 8;
+  uint64 transmittedDropped = 9;
 }
 
 // Packet and byte counters for one protocol.
