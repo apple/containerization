@@ -188,7 +188,9 @@ extension Vminitd: VirtualMachineAgent {
                             inodes: entry.inodes,
                             freeInodes: entry.freeInodes
                         )
-                    } : nil
+                    } : nil,
+                protocols: categories.contains(.network) && protoStats.hasProtocols
+                    ? .init(protoStats.protocols) : nil
             )
         }
     }
@@ -664,5 +666,26 @@ extension FilesystemOperation {
                     $0.oneShot = .init()
                 })
         }
+    }
+}
+
+extension ContainerStatistics.NetworkProtocolCounters {
+    init(_ proto: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters) {
+        self.init(
+            receivedPackets: proto.receivedPackets,
+            transmittedPackets: proto.transmittedPackets,
+            receivedBytes: proto.receivedBytes,
+            transmittedBytes: proto.transmittedBytes,
+            receivedDrops: proto.receivedDrops,
+            transmittedDrops: proto.transmittedDrops,
+            receivedErrors: proto.receivedErrors,
+            transmittedErrors: proto.transmittedErrors
+        )
+    }
+}
+
+extension ContainerStatistics.NetworkProtocolStatistics {
+    init(_ proto: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolStats) {
+        self.init(tcp: .init(proto.tcp), udp: .init(proto.udp), icmp: .init(proto.icmp), ip: .init(proto.ip))
     }
 }

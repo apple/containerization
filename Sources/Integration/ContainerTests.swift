@@ -910,6 +910,107 @@ extension IntegrationSuite {
         }
     }
 
+    func testContainerNetworkProtocolStatistics() async throws {
+        let id = "test-container-network-protocol-statistics"
+
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "infinity"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Protocol counters are only reported with the network category.
+            let nonNetwork = try await container.statistics(categories: .memory)
+            guard nonNetwork.protocols == nil else {
+                throw IntegrationError.assert(msg: "protocols should be nil when .network is not requested")
+            }
+
+            guard let before = try await container.statistics(categories: .network).protocols else {
+                throw IntegrationError.assert(msg: "expected protocols to be present when .network is requested")
+            }
+
+            // Loopback traffic counts toward the namespace's protocol counters.
+            let pings: UInt64 = 5
+            let exec = try await container.exec("ping-loopback") { config in
+                config.arguments = ["ping", "-c", "\(pings)", "127.0.0.1"]
+            }
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "ping failed with exit code \(status.exitCode)")
+            }
+
+            guard let after = try await container.statistics(categories: .network).protocols else {
+                throw IntegrationError.assert(msg: "expected protocols to be present after traffic")
+            }
+
+            // Each ping sends an echo request and receives a reply on loopback.
+            let icmpRx = after.icmp.receivedPackets - before.icmp.receivedPackets
+            let icmpTx = after.icmp.transmittedPackets - before.icmp.transmittedPackets
+            guard icmpRx >= pings, icmpTx >= pings else {
+                throw IntegrationError.assert(msg: "expected icmp rx/tx >= \(pings), got rx=\(icmpRx) tx=\(icmpTx)")
+            }
+
+            let ipRx = after.ip.receivedPackets - before.ip.receivedPackets
+            let ipTx = after.ip.transmittedPackets - before.ip.transmittedPackets
+            guard ipRx >= icmpRx, ipTx >= icmpTx else {
+                throw IntegrationError.assert(msg: "ip packets should cover icmp, got ip rx=\(ipRx) tx=\(ipTx), icmp rx=\(icmpRx) tx=\(icmpTx)")
+            }
+
+            guard after.ip.receivedBytes > before.ip.receivedBytes, after.ip.transmittedBytes > before.ip.transmittedBytes else {
+                throw IntegrationError.assert(
+                    msg: "ip bytes should increase, got rx \(before.ip.receivedBytes)->\(after.ip.receivedBytes) tx \(before.ip.transmittedBytes)->\(after.ip.transmittedBytes)")
+            }
+
+            // Datagrams to a closed loopback port have no socket to land on, which
+            // the kernel counts as a UDP receive drop (Udp NoPorts).
+            let datagrams: UInt64 = 3
+            let send = try await container.exec("udp-closed-port") { config in
+                config.arguments = ["sh", "-c", "for i in $(seq \(datagrams)); do echo x | nc -u -w 1 127.0.0.1 9; done; true"]
+            }
+            try await send.start()
+            let sendStatus = try await send.wait()
+            try await send.delete()
+            guard sendStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "udp send failed with exit code \(sendStatus.exitCode)")
+            }
+
+            guard let last = try await container.statistics(categories: .network).protocols else {
+                throw IntegrationError.assert(msg: "expected protocols to be present after udp traffic")
+            }
+
+            let udpDrops = last.udp.receivedDrops - after.udp.receivedDrops
+            guard udpDrops >= datagrams else {
+                throw IntegrationError.assert(msg: "expected udp receivedDrops to grow by >= \(datagrams), got \(udpDrops)")
+            }
+
+            // Drop and error counters are cumulative, so none may go backwards.
+            let pairs: [(String, ContainerStatistics.NetworkProtocolCounters, ContainerStatistics.NetworkProtocolCounters)] = [
+                ("tcp", before.tcp, last.tcp), ("udp", before.udp, last.udp), ("icmp", before.icmp, last.icmp), ("ip", before.ip, last.ip),
+            ]
+            for (name, old, new) in pairs {
+                guard
+                    new.receivedDrops >= old.receivedDrops, new.transmittedDrops >= old.transmittedDrops,
+                    new.receivedErrors >= old.receivedErrors, new.transmittedErrors >= old.transmittedErrors
+                else {
+                    throw IntegrationError.assert(msg: "\(name) drop/error counters decreased: \(old) -> \(new)")
+                }
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
     func testCgroupLimits() async throws {
         let id = "test-cgroup-limits"
 
