@@ -1743,6 +1743,11 @@ public nonisolated struct Com_Apple_Containerization_Sandbox_V3_NetworkStats: Se
 
   public var transmittedErrors: UInt64 = 0
 
+  /// Packets the device dropped (e.g. full rx ring or tx queue), from rtnl_link_stats64.
+  public var receivedDropped: UInt64 = 0
+
+  public var transmittedDropped: UInt64 = 0
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -4670,7 +4675,7 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_BlockIOEntry: SwiftP
 
 nonisolated extension Com_Apple_Containerization_Sandbox_V3_NetworkStats: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".NetworkStats"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}interface\0\u{1}receivedPackets\0\u{1}transmittedPackets\0\u{1}receivedBytes\0\u{1}transmittedBytes\0\u{1}receivedErrors\0\u{1}transmittedErrors\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}interface\0\u{1}receivedPackets\0\u{1}transmittedPackets\0\u{1}receivedBytes\0\u{1}transmittedBytes\0\u{1}receivedErrors\0\u{1}transmittedErrors\0\u{1}receivedDropped\0\u{1}transmittedDropped\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -4685,6 +4690,8 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_NetworkStats: SwiftP
       case 5: try { try decoder.decodeSingularUInt64Field(value: &self.transmittedBytes) }()
       case 6: try { try decoder.decodeSingularUInt64Field(value: &self.receivedErrors) }()
       case 7: try { try decoder.decodeSingularUInt64Field(value: &self.transmittedErrors) }()
+      case 8: try { try decoder.decodeSingularUInt64Field(value: &self.receivedDropped) }()
+      case 9: try { try decoder.decodeSingularUInt64Field(value: &self.transmittedDropped) }()
       default: break
       }
     }
@@ -4712,6 +4719,12 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_NetworkStats: SwiftP
     if self.transmittedErrors != 0 {
       try visitor.visitSingularUInt64Field(value: self.transmittedErrors, fieldNumber: 7)
     }
+    if self.receivedDropped != 0 {
+      try visitor.visitSingularUInt64Field(value: self.receivedDropped, fieldNumber: 8)
+    }
+    if self.transmittedDropped != 0 {
+      try visitor.visitSingularUInt64Field(value: self.transmittedDropped, fieldNumber: 9)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -4723,6 +4736,8 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_NetworkStats: SwiftP
     if lhs.transmittedBytes != rhs.transmittedBytes {return false}
     if lhs.receivedErrors != rhs.receivedErrors {return false}
     if lhs.transmittedErrors != rhs.transmittedErrors {return false}
+    if lhs.receivedDropped != rhs.receivedDropped {return false}
+    if lhs.transmittedDropped != rhs.transmittedDropped {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

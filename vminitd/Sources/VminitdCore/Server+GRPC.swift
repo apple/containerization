@@ -1713,6 +1713,8 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                                     $0.transmittedBytes = stats.txBytes
                                     $0.receivedErrors = stats.rxErrors
                                     $0.transmittedErrors = stats.txErrors
+                                    $0.receivedDropped = stats.rxDropped
+                                    $0.transmittedDropped = stats.txDropped
                                 })
                         }
                     }

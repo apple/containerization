@@ -182,6 +182,9 @@ public struct ContainerStatistics: Sendable {
         public var transmittedBytes: UInt64
         public var receivedErrors: UInt64
         public var transmittedErrors: UInt64
+        /// Packets the device dropped (e.g. full rx ring or tx queue).
+        public var receivedDropped: UInt64
+        public var transmittedDropped: UInt64
 
         public init(
             interface: String,
@@ -190,7 +193,9 @@ public struct ContainerStatistics: Sendable {
             receivedBytes: UInt64,
             transmittedBytes: UInt64,
             receivedErrors: UInt64,
-            transmittedErrors: UInt64
+            transmittedErrors: UInt64,
+            receivedDropped: UInt64 = 0,
+            transmittedDropped: UInt64 = 0
         ) {
             self.interface = interface
             self.receivedPackets = receivedPackets
@@ -199,6 +204,8 @@ public struct ContainerStatistics: Sendable {
             self.transmittedBytes = transmittedBytes
             self.receivedErrors = receivedErrors
             self.transmittedErrors = transmittedErrors
+            self.receivedDropped = receivedDropped
+            self.transmittedDropped = transmittedDropped
         }
     }
 

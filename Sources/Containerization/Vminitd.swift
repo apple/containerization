@@ -167,7 +167,9 @@ extension Vminitd: VirtualMachineAgent {
                             receivedBytes: network.receivedBytes,
                             transmittedBytes: network.transmittedBytes,
                             receivedErrors: network.receivedErrors,
-                            transmittedErrors: network.transmittedErrors
+                            transmittedErrors: network.transmittedErrors,
+                            receivedDropped: network.receivedDropped,
+                            transmittedDropped: network.transmittedDropped
                         )
                     } : nil,
                 memoryEvents: categories.contains(.memoryEvents) && protoStats.hasMemoryEvents
