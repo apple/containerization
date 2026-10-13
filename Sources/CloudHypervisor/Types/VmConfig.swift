@@ -68,6 +68,30 @@ extension CloudHypervisor {
 
     // MARK: - CpusConfig
 
+    /// Guest CPU feature toggles.
+    ///
+    /// Maps to `CpuFeatures` in the Cloud Hypervisor OpenAPI spec.
+    public struct CpuFeatures: Sendable, Codable, Equatable {
+        /// Enable AMX tile state for the guest (x86_64 only).
+        public var amx: Bool?
+
+        public init(amx: Bool? = nil) {
+            self.amx = amx
+        }
+    }
+
+    /// How Cloud Hypervisor groups vCPU threads for Linux core scheduling.
+    ///
+    /// Maps to `CoreSchedulingMode` in the Cloud Hypervisor OpenAPI spec.
+    public enum CoreSchedulingMode: String, Codable, Sendable {
+        /// All vCPU threads of the VM share one core scheduling cookie.
+        case Vm
+        /// Each vCPU thread has its own core scheduling cookie.
+        case Vcpu
+        /// No core scheduling.
+        case Off
+    }
+
     /// CPU configuration for a VM.
     ///
     /// Maps to `CpusConfig` in the Cloud Hypervisor OpenAPI spec.
@@ -76,15 +100,34 @@ extension CloudHypervisor {
         public var bootVcpus: Int
         /// Maximum number of vCPUs (for hotplug).
         public var maxVcpus: Int
+        /// Guest CPU features. Nil leaves the Cloud Hypervisor defaults.
+        public var features: CpuFeatures?
+        /// Core scheduling mode. Nil means the Cloud Hypervisor default, `.Vm`.
+        public var coreScheduling: CoreSchedulingMode?
+        /// Expose VMX (Intel) or SVM (AMD) to the guest, so that it can run its own
+        /// VMs. Nil means the Cloud Hypervisor default, true.
+        public var nested: Bool?
 
-        public init(bootVcpus: Int, maxVcpus: Int) {
+        public init(
+            bootVcpus: Int,
+            maxVcpus: Int,
+            features: CpuFeatures? = nil,
+            coreScheduling: CoreSchedulingMode? = nil,
+            nested: Bool? = nil
+        ) {
             self.bootVcpus = bootVcpus
             self.maxVcpus = maxVcpus
+            self.features = features
+            self.coreScheduling = coreScheduling
+            self.nested = nested
         }
 
         enum CodingKeys: String, CodingKey {
             case bootVcpus = "boot_vcpus"
             case maxVcpus = "max_vcpus"
+            case features
+            case coreScheduling = "core_scheduling"
+            case nested
         }
     }
 
@@ -105,12 +148,25 @@ extension CloudHypervisor {
         /// CH otherwise rejects `vm.boot` with "Using vhost-user requires
         /// using shared memory or huge pages".
         public var shared: Bool?
+        /// Back guest RAM with hugetlbfs pages of the host's default huge page size.
+        public var hugepages: Bool?
+        /// Populate all guest RAM when the VM boots (`MADV_POPULATE_WRITE`).
+        public var prefault: Bool?
 
-        public init(size: UInt64, hotplugSize: UInt64? = nil, mergeable: Bool? = nil, shared: Bool? = nil) {
+        public init(
+            size: UInt64,
+            hotplugSize: UInt64? = nil,
+            mergeable: Bool? = nil,
+            shared: Bool? = nil,
+            hugepages: Bool? = nil,
+            prefault: Bool? = nil
+        ) {
             self.size = size
             self.hotplugSize = hotplugSize
             self.mergeable = mergeable
             self.shared = shared
+            self.hugepages = hugepages
+            self.prefault = prefault
         }
 
         enum CodingKeys: String, CodingKey {
@@ -118,6 +174,8 @@ extension CloudHypervisor {
             case hotplugSize = "hotplug_size"
             case mergeable
             case shared
+            case hugepages
+            case prefault
         }
     }
 
