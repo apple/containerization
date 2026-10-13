@@ -247,6 +247,34 @@ struct LinuxContainerTests {
         #expect(vmConfig.memoryInBytes == 2048.mib())
     }
 
+    @Test func runtimeSpecCarriesUnifiedResources() throws {
+        let container = try LinuxContainer(
+            "unified-test",
+            rootfs: .block(format: "ext4", source: "/dev/null", destination: "/", options: []),
+            vmm: StubVMM()
+        ) { config in
+            config.process.arguments = ["/bin/true"]
+            config.unified = ["memory.oom.group": "1"]
+        }
+
+        let spec = try container.generateRuntimeSpec(for: .containerInit)
+        #expect(spec.linux?.resources?.unified == ["memory.oom.group": "1"])
+        #expect(spec.linux?.resources?.memory?.limit == Int64(1024.mib()))
+    }
+
+    @Test func runtimeSpecOmitsEmptyUnifiedResources() throws {
+        let container = try LinuxContainer(
+            "unified-empty-test",
+            rootfs: .block(format: "ext4", source: "/dev/null", destination: "/", options: []),
+            vmm: StubVMM()
+        ) { config in
+            config.process.arguments = ["/bin/true"]
+        }
+
+        let spec = try container.generateRuntimeSpec(for: .containerInit)
+        #expect(spec.linux?.resources?.unified?.isEmpty ?? true)
+    }
+
     @Test func containerConfigurationDefaultLimits() {
         let viaProperty = LinuxContainer.Configuration()
         let viaInit = LinuxContainer.Configuration(process: LinuxProcessConfiguration(arguments: ["/bin/sh"]))

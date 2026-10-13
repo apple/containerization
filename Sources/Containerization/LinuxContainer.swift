@@ -123,6 +123,11 @@ public final class LinuxContainer: Container, Sendable {
         /// Run the container with a minimal init process that handles signal
         /// forwarding and zombie reaping.
         public var useInit: Bool = false
+        /// cgroup v2 files to write in the container's cgroup, as OCI
+        /// `linux.resources.unified`: file name to value, for example
+        /// `["memory.oom.group": "1"]`. The guest writes them after the limits
+        /// above, so a key here wins over them, as in runc.
+        public var unified: [String: String] = [:]
 
         public init() {}
 
@@ -499,6 +504,9 @@ public final class LinuxContainer: Container, Sendable {
                 period: 100_000
             )
         )
+        if !config.unified.isEmpty {
+            spec.linux?.resources?.unified = config.unified
+        }
 
         spec.linux?.namespaces = [
             LinuxNamespace(type: .cgroup),
