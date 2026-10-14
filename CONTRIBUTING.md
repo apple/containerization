@@ -35,10 +35,8 @@ Once an idea is well-defined enough to act on, open an issue for it and link bac
 
 To file a bug or feature request, use GitHub issues in the project that owns the behavior:
 
-- [container](https://github.com/apple/container/issues/new) — the `container` CLI and its commands, the API server and system services, container networking and DNS, and image, volume, and builder workflows driven from the CLI.
-- [containerization](https://github.com/apple/containerization/issues/new) — the Swift packages (`Containerization`, `ContainerizationOCI`, `ContainerizationEXT4`, and others), `cctl`, `vminitd` and the guest environment, kernel builds, and the Linux (cloud-hypervisor) backend.
-
-If you're not sure which project an issue belongs to, file it in [container](https://github.com/apple/container/issues/new) and maintainers will move it if needed.
+- [container](https://github.com/apple/container/issues/new) 
+- [containerization](https://github.com/apple/containerization/issues/new) 
 
 🚧 For unexpected behavior or usability limitations, detailed instructions on how to reproduce the issue are appreciated. This will greatly help the priority setting and speed at which maintainers can get to your issue. See [Filing effective bug reports](#filing-effective-bug-reports) for what to include.
 
