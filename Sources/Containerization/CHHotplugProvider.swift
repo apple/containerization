@@ -49,6 +49,7 @@ final class CHHotplugProvider: HotplugProvider {
     private let client: CloudHypervisor.Client
     private let workDir: URL
     private let virtiofsdBinaryOverride: URL?
+    private let virtiofsdOptions: VirtiofsdOptions
     private let allocator: any AddressAllocator<Character>
     private let _mounts: Mutex<[String: [AttachedFilesystem]]>
     private let _records: Mutex<[String: [HotplugRecord]]>
@@ -64,6 +65,7 @@ final class CHHotplugProvider: HotplugProvider {
         client: CloudHypervisor.Client,
         workDir: URL,
         virtiofsdBinary: URL?,
+        virtiofsdOptions: VirtiofsdOptions = .init(),
         allocator: any AddressAllocator<Character>,
         initialMounts: [String: [AttachedFilesystem]],
         logger: Logger?
@@ -71,6 +73,7 @@ final class CHHotplugProvider: HotplugProvider {
         self.client = client
         self.workDir = workDir
         self.virtiofsdBinaryOverride = virtiofsdBinary
+        self.virtiofsdOptions = virtiofsdOptions
         self.allocator = allocator
         self._mounts = Mutex(initialMounts)
         self._records = Mutex([:])
@@ -265,7 +268,8 @@ final class CHHotplugProvider: HotplugProvider {
                     binary: virtiofsdBinary,
                     socketPath: socket,
                     sharedDir: URL(fileURLWithPath: source),
-                    readonly: readonly
+                    readonly: readonly,
+                    options: self.virtiofsdOptions
                 ),
                 logger: self.logger
             )

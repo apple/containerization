@@ -40,6 +40,24 @@ final class VirtiofsdProcess: Sendable {
         let socketPath: URL
         let sharedDir: URL
         let readonly: Bool
+        var options: VirtiofsdOptions = .init()
+    }
+
+    /// The virtiofsd command line for `config`, without the binary.
+    /// `sandboxDisabled` adds `--sandbox none` (see `start()`).
+    static func arguments(config: Config, sandboxDisabled: Bool) -> [String] {
+        var arguments = [
+            "--socket-path", config.socketPath.path,
+            "--shared-dir", config.sharedDir.path,
+        ]
+        if sandboxDisabled {
+            arguments.append(contentsOf: ["--sandbox", "none"])
+        }
+        if config.readonly {
+            arguments.append("--readonly")
+        }
+        arguments.append(contentsOf: config.options.arguments)
+        return arguments
     }
 
     private struct State {
@@ -59,11 +77,8 @@ final class VirtiofsdProcess: Sendable {
 
     /// Spawn virtiofsd and wait for its UDS to accept connections.
     func start() async throws {
-        var arguments = [
-            "--socket-path", config.socketPath.path,
-            "--shared-dir", config.sharedDir.path,
-        ]
-        if SandboxOverrides.virtiofsdSandboxDisabled {
+        let sandboxDisabled = SandboxOverrides.virtiofsdSandboxDisabled
+        if sandboxDisabled {
             // virtiofsd defaults to `--sandbox namespace`, which sets up a
             // userns + pivot_root + seccomp filter. Inside apple/container's
             // --virtualization dev container the default seccomp profile
@@ -75,11 +90,8 @@ final class VirtiofsdProcess: Sendable {
             logger?.warning(
                 "virtiofsd launching with --sandbox none (CONTAINERIZATION_NO_VIRTIOFSD_SANDBOX=1) — userns/pivot_root/seccomp setup disabled"
             )
-            arguments.append(contentsOf: ["--sandbox", "none"])
         }
-        if config.readonly {
-            arguments.append("--readonly")
-        }
+        let arguments = Self.arguments(config: config, sandboxDisabled: sandboxDisabled)
 
         var command = Command(
             config.binary.path,

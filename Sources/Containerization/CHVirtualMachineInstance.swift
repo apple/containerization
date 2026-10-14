@@ -52,6 +52,8 @@ public final class CHVirtualMachineInstance: Sendable {
         public var initialFilesystem: Mount?
         public var bootLog: BootLog?
         public var extensions: [any Sendable] = []
+        /// Options for every virtiofsd this VM starts, at boot and on hotplug.
+        public var virtiofsd: VirtiofsdOptions = .init()
 
         public init() {
             self.cpus = 4
@@ -216,6 +218,7 @@ public final class CHVirtualMachineInstance: Sendable {
             client: self.client,
             workDir: workDir,
             virtiofsdBinary: virtiofsdBinary,
+            virtiofsdOptions: config.virtiofsd,
             allocator: allocator,
             initialMounts: inventory.attachments,
             logger: logger
@@ -558,7 +561,8 @@ extension CHVirtualMachineInstance {
                     binary: binary,
                     socketPath: socket,
                     sharedDir: URL(fileURLWithPath: source),
-                    readonly: readonly
+                    readonly: readonly,
+                    options: config.virtiofsd
                 ),
                 logger: logger
             )
