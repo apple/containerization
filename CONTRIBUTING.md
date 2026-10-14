@@ -167,24 +167,11 @@ Your macOS version:
 sw_vers
 ```
 
-```
-ProductName:		macOS
-ProductVersion:		26.0
-BuildVersion:		25A354
-```
-
 Your Xcode version:
 
 ```bash
 xcodebuild -version
 ```
-
-```
-Xcode 26.0
-Build version 17A324
-```
-
-Also mention your Mac's chip (for example, M1 or M4 Pro).
 
 #### For container issues
 
@@ -231,9 +218,8 @@ container system logs
 
 #### Getting containerization logs
 
-- **Host logs**: The Containerization packages log through [swift-log](https://github.com/apple/swift-log). Set your logger to the `.debug` level and include the output around the failure. `cctl` logs at the debug level by default.
-- **Guest boot logs**: Kernel and `vminitd` output is only available if you capture it. Set `bootLog` on your container's configuration (for example, `.file(path:)`) and include the resulting file.
-- **Integration test failures**: Include the full output of `make integration` (or `make linux-integration` on Linux), not just the failing test's last line.
+- **Host logs**: The Containerization packages log through [swift-log](https://github.com/apple/swift-log). 
+- **Integration test failures**: Include the full output of `make integration`.
 
 ### Common information gaps
 
