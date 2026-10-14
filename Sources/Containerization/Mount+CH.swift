@@ -31,14 +31,31 @@ extension Mount {
     /// back to `Unknown` and silently rejects all writes — see CH's
     /// `virtio-devices/src/block.rs` "Attempting to write to sector 0 on a
     /// disk without specifying image_type" warning.
+    ///
+    /// If the runtime options of the mount (`Mount.block(runtimeOptions:)`) contain
+    /// the flag `directio`, this disk gets `direct = true`.
+    /// cloud-hypervisor then opens the image with `O_DIRECT`, so guest I/O to the
+    /// disk bypasses the host page cache.
+    /// Without the flag, `direct` is not set and cloud-hypervisor keeps its default.
+    /// The flag takes no value: only the exact option `directio` turns it on.
+    /// The option is per device because the right choice depends on the disk.
+    /// For example, many VMs can boot from the same read-only rootfs image without
+    /// the flag, so the host page cache holds one copy of it for all of them.
+    /// Each VM can then attach its own read-write volume with `directio`, so the
+    /// writes of the guest do not also fill the host page cache.
+    ///
+    /// Other runtime options, such as the `vz` keys of the Virtualization backend,
+    /// are ignored.
+    /// The Virtualization backend skips runtime options that have no `=`, so a
+    /// mount with `directio` can also be given to that backend.
     public func chDiskConfig(id: String) -> CloudHypervisor.DiskConfig? {
-        guard case .virtioblk = self.runtimeOptions else {
+        guard case .virtioblk(let runtimeOptions) = self.runtimeOptions else {
             return nil
         }
         return CloudHypervisor.DiskConfig(
             path: self.source,
             readonly: self.options.contains("ro"),
-            direct: nil,
+            direct: runtimeOptions.contains("directio") ? true : nil,
             iommu: nil,
             id: id,
             pciSegment: nil,
