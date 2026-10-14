@@ -7,6 +7,8 @@ body:
     attributes:
       value: |
         Thanks for contributing to the containerization project!
+
+        Feature requests should be clear and actionable. If your idea is still early, or you want to check whether it fits the project's direction, start a [discussion](https://github.com/apple/container/discussions) first.
   - type: textarea
     id: request
     attributes:

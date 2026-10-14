@@ -7,6 +7,8 @@ body:
     attributes:
       value: |
         Thanks for taking the time to fill out this bug report!
+
+        See [Filing effective bug reports](https://github.com/apple/containerization/blob/main/CONTRIBUTING.md#filing-effective-bug-reports) for what to include.
   - type: checkboxes
     id: prereqs
     attributes:
