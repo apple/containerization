@@ -59,7 +59,9 @@ public enum RootfsResolver {
     /// Symlinks are followed but confined to the tree beneath dirFd; magic
     /// links (e.g. /proc/*/fd) are rejected. Returns the open file descriptor,
     /// or -1 with errno set on failure (EINVAL if path contains a NUL).
-    public static func openInRoot(dirFd: Int32, path: String, flags: Int32, mode: UInt64 = 0) -> Int32 {
+    public static func openInRoot(
+        dirFd: Int32, path: String, flags: Int32, mode: UInt64 = 0, confinement: Int32 = RESOLVE_IN_ROOT
+    ) -> Int32 {
         // Avoid withCString truncation on security-sensitive paths.
         guard !path.utf8.contains(0) else {
             errno = EINVAL
@@ -69,7 +71,7 @@ public enum RootfsResolver {
             var how = cz_open_how(
                 flags: UInt64(flags),
                 mode: mode,
-                resolve: UInt64(RESOLVE_IN_ROOT | RESOLVE_NO_MAGICLINKS)
+                resolve: UInt64(confinement | RESOLVE_NO_MAGICLINKS)
             )
             return CZ_openat2(dirFd, cPath, &how, MemoryLayout<cz_open_how>.size)
         }
@@ -81,7 +83,7 @@ public enum RootfsResolver {
     /// root; missing components are created. The descriptor passed to `body` is
     /// valid only for its duration and must not be closed by it.
     public static func withDirectoryInRoot<T>(
-        dirFd rootFd: Int32, path: String, perms: mode_t = 0o755, _ body: (Int32) throws -> T
+        dirFd rootFd: Int32, path: String, perms: mode_t = 0o755, confinement: Int32 = RESOLVE_IN_ROOT, _ body: (Int32) throws -> T
     ) throws -> T {
         // Avoid C string truncation before the mkdirat/openat component walk.
         guard !path.utf8.contains(0) else {
@@ -100,7 +102,7 @@ public enum RootfsResolver {
         var firstMissing = components.count
         for i in components.indices {
             let subpath = components[0...i].joined(separator: "/")
-            let fd = openInRoot(dirFd: rootFd, path: subpath, flags: O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+            let fd = openInRoot(dirFd: rootFd, path: subpath, flags: O_RDONLY | O_DIRECTORY | O_CLOEXEC, confinement: confinement)
             if fd < 0 {
                 guard errno == ENOENT else {
                     throw Error.errno(errno, "resolve '\(subpath)' within root")

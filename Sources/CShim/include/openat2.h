@@ -27,6 +27,10 @@
 #define RESOLVE_NO_MAGICLINKS 0x02
 #endif
 
+#ifndef RESOLVE_BENEATH
+#define RESOLVE_BENEATH 0x08
+#endif
+
 /* O_PATH is Linux-only and gated behind __USE_GNU in glibc's <fcntl.h>, so the
  * Swift libc overlays do not reliably surface it. Prefixed to avoid colliding
  * with a platform O_PATH (musl defines one unconditionally). */
