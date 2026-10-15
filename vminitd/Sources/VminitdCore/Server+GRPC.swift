@@ -1838,6 +1838,9 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             $0.udp = counters(snmp.udp)
             $0.icmp = counters(snmp.icmp)
             $0.ip = counters(snmp.ip)
+            if let udp6 = snmp.udp6 { $0.udp6 = counters(udp6) }
+            if let icmp6 = snmp.icmp6 { $0.icmp6 = counters(icmp6) }
+            if let ip6 = snmp.ip6 { $0.ip6 = counters(ip6) }
         }
     }
 

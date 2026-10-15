@@ -263,17 +263,37 @@ public struct ContainerStatistics: Sendable {
     /// Per-protocol traffic for the container's network namespace (not per interface; includes loopback).
     /// Containers sharing a namespace, as all containers in a VM do by default, report identical values.
     public struct NetworkProtocolStatistics: Sendable {
+        /// Covers both IPv4 and IPv6: the kernel shares its TCP counters between the two families.
         public var tcp: NetworkProtocolCounters
+        /// IPv4 only; see `udp6`.
         public var udp: NetworkProtocolCounters
+        /// IPv4 only; see `icmp6`.
         public var icmp: NetworkProtocolCounters
-        /// All IP traffic. What is not tcp/udp/icmp (raw IP, other protocols) is the remainder.
+        /// All IPv4 traffic. What is not tcp/udp/icmp (raw IP, other protocols) is the remainder. See `ip6` for IPv6.
         public var ip: NetworkProtocolCounters
+        /// IPv6 UDP. `nil` when the guest has no IPv6 statistics.
+        public var udp6: NetworkProtocolCounters?
+        /// IPv6 ICMP. `nil` when the guest has no IPv6 statistics.
+        public var icmp6: NetworkProtocolCounters?
+        /// All IPv6 traffic. `nil` when the guest has no IPv6 statistics.
+        public var ip6: NetworkProtocolCounters?
 
-        public init(tcp: NetworkProtocolCounters, udp: NetworkProtocolCounters, icmp: NetworkProtocolCounters, ip: NetworkProtocolCounters) {
+        public init(
+            tcp: NetworkProtocolCounters,
+            udp: NetworkProtocolCounters,
+            icmp: NetworkProtocolCounters,
+            ip: NetworkProtocolCounters,
+            udp6: NetworkProtocolCounters? = nil,
+            icmp6: NetworkProtocolCounters? = nil,
+            ip6: NetworkProtocolCounters? = nil
+        ) {
             self.tcp = tcp
             self.udp = udp
             self.icmp = icmp
             self.ip = ip
+            self.udp6 = udp6
+            self.icmp6 = icmp6
+            self.ip6 = ip6
         }
     }
 

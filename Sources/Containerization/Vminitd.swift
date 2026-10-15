@@ -688,6 +688,14 @@ extension ContainerStatistics.NetworkProtocolCounters {
 
 extension ContainerStatistics.NetworkProtocolStatistics {
     init(_ proto: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolStats) {
-        self.init(tcp: .init(proto.tcp), udp: .init(proto.udp), icmp: .init(proto.icmp), ip: .init(proto.ip))
+        self.init(
+            tcp: .init(proto.tcp),
+            udp: .init(proto.udp),
+            icmp: .init(proto.icmp),
+            ip: .init(proto.ip),
+            udp6: proto.hasUdp6 ? .init(proto.udp6) : nil,
+            icmp6: proto.hasIcmp6 ? .init(proto.icmp6) : nil,
+            ip6: proto.hasIp6 ? .init(proto.ip6) : nil
+        )
     }
 }
