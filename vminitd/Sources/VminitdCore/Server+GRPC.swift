@@ -1825,12 +1825,12 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             .with {
                 $0.receivedPackets = c.receivedPackets
                 $0.transmittedPackets = c.transmittedPackets
-                $0.receivedBytes = c.receivedBytes
-                $0.transmittedBytes = c.transmittedBytes
-                $0.receivedDrops = c.receivedDrops
-                $0.transmittedDrops = c.transmittedDrops
-                $0.receivedErrors = c.receivedErrors
-                $0.transmittedErrors = c.transmittedErrors
+                if let v = c.receivedBytes { $0.receivedBytes = v }
+                if let v = c.transmittedBytes { $0.transmittedBytes = v }
+                if let v = c.receivedDrops { $0.receivedDrops = v }
+                if let v = c.transmittedDrops { $0.transmittedDrops = v }
+                if let v = c.receivedErrors { $0.receivedErrors = v }
+                if let v = c.transmittedErrors { $0.transmittedErrors = v }
             }
         }
         return .with {
@@ -1916,7 +1916,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             if wantNetwork {
                 $0.networks = networkStats
                 if let protocolStats {
-                    $0.protocols = protocolStats
+                    $0.networkProtocols = protocolStats
                 }
             }
 

@@ -74,15 +74,17 @@ struct ProcNetSnmpTests {
         let s = ProcNetSnmp(snmp: Self.errorsSnmp, netstat: Self.errorsNetstat)
         #expect(s.tcp.receivedDrops == 14 + 15 + 16)
         #expect(s.tcp.receivedErrors == 10)
-        #expect(s.tcp.transmittedDrops == 0)
-        #expect(s.tcp.transmittedErrors == 0)
+        #expect(s.tcp.transmittedDrops == nil)
+        #expect(s.tcp.transmittedErrors == nil)
         // RcvbufErrors + NoPorts; InErrors minus the RcvbufErrors it already includes.
         #expect(s.udp.receivedDrops == 12 + 11)
         #expect(s.udp.receivedErrors == 20 - 12)
         #expect(s.udp.transmittedDrops == 13)
         #expect(s.icmp.receivedErrors == 8)
         #expect(s.icmp.transmittedErrors == 9)
-        #expect(s.icmp.receivedDrops == 0)
+        #expect(s.icmp.receivedDrops == nil)
+        #expect(s.icmp.transmittedDrops == nil)
+        #expect(s.udp.transmittedErrors == nil)
         #expect(s.ip.receivedDrops == 4 + 17)
         #expect(s.ip.receivedErrors == 1 + 2 + 3)
         #expect(s.ip.transmittedDrops == 5 + 6)
@@ -101,8 +103,26 @@ struct ProcNetSnmpTests {
         #expect(s.ip.receivedBytes == 0)
     }
 
+    @Test func unsupportedCountersAreNil() {
+        let s = ProcNetSnmp(snmp: Self.snmp, netstat: Self.netstat)
+        #expect(s.tcp.receivedBytes == nil)
+        #expect(s.tcp.transmittedBytes == nil)
+        #expect(s.udp.receivedBytes == nil)
+        #expect(s.udp.transmittedBytes == nil)
+        #expect(s.icmp.receivedBytes == nil)
+        #expect(s.icmp.transmittedBytes == nil)
+        #expect(s.ip.receivedBytes != nil)
+    }
+
     @Test func emptyAndMalformedInputYieldZeros() {
-        #expect(ProcNetSnmp(snmp: "") == ProcNetSnmp())
-        #expect(ProcNetSnmp(snmp: "Tcp: InSegs OutSegs\nTcp: 1\n") == ProcNetSnmp())
+        for s in [ProcNetSnmp(snmp: ""), ProcNetSnmp(snmp: "Tcp: InSegs OutSegs\nTcp: 1\n")] {
+            #expect(s.tcp.receivedPackets == 0)
+            #expect(s.ip.receivedPackets == 0)
+            // Supported counters read as zero, unsupported ones stay nil.
+            #expect(s.tcp.receivedDrops == 0)
+            #expect(s.tcp.transmittedDrops == nil)
+            #expect(s.ip.receivedBytes == 0)
+            #expect(s.udp.receivedBytes == nil)
+        }
     }
 }

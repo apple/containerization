@@ -31,15 +31,17 @@ public struct ProcNetSnmp: Sendable, Equatable {
     public struct Counters: Sendable, Equatable {
         public var receivedPackets: UInt64 = 0
         public var transmittedPackets: UInt64 = 0
-        public var receivedBytes: UInt64 = 0
-        public var transmittedBytes: UInt64 = 0
+        /// `nil` when the kernel keeps no such counter for the protocol.
+        public var receivedBytes: UInt64?
+        public var transmittedBytes: UInt64?
         /// Packets discarded for lack of resources or a destination. The kernel's
         /// causes differ per protocol; see the field mapping in `init(snmp:netstat:)`.
-        public var receivedDrops: UInt64 = 0
-        public var transmittedDrops: UInt64 = 0
+        /// `nil` when the protocol has no matching counter, as opposed to `0` for "none happened".
+        public var receivedDrops: UInt64?
+        public var transmittedDrops: UInt64?
         /// Malformed or failed packets. Causes differ per protocol, as for drops.
-        public var receivedErrors: UInt64 = 0
-        public var transmittedErrors: UInt64 = 0
+        public var receivedErrors: UInt64?
+        public var transmittedErrors: UInt64?
 
         public init() {}
     }
@@ -75,7 +77,7 @@ public struct ProcNetSnmp: Sendable, Equatable {
         ip.transmittedBytes = netstatTables["IpExt"]?["OutOctets"] ?? 0
 
         // Drops and errors. The kernel has no uniform notion of either, so each
-        // protocol maps the counters that fit best; unavailable ones stay zero.
+        // protocol maps the counters that fit best; unsupported ones stay nil.
         func sum(_ table: [String: UInt64]?, _ names: String...) -> UInt64 {
             names.reduce(0) { $0 &+ (table?[$1] ?? 0) }
         }

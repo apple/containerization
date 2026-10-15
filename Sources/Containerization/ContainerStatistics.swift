@@ -25,7 +25,7 @@ public struct ContainerStatistics: Sendable {
     public var memoryEvents: MemoryEventStatistics?
     public var filesystem: [FilesystemStatistics]?
     /// Per-protocol traffic for the network namespace. `nil` if not requested or not reported by the guest.
-    public var protocols: NetworkProtocolStatistics?
+    public var networkProtocols: NetworkProtocolStatistics?
 
     public init(
         id: String,
@@ -36,7 +36,7 @@ public struct ContainerStatistics: Sendable {
         networks: [NetworkStatistics]? = nil,
         memoryEvents: MemoryEventStatistics? = nil,
         filesystem: [FilesystemStatistics]? = nil,
-        protocols: NetworkProtocolStatistics? = nil
+        networkProtocols: NetworkProtocolStatistics? = nil
     ) {
         self.id = id
         self.process = process
@@ -46,7 +46,7 @@ public struct ContainerStatistics: Sendable {
         self.networks = networks
         self.memoryEvents = memoryEvents
         self.filesystem = filesystem
-        self.protocols = protocols
+        self.networkProtocols = networkProtocols
     }
 
     /// Process statistics for a container.
@@ -184,8 +184,8 @@ public struct ContainerStatistics: Sendable {
         public var transmittedPackets: UInt64
         public var receivedBytes: UInt64
         public var transmittedBytes: UInt64
-        public var receivedErrors: UInt64
-        public var transmittedErrors: UInt64
+        public var receivedErrors: UInt64?
+        public var transmittedErrors: UInt64?
         /// Packets the device dropped (e.g. full rx ring or tx queue).
         public var receivedDropped: UInt64
         public var transmittedDropped: UInt64
@@ -217,37 +217,37 @@ public struct ContainerStatistics: Sendable {
     public struct NetworkProtocolCounters: Sendable {
         public var receivedPackets: UInt64
         public var transmittedPackets: UInt64
-        /// Zero when the protocol has no byte counter (Linux only has one for IP as a whole).
-        public var receivedBytes: UInt64
-        public var transmittedBytes: UInt64
+        /// `nil` when the protocol has no byte counter (Linux only has one for IP as a whole).
+        public var receivedBytes: UInt64?
+        public var transmittedBytes: UInt64?
         /// Packets the stack discarded for lack of resources or a destination.
         ///
         /// The kernel attributes drops and errors to different causes for each protocol, so
-        /// values are comparable over time for one protocol but not across protocols. Zero
-        /// when the kernel has no matching counter, which is not the same as "none happened".
+        /// values are comparable over time for one protocol but not across protocols. `nil`
+        /// when the protocol has no matching counter, which is not the same as zero ("none happened").
         /// - TCP: listen queue overflow, socket backlog and receive queue drops (receive only).
         /// - UDP: full socket buffer or no socket on the port (receive); full send buffer (transmit).
         /// - ICMP: no drop counters.
         /// - IP: discarded valid packets and missing routes.
-        public var receivedDrops: UInt64
-        public var transmittedDrops: UInt64
+        public var receivedDrops: UInt64?
+        public var transmittedDrops: UInt64?
         /// Packets that were malformed or failed processing.
         /// - TCP: bad checksum or header (receive only).
         /// - UDP: e.g. bad checksum, excluding full-buffer drops (receive only).
         /// - ICMP: receive and transmit errors.
         /// - IP: bad header, bad address or unknown protocol (receive); fragmentation failures (transmit).
-        public var receivedErrors: UInt64
-        public var transmittedErrors: UInt64
+        public var receivedErrors: UInt64?
+        public var transmittedErrors: UInt64?
 
         public init(
             receivedPackets: UInt64 = 0,
             transmittedPackets: UInt64 = 0,
-            receivedBytes: UInt64 = 0,
-            transmittedBytes: UInt64 = 0,
-            receivedDrops: UInt64 = 0,
-            transmittedDrops: UInt64 = 0,
-            receivedErrors: UInt64 = 0,
-            transmittedErrors: UInt64 = 0
+            receivedBytes: UInt64? = nil,
+            transmittedBytes: UInt64? = nil,
+            receivedDrops: UInt64? = nil,
+            transmittedDrops: UInt64? = nil,
+            receivedErrors: UInt64? = nil,
+            transmittedErrors: UInt64? = nil
         ) {
             self.receivedPackets = receivedPackets
             self.transmittedPackets = transmittedPackets

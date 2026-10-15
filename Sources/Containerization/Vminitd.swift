@@ -191,8 +191,8 @@ extension Vminitd: VirtualMachineAgent {
                             freeInodes: entry.freeInodes
                         )
                     } : nil,
-                protocols: categories.contains(.network) && protoStats.hasProtocols
-                    ? .init(protoStats.protocols) : nil
+                networkProtocols: categories.contains(.network) && protoStats.hasNetworkProtocols
+                    ? .init(protoStats.networkProtocols) : nil
             )
         }
     }
@@ -676,12 +676,12 @@ extension ContainerStatistics.NetworkProtocolCounters {
         self.init(
             receivedPackets: proto.receivedPackets,
             transmittedPackets: proto.transmittedPackets,
-            receivedBytes: proto.receivedBytes,
-            transmittedBytes: proto.transmittedBytes,
-            receivedDrops: proto.receivedDrops,
-            transmittedDrops: proto.transmittedDrops,
-            receivedErrors: proto.receivedErrors,
-            transmittedErrors: proto.transmittedErrors
+            receivedBytes: proto.hasReceivedBytes ? proto.receivedBytes : nil,
+            transmittedBytes: proto.hasTransmittedBytes ? proto.transmittedBytes : nil,
+            receivedDrops: proto.hasReceivedDrops ? proto.receivedDrops : nil,
+            transmittedDrops: proto.hasTransmittedDrops ? proto.transmittedDrops : nil,
+            receivedErrors: proto.hasReceivedErrors ? proto.receivedErrors : nil,
+            transmittedErrors: proto.hasTransmittedErrors ? proto.transmittedErrors : nil
         )
     }
 }
