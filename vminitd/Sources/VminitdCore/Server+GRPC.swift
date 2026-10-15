@@ -561,7 +561,11 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             // /proc/self/fd pins the resolved directory against path swaps during extraction.
             return try RootfsResolver.withDirectoryInRoot(dirFd: rootFd, path: path) { destFd in
                 let fileHandle = FileHandle(fileDescriptor: sockFd, closeOnDealloc: false)
-                let reader = try ArchiveReader(format: .pax, filter: .gzip, fileHandle: fileHandle)
+                // Auto-detect format and compression filter so both the internal
+                // pax+gzip archives (directory copyIn) and externally supplied tar
+                // streams (uncompressed or compressed, e.g. `docker cp -`) are
+                // accepted.
+                let reader = try ArchiveReader(fileHandle: fileHandle)
                 return try reader.extractContents(to: URL(fileURLWithPath: "/proc/self/fd/\(destFd)"))
             }
         }
@@ -606,10 +610,13 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             throw RPCError(code: .internalError, message: "copy: failed to stat '\(path)': \(swiftErrno("fstat"))")
         }
         let fileType = s.st_mode & UInt32(S_IFMT)
-        let isArchive = fileType == UInt32(S_IFDIR)
-        guard isArchive || fileType == UInt32(S_IFREG) else {
+        guard fileType == UInt32(S_IFDIR) || fileType == UInt32(S_IFREG) else {
             throw RPCError(code: .invalidArgument, message: "copy: cannot copy out '\(path)': unsupported file type")
         }
+        // `request.isArchive` forces archive output even for a single regular
+        // file, matching `docker cp CONTAINER:/path -` which always emits a tar
+        // stream. Directories are always archived.
+        let isArchive = fileType == UInt32(S_IFDIR) || request.isArchive
         let totalSize: UInt64 = isArchive ? 0 : UInt64(s.st_size)
 
         // Send metadata response BEFORE connecting to vsock, so host knows what to expect.
@@ -632,9 +639,15 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                 // TODO: archiveDirectory is path-based; running containers can still
                 // race directory copyOut. Close this with an fd-relative archive writer.
                 let source = try FileDescriptorOps.getCanonicalPath(FileDescriptor(rawValue: fd)).string
-                let writer = try ArchiveWriter(configuration: .init(format: .pax, filter: .gzip))
+                let filter: Filter = request.isArchive ? Filter.none : Filter.gzip
+                let writer = try ArchiveWriter(configuration: .init(format: .pax, filter: filter))
                 try writer.open(fileDescriptor: sock.fileDescriptor)
-                try writer.archiveDirectory(URL(fileURLWithPath: source))
+                if request.isArchive {
+                    let filePath = FilePath(source)
+                    try writer.archive([filePath], base: filePath.removingLastComponent())
+                } else {
+                    try writer.archiveDirectory(URL(fileURLWithPath: source))
+                }
                 try writer.finishEncoding()
             } else {
                 // Reopen through the pinned fd after confirming this is a regular file.
