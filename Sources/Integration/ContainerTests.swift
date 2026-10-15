@@ -925,12 +925,12 @@ extension IntegrationSuite {
 
             // Protocol counters are only reported with the network category.
             let nonNetwork = try await container.statistics(categories: .memory)
-            guard nonNetwork.protocols == nil else {
-                throw IntegrationError.assert(msg: "protocols should be nil when .network is not requested")
+            guard nonNetwork.networkProtocols == nil else {
+                throw IntegrationError.assert(msg: "networkProtocols should be nil when .network is not requested")
             }
 
-            guard let before = try await container.statistics(categories: .network).protocols else {
-                throw IntegrationError.assert(msg: "expected protocols to be present when .network is requested")
+            guard let before = try await container.statistics(categories: .network).networkProtocols else {
+                throw IntegrationError.assert(msg: "expected networkProtocols to be present when .network is requested")
             }
 
             // Loopback traffic counts toward the namespace's protocol counters.
@@ -945,8 +945,8 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "ping failed with exit code \(status.exitCode)")
             }
 
-            guard let after = try await container.statistics(categories: .network).protocols else {
-                throw IntegrationError.assert(msg: "expected protocols to be present after traffic")
+            guard let after = try await container.statistics(categories: .network).networkProtocols else {
+                throw IntegrationError.assert(msg: "expected networkProtocols to be present after traffic")
             }
 
             // Each ping sends an echo request and receives a reply on loopback.
@@ -962,9 +962,15 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "ip packets should cover icmp, got ip rx=\(ipRx) tx=\(ipTx), icmp rx=\(icmpRx) tx=\(icmpTx)")
             }
 
-            guard after.ip.receivedBytes > before.ip.receivedBytes, after.ip.transmittedBytes > before.ip.transmittedBytes else {
+            guard
+                let ipRxBefore = before.ip.receivedBytes, let ipTxBefore = before.ip.transmittedBytes,
+                let ipRxAfter = after.ip.receivedBytes, let ipTxAfter = after.ip.transmittedBytes,
+                ipRxAfter > ipRxBefore, ipTxAfter > ipTxBefore
+            else {
                 throw IntegrationError.assert(
-                    msg: "ip bytes should increase, got rx \(before.ip.receivedBytes)->\(after.ip.receivedBytes) tx \(before.ip.transmittedBytes)->\(after.ip.transmittedBytes)")
+                    msg:
+                        "ip bytes should increase, got rx \(String(describing: before.ip.receivedBytes))->\(String(describing: after.ip.receivedBytes)) tx \(String(describing: before.ip.transmittedBytes))->\(String(describing: after.ip.transmittedBytes))"
+                )
             }
 
             // Datagrams to a closed loopback port have no socket to land on, which
@@ -980,13 +986,15 @@ extension IntegrationSuite {
                 throw IntegrationError.assert(msg: "udp send failed with exit code \(sendStatus.exitCode)")
             }
 
-            guard let last = try await container.statistics(categories: .network).protocols else {
-                throw IntegrationError.assert(msg: "expected protocols to be present after udp traffic")
+            guard let last = try await container.statistics(categories: .network).networkProtocols else {
+                throw IntegrationError.assert(msg: "expected networkProtocols to be present after udp traffic")
             }
 
-            let udpDrops = last.udp.receivedDrops - after.udp.receivedDrops
-            guard udpDrops >= datagrams else {
-                throw IntegrationError.assert(msg: "expected udp receivedDrops to grow by >= \(datagrams), got \(udpDrops)")
+            guard let udpDropsAfter = after.udp.receivedDrops, let udpDropsLast = last.udp.receivedDrops, udpDropsLast - udpDropsAfter >= datagrams else {
+                throw IntegrationError.assert(
+                    msg:
+                        "expected udp receivedDrops to grow by >= \(datagrams), got \(String(describing: after.udp.receivedDrops)) -> \(String(describing: last.udp.receivedDrops))"
+                )
             }
 
             // Drop and error counters are cumulative, so none may go backwards.
@@ -994,9 +1002,17 @@ extension IntegrationSuite {
                 ("tcp", before.tcp, last.tcp), ("udp", before.udp, last.udp), ("icmp", before.icmp, last.icmp), ("ip", before.ip, last.ip),
             ]
             for (name, old, new) in pairs {
+                // Unsupported counters are nil on both sides; a counter must not flip between nil and a value.
+                func monotonic(_ old: UInt64?, _ new: UInt64?) -> Bool {
+                    switch (old, new) {
+                    case (nil, nil): true
+                    case (let o?, let n?): n >= o
+                    default: false
+                    }
+                }
                 guard
-                    new.receivedDrops >= old.receivedDrops, new.transmittedDrops >= old.transmittedDrops,
-                    new.receivedErrors >= old.receivedErrors, new.transmittedErrors >= old.transmittedErrors
+                    monotonic(old.receivedDrops, new.receivedDrops), monotonic(old.transmittedDrops, new.transmittedDrops),
+                    monotonic(old.receivedErrors, new.receivedErrors), monotonic(old.transmittedErrors, new.transmittedErrors)
                 else {
                     throw IntegrationError.assert(msg: "\(name) drop/error counters decreased: \(old) -> \(new)")
                 }

@@ -429,7 +429,7 @@ message ContainerStats {
   repeated NetworkStats networks = 6;
   MemoryEventStats memory_events = 7;
   repeated FilesystemStats filesystem = 8;
-  NetworkProtocolStats protocols = 9;
+  NetworkProtocolStats network_protocols = 9;
 }
 
 message ProcessStats {
@@ -495,33 +495,34 @@ message NetworkStats {
 message NetworkProtocolCounters {
   uint64 received_packets = 1;
   uint64 transmitted_packets = 2;
-  // Zero when the protocol has no byte counter (Linux only has one for IP as a whole).
-  uint64 received_bytes = 3;
-  uint64 transmitted_bytes = 4;
+  // Unset when the protocol has no byte counter (Linux only has one for IP as a whole).
+  optional uint64 received_bytes = 3;
+  optional uint64 transmitted_bytes = 4;
   // Drops and errors. The kernel attributes these to different causes for each
   // protocol, so they are comparable over time for one protocol but not across
   // protocols. A drop is a packet the stack discarded for lack of resources or a
   // destination; an error is a packet that was malformed or failed processing.
-  // Zero when the kernel has no matching counter (which is not the same as "none
-  // happened"). Sources, from /proc/net/snmp and /proc/net/netstat:
+  // Unset when the protocol has no matching counter, so unset means "not
+  // supported" while zero means "none happened". Sources, from /proc/net/snmp
+  // and /proc/net/netstat:
   //   tcp:  received_drops    = TcpExt ListenDrops + TCPBacklogDrop + TCPRcvQDrop
   //         received_errors   = Tcp InErrs (bad checksum or header)
-  //         transmitted_*     = unavailable
+  //         transmitted_*     = unset (unsupported)
   //   udp:  received_drops    = Udp RcvbufErrors + NoPorts (socket buffer full, or no socket)
   //         received_errors   = Udp InErrors minus RcvbufErrors (e.g. bad checksum)
   //         transmitted_drops = Udp SndbufErrors
-  //         transmitted_errors = unavailable
+  //         transmitted_errors = unset (unsupported)
   //   icmp: received_errors   = Icmp InErrors
   //         transmitted_errors = Icmp OutErrors
-  //         *_drops           = unavailable
+  //         *_drops           = unset (unsupported)
   //   ip:   received_drops    = Ip InDiscards + IpExt InNoRoutes
   //         received_errors   = Ip InHdrErrors + InAddrErrors + InUnknownProtos
   //         transmitted_drops = Ip OutDiscards + OutNoRoutes
   //         transmitted_errors = Ip FragFails
-  uint64 received_drops = 5;
-  uint64 transmitted_drops = 6;
-  uint64 received_errors = 7;
-  uint64 transmitted_errors = 8;
+  optional uint64 received_drops = 5;
+  optional uint64 transmitted_drops = 6;
+  optional uint64 received_errors = 7;
+  optional uint64 transmitted_errors = 8;
 }
 
 // Per-protocol traffic for the container's network namespace (not per interface;
