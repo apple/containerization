@@ -1905,6 +1905,37 @@ public nonisolated struct Com_Apple_Containerization_Sandbox_V3_NetworkProtocolS
   /// Clears the value of `ip`. Subsequent reads from it will return its default value.
   public mutating func clearIp() {_uniqueStorage()._ip = nil}
 
+  /// IPv6 counterparts of udp, icmp and ip, from /proc/net/snmp6. The IPv4 fields
+  /// above do not include IPv6 traffic. There is no tcp6: the kernel shares its TCP
+  /// counters between both families, so tcp already covers IPv6. Unset when the
+  /// guest has no IPv6 statistics.
+  public var udp6: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters {
+    get {_storage._udp6 ?? Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters()}
+    set {_uniqueStorage()._udp6 = newValue}
+  }
+  /// Returns true if `udp6` has been explicitly set.
+  public var hasUdp6: Bool {_storage._udp6 != nil}
+  /// Clears the value of `udp6`. Subsequent reads from it will return its default value.
+  public mutating func clearUdp6() {_uniqueStorage()._udp6 = nil}
+
+  public var icmp6: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters {
+    get {_storage._icmp6 ?? Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters()}
+    set {_uniqueStorage()._icmp6 = newValue}
+  }
+  /// Returns true if `icmp6` has been explicitly set.
+  public var hasIcmp6: Bool {_storage._icmp6 != nil}
+  /// Clears the value of `icmp6`. Subsequent reads from it will return its default value.
+  public mutating func clearIcmp6() {_uniqueStorage()._icmp6 = nil}
+
+  public var ip6: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters {
+    get {_storage._ip6 ?? Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters()}
+    set {_uniqueStorage()._ip6 = newValue}
+  }
+  /// Returns true if `ip6` has been explicitly set.
+  public var hasIp6: Bool {_storage._ip6 != nil}
+  /// Clears the value of `ip6`. Subsequent reads from it will return its default value.
+  public mutating func clearIp6() {_uniqueStorage()._ip6 = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -4980,13 +5011,16 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCount
 
 nonisolated extension Com_Apple_Containerization_Sandbox_V3_NetworkProtocolStats: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".NetworkProtocolStats"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}tcp\0\u{1}udp\0\u{1}icmp\0\u{1}ip\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}tcp\0\u{1}udp\0\u{1}icmp\0\u{1}ip\0\u{1}udp6\0\u{1}icmp6\0\u{1}ip6\0")
 
   fileprivate class _StorageClass {
     var _tcp: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters? = nil
     var _udp: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters? = nil
     var _icmp: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters? = nil
     var _ip: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters? = nil
+    var _udp6: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters? = nil
+    var _icmp6: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters? = nil
+    var _ip6: Com_Apple_Containerization_Sandbox_V3_NetworkProtocolCounters? = nil
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -5001,6 +5035,9 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_NetworkProtocolStats
       _udp = source._udp
       _icmp = source._icmp
       _ip = source._ip
+      _udp6 = source._udp6
+      _icmp6 = source._icmp6
+      _ip6 = source._ip6
     }
   }
 
@@ -5023,6 +5060,9 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_NetworkProtocolStats
         case 2: try { try decoder.decodeSingularMessageField(value: &_storage._udp) }()
         case 3: try { try decoder.decodeSingularMessageField(value: &_storage._icmp) }()
         case 4: try { try decoder.decodeSingularMessageField(value: &_storage._ip) }()
+        case 5: try { try decoder.decodeSingularMessageField(value: &_storage._udp6) }()
+        case 6: try { try decoder.decodeSingularMessageField(value: &_storage._icmp6) }()
+        case 7: try { try decoder.decodeSingularMessageField(value: &_storage._ip6) }()
         default: break
         }
       }
@@ -5047,6 +5087,15 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_NetworkProtocolStats
       try { if let v = _storage._ip {
         try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
       } }()
+      try { if let v = _storage._udp6 {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
+      } }()
+      try { if let v = _storage._icmp6 {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 6)
+      } }()
+      try { if let v = _storage._ip6 {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 7)
+      } }()
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -5060,6 +5109,9 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_NetworkProtocolStats
         if _storage._udp != rhs_storage._udp {return false}
         if _storage._icmp != rhs_storage._icmp {return false}
         if _storage._ip != rhs_storage._ip {return false}
+        if _storage._udp6 != rhs_storage._udp6 {return false}
+        if _storage._icmp6 != rhs_storage._icmp6 {return false}
+        if _storage._ip6 != rhs_storage._ip6 {return false}
         return true
       }
       if !storagesAreEqual {return false}

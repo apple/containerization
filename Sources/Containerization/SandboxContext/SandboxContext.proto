@@ -534,6 +534,13 @@ message NetworkProtocolStats {
   NetworkProtocolCounters icmp = 3;
   // All IP traffic. Whatever is not tcp/udp/icmp (raw IP, other protocols) is the remainder.
   NetworkProtocolCounters ip = 4;
+  // IPv6 counterparts of udp, icmp and ip, from /proc/net/snmp6. The IPv4 fields
+  // above do not include IPv6 traffic. There is no tcp6: the kernel shares its TCP
+  // counters between both families, so tcp already covers IPv6. Unset when the
+  // guest has no IPv6 statistics.
+  NetworkProtocolCounters udp6 = 5;
+  NetworkProtocolCounters icmp6 = 6;
+  NetworkProtocolCounters ip6 = 7;
 }
 
 // Memory event counters from cgroup2's memory.events file.

@@ -103,6 +103,64 @@ struct ProcNetSnmpTests {
         #expect(s.ip.receivedBytes == 0)
     }
 
+    static let snmp6 = """
+        Ip6InReceives                   \t50
+        Ip6InHdrErrors                  \t1
+        Ip6InNoRoutes                   \t2
+        Ip6InDiscards                   \t3
+        Ip6OutRequests                  \t40
+        Ip6OutDiscards                  \t4
+        Ip6InOctets                     \t1000
+        Ip6OutOctets                    \t2000
+        Icmp6InMsgs                     \t6
+        Icmp6InErrors                   \t1
+        Icmp6OutMsgs                    \t7
+        Udp6InDatagrams                 \t60
+        Udp6NoPorts                     \t5
+        Udp6InErrors                    \t9
+        Udp6OutDatagrams                \t70
+        Udp6RcvbufErrors                \t4
+        """
+
+    @Test func keepsIPv6CountersSeparateFromIPv4() {
+        // Parsing the same snmp and netstat with and without snmp6 gives identical IPv4 counters,
+        // so no IPv6 value is added into ip, udp or icmp. snmp6 has no Tcp6 group, so tcp is unaffected too.
+        let s = ProcNetSnmp(snmp: Self.snmp, netstat: Self.netstat, snmp6: Self.snmp6)
+
+        #expect(s.ip == ProcNetSnmp(snmp: Self.snmp, netstat: Self.netstat).ip)
+        #expect(s.udp == ProcNetSnmp(snmp: Self.snmp, netstat: Self.netstat).udp)
+        #expect(s.icmp == ProcNetSnmp(snmp: Self.snmp, netstat: Self.netstat).icmp)
+        #expect(s.tcp.receivedPackets == 600)
+
+        #expect(s.ip6?.receivedPackets == 50)
+        #expect(s.ip6?.transmittedPackets == 40)
+        #expect(s.ip6?.receivedBytes == 1000)
+        #expect(s.ip6?.transmittedBytes == 2000)
+        #expect(s.ip6?.receivedDrops == 3 + 2)
+        #expect(s.ip6?.receivedErrors == 1)
+        #expect(s.ip6?.transmittedDrops == 4)
+        #expect(s.ip6?.transmittedErrors == 0)
+        #expect(s.udp6?.receivedPackets == 60)
+        #expect(s.udp6?.transmittedPackets == 70)
+        // NoPorts plus RcvbufErrors; InErrors minus the RcvbufErrors it already includes.
+        #expect(s.udp6?.receivedDrops == 5 + 4)
+        #expect(s.udp6?.receivedErrors == 9 - 4)
+        #expect(s.icmp6?.receivedPackets == 6)
+        #expect(s.icmp6?.transmittedPackets == 7)
+        #expect(s.icmp6?.receivedErrors == 1)
+        // Same unsupported counters as IPv4.
+        #expect(s.udp6?.receivedBytes == nil)
+        #expect(s.icmp6?.receivedDrops == nil)
+        #expect(s.udp6?.transmittedErrors == nil)
+    }
+
+    @Test func missingSnmp6LeavesIPv6Nil() {
+        let s = ProcNetSnmp(snmp: Self.snmp, netstat: Self.netstat)
+        #expect(s.ip6 == nil)
+        #expect(s.udp6 == nil)
+        #expect(s.icmp6 == nil)
+    }
+
     @Test func unsupportedCountersAreNil() {
         let s = ProcNetSnmp(snmp: Self.snmp, netstat: Self.netstat)
         #expect(s.tcp.receivedBytes == nil)
