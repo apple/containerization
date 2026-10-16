@@ -123,8 +123,10 @@ struct ProcNetSnmpTests {
         """
 
     @Test func keepsIPv6CountersSeparateFromIPv4() {
+        // Parsing the same snmp and netstat with and without snmp6 gives identical IPv4 counters,
+        // so no IPv6 value is added into ip, udp or icmp. snmp6 has no Tcp6 group, so tcp is unaffected too.
         let s = ProcNetSnmp(snmp: Self.snmp, netstat: Self.netstat, snmp6: Self.snmp6)
-        // The IPv4 counters are unchanged by snmp6.
+
         #expect(s.ip == ProcNetSnmp(snmp: Self.snmp, netstat: Self.netstat).ip)
         #expect(s.udp == ProcNetSnmp(snmp: Self.snmp, netstat: Self.netstat).udp)
         #expect(s.icmp == ProcNetSnmp(snmp: Self.snmp, netstat: Self.netstat).icmp)

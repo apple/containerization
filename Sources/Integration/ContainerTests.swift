@@ -1051,6 +1051,87 @@ extension IntegrationSuite {
                 }
             }
 
+            // IPv6 traffic lands in udp6/icmp6/ip6 and must not touch the IPv4 counters. The guest brings
+            // lo up, which gives it ::1. TCP has no IPv6 counterpart: the kernel's tcp counters cover both families.
+            guard last.udp6 != nil, last.icmp6 != nil, last.ip6 != nil else {
+                throw IntegrationError.assert(msg: "expected udp6/icmp6/ip6 to be present in a guest with IPv6, got \(last)")
+            }
+
+            func runInGuest(_ name: String, _ arguments: [String]) async throws {
+                let exec = try await container.exec(name) { config in
+                    config.arguments = arguments
+                }
+                try await exec.start()
+                let status = try await exec.wait()
+                try await exec.delete()
+                guard status.exitCode == 0 else {
+                    throw IntegrationError.assert(msg: "\(name) failed with exit code \(status.exitCode)")
+                }
+            }
+
+            try await runInGuest("ping6-loopback", ["ping", "-6", "-c", "\(pings)", "::1"])
+            try await runInGuest("udp6-closed-port", ["sh", "-c", "for i in $(seq \(datagrams)); do echo x | nc -u -w 1 ::1 9; done; true"])
+            try await runInGuest("tcp6-loopback", ["sh", "-c", "nc -l -p 9101 -s ::1 >/dev/null & sleep 1; echo hello | nc -w 1 ::1 9101; wait; true"])
+
+            guard let v6 = try await container.statistics(categories: .network).networkProtocols,
+                let oldUDP6 = last.udp6, let oldICMP6 = last.icmp6, let oldIP6 = last.ip6,
+                let udp6 = v6.udp6, let icmp6 = v6.icmp6, let ip6 = v6.ip6
+            else {
+                throw IntegrationError.assert(msg: "expected udp6/icmp6/ip6 to be present after ipv6 traffic")
+            }
+
+            // Each ping6 sends an echo request and receives a reply on loopback. The guest may also send
+            // neighbor discovery and MLD messages, so these are lower bounds.
+            let icmp6Rx = icmp6.receivedPackets - oldICMP6.receivedPackets
+            let icmp6Tx = icmp6.transmittedPackets - oldICMP6.transmittedPackets
+            guard icmp6Rx >= pings, icmp6Tx >= pings else {
+                throw IntegrationError.assert(msg: "expected icmp6 rx/tx >= \(pings), got rx=\(icmp6Rx) tx=\(icmp6Tx)")
+            }
+
+            let udp6Tx = udp6.transmittedPackets - oldUDP6.transmittedPackets
+            guard udp6Tx >= datagrams else {
+                throw IntegrationError.assert(msg: "expected udp6 tx >= \(datagrams), got \(udp6Tx)")
+            }
+            // As for IPv4, a datagram to a closed port counts as a receive drop (Udp6 NoPorts).
+            guard let udp6Drops = udp6.receivedDrops, let oldUDP6Drops = oldUDP6.receivedDrops, udp6Drops - oldUDP6Drops >= datagrams else {
+                throw IntegrationError.assert(
+                    msg: "expected udp6 receivedDrops to grow by >= \(datagrams), got \(String(describing: oldUDP6.receivedDrops)) -> \(String(describing: udp6.receivedDrops))")
+            }
+
+            // ip6 covers the ping6, the datagrams and the tcp6 connection, and counts bytes.
+            let ip6Rx = ip6.receivedPackets - oldIP6.receivedPackets
+            let ip6Tx = ip6.transmittedPackets - oldIP6.transmittedPackets
+            guard ip6Rx >= icmp6Rx + datagrams, ip6Tx >= icmp6Tx + udp6Tx else {
+                throw IntegrationError.assert(
+                    msg: "ip6 packets should cover icmp6 and udp6, got ip6 rx=\(ip6Rx) tx=\(ip6Tx), icmp6 rx=\(icmp6Rx) tx=\(icmp6Tx), udp6 tx=\(udp6Tx)")
+            }
+            guard let ip6RxBytes = ip6.receivedBytes, let ip6TxBytes = ip6.transmittedBytes,
+                let oldRxBytes = oldIP6.receivedBytes, let oldTxBytes = oldIP6.transmittedBytes,
+                ip6RxBytes > oldRxBytes, ip6TxBytes > oldTxBytes
+            else {
+                throw IntegrationError.assert(msg: "ip6 bytes should increase, got \(oldIP6) -> \(ip6)")
+            }
+
+            // The TCP connection over ::1 shows up in the shared tcp counters, which cover both families.
+            let tcp6Rx = v6.tcp.receivedPackets - last.tcp.receivedPackets
+            let tcp6Tx = v6.tcp.transmittedPackets - last.tcp.transmittedPackets
+            guard tcp6Rx >= tcpSegments, tcp6Tx >= tcpSegments else {
+                throw IntegrationError.assert(msg: "expected tcp rx/tx >= \(tcpSegments) over ipv6, got rx=\(tcp6Rx) tx=\(tcp6Tx)")
+            }
+
+            // None of that is IPv4 traffic: the loopback ping6 and udp6 datagrams must not move the IPv4 counters.
+            guard v6.icmp.receivedPackets == last.icmp.receivedPackets, v6.icmp.transmittedPackets == last.icmp.transmittedPackets else {
+                throw IntegrationError.assert(msg: "icmp (ipv4) changed after ipv6 traffic: \(last.icmp) -> \(v6.icmp)")
+            }
+            guard v6.udp.transmittedPackets == last.udp.transmittedPackets, v6.udp.receivedDrops == last.udp.receivedDrops else {
+                throw IntegrationError.assert(msg: "udp (ipv4) changed after ipv6 traffic: \(last.udp) -> \(v6.udp)")
+            }
+
+            // The IPv6 counters have the same unsupported fields as their IPv4 counterparts.
+            guard udp6.receivedBytes == nil, udp6.transmittedErrors == nil, icmp6.receivedBytes == nil, icmp6.receivedDrops == nil, icmp6.transmittedDrops == nil else {
+                throw IntegrationError.assert(msg: "expected unsupported udp6/icmp6 counters to be unset, got udp6=\(udp6) icmp6=\(icmp6)")
+            }
+
             try await container.kill(.kill)
             try await container.wait()
             try await container.stop()

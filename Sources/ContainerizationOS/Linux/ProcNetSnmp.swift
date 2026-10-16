@@ -67,10 +67,19 @@ public struct ProcNetSnmp: Sendable, Equatable {
 
     /// Parse the contents of `/proc/net/snmp` and, optionally, `/proc/net/netstat` and `/proc/net/snmp6`.
     ///
-    /// `snmp` and `netstat` alternate a header line (`Proto: name name ...`) with a value line
-    /// (`Proto: 1 2 ...`). `snmp6` has one `Name value` pair per line. Fields are matched by
-    /// name so new kernel columns don't break parsing. IPv6 counters from `snmp6` are kept apart
-    /// from the IPv4 ones in `udp6`, `icmp6` and `ip6`, and stay `nil` when `snmp6` is absent.
+    /// `snmp` and `netstat` alternate a header line of field names with a line of values for the
+    /// same protocol. For example, `snmp` might contain
+    /// ```
+    /// Udp: InDatagrams NoPorts InErrors OutDatagrams
+    /// Udp: 300 1 0 250
+    /// Tcp: RtoAlgorithm MaxConn InSegs OutSegs
+    /// Tcp: 1 -1 600 500
+    /// ```
+    /// Fields are matched by name, so columns added by newer kernels don't break parsing.
+    ///
+    /// `snmp6` holds the IPv6 counters, one `Name value` pair per line, where the name starts
+    /// with its protocol (`Udp6InDatagrams 60`). They go to `udp6`, `icmp6` and `ip6`, separate
+    /// from the IPv4 ones, and stay `nil` when `snmp6` is absent.
     public init(snmp: String, netstat: String? = nil, snmp6: String? = nil) {
         let snmpTables = Self.tables(snmp)
         let netstatTables = netstat.map(Self.tables) ?? [:]
