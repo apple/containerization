@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Containerization community support
+  - name: container and Containerization discussions
     url: https://github.com/apple/container/discussions
-    about: Please ask and answer questions here.
+    about: Ask questions, and discuss early or conceptual ideas before filing an issue.
