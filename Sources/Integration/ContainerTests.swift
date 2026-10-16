@@ -973,6 +973,39 @@ extension IntegrationSuite {
                 )
             }
 
+            // A loopback TCP connection exchanges at least a handshake, data and a close in each direction.
+            let tcpServer = try await container.exec("tcp-loopback") { config in
+                config.arguments = ["sh", "-c", "nc -l -p 9100 >/dev/null & sleep 1; echo hello | nc -w 1 127.0.0.1 9100; wait; true"]
+            }
+            try await tcpServer.start()
+            let tcpStatus = try await tcpServer.wait()
+            try await tcpServer.delete()
+            guard tcpStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "tcp loopback exec failed with exit code \(tcpStatus.exitCode)")
+            }
+
+            guard let afterTcp = try await container.statistics(categories: .network).networkProtocols else {
+                throw IntegrationError.assert(msg: "expected networkProtocols to be present after tcp traffic")
+            }
+
+            let tcpSegments: UInt64 = 3
+            let tcpRx = afterTcp.tcp.receivedPackets - after.tcp.receivedPackets
+            let tcpTx = afterTcp.tcp.transmittedPackets - after.tcp.transmittedPackets
+            guard tcpRx >= tcpSegments, tcpTx >= tcpSegments else {
+                throw IntegrationError.assert(msg: "expected tcp rx/tx >= \(tcpSegments), got rx=\(tcpRx) tx=\(tcpTx)")
+            }
+
+            // The kernel keeps no per-protocol byte counter for TCP, but does count its drops and receive errors.
+            guard afterTcp.tcp.receivedBytes == nil, afterTcp.tcp.transmittedBytes == nil else {
+                throw IntegrationError.assert(msg: "tcp bytes should be unset, got \(afterTcp.tcp)")
+            }
+            guard afterTcp.tcp.receivedDrops != nil, afterTcp.tcp.receivedErrors != nil else {
+                throw IntegrationError.assert(msg: "tcp receivedDrops/receivedErrors should be set, got \(afterTcp.tcp)")
+            }
+            guard afterTcp.tcp.transmittedDrops == nil, afterTcp.tcp.transmittedErrors == nil else {
+                throw IntegrationError.assert(msg: "tcp transmittedDrops/transmittedErrors should be unset, got \(afterTcp.tcp)")
+            }
+
             // Datagrams to a closed loopback port have no socket to land on, which
             // the kernel counts as a UDP receive drop (Udp NoPorts).
             let datagrams: UInt64 = 3
