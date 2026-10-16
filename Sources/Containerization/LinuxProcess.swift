@@ -78,6 +78,7 @@ public final class LinuxProcess: Sendable {
         var stdinRelay: Task<(), Never>?
         var ioTracker: IoTracker?
         var deletionTask: Task<Void, Error>?
+        var exitStatus: ExitStatus?
 
         struct IoTracker {
             let stream: AsyncStream<Void>
@@ -90,6 +91,10 @@ public final class LinuxProcess: Sendable {
     /// if the process has not been started.
     public var pid: Int32 {
         state.withLock { $0.pid }
+    }
+
+    var exitStatus: ExitStatus? {
+        state.withLock { $0.exitStatus }
     }
 
     private let state: Mutex<State>
@@ -466,6 +471,7 @@ extension LinuxProcess {
                 containerID: self.owningContainer,
                 timeoutInSeconds: timeoutInSeconds
             )
+            self.state.withLock { $0.exitStatus = exitStatus }
             await self.waitIoComplete()
             return exitStatus
         } catch {
