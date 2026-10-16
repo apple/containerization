@@ -22,6 +22,8 @@ import ContainerizationIO
 import ContainerizationOCI
 import Crypto
 import Foundation
+import NIO
+import Synchronization
 
 extension ImageStore {
     public struct ExportOperation: Sendable {
@@ -131,26 +133,41 @@ extension ImageStore {
         }
 
         private func pushContent(descriptor: Descriptor, stream: ReadStream) async throws {
+            // Report the bytes as the client consumes the stream rather than once the whole blob
+            // has been pushed, so that progress moves during the upload of a large layer.
+            let pushed = PushedSize()
+            let progress = self.progress
             do {
                 let generator = {
                     try stream.reset()
-                    return stream.stream
+                    // The client calls the generator again when it retries the request. The new
+                    // attempt starts from zero and its bytes replace those of the previous one.
+                    pushed.restart()
+                    return ProgressReportingStream(base: stream.stream) { bytes in
+                        let delta = pushed.advance(by: bytes)
+                        if delta != 0 {
+                            await progress?([.addSize(delta)])
+                        }
+                    }
                 }
                 try await client.push(name: name, ref: tag, descriptor: descriptor, streamGenerator: generator, progress: progress)
                 await progress?([
-                    .addSize(descriptor.size),
+                    .addSize(pushed.settle(at: descriptor.size)),
                     .addItems(1),
                 ])
-            } catch let err as ContainerizationError {
-                guard err.code != .exists else {
-                    // We reported the total items and size and have to account for them in existing content.
-                    await progress?([
-                        .addSize(descriptor.size),
-                        .addItems(1),
-                    ])
-                    return
+            } catch let err as ContainerizationError where err.code == .exists {
+                // We reported the total items and size and have to account for them in existing content.
+                await progress?([
+                    .addSize(pushed.settle(at: descriptor.size)),
+                    .addItems(1),
+                ])
+            } catch {
+                // Take back what a failed upload had reported.
+                let delta = pushed.settle(at: 0)
+                if delta != 0 {
+                    await progress?([.addSize(delta)])
                 }
-                throw err
+                throw error
             }
         }
 
@@ -174,6 +191,74 @@ extension ImageStore {
                 }
             }
             return out
+        }
+    }
+}
+
+/// An `AsyncSequence` of `ByteBuffer` that calls `onConsumed` with the size of each buffer once its
+/// consumer has finished with it, that is, when the consumer asks for the next buffer or reaches the
+/// end of the sequence.
+struct ProgressReportingStream<Base: AsyncSequence & Sendable>: AsyncSequence, Sendable where Base.Element == ByteBuffer {
+    typealias Element = ByteBuffer
+
+    let base: Base
+    let onConsumed: @Sendable (Int64) async -> Void
+
+    struct AsyncIterator: AsyncIteratorProtocol {
+        var base: Base.AsyncIterator
+        let onConsumed: @Sendable (Int64) async -> Void
+        var pending: Int64 = 0
+
+        mutating func next() async throws -> ByteBuffer? {
+            if pending > 0 {
+                await onConsumed(pending)
+                pending = 0
+            }
+            guard let buffer = try await base.next() else {
+                return nil
+            }
+            pending = Int64(buffer.readableBytes)
+            return buffer
+        }
+    }
+
+    func makeAsyncIterator() -> AsyncIterator {
+        AsyncIterator(base: base.makeAsyncIterator(), onConsumed: onConsumed)
+    }
+}
+
+/// The bytes of one blob reported through a progress handler, kept consistent when the upload is
+/// retried: every method returns the change to report so that the reported total follows the
+/// current attempt.
+final class PushedSize: Sendable {
+    private struct State {
+        var attempt: Int64 = 0
+        var reported: Int64 = 0
+    }
+
+    private let state = Mutex(State())
+
+    /// Start a new upload attempt.
+    func restart() {
+        state.withLock { $0.attempt = 0 }
+    }
+
+    /// Count `bytes` more for the current attempt.
+    func advance(by bytes: Int64) -> Int64 {
+        state.withLock { state in
+            state.attempt += bytes
+            let delta = state.attempt - state.reported
+            state.reported = state.attempt
+            return delta
+        }
+    }
+
+    /// Move the reported total to `total`.
+    func settle(at total: Int64) -> Int64 {
+        state.withLock { state in
+            let delta = total - state.reported
+            state.reported = total
+            return delta
         }
     }
 }
