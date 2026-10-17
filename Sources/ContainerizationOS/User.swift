@@ -112,7 +112,8 @@ extension User {
         guard fm.fileExists(atPath: file.absolutePath()) else {
             throw Error.missingFile(file.absolutePath())
         }
-        let content = try String(contentsOf: file, encoding: .ascii)
+        // passwd and group files are not guaranteed to be valid ASCII or UTF-8 (for example GECOS names), so decode leniently.
+        let content = String(decoding: try Data(contentsOf: file), as: UTF8.self)
         let lines = content.components(separatedBy: .newlines)
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
