@@ -15,6 +15,16 @@
 ARG SWIFT_VERSION=6.3
 FROM swift:${SWIFT_VERSION}-noble
 
+# Build-time proxy settings. apt reads the lowercase names; the defaults let a
+# caller pass only the uppercase ones. These stay ARG, not ENV, so they are
+# available to later RUN steps and are not stored in the image.
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+ARG http_proxy=${HTTP_PROXY}
+ARG https_proxy=${HTTPS_PROXY}
+ARG no_proxy=${NO_PROXY}
+
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
         make \
