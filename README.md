@@ -112,7 +112,10 @@ container --version
 ```
 
 The first build automatically builds the Linux dev image used to compile the
-guest, which can take a few minutes.
+guest, which can take a few minutes. Behind an HTTP proxy, export `HTTP_PROXY`,
+`HTTPS_PROXY`, and `NO_PROXY` (or the lowercase names) before running `make`.
+Those values are passed into the dev image build and into commands that run
+inside it. They are not written into the image.
 
 ## Build the package
 
