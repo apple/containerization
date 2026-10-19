@@ -404,7 +404,7 @@ update-libarchive-source:
 .PHONY: test
 test:
 	@echo Testing all test targets...
-	@$(SWIFT) test --enable-code-coverage $(SWIFT_CONFIGURATION)
+	@$(SWIFT) test --enable-code-coverage $(SWIFT_CONFIGURATION) $(if $(strip $(FILTER)),--filter '$(strip $(FILTER))')
 
 .PHONY: coverage
 coverage: test

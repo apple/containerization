@@ -86,6 +86,20 @@ extension ImageStore {
         }
     }
 
+    /// Get an image from the `ImageStore`, or `nil` if the reference does not exist.
+    ///
+    /// - Parameters:
+    ///   - reference: Name of the image.
+    ///
+    /// - Returns: A `Containerization.Image` object whose `reference` matches the given string, or `nil`.
+    public func getOrNil(reference: String) async throws -> Image? {
+        do {
+            return try await self.get(reference: reference)
+        } catch let error as ContainerizationError where error.isCode(.notFound) {
+            return nil
+        }
+    }
+
     /// Get a list of all images in the `ImageStore`.
     ///
     /// - Returns: A `[Containerization.Image]` for all the images in the `ImageStore`.
