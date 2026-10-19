@@ -95,7 +95,9 @@ public class Reference: CustomStringConvertible {
     }()
 
     static let pathPattern = "(?<path>(?:[a-z0-9]+(?:[._]|__|-|/)?)*[a-z0-9]+)"
-    static let tagPattern = "(?::(?<tag>[\\w][\\w.-]{0,127}))?(?:@(?<digest>sha256:[0-9a-fA-F]{64}))?"
+    /// A content digest, e.g. `sha256:<64 lowercase or uppercase hex characters>`.
+    static let digestPattern = "sha256:[0-9a-fA-F]{64}"
+    static let tagPattern = "(?::(?<tag>[\\w][\\w.-]{0,127}))?(?:@(?<digest>\(digestPattern)))?"
     static let pathTagPattern = "\(pathPattern)\(tagPattern)"
 
     public init(path: String, domain: String? = nil, tag: String? = nil, digest: String? = nil) throws {

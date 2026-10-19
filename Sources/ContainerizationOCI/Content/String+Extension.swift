@@ -32,4 +32,14 @@ extension String {
         }
         return self
     }
+
+    /// True if this string has the shape of a content digest (`sha256:<64 hex characters>`),
+    /// as opposed to a mutable tag name. Used to tell a digest-pinned reference apart from a
+    /// tag reference before trusting anything a registry claims about it.
+    var isDigest: Bool {
+        guard let regex = try? Regex(Reference.digestPattern) else {
+            return false
+        }
+        return (try? regex.wholeMatch(in: self)) != nil
+    }
 }
