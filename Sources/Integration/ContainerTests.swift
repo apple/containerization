@@ -2584,6 +2584,51 @@ extension IntegrationSuite {
         }
     }
 
+    func testCopyOutMissingSourceReportsGuestError() async throws {
+        let id = "test-copy-out-missing-source"
+
+        let bs = try await bootstrap(id)
+
+        let hostDestination = FileManager.default.uniqueTemporaryDirectory(create: true)
+            .appendingPathComponent("missing-output.txt")
+
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "100"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            // Which error surfaced used to depend on task timing, so repeat the copy.
+            for attempt in 1...500 {
+                do {
+                    try await container.copyOut(
+                        from: URL(filePath: "/does-not-exist"),
+                        to: hostDestination
+                    )
+                    throw IntegrationError.assert(msg: "copyOut should fail for a missing source")
+                } catch let error as IntegrationError {
+                    throw error
+                } catch {
+                    let message = String(describing: error)
+                    guard message.contains("path not found") else {
+                        throw IntegrationError.assert(
+                            msg: "attempt \(attempt): copyOut reported '\(message)' instead of the guest's not-found error")
+                    }
+                }
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
     func testCopyOut() async throws {
         let id = "test-copy-out"
 
