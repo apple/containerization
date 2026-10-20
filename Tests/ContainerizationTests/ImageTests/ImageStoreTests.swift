@@ -181,4 +181,8 @@ public class ImageStoreTests: ContainsAuth {
         #expect(message.contains("linux/amd64"), "\(message)")
         #expect(message.contains(Self.scratchAmd64Manifest), "\(message)")
     }
+
+    @Test func testGetOrNilMissingReference() async throws {
+        #expect(try await self.store.getOrNil(reference: "registry.local/missing:latest") == nil)
+    }
 }
