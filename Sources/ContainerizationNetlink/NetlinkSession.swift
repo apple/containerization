@@ -931,14 +931,13 @@ public struct NetlinkSession {
     }
 
     private func parseErrorCode(buffer: inout [UInt8], offset: Int) throws -> (Int32, Int) {
-        guard let errorPtr = buffer.bind(as: Int32.self, offset: offset) else {
+        guard let (nextOffset, rc) = buffer.copyOut(as: Int32.self, offset: offset) else {
             throw BindError.recvMarshalFailure(type: "NetlinkErrorMessage", field: "error")
         }
 
-        let rc = errorPtr.pointee
         log.trace("RECV-ERR-CODE: \(rc)")
 
-        return (rc, offset + MemoryLayout<Int32>.size)
+        return (rc, nextOffset)
     }
 
     private func parseErrorResponse(buffer: inout [UInt8], offset: Int) throws -> Int {
