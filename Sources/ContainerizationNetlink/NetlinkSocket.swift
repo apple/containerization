@@ -121,16 +121,18 @@ public class DefaultNetlinkSocket: NetlinkSocket {
             let addr = SockaddrNetlink(family: AddressFamily.AF_NETLINK)
             var buffer = [UInt8](repeating: 0, count: SockaddrNetlink.size)
             _ = try addr.appendBuffer(&buffer, offset: 0)
-            guard let ptr = buffer.bind(as: sockaddr.self, size: buffer.count) else {
-                throw NetlinkSocketError.bindFailure(rc: 0)
-            }
-            guard osBind(socketFD, ptr, socklen_t(buffer.count)) >= 0 else {
-                throw NetlinkSocketError.bindFailure(rc: errno)
-            }
-
             var addrLength = socklen_t(buffer.count)
-            guard osGetsockname(socketFD, ptr, &addrLength) >= 0 else {
-                throw NetlinkSocketError.socketNameFailure(rc: errno)
+            // Both syscalls must finish while the buffer pointer is valid.
+            try buffer.withUnsafeMutableBytes { bytes in
+                guard let ptr = bytes.baseAddress?.assumingMemoryBound(to: sockaddr.self) else {
+                    throw NetlinkSocketError.bindFailure(rc: 0)
+                }
+                guard osBind(socketFD, ptr, socklen_t(bytes.count)) >= 0 else {
+                    throw NetlinkSocketError.bindFailure(rc: errno)
+                }
+                guard osGetsockname(socketFD, ptr, &addrLength) >= 0 else {
+                    throw NetlinkSocketError.socketNameFailure(rc: errno)
+                }
             }
             let portIdentifier = try SockaddrNetlink.boundPortIdentifier(buffer: &buffer, length: addrLength)
 
