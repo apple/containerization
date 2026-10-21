@@ -104,6 +104,44 @@ LINUX_BUILD_VOLUME := containerization-linux-build
 LINUX_SCRATCH_ROOT := /build
 LINUX_SHARED_CACHE := $(LINUX_SCRATCH_ROOT)/cache
 
+# Honor whichever spelling of the proxy variables the caller exported.
+# `:=` copies the value once. `?=` would leave the two names referring to
+# each other when both are unset.
+ifeq ($(origin http_proxy), undefined)
+http_proxy := $(HTTP_PROXY)
+endif
+ifeq ($(origin HTTP_PROXY), undefined)
+HTTP_PROXY := $(http_proxy)
+endif
+ifeq ($(origin https_proxy), undefined)
+https_proxy := $(HTTPS_PROXY)
+endif
+ifeq ($(origin HTTPS_PROXY), undefined)
+HTTPS_PROXY := $(https_proxy)
+endif
+ifeq ($(origin no_proxy), undefined)
+no_proxy := $(NO_PROXY)
+endif
+ifeq ($(origin NO_PROXY), undefined)
+NO_PROXY := $(no_proxy)
+endif
+# Forwarded into `container build` and `container run`. Empty values are omitted
+# so an unset proxy does not override a value set inside the image build.
+PROXY_BUILD_ARGS := \
+	$(if $(HTTP_PROXY),--build-arg HTTP_PROXY="$(HTTP_PROXY)") \
+	$(if $(HTTPS_PROXY),--build-arg HTTPS_PROXY="$(HTTPS_PROXY)") \
+	$(if $(NO_PROXY),--build-arg NO_PROXY="$(NO_PROXY)") \
+	$(if $(http_proxy),--build-arg http_proxy="$(http_proxy)") \
+	$(if $(https_proxy),--build-arg https_proxy="$(https_proxy)") \
+	$(if $(no_proxy),--build-arg no_proxy="$(no_proxy)")
+PROXY_RUN_ENV := \
+	$(if $(HTTP_PROXY),--env HTTP_PROXY="$(HTTP_PROXY)") \
+	$(if $(HTTPS_PROXY),--env HTTPS_PROXY="$(HTTPS_PROXY)") \
+	$(if $(NO_PROXY),--env NO_PROXY="$(NO_PROXY)") \
+	$(if $(http_proxy),--env http_proxy="$(http_proxy)") \
+	$(if $(https_proxy),--env https_proxy="$(https_proxy)") \
+	$(if $(no_proxy),--env no_proxy="$(no_proxy)")
+
 # Literal `,` for use inside $(call ...) arguments — bare commas are
 # treated as the call's argument separator and split the value early.
 comma := ,
@@ -139,7 +177,7 @@ define linux_run
 		echo "Creating Linux build volume $(LINUX_BUILD_VOLUME)..."; \
 		container volume create $(LINUX_BUILD_VOLUME) > /dev/null; \
 	fi
-	@container run --rm $(2) --memory 16gb --cpus 8 \
+	@container run --rm $(2) --memory 16gb --cpus 8 $(PROXY_RUN_ENV) \
 		--env SCRATCH_ROOT=$(LINUX_SCRATCH_ROOT) \
 		--env XDG_CACHE_HOME=$(LINUX_SHARED_CACHE) \
 		-v $(ROOT_DIR):/workspace \
@@ -168,7 +206,7 @@ linux-image:
 		-f images/linux-dev/Dockerfile \
 		--build-arg SWIFT_VERSION=$(SWIFT_VERSION) \
 		--build-arg SWIFT_SDK_URL=$(SWIFT_SDK_URL) \
-		--build-arg SWIFT_SDK_CHECKSUM=$(SWIFT_SDK_CHECKSUM) \
+		--build-arg SWIFT_SDK_CHECKSUM=$(SWIFT_SDK_CHECKSUM) $(PROXY_BUILD_ARGS) \
 		-t $(LINUX_DEV_IMAGE) \
 		.
 
