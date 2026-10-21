@@ -1175,8 +1175,10 @@ extension LinuxPod {
                     return
                 }
 
-                try await process.kill(.kill)
-                try await process.wait(timeoutInSeconds: 3)
+                if process.exitStatus == nil {
+                    try await process.kill(.kill)
+                    try await process.wait(timeoutInSeconds: 3)
+                }
 
                 try await createdState.vm.withAgent { agent in
                     // Unmount the rootfs
