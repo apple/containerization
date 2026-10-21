@@ -14,6 +14,14 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#if canImport(Musl)
+import Musl
+#elseif canImport(Glibc)
+import Glibc
+#else
+import Darwin
+#endif
+
 /// A protocol for interacting with a netlink socket.
 public protocol NetlinkSocket {
     var pid: UInt32 { get }
@@ -28,6 +36,10 @@ public typealias NetlinkSocketProvider = () throws -> any NetlinkSocket
 public enum NetlinkSocketError: Swift.Error, CustomStringConvertible, Equatable {
     case socketFailure(rc: Int32)
     case bindFailure(rc: Int32)
+    case socketNameFailure(rc: Int32)
+    case invalidSocketNameLength(expected: socklen_t, actual: socklen_t)
+    case invalidSocketNameFamily(expected: UInt16, actual: UInt16)
+    case zeroSocketPortIdentifier
     case sendFailure(rc: Int32)
     case recvFailure(rc: Int32)
     case notImplemented
@@ -39,6 +51,14 @@ public enum NetlinkSocketError: Swift.Error, CustomStringConvertible, Equatable 
             return "could not create netlink socket, rc = \(rc)"
         case .bindFailure(let rc):
             return "could not bind netlink socket, rc = \(rc)"
+        case .socketNameFailure(let rc):
+            return "could not get netlink socket name, rc = \(rc)"
+        case .invalidSocketNameLength(let expected, let actual):
+            return "invalid netlink socket address length, expected \(expected) bytes, got \(actual)"
+        case .invalidSocketNameFamily(let expected, let actual):
+            return "invalid netlink socket address family, expected \(expected), got \(actual)"
+        case .zeroSocketPortIdentifier:
+            return "invalid netlink socket port identifier, expected a nonzero value, got 0"
         case .sendFailure(let rc):
             return "could not send netlink packet, rc = \(rc)"
         case .recvFailure(let rc):
@@ -49,17 +69,36 @@ public enum NetlinkSocketError: Swift.Error, CustomStringConvertible, Equatable 
     }
 }
 
+extension SockaddrNetlink {
+    /// Validates the address returned by getsockname before accepting its assigned port identifier.
+    static func boundPortIdentifier(buffer: inout [UInt8], length: socklen_t) throws -> UInt32 {
+        guard length == socklen_t(buffer.count) else {
+            throw NetlinkSocketError.invalidSocketNameLength(expected: socklen_t(buffer.count), actual: length)
+        }
+
+        var address = SockaddrNetlink()
+        _ = try address.bindBuffer(&buffer, offset: 0)
+        guard address.family == AddressFamily.AF_NETLINK else {
+            throw NetlinkSocketError.invalidSocketNameFamily(expected: AddressFamily.AF_NETLINK, actual: address.family)
+        }
+        guard address.pid != 0 else {
+            throw NetlinkSocketError.zeroSocketPortIdentifier
+        }
+        return address.pid
+    }
+}
+
 #if os(Linux)
 #if canImport(Musl)
-import Musl
 let osSocket = Musl.socket
 let osBind = Musl.bind
+let osGetsockname = Musl.getsockname
 let osSend = Musl.send
 let osRecv = Musl.recv
 #elseif canImport(Glibc)
-import Glibc
 let osSocket = Glibc.socket
 let osBind = Glibc.bind
+let osGetsockname = Glibc.getsockname
 let osSend = Glibc.send
 let osRecv = Glibc.recv
 #endif
@@ -68,25 +107,40 @@ let osRecv = Glibc.recv
 public class DefaultNetlinkSocket: NetlinkSocket {
     private let sockfd: Int32
 
-    /// The process identifier of the process creating this socket.
+    /// The netlink port identifier assigned to this socket.
     public let pid: UInt32
 
     /// Creates a new instance.
     public init() throws {
-        pid = UInt32(getpid())
-        sockfd = osSocket(Int32(AddressFamily.AF_NETLINK), SocketType.SOCK_RAW, NetlinkProtocol.NETLINK_ROUTE)
-        guard sockfd >= 0 else {
+        let socketFD = osSocket(Int32(AddressFamily.AF_NETLINK), SocketType.SOCK_RAW, NetlinkProtocol.NETLINK_ROUTE)
+        guard socketFD >= 0 else {
             throw NetlinkSocketError.socketFailure(rc: errno)
         }
 
-        let addr = SockaddrNetlink(family: AddressFamily.AF_NETLINK, pid: pid)
-        var buffer = [UInt8](repeating: 0, count: SockaddrNetlink.size)
-        _ = try addr.appendBuffer(&buffer, offset: 0)
-        guard let ptr = buffer.bind(as: sockaddr.self, size: buffer.count) else {
-            throw NetlinkSocketError.bindFailure(rc: 0)
-        }
-        guard osBind(sockfd, ptr, UInt32(buffer.count)) >= 0 else {
-            throw NetlinkSocketError.bindFailure(rc: errno)
+        do {
+            let addr = SockaddrNetlink(family: AddressFamily.AF_NETLINK)
+            var buffer = [UInt8](repeating: 0, count: SockaddrNetlink.size)
+            _ = try addr.appendBuffer(&buffer, offset: 0)
+            var addrLength = socklen_t(buffer.count)
+            // Both syscalls must finish while the buffer pointer is valid.
+            try buffer.withUnsafeMutableBytes { bytes in
+                guard let ptr = bytes.baseAddress?.assumingMemoryBound(to: sockaddr.self) else {
+                    throw NetlinkSocketError.bindFailure(rc: 0)
+                }
+                guard osBind(socketFD, ptr, socklen_t(bytes.count)) >= 0 else {
+                    throw NetlinkSocketError.bindFailure(rc: errno)
+                }
+                guard osGetsockname(socketFD, ptr, &addrLength) >= 0 else {
+                    throw NetlinkSocketError.socketNameFailure(rc: errno)
+                }
+            }
+            let portIdentifier = try SockaddrNetlink.boundPortIdentifier(buffer: &buffer, length: addrLength)
+
+            sockfd = socketFD
+            pid = portIdentifier
+        } catch {
+            close(socketFD)
+            throw error
         }
     }
 
