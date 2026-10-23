@@ -28,6 +28,7 @@ final class ZstdArchiveSource {
     private var inputCount = 0
     private var inputOffset = 0
     private var sourceExhausted = false
+    private var frameComplete = false
 
     private init(source: FileHandle, stream: OpaquePointer) {
         self.source = source
@@ -80,6 +81,12 @@ final class ZstdArchiveSource {
                 inputOffset = 0
             }
 
+            // After a completed frame, another decoder call would look for a
+            // new frame and report missing input even at a valid end of stream.
+            if sourceExhausted && frameComplete {
+                return 0
+            }
+
             var out = ZSTD_outBuffer(dst: output.baseAddress, size: output.count, pos: bytesProduced)
             var used = ZSTD_inBuffer(src: input.baseAddress, size: inputCount, pos: inputOffset)
             let remainder = ZSTD_decompressStream(stream, &out, &used)
@@ -89,6 +96,7 @@ final class ZstdArchiveSource {
                 archive_set_error_wrapper(archive, EIO, "failed to decompress zstd input: \(String(cString: ZSTD_getErrorName(remainder)))")
                 return -1
             }
+            frameComplete = remainder == 0
 
             if bytesProduced == 0 && sourceExhausted {
                 // A remainder here means the input ended early.
