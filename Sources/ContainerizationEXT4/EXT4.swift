@@ -326,6 +326,7 @@ extension EXT4 {
         case invalidPathEncoding(_ path: String)
         case couldNotReadInode(_ inode: UInt32)
         case couldNotReadGroup(_ group: UInt32)
+        case fileSizeMismatch(_ path: String, _ expected: UInt64, _ actual: UInt64)
         public var description: String {
             switch self {
             case .notFound(let path):
@@ -348,6 +349,8 @@ extension EXT4 {
                 return "could not read inode \(inode)"
             case .couldNotReadGroup(let group):
                 return "could not read group descriptor \(group)"
+            case .fileSizeMismatch(let path, let expected, let actual):
+                return "read \(actual) bytes of \(path), expected \(expected)"
             }
         }
     }
