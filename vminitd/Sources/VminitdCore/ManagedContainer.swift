@@ -76,17 +76,27 @@ public actor ManagedContainer {
             }
         }
 
-        let bundle = try ContainerizationOCI.Bundle.create(
-            path: Self.craftBundlePath(id: id),
-            spec: spec
-        )
-        log.debug("created bundle with spec \(spec)")
+        // Subpath mounts point at staging binds from here on; delete() removes them.
+        try MountVolumeSubpaths.stage(id: id, spec: &spec, log: log)
 
-        let cgManager = Cgroup2Manager(
-            group: URL(filePath: cgroupsPath),
-            logger: log
-        )
-        try cgManager.create()
+        let bundle: ContainerizationOCI.Bundle
+        let cgManager: Cgroup2Manager
+        do {
+            bundle = try ContainerizationOCI.Bundle.create(
+                path: Self.craftBundlePath(id: id),
+                spec: spec
+            )
+            log.debug("created bundle with spec \(spec)")
+
+            cgManager = Cgroup2Manager(
+                group: URL(filePath: cgroupsPath),
+                logger: log
+            )
+            try cgManager.create()
+        } catch {
+            MountVolumeSubpaths.remove(id: id, log: log)
+            throw error
+        }
 
         do {
             try cgManager.toggleAllAvailableControllers(enable: true)
@@ -132,6 +142,7 @@ public actor ManagedContainer {
             self.log = log
         } catch {
             try? cgManager.delete()
+            MountVolumeSubpaths.remove(id: id, log: log)
             throw error
         }
     }
@@ -274,6 +285,9 @@ extension ManagedContainer {
     }
 
     func delete() async throws {
+        // Runs even if a step below throws, so the staging binds never keep the volume busy.
+        defer { MountVolumeSubpaths.remove(id: self.id, log: self.log) }
+
         // Delete the init process if it's a RuncProcess
         try await self.initProcess.delete()
 

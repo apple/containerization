@@ -22,6 +22,7 @@ import Logging
 import Synchronization
 
 import struct ContainerizationOS.Terminal
+import enum ContainerizationOS.VolumeSubpath
 
 /// NOTE: Experimental API
 ///
@@ -1061,16 +1062,25 @@ extension LinuxPod {
                 }
 
                 // Bind mount pod volumes into the container.
+                // A subpath travels as a mount option; the guest agent resolves it
+                // beneath the volume and replaces the source (see `VolumeSubpath`).
                 for mount in container.config.mounts {
-                    if case .shared = mount.runtimeOptions {
-                        mounts.append(
-                            ContainerizationOCI.Mount(
-                                type: "none",
-                                source: Self.guestVolumePath(mount.source),
-                                destination: mount.destination,
-                                options: ["bind"] + mount.options
-                            ))
+                    guard case .shared(let subpath) = mount.runtimeOptions else {
+                        continue
                     }
+
+                    var options = ["bind"] + mount.options
+                    if let subpath {
+                        options.append(VolumeSubpath.toMountOption(subpath))
+                    }
+
+                    mounts.append(
+                        ContainerizationOCI.Mount(
+                            type: "none",
+                            source: Self.guestVolumePath(mount.source),
+                            destination: mount.destination,
+                            options: options
+                        ))
                 }
 
                 spec.mounts = cleanAndSortMounts(mounts)
