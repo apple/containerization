@@ -40,10 +40,12 @@ public struct UnixType: SocketType, Sendable, CustomStringConvertible {
     private let _addr: sockaddr_un
     private let _unlinkExisting: Bool
 
-    private init(sockaddr: sockaddr_un) {
-        let pathname: String = withUnsafePointer(to: sockaddr.sun_path) { ptr in
-            let charPtr = UnsafeRawPointer(ptr).assumingMemoryBound(to: CChar.self)
-            return String(cString: charPtr)
+    private init(sockaddr: sockaddr_un, length: socklen_t) {
+        // Peers may be unnamed or lack a trailing NUL; respect the returned length.
+        let offset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? MemoryLayout<sa_family_t>.size
+        let available = max(0, min(Int(length), MemoryLayout<sockaddr_un>.size) - offset)
+        let pathname = withUnsafeBytes(of: sockaddr.sun_path) { bytes in
+            String(decoding: bytes.prefix(available).prefix(while: { $0 != 0 }), as: UTF8.self)
         }
         self._addr = sockaddr
         self.path = pathname
@@ -51,7 +53,7 @@ public struct UnixType: SocketType, Sendable, CustomStringConvertible {
         self.perms = nil
     }
 
-    /// Mode and unlinkExisting only used if the socket is going to be a listening socket.
+    /// `perms` and `unlinkExisting` apply only to listening sockets.
     public init(
         path: String,
         perms: mode_t? = nil,
@@ -82,22 +84,13 @@ public struct UnixType: SocketType, Sendable, CustomStringConvertible {
     }
 
     public func accept(fd: Int32) throws -> (Int32, SocketType) {
-        var clientFD: Int32 = -1
         var addr = sockaddr_un()
-
-        clientFD = Syscall.retrying {
-            var size = socklen_t(MemoryLayout<sockaddr_un>.stride)
-            return withUnsafeMutablePointer(to: &addr) { pointer in
-                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { pointer in
-                    sysAccept(fd, pointer, &size)
-                }
-            }
+        var size = socklen_t(MemoryLayout<sockaddr_un>.stride)
+        let clientFD = withUnsafeMutablePointer(to: &addr) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sysAccept(fd, $0, &size) }
         }
-        if clientFD < 0 {
-            throw Socket.errnoToError(msg: "accept failed")
-        }
-
-        return (clientFD, UnixType(sockaddr: addr))
+        guard clientFD >= 0 else { throw Socket.errnoToError(msg: "accept failed") }
+        return (clientFD, UnixType(sockaddr: addr, length: size))
     }
 
     public func beforeBind(fd: Int32) throws {

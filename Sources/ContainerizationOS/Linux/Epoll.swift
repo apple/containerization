@@ -118,7 +118,8 @@ public final class Epoll: Sendable {
 
     /// Register a file descriptor for edge-triggered monitoring.
     public func add(_ fd: Int32, mask: Mask, generation: UInt32 = 0) throws {
-        guard fcntl(fd, F_SETFL, O_NONBLOCK) == 0 else {
+        let flags = fcntl(fd, F_GETFL)
+        guard flags >= 0, fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0 else {
             throw POSIXError.fromErrno()
         }
 

@@ -46,8 +46,8 @@ func chVsockListenSocketPath(baseSocket: URL, port: UInt32) -> URL {
 }
 
 /// Bind + listen a fresh AF_UNIX SOCK_STREAM at `path`, unlinking any stale
-/// socket file at that path first. Returns the listening fd; ownership is
-/// transferred to the caller.
+/// socket file at that path first. Returns the listening descriptor in an
+/// ownership token transferred to the caller.
 ///
 /// The socket file is created with mode `perms` (default `0o600`). The
 /// per-VM workDir already restricts access via its own `0o700` mode, but
@@ -55,16 +55,11 @@ func chVsockListenSocketPath(baseSocket: URL, port: UInt32) -> URL {
 /// surface trusts whoever can `connect(2)` and exposes full container
 /// control, so any local-user reach into these sockets is a privilege
 /// escalation primitive.
-func chVsockBindListener(at path: URL, perms: mode_t = 0o600) throws -> Int32 {
+func chVsockBindListener(at path: URL, perms: mode_t = 0o600) throws -> DescriptorTransfer {
     let unix = try UnixType(path: path.path, perms: perms, unlinkExisting: true)
-    let socket = try Socket(type: unix, closeOnDeinit: false)
-    do {
-        try socket.listen()
-    } catch {
-        try? socket.close()
-        throw error
-    }
-    return socket.fileDescriptor
+    let socket = try Socket(type: unix)
+    try socket.listen()
+    return try socket.takeDescriptor()
 }
 
 /// Dial guest port `port` over the cloud-hypervisor hybrid vsock at
@@ -75,83 +70,84 @@ func chVsockBindListener(at path: URL, perms: mode_t = 0o600) throws -> Int32 {
 /// when the channel is torn down). Callers using the FileHandle directly
 /// must close the underlying fd themselves.
 func chVsockDial(baseSocket: URL, port: UInt32) async throws -> FileHandle {
-    try await Task.detached {
-        try chVsockDialSync(baseSocket: baseSocket, port: port)
-    }.value
+    try exportVsockHandle(await chVsockDialOwned(baseSocket: baseSocket, port: port), blocking: true)
+}
+
+func chVsockDialOwned(baseSocket: URL, port: UInt32) async throws -> DescriptorTransfer {
+    let socket = try Socket(type: UnixType(path: baseSocket.path))
+    // Blocking bootstrap work runs on a Dispatch worker, not the cooperative executor.
+    let owner: OwnedDescriptor
+    do {
+        owner = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global().async {
+                    do {
+                        continuation.resume(returning: try chVsockDialSync(socket: socket, port: port).takeOwner())
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+        } onCancel: {
+            try? socket.close()
+        }
+    } catch {
+        // Cancellation closes the socket, which surfaces as a handshake failure.
+        try Task.checkCancellation()
+        throw error
+    }
+    let descriptor = DescriptorTransfer(owner: owner)
+    try Task.checkCancellation()
+    return descriptor
 }
 
 // MARK: - Internals
 
-private func chVsockDialSync(baseSocket: URL, port: UInt32) throws -> FileHandle {
-    let unix = try UnixType(path: baseSocket.path)
-    let socket = try Socket(type: unix, closeOnDeinit: false)
-
-    do {
-        try socket.connect()
-        // Bound the bootstrap reply read so a hung cloud-hypervisor muxer
-        // can't pin this thread forever. CH replies within milliseconds in
-        // healthy operation; 30 s is well outside that and matches the
-        // CloudHypervisor REST client default. After bootstrap the fd is
-        // handed to NIO which puts it in non-blocking mode, where
-        // SO_RCVTIMEO has no effect — so leaving the timeout in place is
-        // harmless.
-        try socket.setTimeout(option: .receive, seconds: 30)
-        let request = "CONNECT \(port)\n"
-        _ = try socket.write(data: Data(request.utf8))
-        let response = try readLine(fd: socket.fileDescriptor)
-        // Cloud Hypervisor responds with "OK <local-port>\n" where
-        // <local-port> is the local-side port the muxer allocated for this
-        // forwarded connection — NOT the peer port we asked for. So we just
-        // require the response to start with "OK " and parse a UInt32 after.
-        guard response.hasPrefix("OK "),
-            UInt32(response.dropFirst(3)) != nil
-        else {
-            throw ContainerizationError(
-                .invalidState,
-                message: "unexpected vsock CONNECT response: \(response.debugDescription)"
-            )
-        }
-        return FileHandle(fileDescriptor: socket.fileDescriptor, closeOnDealloc: false)
-    } catch {
-        try? socket.close()
-        throw error
+private func chVsockDialSync(socket: Socket, port: UInt32) throws -> DescriptorTransfer {
+    try socket.connect()
+    // Bound the bootstrap reply read so a hung cloud-hypervisor muxer
+    // can't pin this thread forever. CH replies within milliseconds in
+    // healthy operation; 30 s is well outside that and matches the
+    // CloudHypervisor REST client default. After bootstrap the fd is
+    // transferred to the caller. NIO and relays use nonblocking I/O, where
+    // SO_RCVTIMEO has no effect — so leaving the timeout in place is harmless.
+    try socket.setTimeout(option: .receive, seconds: 30)
+    let request = "CONNECT \(port)\n"
+    _ = try socket.write(data: Data(request.utf8))
+    let response = try readLine(socket: socket)
+    // Cloud Hypervisor responds with "OK <local-port>\n" where
+    // <local-port> is the local-side port the muxer allocated for this
+    // forwarded connection — NOT the peer port we asked for. So we just
+    // require the response to start with "OK " and parse a UInt32 after.
+    guard response.hasPrefix("OK "), UInt32(response.dropFirst(3)) != nil else {
+        throw ContainerizationError(.invalidState, message: "unexpected vsock CONNECT response: \(response.debugDescription)")
     }
+    return try socket.takeDescriptor()
 }
 
 /// Read CH's hybrid-vsock `CONNECT` reply line (`OK <local-port>\n`) one
-/// byte at a time. Reads from `fd` until a `\n` is seen or `maxLength` is
-/// reached; the returned string excludes the terminating newline. We do
-/// this by hand because the fd is still in blocking mode (NIO takes over
-/// only after the bootstrap completes) and there's no Foundation /
-/// NIO line reader that operates on a raw blocking POSIX fd.
-private func readLine(fd: Int32, maxLength: Int = 256) throws -> String {
+/// byte at a time. Reads from `socket` until a `\n` is seen or `maxLength` is
+/// reached; the returned string excludes the terminating newline. Reading
+/// one byte at a time leaves any payload following the reply untouched.
+private func readLine(socket: Socket, maxLength: Int = 256) throws -> String {
     var bytes: [UInt8] = []
     bytes.reserveCapacity(maxLength)
+    var byte = Data(count: 1)
     while bytes.count < maxLength {
-        var byte: UInt8 = 0
-        let n = withUnsafeMutablePointer(to: &byte) { ptr -> ssize_t in
-            read(fd, ptr, 1)
-        }
-        if n == 0 {
+        do {
+            _ = try socket.read(buffer: &byte)
+        } catch SocketError.closed {
             break
-        }
-        if n < 0 {
-            let savedErrno = errno
-            // SO_RCVTIMEO expiry surfaces as EAGAIN / EWOULDBLOCK on a
-            // blocking socket. Translate to a clear timeout error so callers
-            // don't have to inspect errno.
-            if savedErrno == EAGAIN || savedErrno == EWOULDBLOCK {
-                throw ContainerizationError(
-                    .timeout,
-                    message: "vsock CONNECT response not received within socket receive timeout"
-                )
+        } catch SocketError.withErrno(_, let error) {
+            // Socket receive timeout expiry surfaces as EAGAIN / EWOULDBLOCK.
+            // Translate to a clear timeout error so callers don't have to inspect errno.
+            if error == EAGAIN || error == EWOULDBLOCK {
+                throw ContainerizationError(.timeout, message: "vsock CONNECT response not received within socket receive timeout")
             }
-            throw POSIXError(POSIXErrorCode(rawValue: savedErrno) ?? .EIO)
+            throw POSIXError(POSIXErrorCode(rawValue: error) ?? .EIO)
         }
-        if byte == UInt8(ascii: "\n") {
-            break
-        }
-        bytes.append(byte)
+        if byte[0] == UInt8(ascii: "\n") { break }
+        bytes.append(byte[0])
     }
     return String(decoding: bytes, as: UTF8.self)
 }

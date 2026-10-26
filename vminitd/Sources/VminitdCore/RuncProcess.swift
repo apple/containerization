@@ -27,7 +27,7 @@ import Synchronization
 final class RuncProcess: ContainerProcess, Sendable {
     // swiftlint: disable type_name
     protocol IO: Sendable {
-        func attachConsole(fd: Int32) throws
+        func attachConsole(descriptor: consuming DescriptorTransfer) throws
         func create() throws
         func getIO() -> Runc.IO
         func closeAfterExec() throws
@@ -181,7 +181,7 @@ final class RuncProcess: ContainerProcess, Sendable {
         // and attach console if in terminal mode
         if self.terminal, let consoleSocket = self.consoleSocket {
             self.log.info("waiting for console FD from runc")
-            let ptyFd = try consoleSocket.receiveMaster()
+            let descriptor = try consoleSocket.receiveMaster()
 
             self.log.info(
                 "received PTY FD from runc, attaching",
@@ -190,7 +190,7 @@ final class RuncProcess: ContainerProcess, Sendable {
                 ])
 
             try self.io.closeAfterExec()
-            try self.io.attachConsole(fd: ptyFd)
+            try self.io.attachConsole(descriptor: consume descriptor)
         } else {
             try self.io.closeAfterExec()
         }

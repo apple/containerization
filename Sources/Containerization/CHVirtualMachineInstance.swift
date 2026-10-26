@@ -34,11 +34,9 @@ import Glibc
 /// Cloud-hypervisor backed virtual machine instance.
 ///
 /// One CH subprocess per VM. Connects to the same `Vminitd` guest agent the
-/// macOS path uses, so guest-side semantics are unchanged. This file is the
-/// D1 scaffold — `start`/`stop`/`dialAgent`/`dial`/`listen` throw
-/// `.unsupported` until D3–D5 fill them in. Hotplug methods delegate to
-/// `CHHotplugProvider` (stubbed in D0, real in D2).
-public final class CHVirtualMachineInstance: Sendable {
+/// macOS path uses, so guest-side semantics are unchanged. Hotplug methods
+/// delegate to `CHHotplugProvider`.
+public final class CHVirtualMachineInstance: Sendable, OwnedVsockDialing {
     public typealias Agent = Vminitd
 
     /// VM-instance configuration. Mirrors the macOS `VZVirtualMachineInstance.Configuration`,
@@ -73,7 +71,7 @@ public final class CHVirtualMachineInstance: Sendable {
 
     // MARK: - State
 
-    private let _state: Mutex<VirtualMachineInstanceState>
+    let _state: Mutex<VirtualMachineInstanceState>
     public var state: VirtualMachineInstanceState {
         _state.withLock { $0 }
     }
@@ -88,11 +86,11 @@ public final class CHVirtualMachineInstance: Sendable {
     public var virtiofsLayout: VirtiofsLayout { .perTag }
 
     /// Block-letter allocator shared between the boot wiring (already
-    /// reserved in `init` via `bootDisks`) and runtime hotplug (D2).
+    /// reserved in `init` via `bootDisks`) and runtime hotplug.
     let blockAllocator: any AddressAllocator<Character>
 
-    /// Boot-time disks in the order their letters were allocated. D3 maps
-    /// these into `VmConfig.disks`.
+    /// Boot-time disks in the order their letters were allocated. `buildVmConfig()`
+    /// maps these into `VmConfig.disks`.
     let bootDisks: [BootDisk]
 
     /// Owned resources
@@ -196,7 +194,7 @@ public final class CHVirtualMachineInstance: Sendable {
             self.group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
         }
 
-        // 4. CHProcess + REST client. The api socket lives next to the workDir.
+        // 4. CHProcess + REST client. The api socket lives inside workDir.
         let apiSocket = workDir.appendingPathComponent("api.sock")
         self.chProcess = CHProcess(
             config: .init(
@@ -242,7 +240,7 @@ public final class CHVirtualMachineInstance: Sendable {
     }
 }
 
-// MARK: - VirtualMachineInstance conformance (stubbed; D3–D5 fill these in)
+// MARK: - VirtualMachineInstance conformance
 
 extension CHVirtualMachineInstance: VirtualMachineInstance {
     public func start() async throws {
@@ -296,6 +294,7 @@ extension CHVirtualMachineInstance: VirtualMachineInstance {
     /// down the owned event-loop group. All steps are best-effort and
     /// safe to invoke whether the corresponding `start()` step ran or not.
     private func teardownAfterFailedStart() async {
+        self._state.withLock { $0 = .stopping }
         try? await self.timeSyncer.close()
 
         // chProcess.terminate() is a no-op if `start()` never reached the
@@ -380,13 +379,15 @@ extension CHVirtualMachineInstance: VirtualMachineInstance {
     }
 
     public func dial(_ port: UInt32) async throws -> FileHandle {
-        try await lock.withLock { _ in
+        try exportVsockHandle(await dialOwned(port), blocking: true)
+    }
+
+    package func dialOwned(_ port: UInt32) async throws -> DescriptorTransfer {
+        let owner = try await lock.withLock { _ in
             try self.requireRunning()
-            return try await chVsockDial(
-                baseSocket: self.workDir.appendingPathComponent("vsock.sock"),
-                port: port
-            )
+            return try await chVsockDialOwned(baseSocket: self.workDir.appendingPathComponent("vsock.sock"), port: port).takeOwner()
         }
+        return DescriptorTransfer(owner: owner)
     }
 
     /// Reject vsock dials when the VM isn't actually running. Without this,
@@ -404,31 +405,35 @@ extension CHVirtualMachineInstance: VirtualMachineInstance {
     }
 
     public func listen(_ port: UInt32) throws -> VsockListener {
-        if let slot = _stdioPool.withLock({ $0[port] }) {
-            return try lend(slot)
+        let (slot, created) = try _stdioPool.withLock { pool -> (CHStdioPortSlot, Bool) in
+            let current = self.state
+            guard current == .running || (current == .starting && !pool.isEmpty) else {
+                throw ContainerizationError(.invalidState, message: "vm is not running (state=\(current))")
+            }
+            if let slot = pool[port] { return (slot, false) }
+            // A port outside the pre-bound range binds on demand and then joins the
+            // pool, so it recycles between tenants exactly like a pre-bound one.
+            // Binding on demand is correct wherever CH can see socket files created
+            // after it forked — everywhere except the `--virtualization` dev
+            // container, which is what the warning is for.
+            let path = chVsockListenSocketPath(baseSocket: workDir.appendingPathComponent("vsock.sock"), port: port)
+            let descriptor = try chVsockBindListener(at: path)
+            let slot = CHStdioPortSlot(port: port, path: path, listenDescriptor: descriptor)
+            pool[port] = slot
+            return (slot, true)
         }
 
-        // A port outside the pre-bound range binds on demand and then joins the
-        // pool, so it recycles between tenants exactly like a pre-bound one.
-        // Binding on demand is correct wherever CH can see socket files created
-        // after it forked — everywhere except the `--virtualization` dev
-        // container, which is what the warning is for.
-        let poolEnd = Self.stdioPoolBase + UInt32(Self.stdioPoolSize)
-        logger?.warning(
-            """
-            vsock port \(port) is outside the pre-bound range \(Self.stdioPoolBase)..<\(poolEnd); \
-            binding on demand. Under apple/container --virtualization cloud-hypervisor cannot see \
-            socket files created after it forked, so the guest's dial to this port will be reset — \
-            raise CHVirtualMachineInstance.stdioPoolSize if this host needs more concurrent streams.
-            """
-        )
-        let path = chVsockListenSocketPath(
-            baseSocket: workDir.appendingPathComponent("vsock.sock"),
-            port: port
-        )
-        let listenFd = try chVsockBindListener(at: path)
-        let slot = CHStdioPortSlot(port: port, path: path, listenFd: listenFd)
-        _stdioPool.withLock { $0[port] = slot }
+        if created {
+            let poolEnd = Self.stdioPoolBase + UInt32(Self.stdioPoolSize)
+            logger?.warning(
+                """
+                vsock port \(port) is outside the pre-bound range \(Self.stdioPoolBase)..<\(poolEnd); \
+                binding on demand. Under apple/container --virtualization cloud-hypervisor cannot see \
+                socket files created after it forked, so the guest's dial to this port will be reset — \
+                raise CHVirtualMachineInstance.stdioPoolSize if this host needs more concurrent streams.
+                """
+            )
+        }
         return try lend(slot)
     }
 
@@ -437,9 +442,10 @@ extension CHVirtualMachineInstance: VirtualMachineInstance {
     /// ready for the port's next tenant — see `CHStdioPortSlot`.
     private func lend(_ slot: CHStdioPortSlot) throws -> VsockListener {
         logger?.debug("vsock listen claiming slot port=\(slot.port) path=\(slot.path.path)")
-        let listener = VsockListener(port: slot.port) { [slot, logger] _ in
+        let identity = UUID()
+        let listener = VsockListener(port: slot.port, identity: identity) { [slot, logger] _ in
             logger?.debug("vsock listen releasing slot port=\(slot.port)")
-            slot.relinquish()
+            slot.relinquish(identity)
         }
         try slot.claim(by: listener)
         slot.startAcceptingIfNeeded(logger: logger)
@@ -460,7 +466,7 @@ extension CHVirtualMachineInstance: VirtualMachineInstance {
                 let port = Self.stdioPoolBase + offset
                 let path = chVsockListenSocketPath(baseSocket: base, port: port)
                 let fd = try chVsockBindListener(at: path)
-                pool[port] = CHStdioPortSlot(port: port, path: path, listenFd: fd)
+                pool[port] = CHStdioPortSlot(port: port, path: path, listenDescriptor: fd)
             }
         } catch {
             // Roll back any successfully-bound slots so we don't leak them on
@@ -661,7 +667,7 @@ extension CHVirtualMachineInstance {
     /// short delay between `vm.boot` and the guest agent advertising the
     /// CONNECT/OK protocol on the host UDS. Vminitd typically becomes ready
     /// within a few hundred ms of `vm.boot` returning, so we poll fast at
-    /// 10 ms intervals (capped at 50 ms) to avoid burning wall-clock in
+    /// intervals starting at 10 ms to avoid burning wall-clock in
     /// exponential backoff while the guest is already up. Deadline stays
     /// at 60s as a safety net for the cold-cache long tail.
     private func dialVminitdWithRetries(
@@ -674,11 +680,12 @@ extension CHVirtualMachineInstance {
         var delay = initialDelay
         var lastError: any Error = ContainerizationError(.timeout, message: "could not dial vminitd")
         while clock.now < stop {
+            try Task.checkCancellation()
             do {
                 return try await chVsockDial(baseSocket: baseSocket, port: Vminitd.port)
             } catch {
                 lastError = error
-                try? await Task.sleep(for: delay)
+                try await Task.sleep(for: delay)
                 if delay < .milliseconds(50) {
                     delay = delay * 2
                 }

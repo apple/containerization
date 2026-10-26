@@ -16,11 +16,10 @@
 
 #if os(Linux)
 
-import ContainerizationIO
 import ContainerizationOS
 import Foundation
-import LCShim
 import Logging
+import NIOPosix
 import Synchronization
 
 actor VsockProxy {
@@ -40,9 +39,11 @@ actor VsockProxy {
     private let action: Action
     private let port: UInt32
     private let udsPerms: UInt32?
+    private let blockingPool: NIOThreadPool
     private let log: Logger?
 
     private var listener: Socket?
+    private var closing: Task<Void, any Error>?
     private var task: Task<(), Never>?
     private var connectionTasks: [UUID: Task<(), Never>] = [:]
 
@@ -52,6 +53,7 @@ actor VsockProxy {
         port: UInt32,
         path: URL,
         udsPerms: UInt32?,
+        blockingPool: NIOThreadPool,
         log: Logger? = nil
     ) {
         self.id = id
@@ -59,12 +61,14 @@ actor VsockProxy {
         self.port = port
         self.path = path
         self.udsPerms = udsPerms
+        self.blockingPool = blockingPool
         self.log = log
     }
 }
 
 extension VsockProxy {
-    func start() throws {
+    func start() async throws {
+        _ = await closing?.result
         guard listener == nil else {
             return
         }
@@ -85,8 +89,9 @@ extension VsockProxy {
         }
     }
 
-    func close() throws {
+    func close() async throws {
         guard let listener else {
+            try await closing?.value
             return
         }
 
@@ -98,20 +103,27 @@ extension VsockProxy {
                 "action": "\(action)",
             ])
 
-        try listener.close()
-
         for (_, t) in connectionTasks { t.cancel() }
         connectionTasks.removeAll()
+        task?.cancel()
+        self.task = nil
+        self.listener = nil
 
-        if action == .dial {
-            let fm = FileManager.default
-            if fm.fileExists(atPath: path.path) {
-                try fm.removeItem(at: path)
-            }
+        // Unlink before suspending so a restart during the wait keeps its new socket file.
+        var removeError: (any Error)?
+        if action == .dial, FileManager.default.fileExists(atPath: path.path) {
+            do { try FileManager.default.removeItem(at: path) } catch { removeError = error }
         }
 
-        task?.cancel()
-        self.listener = nil
+        // A pending accept holds the listener open; returning after release lets the
+        // port and socket be reused as soon as the stop request completes.
+        let closing = Task { [removeError] in
+            try await listener.closeAndWait()
+            if let removeError { throw removeError }
+        }
+        self.closing = closing
+        defer { if self.closing == closing { self.closing = nil } }
+        try await closing.value
     }
 
     private func dialHost() throws {
@@ -158,6 +170,11 @@ extension VsockProxy {
         let task = Task {
             do {
                 for try await conn in stream {
+                    // An accept can race shutdown; child tasks do not inherit cancellation.
+                    guard !Task.isCancelled else {
+                        try? conn.close()
+                        break
+                    }
                     let connID = UUID()
                     let connTask = Task {
                         defer { self.connectionTasks[connID] = nil }
@@ -192,136 +209,189 @@ extension VsockProxy {
         conn: ContainerizationOS.Socket,
         connType: SocketType
     ) async throws {
-        try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
-            do {
-                // `relayTo` isn't used concurrently.
-                nonisolated(unsafe) var relayTo: ContainerizationOS.Socket
-
-                switch connType {
-                case .unix:
-                    let type = VsockType(
-                        port: port,
-                        cid: VsockType.hostCID
-                    )
-                    relayTo = try Socket(
-                        type: type,
-                        closeOnDeinit: false
-                    )
-                case .vsock:
-                    let type = try UnixType(path: path.path)
-                    relayTo = try Socket(
-                        type: type,
-                        closeOnDeinit: false
-                    )
-                }
-
-                try relayTo.connect()
-
-                // `clientFile` isn't used concurrently.
-                nonisolated(unsafe) var clientFile = OSFile.SpliceFile(fd: conn.fileDescriptor)
-                nonisolated(unsafe) var eofFromClient = false
-                // `serverFile` isn't used concurrently.
-                nonisolated(unsafe) var serverFile = OSFile.SpliceFile(fd: relayTo.fileDescriptor)
-                nonisolated(unsafe) var eofFromServer = false
-
-                // A full hangup stops writes to that endpoint, but its queued reads must drain.
-                let cleanup = { @Sendable [log, port, path, action] in
-                    log?.debug(
-                        "cleaning up",
-                        metadata: [
-                            "vport": "\(port)",
-                            "uds": "\(path)",
-                            "action": "\(action)",
-                            "eofFromClient": "\(eofFromClient)",
-                            "eofFromServer": "\(eofFromServer)",
-                            "clientFd": "\(clientFile.fileDescriptor)",
-                            "serverFd": "\(serverFile.fileDescriptor)",
-                        ]
-                    )
-
-                    do {
-                        try ProcessSupervisor.default.unregisterFd(clientFile.fileDescriptor)
-                        try ProcessSupervisor.default.unregisterFd(serverFile.fileDescriptor)
-                        try conn.close()
-                        try relayTo.close()
-                    } catch {
-                        self.log?.error("Failed to clean up vsock proxy: \(error)")
-                    }
-                    c.resume()
-                }
-
-                // Callbacks can read or close either socket, so finish both registrations first.
-                let registrationLock = Mutex(())
-                registrationLock.withLock { _ in
-                    try! ProcessSupervisor.default.registerFd(clientFile.fileDescriptor, mask: [.input, .output]) { mask in
-                        registrationLock.withLock { _ in
-                            if mask.isHangup {
-                                eofFromServer = true
-                            }
-                            if (mask.readyToRead || mask.isHangup || mask.isRemoteHangup) && !eofFromClient {
-                                let (fromEof, toEof) = Self.transferData(
-                                    fromFile: &clientFile,
-                                    toFile: &serverFile,
-                                    description: "readyToRead:toServer",
-                                    log: self.log
-                                )
-                                eofFromClient = eofFromClient || fromEof
-                                eofFromServer = eofFromServer || toEof
-                            }
-
-                            if mask.readyToWrite && !eofFromServer {
-                                let (fromEof, toEof) = Self.transferData(
-                                    fromFile: &serverFile,
-                                    toFile: &clientFile,
-                                    description: "readyToWrite:toClient",
-                                    log: self.log
-                                )
-                                eofFromClient = eofFromClient || toEof
-                                eofFromServer = eofFromServer || fromEof
-                            }
-
-                            if eofFromClient && eofFromServer {
-                                return cleanup()
-                            }
-                        }
-                    }
-
-                    try! ProcessSupervisor.default.registerFd(serverFile.fileDescriptor, mask: [.input, .output]) { mask in
-                        registrationLock.withLock { _ in
-                            if mask.isHangup {
-                                eofFromClient = true
-                            }
-                            if (mask.readyToRead || mask.isHangup || mask.isRemoteHangup) && !eofFromServer {
-                                let (fromEof, toEof) = Self.transferData(
-                                    fromFile: &serverFile,
-                                    toFile: &clientFile,
-                                    description: "readyToRead:toClient",
-                                    log: self.log
-                                )
-                                eofFromClient = eofFromClient || toEof
-                                eofFromServer = eofFromServer || fromEof
-                            }
-
-                            if mask.readyToWrite && !eofFromClient {
-                                let (fromEof, toEof) = Self.transferData(
-                                    fromFile: &clientFile,
-                                    toFile: &serverFile,
-                                    description: "readyToWrite:toServer",
-                                    log: self.log
-                                )
-                                eofFromClient = eofFromClient || fromEof
-                                eofFromServer = eofFromServer || toEof
-                            }
-
-                            if eofFromClient && eofFromServer {
-                                return cleanup()
-                            }
-                        }
+        let relayTo: Socket
+        switch connType {
+        case .unix:
+            relayTo = try Socket(type: VsockType(port: port, cid: VsockType.hostCID))
+        case .vsock:
+            relayTo = try Socket(type: UnixType(path: path.path))
+        }
+        // Bounds how long a stalled connect holds a thread of the shared connect pool.
+        try relayTo.setTimeout(option: .send, seconds: 10)
+        try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                blockingPool.submit { state in
+                    switch state {
+                    case .active:
+                        continuation.resume(with: Result { try relayTo.connect() })
+                    case .cancelled:
+                        continuation.resume(throwing: CancellationError())
                     }
                 }
-            } catch {
-                c.resume(throwing: error)
             }
+            try Task.checkCancellation()
+            try await Self.relay(client: conn.takeDescriptor(), server: relayTo.takeDescriptor(), log: log)
+        } onCancel: {
+            try? conn.close()
+            try? relayTo.close()
+        }
+    }
+
+    static func relay(client: consuming DescriptorTransfer, server: consuming DescriptorTransfer, log: Logger? = nil) async throws {
+        let session = try Connection(client: consume client, server: consume server, log: log)
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { session.start($0) }
+        } onCancel: {
+            session.cancel()
+        }
+    }
+
+    /// Both registrations share one terminal decision; copied callbacks retain both descriptor uses.
+    private final class Connection: Sendable {
+        private struct State {
+            var clientFile: OSFile.SpliceFile
+            var serverFile: OSFile.SpliceFile
+            var clientUse: OwnedDescriptor.Use?
+            var serverUse: OwnedDescriptor.Use?
+            var eofFromClient = false
+            var eofFromServer = false
+            var registered: [Int32] = []
+            var continuation: CheckedContinuation<Void, Error>?
+            var finished = false
+            var failure: (any Error)?
+        }
+
+        private let client: OwnedDescriptor
+        private let server: OwnedDescriptor
+        private let state: Mutex<State>
+        private let log: Logger?
+        private let cancelled = Atomic(false)
+
+        init(client: consuming DescriptorTransfer, server: consuming DescriptorTransfer, log: Logger?) throws {
+            let clientOwner = client.takeOwner()
+            let serverOwner = server.takeOwner()
+            do {
+                let clientUse = try clientOwner.acquire()
+                let serverUse = try serverOwner.acquire()
+                self.client = clientOwner
+                self.server = serverOwner
+                self.log = log
+                self.state = Mutex(
+                    State(
+                        clientFile: OSFile.SpliceFile(fd: clientUse.fileDescriptor),
+                        serverFile: OSFile.SpliceFile(fd: serverUse.fileDescriptor),
+                        clientUse: clientUse,
+                        serverUse: serverUse
+                    ))
+            } catch {
+                try? clientOwner.close()
+                try? serverOwner.close()
+                throw error
+            }
+        }
+
+        func start(_ continuation: CheckedContinuation<Void, Error>) {
+            do {
+                let previous: Result<Void, Error>? = try self.state.withLock { state in
+                    if state.finished {
+                        return state.failure.map { .failure($0) } ?? .success(())
+                    }
+                    state.continuation = continuation
+                    guard let clientUse = state.clientUse, let serverUse = state.serverUse else {
+                        throw CancellationError()
+                    }
+                    // Callbacks can read or close either socket, so finish both registrations first.
+                    try ProcessSupervisor.default.registerFd(clientUse.fileDescriptor) { [self, clientUse, serverUse] mask in
+                        defer { withExtendedLifetime((clientUse, serverUse)) {} }
+                        self.handle(mask, fromClient: true)
+                    }
+                    state.registered.append(clientUse.fileDescriptor)
+                    try ProcessSupervisor.default.registerFd(serverUse.fileDescriptor) { [self, clientUse, serverUse] mask in
+                        defer { withExtendedLifetime((clientUse, serverUse)) {} }
+                        self.handle(mask, fromClient: false)
+                    }
+                    state.registered.append(serverUse.fileDescriptor)
+                    return nil
+                }
+                if let previous { continuation.resume(with: previous) }
+            } catch {
+                self.finish(throwing: error)
+            }
+        }
+
+        private func handle(_ mask: Epoll.Mask, fromClient: Bool) {
+            let done = self.state.withLock { state in
+                guard !state.finished, state.registered.count == 2 else { return false }
+                // A full hangup stops writes to that endpoint, but its queued reads must drain.
+                if fromClient {
+                    if mask.isHangup { state.eofFromServer = true }
+                    if (mask.readyToRead || mask.isHangup || mask.isRemoteHangup) && !state.eofFromClient {
+                        let (fromEOF, toEOF) = VsockProxy.transferData(
+                            fromFile: &state.clientFile, toFile: &state.serverFile, description: "readyToRead:toServer", log: self.log,
+                            shouldStop: { self.cancelled.load(ordering: .relaxed) })
+                        state.eofFromClient = state.eofFromClient || fromEOF
+                        state.eofFromServer = state.eofFromServer || toEOF
+                    }
+                    if mask.readyToWrite && !state.eofFromServer {
+                        let (fromEOF, toEOF) = VsockProxy.transferData(
+                            fromFile: &state.serverFile, toFile: &state.clientFile, description: "readyToWrite:toClient", log: self.log,
+                            shouldStop: { self.cancelled.load(ordering: .relaxed) })
+                        state.eofFromClient = state.eofFromClient || toEOF
+                        state.eofFromServer = state.eofFromServer || fromEOF
+                    }
+                } else {
+                    if mask.isHangup { state.eofFromClient = true }
+                    if (mask.readyToRead || mask.isHangup || mask.isRemoteHangup) && !state.eofFromServer {
+                        let (fromEOF, toEOF) = VsockProxy.transferData(
+                            fromFile: &state.serverFile, toFile: &state.clientFile, description: "readyToRead:toClient", log: self.log,
+                            shouldStop: { self.cancelled.load(ordering: .relaxed) })
+                        state.eofFromClient = state.eofFromClient || toEOF
+                        state.eofFromServer = state.eofFromServer || fromEOF
+                    }
+                    if mask.readyToWrite && !state.eofFromClient {
+                        let (fromEOF, toEOF) = VsockProxy.transferData(
+                            fromFile: &state.clientFile, toFile: &state.serverFile, description: "readyToWrite:toServer", log: self.log,
+                            shouldStop: { self.cancelled.load(ordering: .relaxed) })
+                        state.eofFromClient = state.eofFromClient || fromEOF
+                        state.eofFromServer = state.eofFromServer || toEOF
+                    }
+                }
+                return state.eofFromClient && state.eofFromServer
+            }
+            if done { self.finish() }
+        }
+
+        func cancel() {
+            // Interrupt a busy splice loop before waiting for its mutex.
+            self.cancelled.store(true, ordering: .relaxed)
+            self.finish(throwing: CancellationError())
+        }
+
+        func finish(throwing requestedFailure: (any Error)? = nil) {
+            let cleanup = self.state.withLock { state -> ([Int32], CheckedContinuation<Void, Error>?, (any Error)?)? in
+                guard !state.finished else { return nil }
+                state.finished = true
+                state.failure = self.cancelled.load(ordering: .relaxed) ? CancellationError() : requestedFailure
+                let result = (state.registered, state.continuation, state.failure)
+                state.registered.removeAll()
+                state.continuation = nil
+                state.clientUse = nil
+                state.serverUse = nil
+                return result
+            }
+            guard let (registrations, continuation, failure) = cleanup else { return }
+            for fd in registrations {
+                do { try ProcessSupervisor.default.unregisterFd(fd) } catch { self.log?.error("failed to unregister vsock proxy descriptor \(fd): \(error)") }
+            }
+            do { try self.client.close() } catch { self.log?.error("failed to close vsock proxy client: \(error)") }
+            do { try self.server.close() } catch { self.log?.error("failed to close vsock proxy server: \(error)") }
+            if let failure { continuation?.resume(throwing: failure) } else { continuation?.resume() }
+        }
+
+        deinit {
+            try? self.client.close()
+            try? self.server.close()
         }
     }
 
@@ -329,10 +399,11 @@ extension VsockProxy {
         fromFile: inout OSFile.SpliceFile,
         toFile: inout OSFile.SpliceFile,
         description: String,
-        log: Logger?
+        log: Logger?,
+        shouldStop: @Sendable () -> Bool
     ) -> (Bool, Bool) {
         do {
-            let (readBytes, writeBytes, action) = try OSFile.splice(from: &fromFile, to: &toFile)
+            let (readBytes, writeBytes, action) = try OSFile.splice(from: &fromFile, to: &toFile, shouldStop: shouldStop)
             log?.trace(
                 "transferred data",
                 metadata: [
@@ -345,12 +416,10 @@ extension VsockProxy {
                 ]
             )
             if action == .eof {
-                // half close, shut down client to server transfer
-                // we should see no more EPOLLIN events on the client fd
-                // and no more EPOLLOUT events on the server fd
+                // Half-close this transfer direction; the reverse direction can continue.
                 if shutdown(toFile.fileDescriptor, Int32(SHUT_WR)) != 0 {
                     log?.warning(
-                        "failed to shut down reads",
+                        "failed to shut down writes",
                         metadata: [
                             "description": "\(description)",
                             "errno": "\(errno)",
