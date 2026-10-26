@@ -319,6 +319,23 @@ struct RealmRequestTests {
         _ = await #expect(throws: RegistryClient.Error.self) { try await client.ping() }
         #expect(registry.seen.count == 1, "an unauthenticated client must not retry")
     }
+
+    /// Some registries and the proxies in front of them reject a token request without a `User-Agent`.
+    @Test(.timeLimit(.minutes(1)), .enabled(if: loopbackIsDirect))
+    func tokenRequestSendsUserAgent() async throws {
+        let authServer = try RecordingTLSServer.start { _ in
+            let json = "{\"token\":\"t\"}"
+            return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \(json.utf8.count)\r\nConnection: close\r\n\r\n\(json)"
+        }
+        defer { authServer.stop() }
+
+        let client = Self.insecureTLSClient(port: authServer.port, authentication: nil)
+        let request = TokenRequest(realm: "https://127.0.0.1:\(authServer.port)/token", service: nil, clientId: "tests", scope: nil)
+        _ = try await client.fetchToken(request: request)
+
+        #expect(authServer.seen.count == 1)
+        #expect(authServer.seen.first?.contains("User-Agent: containerization-registry-client\r\n") == true)
+    }
 }
 
 #endif
