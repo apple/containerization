@@ -79,6 +79,8 @@ extension ContainerizationError {
                 return .failedPrecondition
             case .timeout:
                 return .deadlineExceeded
+            case .notExecutable:
+                return .permissionDenied
             default:
                 return .internalError
             }

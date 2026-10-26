@@ -297,8 +297,19 @@ extension Vminitd: VirtualMachineAgent {
                 $0.containerID = containerID
             }
         }
-        let resp = try await client.startProcess(request)
-        return resp.pid
+        do {
+            let resp = try await client.startProcess(request)
+            return resp.pid
+        } catch let error as RPCError {
+            switch error.code {
+            case .notFound:
+                throw ContainerizationError(.notFound, message: error.message, cause: error)
+            case .permissionDenied:
+                throw ContainerizationError(.notExecutable, message: error.message, cause: error)
+            default:
+                throw error
+            }
+        }
     }
 
     public func signalProcess(id: String, containerID: String?, signal: Int32) async throws {

@@ -239,10 +239,7 @@ extension ManagedProcess {
                     let errorString = String(data: errorData, encoding: .utf8),
                     !errorString.isEmpty
                 {
-                    throw ContainerizationError(
-                        .internalError,
-                        message: "vmexec error: \(errorString.trimmingCharacters(in: .whitespacesAndNewlines))"
-                    )
+                    throw Self.vmexecError(errorString)
                 }
 
                 log.info(
@@ -259,14 +256,19 @@ extension ManagedProcess {
                 let errorString = String(data: errorData, encoding: .utf8),
                 !errorString.isEmpty
             {
-                throw ContainerizationError(
-                    .internalError,
-                    message: "vmexec error: \(errorString.trimmingCharacters(in: .whitespacesAndNewlines))",
-                    cause: error
-                )
+                throw Self.vmexecError(errorString, cause: error)
             }
             throw error
         }
+    }
+
+    /// vmexec writes `ContainerizationError.description` to the error pipe, so
+    /// the text starts with the error code.
+    static func vmexecError(_ errorString: String, cause: (any Error)? = nil) -> ContainerizationError {
+        let text = errorString.trimmingCharacters(in: .whitespacesAndNewlines)
+        let preserved: [ContainerizationError.Code] = [.notFound, .notExecutable]
+        let code = preserved.first { text.hasPrefix("\($0): ") } ?? .internalError
+        return ContainerizationError(code, message: "vmexec error: \(text)", cause: cause)
     }
 
     func setExit(_ status: Int32) {

@@ -191,7 +191,36 @@ extension IntegrationSuite {
         } catch {
             try? await container.stop()
             guard let err = error as? ContainerizationError,
-                err.isCode(.internalError), err.description.contains("failed to find target executable")
+                err.isCode(.notFound), err.description.contains("failed to find target executable")
+            else {
+                throw error
+            }
+        }
+    }
+
+    func testProcessNotExecutable() async throws {
+        let id = "test-process-not-executable"
+        let bs = try await bootstrap(id)
+
+        let buffer = BufferWriter()
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["/etc/passwd"]
+            config.process.stdout = buffer
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            let _ = try await container.wait()
+            try await container.stop()
+
+            throw IntegrationError.assert(msg: "process didn't throw 'not executable' error")
+        } catch {
+            try? await container.stop()
+            guard let err = error as? ContainerizationError,
+                err.isCode(.notExecutable), err.description.contains("failed to exec")
             else {
                 throw error
             }
