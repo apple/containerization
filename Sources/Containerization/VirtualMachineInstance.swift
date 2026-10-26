@@ -66,7 +66,6 @@ public protocol VirtualMachineInstance: Sendable {
     func resume() async throws
 
     /// Save the state of the paused virtual machine to a new directory at `url`.
-    ///
     /// The virtual machine must already be paused; its run state is not changed.
     func save(to url: URL) async throws
 

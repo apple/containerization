@@ -1007,6 +1007,83 @@ extension LinuxContainer {
         }
     }
 
+    /// Checkpoint the running container to a new directory at `url`, then keep it running.
+    ///
+    /// The directory holds `container.json` (see ``Checkpoint``) and `state/`, the virtual
+    /// machine's saved state bundle. The container is paused for the duration of the checkpoint
+    /// and resumed afterwards, whether or not the checkpoint succeeded.
+    ///
+    /// Only memory and board are captured, not disks. To make the checkpoint restorable, preserve
+    /// the backing disk images (e.g. clone them) in `whilePaused`.
+    ///
+    /// - Parameters:
+    ///   - url: The directory to create.
+    ///   - whilePaused: Called after the state is saved, before the container resumes. If it
+    ///     throws, the checkpoint is removed and the error is rethrown. The guest is frozen
+    ///     until it returns, and the container's state is locked, so keep it short and don't
+    ///     call back into this container.
+    ///
+    /// - Throws: ``ContainerizationError`` with `.invalidState` if the container is not running,
+    ///   `.exists` if `url` already exists, and `.unsupported` if the container has processes
+    ///   started through ``exec(_:configuration:)`` or the virtual machine cannot be saved.
+    public func checkpoint(
+        to url: URL,
+        whilePaused: @escaping @Sendable () async throws -> Void = {}
+    ) async throws {
+        try await self.state.withLock { state in
+            let startedState = try state.startedState("checkpoint")
+
+            // Exec'd processes would have to be reconstructed on restore.
+            guard startedState.vendedProcesses.isEmpty else {
+                throw ContainerizationError(
+                    .unsupported,
+                    message: "failed to checkpoint: container has \(startedState.vendedProcesses.count) exec'd process(es) running"
+                )
+            }
+
+            let fm = FileManager.default
+            if fm.fileExists(atPath: url.path) {
+                throw ContainerizationError(.exists, message: "\(url.path) already exists")
+            }
+
+            let vm = startedState.vm
+
+            // The bundle holds a dump of guest memory.
+            try fm.createDirectory(
+                at: url,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+
+            do {
+                try await vm.pause()
+            } catch {
+                try? fm.removeItem(at: url)
+                throw error
+            }
+            let pausedState = State.PausedState(startedState)
+            state = .paused(pausedState)
+
+            var failure: Error?
+            do {
+                try await vm.save(to: url.appending(path: Checkpoint.stateDirectoryName))
+                try await whilePaused()
+                try Checkpoint(id: self.id).save(to: url.appending(path: Checkpoint.manifestName))
+            } catch {
+                failure = error
+                try? fm.removeItem(at: url)
+            }
+
+            // Whether or not the save worked, do not leave the container frozen.
+            try await vm.resume()
+            state = .started(.init(pausedState))
+
+            if let failure {
+                throw failure
+            }
+        }
+    }
+
     /// Stop the container from executing. This MUST be called even if wait() has returned
     /// as their are additional resources to free.
     public func stop() async throws {
