@@ -347,7 +347,7 @@ public struct Cgroup2Manager: Sendable {
 
         // Recursively remove child cgroups first. This already no-ops on a
         // missing directory.
-        try removeChildCgroups(at: self.path, force: force)
+        try removeChildCgroups(at: self.path)
 
         // errno read immediately; `self.path.path` allocates a temporary that
         // can clobber it.
@@ -358,7 +358,7 @@ public struct Cgroup2Manager: Sendable {
         }
     }
 
-    private func removeChildCgroups(at path: URL, force: Bool) throws {
+    private func removeChildCgroups(at path: URL) throws {
         let fileManager = FileManager.default
 
         guard let contents = try? fileManager.contentsOfDirectory(atPath: path.path) else {
@@ -371,26 +371,7 @@ public struct Cgroup2Manager: Sendable {
             var isDirectory: ObjCBool = false
 
             if fileManager.fileExists(atPath: childPath.path, isDirectory: &isDirectory) && isDirectory.boolValue {
-                if force {
-                    do {
-                        try Self.writeValue(
-                            path: childPath,
-                            value: "1",
-                            fileName: Self.killFile
-                        )
-                    } catch Error.errno(let code, _) where code == ENOENT {
-                        // Child already gone (runc removes its own subtree, and
-                        // the listing above is a snapshot), or a kernel
-                        // predating cgroup.kill.
-                        self.logger?.debug(
-                            "cgroup.kill absent for child, skipping kill",
-                            metadata: [
-                                "path": "\(childPath.path)"
-                            ])
-                    }
-                }
-
-                try removeChildCgroups(at: childPath, force: force)
+                try removeChildCgroups(at: childPath)
                 let result = rmdir(childPath.path)
                 let err = errno
                 if result != 0 && err != ENOENT {
