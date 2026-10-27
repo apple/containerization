@@ -14,7 +14,28 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import Foundation
+
 /// A protocol to implement for virtual machine isolated containers.
 public protocol VirtualMachineManager: Sendable {
-    func create(config: some VMCreationConfig) async throws -> any VirtualMachineInstance
+    /// Create a virtual machine.
+    ///
+    /// - Parameters:
+    ///   - config: The configuration of the virtual machine.
+    ///   - savedState: The directory a virtual machine's state was saved to, or `nil` to create a
+    ///     virtual machine that boots normally. The returned instance is prepared to be restored
+    ///     from it but is not restored yet; call ``VirtualMachineInstance/restore(from:)`` on it.
+    ///     A manager that cannot restore MUST throw an `.unsupported` ContainerizationError for a
+    ///     non-nil value.
+    func create(config: some VMCreationConfig, from savedState: URL?) async throws -> any VirtualMachineInstance
+}
+
+extension VirtualMachineManager {
+    /// Create a virtual machine that boots normally.
+    ///
+    /// Swift does not allow a default argument on a protocol requirement, so this stands in for
+    /// `savedState: nil`.
+    public func create(config: some VMCreationConfig) async throws -> any VirtualMachineInstance {
+        try await create(config: config, from: nil)
+    }
 }

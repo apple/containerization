@@ -46,7 +46,7 @@ public struct VZVirtualMachineManager: VirtualMachineManager {
         self.logger = logger
     }
 
-    public func create(config: some VMCreationConfig) throws -> any VirtualMachineInstance {
+    public func create(config: some VMCreationConfig, from savedState: URL? = nil) throws -> any VirtualMachineInstance {
         let vmConfig = config.configuration
 
         // Use nested virtualization if requested in config or set as default in manager
@@ -61,6 +61,7 @@ public struct VZVirtualMachineManager: VirtualMachineManager {
         return try VZVirtualMachineInstance(
             group: self.group,
             logger: self.logger,
+            checkpoint: savedState,
             with: { instanceConfig in
                 instanceConfig.cpus = cpus
                 instanceConfig.memoryInBytes = memoryInBytes

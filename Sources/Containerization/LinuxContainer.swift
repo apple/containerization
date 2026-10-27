@@ -763,7 +763,11 @@ extension LinuxContainer {
     /// Create and start the underlying container's virtual machine
     /// and set up the runtime environment. The container's init process
     /// is NOT running afterwards.
-    public func create() async throws {
+    ///
+    /// - Parameter checkpoint: A directory written by ``checkpoint(to:)``. The virtual machine is
+    ///   then restored from the checkpoint's saved state instead of booted, and none of the
+    ///   guest setup below is redone: it is already part of the saved state.
+    public func create(from checkpoint: URL? = nil) async throws {
         try await self.state.withLock { state in
             try state.validateForCreate()
 
@@ -800,8 +804,22 @@ extension LinuxContainer {
                 nestedVirtualization: self.config.virtualization
             )
             let creationConfig = StandardVMConfig(configuration: vmConfig)
-            let vm = try await self.vmm.create(config: creationConfig)
+            let savedState = checkpoint?.appending(path: Checkpoint.stateDirectoryName)
+            let vm = try await self.vmm.create(config: creationConfig, from: savedState)
             let relayManager = UnixSocketRelayManager(vm: vm, log: self.logger)
+
+            if let savedState {
+                do {
+                    try await vm.restore(from: savedState)
+                } catch {
+                    try? await relayManager.stopAll()
+                    try? await vm.stop()
+                    state.setErrored(error: error)
+                    throw error
+                }
+                state = .created(.init(vm: vm, relayManager: relayManager, fileMountContext: fileMountContextHolder.withLock { $0 }))
+                return
+            }
 
             do {
                 try await vm.start()
