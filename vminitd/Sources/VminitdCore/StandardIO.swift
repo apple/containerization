@@ -43,6 +43,12 @@ final class StandardIO: ManagedProcess.IO & Sendable {
         // `closeStdin()` and `close()` do. The relay keeps its own duplicate of the descriptor
         // until it has flushed, so closing this one first does not cut off buffered input.
         var stdinWriter: FileHandle?
+
+        // What `detach()` took out of the relays and could not deliver, oldest first. The process
+        // side of each relay is untouched, so these are written first when the relays come back.
+        var stdinPending = Data()
+        var stdoutPending = Data()
+        var stderrPending = Data()
     }
 
     private let log: Logger?
@@ -170,6 +176,33 @@ final class StandardIO: ManagedProcess.IO & Sendable {
             $0.stdoutReader = nil
             try? $0.stderrReader?.close()
             $0.stderrReader = nil
+        }
+    }
+
+    /// Take the relays to the host down without disturbing the process, so the virtual machine
+    /// can be paused. The process keeps its pipe ends: output it writes waits in the pipe and
+    /// input waits in `stdinPending`, and the process blocks only if it fills a pipe.
+    ///
+    /// The host must have closed (or half-closed) its stdin socket before this, so that all of
+    /// stdin can be read to EOF. It must keep reading stdout and stderr until it sees EOF: each
+    /// relay closes its own socket here, after which nothing more arrives on it.
+    ///
+    /// stdin is detached first because it is the one that can fail. If it throws, nothing has
+    /// changed, and the relays carry on as before.
+    func detach() throws {
+        try self.state.withLock {
+            if let stdin = $0.stdin {
+                $0.stdinPending = try stdin.detach(readUntilEOF: true)
+                $0.stdin = nil
+            }
+            if let stdout = $0.stdout {
+                $0.stdoutPending = try stdout.detach(readUntilEOF: false)
+                $0.stdout = nil
+            }
+            if let stderr = $0.stderr {
+                $0.stderrPending = try stderr.detach(readUntilEOF: false)
+                $0.stderr = nil
+            }
         }
     }
 

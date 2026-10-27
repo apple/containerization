@@ -237,13 +237,19 @@ final class IOPair: Sendable {
     ///   returned. Leave it `false` when the source is a process's output: that is never at EOF
     ///   while the process runs, and what the process has written but not been read stays in its
     ///   pipe for the next relay.
+    ///   A relay that already ended (its socket went away or its source finished) has nothing to
+    ///   release and nothing pending, so detaching it returns no bytes.
+    ///
     /// - Throws: If `readUntilEOF` and the source did not reach EOF, failed, or sent more than
     ///   `maxDetachBytes`. Nothing is lost and the pair is left relaying exactly as before, with
     ///   what it had read queued to be written first.
     func detach(readUntilEOF: Bool) throws -> Data {
         try self.io.withLock { io in
-            guard !io.closed, let readFd = io.readFd, io.writeFd != nil else {
-                throw ContainerizationError(.invalidState, message: "relay for \(self.reason) is not active")
+            if io.closed {
+                return Data()
+            }
+            guard let readFd = io.readFd, io.writeFd != nil else {
+                throw ContainerizationError(.invalidState, message: "relay for \(self.reason) was never started")
             }
 
             // No more epoll events means no more drain, and so no more close.
