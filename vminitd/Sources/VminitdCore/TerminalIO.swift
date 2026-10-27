@@ -110,7 +110,7 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
 
             if let stdoutSocket = $0.stdoutSocket {
                 let pair = IOPair(
-                    readFrom: term,
+                    readFrom: UnownedIOCloser(term),
                     writeTo: stdoutSocket,
                     reason: "TerminalIO stdout",
                     logger: log
@@ -144,6 +144,10 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
                 $0.stdoutSocket = nil
             }
 
+            // The relays only borrowed the pty master. Closing it is what hangs up the
+            // process's terminal, so it happens here, with the process, and never because
+            // a relay's socket went away.
+            try? $0.parent?.close()
             $0.parent = nil
         }
     }
