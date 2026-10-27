@@ -30,6 +30,11 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
         var stdin: IOPair?
         var stdout: IOPair?
         var parent: Terminal?
+
+        // What `detach()` took out of the relays and could not deliver, oldest first. The pty is
+        // untouched, so these are written first when the relays come back.
+        var stdinPending = Data()
+        var stdoutPending = Data()
     }
 
     private let log: Logger?
@@ -153,6 +158,32 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
     }
 
     // NOP
+    /// Take the relays to the host down without disturbing the process, so the virtual machine
+    /// can be paused. The pty master stays open, so the process's terminal is not hung up:
+    /// output it writes waits in the pty and input waits in `stdinPending`.
+    ///
+    /// The host must have closed (or half-closed) its stdin socket before this, so that all of
+    /// stdin can be read to EOF. It must keep reading stdout until it sees EOF: the relay closes
+    /// its socket here, after which nothing more arrives on it.
+    ///
+    /// stdin is detached first because it is the one that can fail. If it throws, nothing has
+    /// changed, and the relays carry on as before.
+    func detach() throws {
+        try self.state.withLock {
+            if let stdin = $0.stdin {
+                $0.stdinPending = try stdin.detach(readUntilEOF: true)
+                $0.stdin = nil
+                // The relay closed it.
+                $0.stdinSocket = nil
+            }
+            if let stdout = $0.stdout {
+                $0.stdoutPending = try stdout.detach(readUntilEOF: false)
+                $0.stdout = nil
+                $0.stdoutSocket = nil
+            }
+        }
+    }
+
     func closeAfterExec() throws {}
 
     func closeStdin() throws {
