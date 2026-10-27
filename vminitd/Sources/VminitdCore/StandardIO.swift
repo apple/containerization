@@ -31,6 +31,18 @@ final class StandardIO: ManagedProcess.IO & Sendable {
         var stdinPipe: Pipe?
         var stdoutPipe: Pipe?
         var stderrPipe: Pipe?
+
+        // The read ends of the process's output pipes. The relays borrow them (see
+        // `UnownedIOCloser`), so a relay ending because its socket went away does not
+        // close the pipe under a process that is still running. `close()` does.
+        var stdoutReader: FileHandle?
+        var stderrReader: FileHandle?
+
+        // The write end of the stdin pipe. The relay only borrows it (see `UnownedIOCloser`),
+        // so a relay ending because its socket went away does not give the process an EOF.
+        // `closeStdin()` and `close()` do. The relay keeps its own duplicate of the descriptor
+        // until it has flushed, so closing this one first does not cut off buffered input.
+        var stdinWriter: FileHandle?
     }
 
     private let log: Logger?
@@ -63,9 +75,11 @@ final class StandardIO: ManagedProcess.IO & Sendable {
                 let stdinSocket = try Socket(type: type, closeOnDeinit: false)
                 try stdinSocket.connect()
 
+                $0.stdinWriter = inPipe.fileHandleForWriting
+
                 let pair = IOPair(
                     readFrom: stdinSocket,
-                    writeTo: inPipe.fileHandleForWriting,
+                    writeTo: UnownedIOCloser(inPipe.fileHandleForWriting),
                     reason: "StandardIO stdin",
                     logger: log
                 )
@@ -86,8 +100,10 @@ final class StandardIO: ManagedProcess.IO & Sendable {
                 let stdoutSocket = try Socket(type: type, closeOnDeinit: false)
                 try stdoutSocket.connect()
 
+                $0.stdoutReader = outPipe.fileHandleForReading
+
                 let pair = IOPair(
-                    readFrom: outPipe.fileHandleForReading,
+                    readFrom: UnownedIOCloser(outPipe.fileHandleForReading),
                     writeTo: stdoutSocket,
                     reason: "StandardIO stdout",
                     logger: log
@@ -109,8 +125,10 @@ final class StandardIO: ManagedProcess.IO & Sendable {
                 let stderrSocket = try Socket(type: type, closeOnDeinit: false)
                 try stderrSocket.connect()
 
+                $0.stderrReader = errPipe.fileHandleForReading
+
                 let pair = IOPair(
-                    readFrom: errPipe.fileHandleForReading,
+                    readFrom: UnownedIOCloser(errPipe.fileHandleForReading),
                     writeTo: stderrSocket,
                     reason: "StandardIO stderr",
                     logger: log
@@ -142,6 +160,16 @@ final class StandardIO: ManagedProcess.IO & Sendable {
                 stderr.close()
                 $0.stderr = nil
             }
+
+            // The process is gone, so there is nobody left to give EOF to.
+            try? $0.stdinWriter?.close()
+            $0.stdinWriter = nil
+
+            // The relays only borrowed these. The process is done with its output now.
+            try? $0.stdoutReader?.close()
+            $0.stdoutReader = nil
+            try? $0.stderrReader?.close()
+            $0.stderrReader = nil
         }
     }
 
@@ -151,6 +179,10 @@ final class StandardIO: ManagedProcess.IO & Sendable {
                 stdin.close()
                 $0.stdin = nil
             }
+            // This is what gives the process its EOF. If the relay is still flushing, its
+            // duplicate keeps the pipe open until it is done.
+            try? $0.stdinWriter?.close()
+            $0.stdinWriter = nil
         }
     }
 
