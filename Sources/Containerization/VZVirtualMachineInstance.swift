@@ -107,17 +107,22 @@ public final class VZVirtualMachineInstance: Sendable {
     private let timeSyncer: TimeSyncer
     private let logger: Logger?
 
+    /// - Parameter checkpoint: The directory a virtual machine's state was saved to by
+    ///   ``save(to:)``, when this instance is going to be restored from it with
+    ///   ``restore(from:)``. VZ requires a restored machine to carry the saved machine's
+    ///   identifier, so it is read from the saved configuration snapshot here.
     public convenience init(
         group: EventLoopGroup? = nil,
         logger: Logger? = nil,
+        checkpoint: URL? = nil,
         with: (inout Configuration) throws -> Void
     ) throws {
         var config = Configuration()
         try with(&config)
-        try self.init(group: group, config: config, logger: logger)
+        try self.init(group: group, config: config, logger: logger, checkpoint: checkpoint)
     }
 
-    init(group: EventLoopGroup?, config: Configuration, logger: Logger?) throws {
+    init(group: EventLoopGroup?, config: Configuration, logger: Logger?, checkpoint: URL? = nil) throws {
         if let group {
             self.ownsGroup = false
             self.group = group
@@ -137,6 +142,17 @@ public final class VZVirtualMachineInstance: Sendable {
         self._mounts = Mutex(mountAttachments)
 
         let vzConfig = try config.toVZ(allocator: allocator)
+        if let checkpoint {
+            let saved = try VZVirtualMachineConfigurationSnapshot.load(from: checkpoint)
+            guard
+                let platform = vzConfig.platform as? VZGenericPlatformConfiguration,
+                let identifier = VZGenericMachineIdentifier(dataRepresentation: saved.platform.machineIdentifier)
+            else {
+                throw ContainerizationError(.invalidArgument, message: "invalid machine identifier in \(checkpoint.path)")
+            }
+            platform.machineIdentifier = identifier
+            vzConfig.platform = platform
+        }
         self.vzConfig = vzConfig
         self.vm = VZVirtualMachine(
             configuration: vzConfig,
