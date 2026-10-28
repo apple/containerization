@@ -403,6 +403,14 @@ final class RuncExecProcess: ContainerProcess, Sendable {
         try self.io.closeStdin()
     }
 
+    func detachIO() throws {
+        throw ContainerizationError(.unsupported, message: "detaching stdio is not supported for processes run through an OCI runtime")
+    }
+
+    func attachIO(stdio: HostStdio) throws {
+        throw ContainerizationError(.unsupported, message: "attaching stdio is not supported for processes run through an OCI runtime")
+    }
+
     func delete() async throws {
         // No `runc delete` counterpart: runc holds no per-exec state, so the
         // only thing to reclaim is the console socket. The process spec and pid

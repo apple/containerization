@@ -376,6 +376,41 @@ extension Vminitd: VirtualMachineAgent {
         _ = try await client.closeProcessStdin(request)
     }
 
+    public func detachProcessIO(id: String, containerID: String?) async throws {
+        let request = Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest.with {
+            $0.id = id
+            if let containerID {
+                $0.containerID = containerID
+            }
+        }
+        _ = try await client.detachProcessIO(request)
+    }
+
+    public func attachProcessIO(
+        id: String,
+        containerID: String?,
+        stdinPort: UInt32?,
+        stdoutPort: UInt32?,
+        stderrPort: UInt32?
+    ) async throws {
+        let request = Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest.with {
+            $0.id = id
+            if let containerID {
+                $0.containerID = containerID
+            }
+            if let stdinPort {
+                $0.stdin = stdinPort
+            }
+            if let stdoutPort {
+                $0.stdout = stdoutPort
+            }
+            if let stderrPort {
+                $0.stderr = stderrPort
+            }
+        }
+        _ = try await client.attachProcessIO(request)
+    }
+
     public func up(name: String, mtu: UInt32? = nil) async throws {
         let request = Com_Apple_Containerization_Sandbox_V3_IpLinkSetRequest.with {
             $0.interface = name

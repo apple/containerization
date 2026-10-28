@@ -283,6 +283,32 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
                 type: .unary
             )
         }
+        /// Namespace for "DetachProcessIO" metadata.
+        public enum DetachProcessIO: Sendable {
+            /// Request type for "DetachProcessIO".
+            public typealias Input = Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest
+            /// Response type for "DetachProcessIO".
+            public typealias Output = Com_Apple_Containerization_Sandbox_V3_DetachProcessIOResponse
+            /// Descriptor for "DetachProcessIO".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
+                method: "DetachProcessIO",
+                type: .unary
+            )
+        }
+        /// Namespace for "AttachProcessIO" metadata.
+        public enum AttachProcessIO: Sendable {
+            /// Request type for "AttachProcessIO".
+            public typealias Input = Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest
+            /// Response type for "AttachProcessIO".
+            public typealias Output = Com_Apple_Containerization_Sandbox_V3_AttachProcessIOResponse
+            /// Descriptor for "AttachProcessIO".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "com.apple.containerization.sandbox.v3.SandboxContext"),
+                method: "AttachProcessIO",
+                type: .unary
+            )
+        }
         /// Namespace for "ContainerStatistics" metadata.
         public enum ContainerStatistics: Sendable {
             /// Request type for "ContainerStatistics".
@@ -447,6 +473,8 @@ public enum Com_Apple_Containerization_Sandbox_V3_SandboxContext: Sendable {
             WaitProcess.descriptor,
             ResizeProcess.descriptor,
             CloseProcessStdin.descriptor,
+            DetachProcessIO.descriptor,
+            AttachProcessIO.descriptor,
             ContainerStatistics.descriptor,
             ProxyVsock.descriptor,
             StopVsockProxy.descriptor,
@@ -831,6 +859,48 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext {
             request: GRPCCore.StreamingServerRequest<Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRequest>,
             context: GRPCCore.ServerContext
         ) async throws -> GRPCCore.StreamingServerResponse<Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse>
+
+        /// Handle the "DetachProcessIO" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Take down the relays that carry a process's stdio to the host, without
+        /// > disturbing the process, so the virtual machine can be paused. What the
+        /// > process writes meanwhile waits in its pipes, and what the host had sent but
+        /// > the process had not read is kept in the guest. The host must have closed its
+        /// > stdin connection first and must read stdout and stderr until EOF.
+        ///
+        /// - Parameters:
+        ///   - request: A streaming request of `Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest` messages.
+        ///   - context: Context providing information about the RPC.
+        /// - Throws: Any error which occurred during the processing of the request. Thrown errors
+        ///     of type `RPCError` are mapped to appropriate statuses. All other errors are converted
+        ///     to an internal error.
+        /// - Returns: A streaming response of `Com_Apple_Containerization_Sandbox_V3_DetachProcessIOResponse` messages.
+        func detachProcessIO(
+            request: GRPCCore.StreamingServerRequest<Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest>,
+            context: GRPCCore.ServerContext
+        ) async throws -> GRPCCore.StreamingServerResponse<Com_Apple_Containerization_Sandbox_V3_DetachProcessIOResponse>
+
+        /// Handle the "AttachProcessIO" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Connect a process whose stdio was detached to the host again, over new vsock
+        /// > ports the host is listening on. Anything kept by DetachProcessIO is
+        /// > delivered first.
+        ///
+        /// - Parameters:
+        ///   - request: A streaming request of `Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest` messages.
+        ///   - context: Context providing information about the RPC.
+        /// - Throws: Any error which occurred during the processing of the request. Thrown errors
+        ///     of type `RPCError` are mapped to appropriate statuses. All other errors are converted
+        ///     to an internal error.
+        /// - Returns: A streaming response of `Com_Apple_Containerization_Sandbox_V3_AttachProcessIOResponse` messages.
+        func attachProcessIO(
+            request: GRPCCore.StreamingServerRequest<Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest>,
+            context: GRPCCore.ServerContext
+        ) async throws -> GRPCCore.StreamingServerResponse<Com_Apple_Containerization_Sandbox_V3_AttachProcessIOResponse>
 
         /// Handle the "ContainerStatistics" method.
         ///
@@ -1388,6 +1458,48 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext {
             context: GRPCCore.ServerContext
         ) async throws -> GRPCCore.ServerResponse<Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse>
 
+        /// Handle the "DetachProcessIO" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Take down the relays that carry a process's stdio to the host, without
+        /// > disturbing the process, so the virtual machine can be paused. What the
+        /// > process writes meanwhile waits in its pipes, and what the host had sent but
+        /// > the process had not read is kept in the guest. The host must have closed its
+        /// > stdin connection first and must read stdout and stderr until EOF.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest` message.
+        ///   - context: Context providing information about the RPC.
+        /// - Throws: Any error which occurred during the processing of the request. Thrown errors
+        ///     of type `RPCError` are mapped to appropriate statuses. All other errors are converted
+        ///     to an internal error.
+        /// - Returns: A response containing a single `Com_Apple_Containerization_Sandbox_V3_DetachProcessIOResponse` message.
+        func detachProcessIO(
+            request: GRPCCore.ServerRequest<Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest>,
+            context: GRPCCore.ServerContext
+        ) async throws -> GRPCCore.ServerResponse<Com_Apple_Containerization_Sandbox_V3_DetachProcessIOResponse>
+
+        /// Handle the "AttachProcessIO" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Connect a process whose stdio was detached to the host again, over new vsock
+        /// > ports the host is listening on. Anything kept by DetachProcessIO is
+        /// > delivered first.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest` message.
+        ///   - context: Context providing information about the RPC.
+        /// - Throws: Any error which occurred during the processing of the request. Thrown errors
+        ///     of type `RPCError` are mapped to appropriate statuses. All other errors are converted
+        ///     to an internal error.
+        /// - Returns: A response containing a single `Com_Apple_Containerization_Sandbox_V3_AttachProcessIOResponse` message.
+        func attachProcessIO(
+            request: GRPCCore.ServerRequest<Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest>,
+            context: GRPCCore.ServerContext
+        ) async throws -> GRPCCore.ServerResponse<Com_Apple_Containerization_Sandbox_V3_AttachProcessIOResponse>
+
         /// Handle the "ContainerStatistics" method.
         ///
         /// > Source IDL Documentation:
@@ -1943,6 +2055,48 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext {
             context: GRPCCore.ServerContext
         ) async throws -> Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse
 
+        /// Handle the "DetachProcessIO" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Take down the relays that carry a process's stdio to the host, without
+        /// > disturbing the process, so the virtual machine can be paused. What the
+        /// > process writes meanwhile waits in its pipes, and what the host had sent but
+        /// > the process had not read is kept in the guest. The host must have closed its
+        /// > stdin connection first and must read stdout and stderr until EOF.
+        ///
+        /// - Parameters:
+        ///   - request: A `Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest` message.
+        ///   - context: Context providing information about the RPC.
+        /// - Throws: Any error which occurred during the processing of the request. Thrown errors
+        ///     of type `RPCError` are mapped to appropriate statuses. All other errors are converted
+        ///     to an internal error.
+        /// - Returns: A `Com_Apple_Containerization_Sandbox_V3_DetachProcessIOResponse` to respond with.
+        func detachProcessIO(
+            request: Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest,
+            context: GRPCCore.ServerContext
+        ) async throws -> Com_Apple_Containerization_Sandbox_V3_DetachProcessIOResponse
+
+        /// Handle the "AttachProcessIO" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Connect a process whose stdio was detached to the host again, over new vsock
+        /// > ports the host is listening on. Anything kept by DetachProcessIO is
+        /// > delivered first.
+        ///
+        /// - Parameters:
+        ///   - request: A `Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest` message.
+        ///   - context: Context providing information about the RPC.
+        /// - Throws: Any error which occurred during the processing of the request. Thrown errors
+        ///     of type `RPCError` are mapped to appropriate statuses. All other errors are converted
+        ///     to an internal error.
+        /// - Returns: A `Com_Apple_Containerization_Sandbox_V3_AttachProcessIOResponse` to respond with.
+        func attachProcessIO(
+            request: Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest,
+            context: GRPCCore.ServerContext
+        ) async throws -> Com_Apple_Containerization_Sandbox_V3_AttachProcessIOResponse
+
         /// Handle the "ContainerStatistics" method.
         ///
         /// > Source IDL Documentation:
@@ -2357,6 +2511,28 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext.StreamingServiceP
             }
         )
         router.registerHandler(
+            forMethod: Com_Apple_Containerization_Sandbox_V3_SandboxContext.Method.DetachProcessIO.descriptor,
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest>(),
+            serializer: GRPCProtobuf.ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_DetachProcessIOResponse>(),
+            handler: { request, context in
+                try await self.detachProcessIO(
+                    request: request,
+                    context: context
+                )
+            }
+        )
+        router.registerHandler(
+            forMethod: Com_Apple_Containerization_Sandbox_V3_SandboxContext.Method.AttachProcessIO.descriptor,
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest>(),
+            serializer: GRPCProtobuf.ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_AttachProcessIOResponse>(),
+            handler: { request, context in
+                try await self.attachProcessIO(
+                    request: request,
+                    context: context
+                )
+            }
+        )
+        router.registerHandler(
             forMethod: Com_Apple_Containerization_Sandbox_V3_SandboxContext.Method.ContainerStatistics.descriptor,
             deserializer: GRPCProtobuf.ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsRequest>(),
             serializer: GRPCProtobuf.ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_ContainerStatisticsResponse>(),
@@ -2686,6 +2862,28 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext.ServiceProtocol {
         context: GRPCCore.ServerContext
     ) async throws -> GRPCCore.StreamingServerResponse<Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse> {
         let response = try await self.closeProcessStdin(
+            request: GRPCCore.ServerRequest(stream: request),
+            context: context
+        )
+        return GRPCCore.StreamingServerResponse(single: response)
+    }
+
+    public func detachProcessIO(
+        request: GRPCCore.StreamingServerRequest<Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest>,
+        context: GRPCCore.ServerContext
+    ) async throws -> GRPCCore.StreamingServerResponse<Com_Apple_Containerization_Sandbox_V3_DetachProcessIOResponse> {
+        let response = try await self.detachProcessIO(
+            request: GRPCCore.ServerRequest(stream: request),
+            context: context
+        )
+        return GRPCCore.StreamingServerResponse(single: response)
+    }
+
+    public func attachProcessIO(
+        request: GRPCCore.StreamingServerRequest<Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest>,
+        context: GRPCCore.ServerContext
+    ) async throws -> GRPCCore.StreamingServerResponse<Com_Apple_Containerization_Sandbox_V3_AttachProcessIOResponse> {
+        let response = try await self.attachProcessIO(
             request: GRPCCore.ServerRequest(stream: request),
             context: context
         )
@@ -3061,6 +3259,32 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServiceProt
     ) async throws -> GRPCCore.ServerResponse<Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse> {
         return GRPCCore.ServerResponse<Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse>(
             message: try await self.closeProcessStdin(
+                request: request.message,
+                context: context
+            ),
+            metadata: [:]
+        )
+    }
+
+    public func detachProcessIO(
+        request: GRPCCore.ServerRequest<Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest>,
+        context: GRPCCore.ServerContext
+    ) async throws -> GRPCCore.ServerResponse<Com_Apple_Containerization_Sandbox_V3_DetachProcessIOResponse> {
+        return GRPCCore.ServerResponse<Com_Apple_Containerization_Sandbox_V3_DetachProcessIOResponse>(
+            message: try await self.detachProcessIO(
+                request: request.message,
+                context: context
+            ),
+            metadata: [:]
+        )
+    }
+
+    public func attachProcessIO(
+        request: GRPCCore.ServerRequest<Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest>,
+        context: GRPCCore.ServerContext
+    ) async throws -> GRPCCore.ServerResponse<Com_Apple_Containerization_Sandbox_V3_AttachProcessIOResponse> {
+        return GRPCCore.ServerResponse<Com_Apple_Containerization_Sandbox_V3_AttachProcessIOResponse>(
+            message: try await self.attachProcessIO(
                 request: request.message,
                 context: context
             ),
@@ -3663,6 +3887,58 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext {
             deserializer: some GRPCCore.MessageDeserializer<Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse>,
             options: GRPCCore.CallOptions,
             onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "DetachProcessIO" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Take down the relays that carry a process's stdio to the host, without
+        /// > disturbing the process, so the virtual machine can be paused. What the
+        /// > process writes meanwhile waits in its pipes, and what the host had sent but
+        /// > the process had not read is kept in the guest. The host must have closed its
+        /// > stdin connection first and must read stdout and stderr until EOF.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest` message.
+        ///   - serializer: A serializer for `Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest` messages.
+        ///   - deserializer: A deserializer for `Com_Apple_Containerization_Sandbox_V3_DetachProcessIOResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func detachProcessIO<Result>(
+            request: GRPCCore.ClientRequest<Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest>,
+            serializer: some GRPCCore.MessageSerializer<Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Com_Apple_Containerization_Sandbox_V3_DetachProcessIOResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Com_Apple_Containerization_Sandbox_V3_DetachProcessIOResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "AttachProcessIO" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Connect a process whose stdio was detached to the host again, over new vsock
+        /// > ports the host is listening on. Anything kept by DetachProcessIO is
+        /// > delivered first.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest` message.
+        ///   - serializer: A serializer for `Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest` messages.
+        ///   - deserializer: A deserializer for `Com_Apple_Containerization_Sandbox_V3_AttachProcessIOResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func attachProcessIO<Result>(
+            request: GRPCCore.ClientRequest<Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest>,
+            serializer: some GRPCCore.MessageSerializer<Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Com_Apple_Containerization_Sandbox_V3_AttachProcessIOResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Com_Apple_Containerization_Sandbox_V3_AttachProcessIOResponse>) async throws -> Result
         ) async throws -> Result where Result: Sendable
 
         /// Call the "ContainerStatistics" method.
@@ -4579,6 +4855,80 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext {
             try await self.client.unary(
                 request: request,
                 descriptor: Com_Apple_Containerization_Sandbox_V3_SandboxContext.Method.CloseProcessStdin.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "DetachProcessIO" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Take down the relays that carry a process's stdio to the host, without
+        /// > disturbing the process, so the virtual machine can be paused. What the
+        /// > process writes meanwhile waits in its pipes, and what the host had sent but
+        /// > the process had not read is kept in the guest. The host must have closed its
+        /// > stdin connection first and must read stdout and stderr until EOF.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest` message.
+        ///   - serializer: A serializer for `Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest` messages.
+        ///   - deserializer: A deserializer for `Com_Apple_Containerization_Sandbox_V3_DetachProcessIOResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func detachProcessIO<Result>(
+            request: GRPCCore.ClientRequest<Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest>,
+            serializer: some GRPCCore.MessageSerializer<Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Com_Apple_Containerization_Sandbox_V3_DetachProcessIOResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Com_Apple_Containerization_Sandbox_V3_DetachProcessIOResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Com_Apple_Containerization_Sandbox_V3_SandboxContext.Method.DetachProcessIO.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "AttachProcessIO" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Connect a process whose stdio was detached to the host again, over new vsock
+        /// > ports the host is listening on. Anything kept by DetachProcessIO is
+        /// > delivered first.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest` message.
+        ///   - serializer: A serializer for `Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest` messages.
+        ///   - deserializer: A deserializer for `Com_Apple_Containerization_Sandbox_V3_AttachProcessIOResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func attachProcessIO<Result>(
+            request: GRPCCore.ClientRequest<Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest>,
+            serializer: some GRPCCore.MessageSerializer<Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Com_Apple_Containerization_Sandbox_V3_AttachProcessIOResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Com_Apple_Containerization_Sandbox_V3_AttachProcessIOResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Com_Apple_Containerization_Sandbox_V3_SandboxContext.Method.AttachProcessIO.descriptor,
                 serializer: serializer,
                 deserializer: deserializer,
                 options: options,
@@ -5512,6 +5862,70 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext.ClientProtocol {
             request: request,
             serializer: GRPCProtobuf.ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRequest>(),
             deserializer: GRPCProtobuf.ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "DetachProcessIO" method.
+    ///
+    /// > Source IDL Documentation:
+    /// >
+    /// > Take down the relays that carry a process's stdio to the host, without
+    /// > disturbing the process, so the virtual machine can be paused. What the
+    /// > process writes meanwhile waits in its pipes, and what the host had sent but
+    /// > the process had not read is kept in the guest. The host must have closed its
+    /// > stdin connection first and must read stdout and stderr until EOF.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func detachProcessIO<Result>(
+        request: GRPCCore.ClientRequest<Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Com_Apple_Containerization_Sandbox_V3_DetachProcessIOResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.detachProcessIO(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_DetachProcessIOResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "AttachProcessIO" method.
+    ///
+    /// > Source IDL Documentation:
+    /// >
+    /// > Connect a process whose stdio was detached to the host again, over new vsock
+    /// > ports the host is listening on. Anything kept by DetachProcessIO is
+    /// > delivered first.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func attachProcessIO<Result>(
+        request: GRPCCore.ClientRequest<Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Com_Apple_Containerization_Sandbox_V3_AttachProcessIOResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.attachProcessIO(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Com_Apple_Containerization_Sandbox_V3_AttachProcessIOResponse>(),
             options: options,
             onResponse: handleResponse
         )
@@ -6462,6 +6876,78 @@ extension Com_Apple_Containerization_Sandbox_V3_SandboxContext.ClientProtocol {
             metadata: metadata
         )
         return try await self.closeProcessStdin(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "DetachProcessIO" method.
+    ///
+    /// > Source IDL Documentation:
+    /// >
+    /// > Take down the relays that carry a process's stdio to the host, without
+    /// > disturbing the process, so the virtual machine can be paused. What the
+    /// > process writes meanwhile waits in its pipes, and what the host had sent but
+    /// > the process had not read is kept in the guest. The host must have closed its
+    /// > stdin connection first and must read stdout and stderr until EOF.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func detachProcessIO<Result>(
+        _ message: Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Com_Apple_Containerization_Sandbox_V3_DetachProcessIOResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.detachProcessIO(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "AttachProcessIO" method.
+    ///
+    /// > Source IDL Documentation:
+    /// >
+    /// > Connect a process whose stdio was detached to the host again, over new vsock
+    /// > ports the host is listening on. Anything kept by DetachProcessIO is
+    /// > delivered first.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func attachProcessIO<Result>(
+        _ message: Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Com_Apple_Containerization_Sandbox_V3_AttachProcessIOResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.attachProcessIO(
             request: request,
             options: options,
             onResponse: handleResponse
