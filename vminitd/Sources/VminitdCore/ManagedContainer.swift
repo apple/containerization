@@ -262,6 +262,16 @@ extension ManagedContainer {
         try proc.closeStdin()
     }
 
+    func detachIO(execID: String) throws {
+        let proc = try self.getExecOrInit(execID: execID)
+        try proc.detachIO()
+    }
+
+    func attachIO(execID: String, stdio: HostStdio) throws {
+        let proc = try self.getExecOrInit(execID: execID)
+        try proc.attachIO(stdio: stdio)
+    }
+
     func deleteExec(id: String) async throws {
         try ensureExecExists(id)
 

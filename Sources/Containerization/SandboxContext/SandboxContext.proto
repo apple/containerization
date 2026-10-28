@@ -48,6 +48,16 @@ service SandboxContext {
   rpc ResizeProcess(ResizeProcessRequest) returns (ResizeProcessResponse);
   // Close IO for a given process.
   rpc CloseProcessStdin(CloseProcessStdinRequest) returns (CloseProcessStdinResponse);
+  // Take down the relays that carry a process's stdio to the host, without
+  // disturbing the process, so the virtual machine can be paused. What the
+  // process writes meanwhile waits in its pipes, and what the host had sent but
+  // the process had not read is kept in the guest. The host must have closed its
+  // stdin connection first and must read stdout and stderr until EOF.
+  rpc DetachProcessIO(DetachProcessIORequest) returns (DetachProcessIOResponse);
+  // Connect a process whose stdio was detached to the host again, over new vsock
+  // ports the host is listening on. Anything kept by DetachProcessIO is
+  // delivered first.
+  rpc AttachProcessIO(AttachProcessIORequest) returns (AttachProcessIOResponse);
 
   // Get statistics for containers.
   rpc ContainerStatistics(ContainerStatisticsRequest) returns (ContainerStatisticsResponse);
@@ -210,6 +220,23 @@ message CloseProcessStdinRequest {
 }
 
 message CloseProcessStdinResponse {}
+
+message DetachProcessIORequest {
+  string id = 1;
+  optional string containerID = 2;
+}
+
+message DetachProcessIOResponse {}
+
+message AttachProcessIORequest {
+  string id = 1;
+  optional string containerID = 2;
+  optional uint32 stdin = 3;
+  optional uint32 stdout = 4;
+  optional uint32 stderr = 5;
+}
+
+message AttachProcessIOResponse {}
 
 message MkdirRequest {
   string path = 1;

@@ -34,6 +34,8 @@ final class ManagedProcess: ContainerProcess, Sendable {
         func close() throws
         func closeStdin() throws
         func closeAfterExec() throws
+        func detach() throws
+        func reattach(stdio: HostStdio) throws
     }
     // swiftlint: enable type_name
 
@@ -337,6 +339,23 @@ extension ManagedProcess {
     func closeStdin() throws {
         let io = self.state.withLock { $0.io }
         try io.closeStdin()
+    }
+
+    func detachIO() throws {
+        let io = self.state.withLock { $0.io }
+        try io.detach()
+    }
+
+    func attachIO(stdio: HostStdio) throws {
+        let io = self.state.withLock { $0.io }
+        // Whether the process has a terminal was decided when it was created.
+        try io.reattach(
+            stdio: HostStdio(
+                stdin: stdio.stdin,
+                stdout: stdio.stdout,
+                stderr: stdio.stderr,
+                terminal: self.terminal
+            ))
     }
 
     func delete() async throws {

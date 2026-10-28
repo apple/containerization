@@ -1404,6 +1404,110 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         }
     }
 
+    public func detachProcessIO(
+        request: Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest, context: GRPCCore.ServerContext
+    ) async throws -> Com_Apple_Containerization_Sandbox_V3_DetachProcessIOResponse {
+        log.debug(
+            "detachProcessIO",
+            metadata: [
+                "id": "\(request.id)",
+                "containerID": "\(request.containerID)",
+            ])
+
+        do {
+            if !request.hasContainerID {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "processes in the root of the vm not implemented"
+                )
+            }
+
+            let ctr = try await self.state.get(container: request.containerID)
+
+            try await ctr.detachIO(execID: request.id)
+
+            return .init()
+        } catch let err as ContainerizationError {
+            log.error(
+                "detachProcessIO",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(err)",
+                ])
+            throw err.toRPCError(operation: "detachProcessIO: failed to detach process IO")
+        } catch {
+            log.error(
+                "detachProcessIO",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(error)",
+                ])
+            throw RPCError(
+                code: .internalError,
+                message: "detachProcessIO: failed to detach process IO",
+                cause: error
+            )
+        }
+    }
+
+    public func attachProcessIO(
+        request: Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest, context: GRPCCore.ServerContext
+    ) async throws -> Com_Apple_Containerization_Sandbox_V3_AttachProcessIOResponse {
+        log.debug(
+            "attachProcessIO",
+            metadata: [
+                "id": "\(request.id)",
+                "containerID": "\(request.containerID)",
+            ])
+
+        do {
+            if !request.hasContainerID {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "processes in the root of the vm not implemented"
+                )
+            }
+
+            let ctr = try await self.state.get(container: request.containerID)
+
+            // Whether the process has a terminal is decided by the process, not by the request.
+            let stdio = HostStdio(
+                stdin: request.hasStdin ? request.stdin : nil,
+                stdout: request.hasStdout ? request.stdout : nil,
+                stderr: request.hasStderr ? request.stderr : nil,
+                terminal: false
+            )
+
+            try await ctr.attachIO(execID: request.id, stdio: stdio)
+
+            return .init()
+        } catch let err as ContainerizationError {
+            log.error(
+                "attachProcessIO",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(err)",
+                ])
+            throw err.toRPCError(operation: "attachProcessIO: failed to attach process IO")
+        } catch {
+            log.error(
+                "attachProcessIO",
+                metadata: [
+                    "id": "\(request.id)",
+                    "containerID": "\(request.containerID)",
+                    "error": "\(error)",
+                ])
+            throw RPCError(
+                code: .internalError,
+                message: "attachProcessIO: failed to attach process IO",
+                cause: error
+            )
+        }
+    }
+
     public func ipLinkSet(
         request: Com_Apple_Containerization_Sandbox_V3_IpLinkSetRequest, context: GRPCCore.ServerContext
     ) async throws -> Com_Apple_Containerization_Sandbox_V3_IpLinkSetResponse {
