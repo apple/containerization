@@ -1073,17 +1073,25 @@ extension LinuxContainer {
                 attributes: [.posixPermissions: 0o700]
             )
 
+            // The connections that carry the process's stdio to the host do not survive a restore,
+            // and a save must not catch them half-way through a transfer. Take them down first.
+            // If this fails the process's stdio is partly gone, so give up.
+            let process = startedState.process
             do {
-                try await vm.pause()
+                try await process.detachIO()
             } catch {
                 try? fm.removeItem(at: url)
                 throw error
             }
-            let pausedState = State.PausedState(startedState)
-            state = .paused(pausedState)
 
             var failure: Error?
+            var pausedState: State.PausedState?
             do {
+                try await vm.pause()
+                let paused = State.PausedState(startedState)
+                state = .paused(paused)
+                pausedState = paused
+
                 try await vm.save(to: url.appending(path: Checkpoint.stateDirectoryName))
                 try await whilePaused()
                 try Checkpoint(id: self.id).save(to: url.appending(path: Checkpoint.manifestName))
@@ -1093,8 +1101,17 @@ extension LinuxContainer {
             }
 
             // Whether or not the save worked, do not leave the container frozen.
-            try await vm.resume()
-            state = .started(.init(pausedState))
+            if let pausedState {
+                try await vm.resume()
+                state = .started(.init(pausedState))
+            }
+
+            // And connect the process's stdio again, so the container carries on.
+            do {
+                try await process.attachIO()
+            } catch {
+                failure = failure ?? error
+            }
 
             if let failure {
                 throw failure

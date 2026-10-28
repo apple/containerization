@@ -400,6 +400,152 @@ extension LinuxProcess {
         }
     }
 
+    /// Take the process's stdio down without disturbing the process, so the virtual machine can
+    /// be paused. Call ``attachIO()`` afterwards to connect it again.
+    ///
+    /// Anything the process writes in between waits in its pipes, and what the host had sent but
+    /// the process had not read is kept in the guest. The guest closes its stdout and stderr
+    /// connections itself, so this reads them to EOF first: nothing already sent is lost.
+    ///
+    /// Stdin forwarding stops and its connection is closed, without telling the process: the
+    /// process is not given an EOF. Anything typed before ``attachIO()`` is not forwarded, and
+    /// may be lost.
+    ///
+    /// If this throws, the process's stdio is left partly detached. stdin in particular is gone,
+    /// so treat it as fatal for the process's I/O.
+    func detachIO() async throws {
+        // Stop forwarding first. A cancelled relay does not close stdin in the guest.
+        let relay = self.state.withLock { state -> Task<(), Never>? in
+            let relay = state.stdinRelay
+            state.stdinRelay = nil
+            relay?.cancel()
+            return relay
+        }
+        await relay?.value
+
+        // Closing the connection is the EOF the guest reads stdin up to.
+        try self.state.withLock { state in
+            if let stdin = state.stdio.stdin {
+                stdin.readabilityHandler = nil
+                state.stdio.stdin = nil
+                try stdin.close()
+            }
+        }
+
+        do {
+            try await self.agent.detachProcessIO(id: self.id, containerID: self.owningContainer)
+        } catch {
+            throw ContainerizationError(
+                .internalError,
+                message: "failed to detach IO of process \(self.id)",
+                cause: error
+            )
+        }
+
+        // The guest closed its end, so stdout and stderr end once everything it sent is read.
+        try await self.waitForOutputEOF()
+        try self.state.withLock { try $0.stdio.close() }
+    }
+
+    /// Connect the process's stdio to the guest again, after ``detachIO()`` or after the virtual
+    /// machine was restored. The guest delivers what it kept first.
+    func attachIO() async throws {
+        var pending = [VsockListener?](repeating: nil, count: 3)
+        do {
+            if let stdin = self.ioSetup.stdin {
+                pending[0] = try self.vm.listen(stdin.port)
+            }
+            if let stdout = self.ioSetup.stdout {
+                pending[1] = try self.vm.listen(stdout.port)
+            }
+            if let stderr = self.ioSetup.stderr {
+                pending[2] = try self.vm.listen(stderr.port)
+            }
+            let listeners = pending
+
+            // As in start(), the guest dials back once the request has reached it.
+            let handles = try await withThrowingTaskGroup(of: StartStep.self, returning: [FileHandle?].self) { group in
+                group.addTask {
+                    let handles = try await self.setupIO(listeners: listeners)
+                    return .stdio(handles)
+                }
+
+                group.addTask {
+                    try await self.agent.attachProcessIO(
+                        id: self.id,
+                        containerID: self.owningContainer,
+                        stdinPort: self.ioSetup.stdin?.port,
+                        stdoutPort: self.ioSetup.stdout?.port,
+                        stderrPort: self.ioSetup.stderr?.port
+                    )
+                    return .processCreated
+                }
+
+                var handles = [FileHandle?](repeating: nil, count: 3)
+                for try await step in group {
+                    if case .stdio(let stdio) = step {
+                        handles = stdio
+                    }
+                }
+                return handles
+            }
+
+            if let stdinHandle = handles[0] {
+                self.startStdinRelay(handle: stdinHandle)
+            }
+
+            self.state.withLock {
+                $0.stdio = StdioHandles(
+                    stdin: handles[0],
+                    stdout: handles[1],
+                    stderr: handles[2]
+                )
+            }
+        } catch {
+            for listener in pending {
+                try? listener?.finish()
+            }
+            if let err = error as? ContainerizationError {
+                throw err
+            }
+            throw ContainerizationError(
+                .internalError,
+                message: "failed to attach IO of process \(self.id)",
+                cause: error
+            )
+        }
+    }
+
+    /// Wait for stdout and stderr to reach EOF, which `setupIO` counts. Unlike
+    /// `waitIoComplete`, running out of time is an error: the output may not all be read.
+    private func waitForOutputEOF() async throws {
+        let ioTracker = self.state.withLock { $0.ioTracker }
+        guard let ioTracker else {
+            return
+        }
+        do {
+            try await Timeout.run(seconds: self.stdioTimeout) {
+                var counter = ioTracker.configuredStreams
+                for await _ in ioTracker.stream {
+                    counter -= 1
+                    if counter == 0 {
+                        ioTracker.cont.finish()
+                        break
+                    }
+                }
+            }
+        } catch {
+            throw ContainerizationError(
+                .timeout,
+                message: "timed out waiting for stdout and stderr of process \(self.id) to reach EOF",
+                cause: error
+            )
+        }
+        self.state.withLock {
+            $0.ioTracker = nil
+        }
+    }
+
     /// Kill the process with the specified signal.
     public func kill(_ signal: Signal) async throws {
         do {
