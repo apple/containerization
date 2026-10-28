@@ -84,7 +84,7 @@ jobs:
     if: github.repository == 'apple/containerization'
     needs: buildGuest
     timeout-minutes: 60
-    runs-on: [self-hosted, macos, tahoe, ARM64]
+    runs-on: [self-hosted, macos, goldengate, ARM64]
     permissions:
       contents: read
       packages: write
