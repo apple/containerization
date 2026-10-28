@@ -16,6 +16,7 @@
 
 #if os(Linux)
 
+import ContainerizationError
 import ContainerizationOS
 import Foundation
 import LCShim
@@ -182,6 +183,91 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
                 $0.stdoutSocket = nil
             }
         }
+    }
+
+    /// Connect new relays to the host for a process whose relays were taken down by `detach()`.
+    ///
+    /// `stdio` names the new vsock ports the host is listening on. The relays are built over the
+    /// pty master, which `detach()` left open, and write what `detach()` could not deliver
+    /// before they carry anything new.
+    ///
+    /// If this throws, nothing is attached and the pending bytes are kept, except when the
+    /// second relay fails after the first started: that one is closed and its bytes are lost.
+    func reattach(stdio: HostStdio) throws {
+        try self.state.withLock {
+            guard $0.stdin == nil, $0.stdout == nil else {
+                throw ContainerizationError(.invalidState, message: "stdio is already attached")
+            }
+            guard let term = $0.parent else {
+                throw ContainerizationError(.invalidState, message: "process has no terminal to attach")
+            }
+            guard stdio.stderr == nil else {
+                throw ContainerizationError(.invalidArgument, message: "stderr can't be attached to a terminal")
+            }
+
+            var sockets: [Socket] = []
+            var started: [IOPair] = []
+            do {
+                var stdinSocket: Socket?
+                var stdoutSocket: Socket?
+                if let port = stdio.stdin {
+                    stdinSocket = try Self.connectToHost(port: port)
+                    sockets.append(stdinSocket!)
+                }
+                if let port = stdio.stdout {
+                    stdoutSocket = try Self.connectToHost(port: port)
+                    sockets.append(stdoutSocket!)
+                }
+
+                var stdin: IOPair?
+                var stdout: IOPair?
+                if let socket = stdinSocket {
+                    let pair = IOPair(
+                        readFrom: socket,
+                        writeTo: UnownedIOCloser(term),
+                        reason: "TerminalIO stdin",
+                        pending: $0.stdinPending,
+                        logger: log
+                    )
+                    started.append(pair)
+                    try pair.relay(ignoreHup: true)
+                    stdin = pair
+                }
+                if let socket = stdoutSocket {
+                    let pair = IOPair(
+                        readFrom: UnownedIOCloser(term),
+                        writeTo: socket,
+                        reason: "TerminalIO stdout",
+                        pending: $0.stdoutPending,
+                        logger: log
+                    )
+                    started.append(pair)
+                    try pair.relay(ignoreHup: true)
+                    stdout = pair
+                }
+
+                $0.stdinSocket = stdinSocket
+                $0.stdoutSocket = stdoutSocket
+                $0.stdin = stdin
+                $0.stdout = stdout
+                $0.stdinPending = Data()
+                $0.stdoutPending = Data()
+            } catch {
+                for pair in started {
+                    pair.close()
+                }
+                for socket in sockets {
+                    try? socket.close()
+                }
+                throw error
+            }
+        }
+    }
+
+    private static func connectToHost(port: UInt32) throws -> Socket {
+        let socket = try Socket(type: VsockType(port: port, cid: VsockType.hostCID), closeOnDeinit: false)
+        try socket.connect()
+        return socket
     }
 
     func closeAfterExec() throws {}

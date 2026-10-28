@@ -206,6 +206,114 @@ final class StandardIO: ManagedProcess.IO & Sendable {
         }
     }
 
+    /// Connect new relays to the host for a process whose relays were taken down by `detach()`.
+    ///
+    /// `stdio` names the new vsock ports the host is listening on. Each relay is built over the
+    /// process's own pipe end, which `detach()` left open, and writes what `detach()` could not
+    /// deliver before it carries anything new. The streams in `stdio` must be the ones the
+    /// process was started with.
+    ///
+    /// If this throws, nothing is attached and the pending bytes are kept, except when a relay
+    /// fails after others started: those are closed and their pending bytes are lost.
+    func reattach(stdio: HostStdio) throws {
+        try self.state.withLock {
+            guard $0.stdin == nil, $0.stdout == nil, $0.stderr == nil else {
+                throw ContainerizationError(.invalidState, message: "stdio is already attached")
+            }
+            if stdio.stdin != nil && $0.stdinWriter == nil {
+                throw ContainerizationError(.invalidState, message: "process has no stdin to attach")
+            }
+            if stdio.stdout != nil && $0.stdoutReader == nil {
+                throw ContainerizationError(.invalidState, message: "process has no stdout to attach")
+            }
+            if stdio.stderr != nil && $0.stderrReader == nil {
+                throw ContainerizationError(.invalidState, message: "process has no stderr to attach")
+            }
+
+            var sockets: [Socket] = []
+            var started: [IOPair] = []
+            do {
+                // Everything that can fail on the host's side first, before any relay moves bytes.
+                var stdinSocket: Socket?
+                var stdoutSocket: Socket?
+                var stderrSocket: Socket?
+                if let port = stdio.stdin {
+                    stdinSocket = try Self.connectToHost(port: port)
+                    sockets.append(stdinSocket!)
+                }
+                if let port = stdio.stdout {
+                    stdoutSocket = try Self.connectToHost(port: port)
+                    sockets.append(stdoutSocket!)
+                }
+                if let port = stdio.stderr {
+                    stderrSocket = try Self.connectToHost(port: port)
+                    sockets.append(stderrSocket!)
+                }
+
+                var stdin: IOPair?
+                var stdout: IOPair?
+                var stderr: IOPair?
+                if let socket = stdinSocket, let writer = $0.stdinWriter {
+                    let pair = IOPair(
+                        readFrom: socket,
+                        writeTo: UnownedIOCloser(writer),
+                        reason: "StandardIO stdin",
+                        pending: $0.stdinPending,
+                        logger: log
+                    )
+                    started.append(pair)
+                    try pair.relay()
+                    stdin = pair
+                }
+                if let socket = stdoutSocket, let reader = $0.stdoutReader {
+                    let pair = IOPair(
+                        readFrom: UnownedIOCloser(reader),
+                        writeTo: socket,
+                        reason: "StandardIO stdout",
+                        pending: $0.stdoutPending,
+                        logger: log
+                    )
+                    started.append(pair)
+                    try pair.relay()
+                    stdout = pair
+                }
+                if let socket = stderrSocket, let reader = $0.stderrReader {
+                    let pair = IOPair(
+                        readFrom: UnownedIOCloser(reader),
+                        writeTo: socket,
+                        reason: "StandardIO stderr",
+                        pending: $0.stderrPending,
+                        logger: log
+                    )
+                    started.append(pair)
+                    try pair.relay()
+                    stderr = pair
+                }
+
+                $0.stdin = stdin
+                $0.stdout = stdout
+                $0.stderr = stderr
+                $0.stdinPending = Data()
+                $0.stdoutPending = Data()
+                $0.stderrPending = Data()
+            } catch {
+                for pair in started {
+                    pair.close()
+                }
+                for socket in sockets {
+                    try? socket.close()
+                }
+                throw error
+            }
+        }
+    }
+
+    private static func connectToHost(port: UInt32) throws -> Socket {
+        let socket = try Socket(type: VsockType(port: port, cid: VsockType.hostCID), closeOnDeinit: false)
+        try socket.connect()
+        return socket
+    }
+
     func closeStdin() throws {
         self.state.withLock {
             if let stdin = $0.stdin {
