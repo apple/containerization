@@ -165,10 +165,15 @@ final class IOPair: Sendable {
         readFrom: IOCloser,
         writeTo: IOCloser,
         reason: String,
+        pending: Data = Data(),
         logger: Logger? = nil
     ) {
         let buffer = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: Int(getpagesize()))
-        self.io = Mutex(IO(from: readFrom, to: writeTo, buffer: buffer))
+        var io = IO(from: readFrom, to: writeTo, buffer: buffer)
+        // Written to the sink before anything is read from the source. These are bytes an earlier
+        // relay took but never delivered, so they come first.
+        io.overflow = pending
+        self.io = Mutex(io)
         self.reason = reason
         self.logger = logger
     }
@@ -188,6 +193,12 @@ final class IOPair: Sendable {
                 io.ignoreHup = ignoreHup
 
                 try self.arm(&io)
+
+                // Edge-triggered epoll only reports a descriptor becoming ready. Don't leave
+                // seeded bytes waiting for an event that may already have come and gone.
+                if !io.overflow.isEmpty {
+                    io.drain(logger: self.logger)
+                }
             } catch {
                 io.close(logger: self.logger)
                 throw error
