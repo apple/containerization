@@ -380,6 +380,132 @@ extension IntegrationSuite {
         }
     }
 
+    func testPodNBDVolumeSubpath() async throws {
+        let id = "test-pod-nbd-volume-subpath"
+        let bs = try await bootstrap(id)
+
+        let (server, diskURL) = try createNBDServer(testID: id, name: "subpath")
+        defer { server.stop() }
+
+        let rootfs1 = try cloneRootfsForContainer(bs.rootfs, testID: id, containerID: "writer")
+        let rootfs2 = try cloneRootfsForContainer(bs.rootfs, testID: id, containerID: "reader")
+
+        let pod = try LinuxPod(id, vmm: bs.vmm, vm: .default) { config in
+            config.bootLog = bs.bootLog
+            config.volumes = [
+                .init(
+                    name: "shared-data",
+                    source: .nbd(url: URL(string: server.url)!),
+                    format: "ext4"
+                )
+            ]
+        }
+
+        // The writer sees only the subpath, which the guest creates in the empty volume.
+        let writerBuffer = BufferWriter()
+        try await pod.addContainer("writer", rootfs: rootfs1) { config in
+            config.process.arguments = [
+                "/bin/sh", "-c",
+                "echo subpath-content > /data/f.txt && ls /data && grep /data /proc/mounts",
+            ]
+            config.process.stdout = writerBuffer
+            config.mounts.append(.sharedMount(name: "shared-data", destination: "/data", subpath: "app/logs"))
+        }
+
+        // The reader sees the whole volume and finds the writer's file under the subpath.
+        let readerBuffer = BufferWriter()
+        try await pod.addContainer("reader", rootfs: rootfs2) { config in
+            config.process.arguments = ["/bin/sh", "-c", "cat /vol/app/logs/f.txt"]
+            config.process.stdout = readerBuffer
+            config.mounts.append(.sharedMount(name: "shared-data", destination: "/vol"))
+        }
+
+        do {
+            try await pod.create()
+
+            try await pod.startContainer("writer")
+            let writerStatus = try await pod.waitContainer("writer")
+            guard writerStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "writer exited with status \(writerStatus)")
+            }
+
+            try await pod.startContainer("reader")
+            let readerStatus = try await pod.waitContainer("reader")
+            guard readerStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "reader exited with status \(readerStatus)")
+            }
+
+            try await pod.stop()
+        } catch {
+            try? await pod.stop()
+            throw error
+        }
+
+        let writerOutput = String(data: writerBuffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let writerLines = writerOutput.components(separatedBy: "\n")
+        guard writerLines.count >= 2 else {
+            throw IntegrationError.assert(msg: "expected at least 2 lines from writer, got: \(writerOutput)")
+        }
+        guard writerLines[0] == "f.txt" else {
+            throw IntegrationError.assert(msg: "writer should see only the subpath contents, got '\(writerLines[0])'")
+        }
+        try assertVirtioBlockMount(writerLines[1], path: "/data")
+
+        let readerOutput = String(data: readerBuffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard readerOutput == "subpath-content" else {
+            throw IntegrationError.assert(msg: "expected 'subpath-content', got '\(readerOutput)'")
+        }
+
+        // The write landed under the subpath on the NBD backing file.
+        let diskContent = try readFileFromDiskImage(diskURL, path: "/app/logs/f.txt")
+        guard diskContent == "subpath-content" else {
+            throw IntegrationError.assert(msg: "NBD backing file: expected 'subpath-content', got '\(diskContent)'")
+        }
+    }
+
+    func testPodVolumeFileSubpath() async throws {
+        let id = "test-pod-volume-file-subpath"
+        let bs = try await bootstrap(id)
+
+        let diskURL = try createEXT4DiskImageWithFile(testID: id, name: "config", filePath: "/config/app.conf", content: "conf")
+        let rootfs = try cloneRootfsForContainer(bs.rootfs, testID: id, containerID: "app")
+
+        let pod = try LinuxPod(id, vmm: bs.vmm, vm: .default) { config in
+            config.bootLog = bs.bootLog
+            config.volumes = [.init(name: "config", source: .diskImage(path: diskURL), format: "ext4")]
+        }
+
+        // A single file from the volume, read-only: the write must fail.
+        let buffer = BufferWriter()
+        try await pod.addContainer("app", rootfs: rootfs) { config in
+            config.process.arguments = ["/bin/sh", "-c", "cat /etc/app.conf && ! echo x > /etc/app.conf"]
+            config.process.stdout = buffer
+            config.mounts.append(.sharedMount(name: "config", destination: "/etc/app.conf", options: ["ro"], subpath: "config/app.conf"))
+        }
+
+        do {
+            try await pod.create()
+            try await pod.startContainer("app")
+            let status = try await pod.waitContainer("app")
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "app exited with status \(status)")
+            }
+
+            try await pod.stop()
+        } catch {
+            try? await pod.stop()
+            throw error
+        }
+
+        let output = String(data: buffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard output == "conf" else {
+            throw IntegrationError.assert(msg: "expected 'conf', got '\(output)'")
+        }
+        guard try readFileFromDiskImage(diskURL, path: "/config/app.conf") == "conf" else {
+            throw IntegrationError.assert(msg: "the read-only subpath was written")
+        }
+    }
+
     func testPodMultipleNBDVolumes() async throws {
         let id = "test-pod-multiple-nbd-volumes"
         let bs = try await bootstrap(id)

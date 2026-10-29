@@ -51,6 +51,8 @@ endif
 # Comma-separated; a test is kept if its name contains ANY of the substrings.
 FILTER ?=
 linux_integration_filter = $(if $(strip $(FILTER)),--filter '$(strip $(FILTER))')
+# `make linux-test FILTER=VolumeSubpathTests` passes FILTER to `swift test --filter`.
+linux_test_filter = $(if $(strip $(FILTER)),--filter '$(strip $(FILTER))')
 ifeq ($(UNAME_S),Darwin)
 SWIFT ?= /usr/bin/swift
 else
@@ -183,7 +185,7 @@ endif
 
 .PHONY: linux-test
 linux-test:
-	$(call linux_run,swift test $(SWIFT_CONFIGURATION) --scratch-path $(LINUX_SCRATCH_ROOT)/build-containerization)
+	$(call linux_run,swift test $(SWIFT_CONFIGURATION) --scratch-path $(LINUX_SCRATCH_ROOT)/build-containerization $(linux_test_filter))
 
 .PHONY: build-cloud-hypervisor
 # Build cloud-hypervisor from the patched source at .local/cloud-hypervisor and
