@@ -98,6 +98,8 @@ public final class VZVirtualMachineInstance: Sendable {
 
     // `vm` isn't used concurrently.
     private nonisolated(unsafe) let vm: VZVirtualMachine
+    // The configuration `vm` was created from. Kept so the board can be snapshotted on save.
+    private nonisolated(unsafe) let vzConfig: VZVirtualMachineConfiguration
     private let queue: DispatchQueue
     private let lock: AsyncLock
     private let group: EventLoopGroup
@@ -134,8 +136,10 @@ public final class VZVirtualMachineInstance: Sendable {
         let (mountAttachments, _) = try config.mountAttachments(allocator: allocator)
         self._mounts = Mutex(mountAttachments)
 
+        let vzConfig = try config.toVZ(allocator: allocator)
+        self.vzConfig = vzConfig
         self.vm = VZVirtualMachine(
-            configuration: try config.toVZ(allocator: allocator),
+            configuration: vzConfig,
             queue: self.queue
         )
 
@@ -249,6 +253,61 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
         try await lock.withLock { _ in
             try await self.vm.resume(queue: self.queue)
             await self.timeSyncer.resume()
+        }
+    }
+
+    /// File names inside a saved state bundle.
+    static let bundleConfigurationName = "configuration.json"
+    static let bundleMachineStateName = "vm.state"
+
+    /// Save the paused virtual machine's state to a new directory bundle at `url`.
+    ///
+    /// The bundle holds the machine state (`vm.state`) and a
+    /// ``VZVirtualMachineConfigurationSnapshot`` (`configuration.json`) describing the board the
+    /// state depends on.
+    ///
+    /// The caller owns the pause/resume lifecycle: call ``pause()`` first, preserve the backing
+    /// peripheral state (e.g. clone disk images) while the guest is quiescent, and then call
+    /// ``resume()`` or ``stop()``. This method does not change the virtual machine's run state.
+    ///
+    /// - Throws: ``ContainerizationError`` with `.exists` if `url` already exists, `.invalidState`
+    ///   if the virtual machine is not paused, and `.unsupported` if the configuration contains
+    ///   anything that cannot be saved. On failure no bundle is left behind.
+    public func save(to url: URL) async throws {
+        try await lock.withLock { _ in
+            let fm = FileManager.default
+            if fm.fileExists(atPath: url.path) {
+                throw ContainerizationError(.exists, message: "\(url.path) already exists")
+            }
+            guard self.vm.state == .paused else {
+                throw ContainerizationError(.invalidState, message: "vm must be paused to save its state")
+            }
+
+            // Everything that can fail without touching the bundle goes first, so an
+            // unsupported configuration never leaves a directory behind.
+            try self.vzConfig.validateSaveRestoreSupport()
+            let snapshot = try VZVirtualMachineConfigurationSnapshot(
+                configuration: self.vzConfig,
+                initialFilesystem: self.config.initialFilesystem.map { URL(fileURLWithPath: $0.source) }
+            )
+
+            // The state file is a dump of guest memory.
+            try fm.createDirectory(
+                at: url,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+
+            do {
+                try await self.vm.saveMachineState(
+                    to: url.appending(path: Self.bundleMachineStateName),
+                    queue: self.queue
+                )
+                try snapshot.save(to: url.appending(path: Self.bundleConfigurationName))
+            } catch {
+                try? fm.removeItem(at: url)
+                throw error
+            }
         }
     }
 
