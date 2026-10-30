@@ -120,6 +120,20 @@ extension VZVirtualMachine {
         }
     }
 
+    func restoreMachineState(from url: URL, queue: DispatchQueue) async throws {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            queue.sync {
+                self.restoreMachineStateFrom(url: url) { error in
+                    if let error {
+                        cont.resume(throwing: error)
+                        return
+                    }
+                    cont.resume()
+                }
+            }
+        }
+    }
+
     func resume(queue: DispatchQueue) async throws {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             queue.sync {

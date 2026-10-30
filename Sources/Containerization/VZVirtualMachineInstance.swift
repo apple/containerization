@@ -311,6 +311,78 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
         }
     }
 
+    /// Restore the virtual machine from a state bundle written by ``save(to:)`` and run it.
+    ///
+    /// This is the counterpart of ``start()`` for a saved machine: the guest does not boot, it
+    /// continues from where it was saved. The instance must be freshly created (stopped) with
+    /// `checkpoint:` set to this bundle, from a configuration whose board matches the bundle's
+    /// snapshot — the same kernel, initial filesystem and device layout — and
+    /// the caller is responsible for the backing peripheral state (disk image contents, network
+    /// identity). Every difference found in the board is reported before VZ is asked to restore.
+    ///
+    /// Once the guest is running again the agent connection is re-established and the guest clock
+    /// is synchronized. Connections the host held across the save (vsock connections, listeners)
+    /// do not survive and must be re-established by the caller.
+    ///
+    /// - Throws: ``ContainerizationError`` with `.invalidState` if the virtual machine is not
+    ///   stopped, `.notFound` if the bundle is incomplete, `.invalidArgument` if the board does
+    ///   not match, and `.unsupported` if the configuration cannot be restored. If the restore
+    ///   itself fails the virtual machine is left stopped.
+    public func restore(from url: URL) async throws {
+        try await lock.withLock { _ in
+            guard self.vm.state == .stopped else {
+                throw ContainerizationError(
+                    .invalidState,
+                    message: "virtual machine must be stopped to restore its state"
+                )
+            }
+
+            let stateURL = url.appending(path: Self.bundleMachineStateName)
+            guard FileManager.default.fileExists(atPath: stateURL.path) else {
+                throw ContainerizationError(.notFound, message: "no machine state at \(stateURL.path)")
+            }
+            let saved = try VZVirtualMachineConfigurationSnapshot.load(
+                from: url.appending(path: Self.bundleConfigurationName)
+            )
+
+            try self.vzConfig.validateSaveRestoreSupport()
+            let current = try VZVirtualMachineConfigurationSnapshot(
+                configuration: self.vzConfig,
+                initialFilesystem: self.config.initialFilesystem.map { URL(fileURLWithPath: $0.source) }
+            )
+            let differences = saved.differences(from: current)
+            guard differences.isEmpty else {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "virtual machine does not match the saved state:\n" + differences.map { "  - \($0)" }.joined(separator: "\n")
+                )
+            }
+
+            // VZ leaves the restored machine paused.
+            try await self.vm.restoreMachineState(from: stateURL, queue: self.queue)
+            try await self.vm.resume(queue: self.queue)
+
+            let agent = try await Vminitd(
+                connection: try await self.vm.waitForAgent(queue: self.queue),
+                group: self.group
+            )
+
+            // The guest clock is as stale as the save. Fix it now instead of at the next tick.
+            var now = timeval()
+            if gettimeofday(&now, nil) == 0 {
+                do {
+                    try await agent.setTime(sec: Int64(now.tv_sec), usec: Int32(now.tv_usec))
+                } catch {
+                    self.logger?.warning("failed to sync time after restore: \(error)")
+                }
+            }
+
+            // Don't close our remote context as we are providing
+            // it to our time sync routine.
+            await self.timeSyncer.start(context: agent)
+        }
+    }
+
     public func dialAgent() async throws -> Vminitd {
         try await lock.withLock { _ in
             do {
