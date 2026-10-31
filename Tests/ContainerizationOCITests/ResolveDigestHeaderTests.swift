@@ -25,7 +25,7 @@ import Testing
 /// `RegistryClient` honours `HTTP_PROXY` from the environment, which would
 /// divert a request aimed at the in-process stub below. Skip rather than fail
 /// when a proxy is configured and does not exempt loopback.
-private var reachesLoopbackDirectly: Bool {
+var reachesLoopbackDirectly: Bool {
     let env = ProcessInfo.processInfo.environment
     guard (env["HTTP_PROXY"] ?? env["http_proxy"]) != nil else {
         return true
