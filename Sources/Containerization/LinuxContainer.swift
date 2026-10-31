@@ -766,7 +766,10 @@ extension LinuxContainer {
     ///
     /// - Parameter checkpoint: A directory written by ``checkpoint(to:)``. The virtual machine is
     ///   then restored from the checkpoint's saved state instead of booted, and none of the
-    ///   guest setup below is redone: it is already part of the saved state.
+    ///   guest setup below is redone: it is already part of the saved state. The container's
+    ///   init process is already running in the restored guest, so the container is started
+    ///   afterwards (do not call ``start()``): its stdio is connected to the
+    ///   `config.process` streams again.
     public func create(from checkpoint: URL? = nil) async throws {
         try await self.state.withLock { state in
             try state.validateForCreate()
@@ -809,15 +812,46 @@ extension LinuxContainer {
             let relayManager = UnixSocketRelayManager(vm: vm, log: self.logger)
 
             if let savedState {
+                let createdState = State.CreatedState(
+                    vm: vm,
+                    relayManager: relayManager,
+                    fileMountContext: fileMountContextHolder.withLock { $0 }
+                )
+                var agent: (any VirtualMachineAgent)?
                 do {
                     try await vm.restore(from: savedState)
+
+                    // The init process is already running in the guest. Give it a LinuxProcess
+                    // and connect its stdio again, rather than starting it.
+                    let restoredAgent = try await vm.dialAgent()
+                    agent = restoredAgent
+                    let stdio = IOUtil.setup(
+                        portAllocator: self.hostVsockPorts,
+                        stdin: self.config.process.stdin,
+                        stdout: self.config.process.stdout,
+                        stderr: self.config.process.stderr
+                    )
+                    let process = LinuxProcess(
+                        self.id,
+                        containerID: self.id,
+                        spec: try self.generateRuntimeSpec(for: .containerInit),
+                        io: stdio,
+                        portAllocator: self.hostVsockPorts,
+                        ociRuntimePath: self.config.ociRuntimePath,
+                        agent: restoredAgent,
+                        vm: vm,
+                        logger: self.logger
+                    )
+                    try await process.attachIO()
+
+                    state = .started(.init(createdState, process: process))
                 } catch {
+                    try? await agent?.close()
                     try? await relayManager.stopAll()
                     try? await vm.stop()
                     state.setErrored(error: error)
                     throw error
                 }
-                state = .created(.init(vm: vm, relayManager: relayManager, fileMountContext: fileMountContextHolder.withLock { $0 }))
                 return
             }
 
