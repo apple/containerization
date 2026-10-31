@@ -73,9 +73,14 @@ extension VirtualMachineAgent {
             )
         }
 
-        if ipv4Gateway == nil && ipv6Gateway == nil {
-            logger?.debug("no gateway for \(name)")
+        guard ipv4Gateway != nil || ipv6Gateway != nil else {
+            // `Interface` documents a nil gateway as "no default route", so
+            // installing one anyway would give the guest an on-link default
+            // route that makes every destination look directly reachable.
+            logger?.debug("no gateway for \(name), skipping the default route")
+            return
         }
+
         try await routeAddDefault(
             name: name,
             route: .init(ipv4Gateway: ipv4Gateway, ipv6Gateway: ipv6Gateway)
