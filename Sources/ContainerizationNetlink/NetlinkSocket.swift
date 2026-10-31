@@ -72,9 +72,11 @@ public class DefaultNetlinkSocket: NetlinkSocket {
     public let pid: UInt32
 
     /// Creates a new instance.
-    public init() throws {
+    /// - Parameter socketProtocol: The netlink protocol to use (default
+    ///   `NetlinkProtocol.NETLINK_ROUTE`).
+    public init(socketProtocol: Int32 = NetlinkProtocol.NETLINK_ROUTE) throws {
         pid = UInt32(getpid())
-        sockfd = osSocket(Int32(AddressFamily.AF_NETLINK), SocketType.SOCK_RAW, NetlinkProtocol.NETLINK_ROUTE)
+        sockfd = osSocket(Int32(AddressFamily.AF_NETLINK), SocketType.SOCK_RAW, socketProtocol)
         guard sockfd >= 0 else {
             throw NetlinkSocketError.socketFailure(rc: errno)
         }
@@ -128,7 +130,7 @@ public class DefaultNetlinkSocket: NetlinkSocket {
 public class DefaultNetlinkSocket: NetlinkSocket {
     public var pid: UInt32 { 0 }
 
-    public init() throws {}
+    public init(socketProtocol: Int32 = NetlinkProtocol.NETLINK_ROUTE) throws {}
 
     public func send(buf: UnsafeRawPointer!, len: Int, flags: Int32) throws -> Int {
         throw NetlinkSocketError.notImplemented
