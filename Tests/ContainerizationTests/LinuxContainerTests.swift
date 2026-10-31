@@ -125,7 +125,7 @@ struct LinuxContainerTests {
     /// A `VirtualMachineManager` that cannot create anything. `LinuxContainer.init`
     /// only stores the manager, so nothing below should reach `create`.
     private struct UnusableVMM: VirtualMachineManager {
-        func create(config: some VMCreationConfig) async throws -> any VirtualMachineInstance {
+        func create(config: some VMCreationConfig, from savedState: URL?) async throws -> any VirtualMachineInstance {
             throw ContainerizationError(.unsupported, message: "test stub: no VM should be created here")
         }
     }
@@ -210,7 +210,7 @@ struct LinuxContainerTests {
             captured.withLock { $0 }
         }
 
-        func create(config: some VMCreationConfig) async throws -> any VirtualMachineInstance {
+        func create(config: some VMCreationConfig, from savedState: URL?) async throws -> any VirtualMachineInstance {
             captured.withLock { $0 = config.configuration }
             throw ContainerizationError(.unsupported, message: "stub")
         }

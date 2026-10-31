@@ -98,6 +98,8 @@ public final class VZVirtualMachineInstance: Sendable {
 
     // `vm` isn't used concurrently.
     private nonisolated(unsafe) let vm: VZVirtualMachine
+    // The configuration `vm` was created from. Kept so the board can be snapshotted on save.
+    private nonisolated(unsafe) let vzConfig: VZVirtualMachineConfiguration
     private let queue: DispatchQueue
     private let lock: AsyncLock
     private let group: EventLoopGroup
@@ -105,17 +107,22 @@ public final class VZVirtualMachineInstance: Sendable {
     private let timeSyncer: TimeSyncer
     private let logger: Logger?
 
+    /// - Parameter checkpoint: The directory a virtual machine's state was saved to by
+    ///   ``save(to:)``, when this instance is going to be restored from it with
+    ///   ``restore(from:)``. VZ requires a restored machine to carry the saved machine's
+    ///   identifier, so it is read from the saved configuration snapshot here.
     public convenience init(
         group: EventLoopGroup? = nil,
         logger: Logger? = nil,
+        checkpoint: URL? = nil,
         with: (inout Configuration) throws -> Void
     ) throws {
         var config = Configuration()
         try with(&config)
-        try self.init(group: group, config: config, logger: logger)
+        try self.init(group: group, config: config, logger: logger, checkpoint: checkpoint)
     }
 
-    init(group: EventLoopGroup?, config: Configuration, logger: Logger?) throws {
+    init(group: EventLoopGroup?, config: Configuration, logger: Logger?, checkpoint: URL? = nil) throws {
         if let group {
             self.ownsGroup = false
             self.group = group
@@ -134,8 +141,21 @@ public final class VZVirtualMachineInstance: Sendable {
         let (mountAttachments, _) = try config.mountAttachments(allocator: allocator)
         self._mounts = Mutex(mountAttachments)
 
+        let vzConfig = try config.toVZ(allocator: allocator)
+        if let checkpoint {
+            let saved = try VZVirtualMachineConfigurationSnapshot.load(from: checkpoint)
+            guard
+                let platform = vzConfig.platform as? VZGenericPlatformConfiguration,
+                let identifier = VZGenericMachineIdentifier(dataRepresentation: saved.platform.machineIdentifier)
+            else {
+                throw ContainerizationError(.invalidArgument, message: "invalid machine identifier in \(checkpoint.path)")
+            }
+            platform.machineIdentifier = identifier
+            vzConfig.platform = platform
+        }
+        self.vzConfig = vzConfig
         self.vm = VZVirtualMachine(
-            configuration: try config.toVZ(allocator: allocator),
+            configuration: vzConfig,
             queue: self.queue
         )
 
@@ -249,6 +269,133 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
         try await lock.withLock { _ in
             try await self.vm.resume(queue: self.queue)
             await self.timeSyncer.resume()
+        }
+    }
+
+    /// File names inside a saved state bundle.
+    static let bundleConfigurationName = "configuration.json"
+    static let bundleMachineStateName = "vm.state"
+
+    /// Save the paused virtual machine's state to a new directory bundle at `url`.
+    ///
+    /// The bundle holds the machine state (`vm.state`) and a
+    /// ``VZVirtualMachineConfigurationSnapshot`` (`configuration.json`) describing the board the
+    /// state depends on.
+    ///
+    /// The caller owns the pause/resume lifecycle: call ``pause()`` first, preserve the backing
+    /// peripheral state (e.g. clone disk images) while the guest is quiescent, and then call
+    /// ``resume()`` or ``stop()``. This method does not change the virtual machine's run state.
+    ///
+    /// - Throws: ``ContainerizationError`` with `.exists` if `url` already exists, `.invalidState`
+    ///   if the virtual machine is not paused, and `.unsupported` if the configuration contains
+    ///   anything that cannot be saved. On failure no bundle is left behind.
+    public func save(to url: URL) async throws {
+        try await lock.withLock { _ in
+            let fm = FileManager.default
+            if fm.fileExists(atPath: url.path) {
+                throw ContainerizationError(.exists, message: "\(url.path) already exists")
+            }
+            guard self.vm.state == .paused else {
+                throw ContainerizationError(.invalidState, message: "vm must be paused to save its state")
+            }
+
+            // Everything that can fail without touching the bundle goes first, so an
+            // unsupported configuration never leaves a directory behind.
+            try self.vzConfig.validateSaveRestoreSupport()
+            let snapshot = try VZVirtualMachineConfigurationSnapshot(
+                configuration: self.vzConfig,
+                initialFilesystem: self.config.initialFilesystem.map { URL(fileURLWithPath: $0.source) }
+            )
+
+            // The state file is a dump of guest memory.
+            try fm.createDirectory(
+                at: url,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+
+            do {
+                try await self.vm.saveMachineState(
+                    to: url.appending(path: Self.bundleMachineStateName),
+                    queue: self.queue
+                )
+                try snapshot.save(to: url.appending(path: Self.bundleConfigurationName))
+            } catch {
+                try? fm.removeItem(at: url)
+                throw error
+            }
+        }
+    }
+
+    /// Restore the virtual machine from a state bundle written by ``save(to:)`` and run it.
+    ///
+    /// This is the counterpart of ``start()`` for a saved machine: the guest does not boot, it
+    /// continues from where it was saved. The instance must be freshly created (stopped) with
+    /// `checkpoint:` set to this bundle, from a configuration whose board matches the bundle's
+    /// snapshot — the same kernel, initial filesystem and device layout — and
+    /// the caller is responsible for the backing peripheral state (disk image contents, network
+    /// identity). Every difference found in the board is reported before VZ is asked to restore.
+    ///
+    /// Once the guest is running again the agent connection is re-established and the guest clock
+    /// is synchronized. Connections the host held across the save (vsock connections, listeners)
+    /// do not survive and must be re-established by the caller.
+    ///
+    /// - Throws: ``ContainerizationError`` with `.invalidState` if the virtual machine is not
+    ///   stopped, `.notFound` if the bundle is incomplete, `.invalidArgument` if the board does
+    ///   not match, and `.unsupported` if the configuration cannot be restored. If the restore
+    ///   itself fails the virtual machine is left stopped.
+    public func restore(from url: URL) async throws {
+        try await lock.withLock { _ in
+            guard self.vm.state == .stopped else {
+                throw ContainerizationError(
+                    .invalidState,
+                    message: "virtual machine must be stopped to restore its state"
+                )
+            }
+
+            let stateURL = url.appending(path: Self.bundleMachineStateName)
+            guard FileManager.default.fileExists(atPath: stateURL.path) else {
+                throw ContainerizationError(.notFound, message: "no machine state at \(stateURL.path)")
+            }
+            let saved = try VZVirtualMachineConfigurationSnapshot.load(
+                from: url.appending(path: Self.bundleConfigurationName)
+            )
+
+            try self.vzConfig.validateSaveRestoreSupport()
+            let current = try VZVirtualMachineConfigurationSnapshot(
+                configuration: self.vzConfig,
+                initialFilesystem: self.config.initialFilesystem.map { URL(fileURLWithPath: $0.source) }
+            )
+            let differences = saved.differences(from: current)
+            guard differences.isEmpty else {
+                throw ContainerizationError(
+                    .invalidArgument,
+                    message: "virtual machine does not match the saved state:\n" + differences.map { "  - \($0)" }.joined(separator: "\n")
+                )
+            }
+
+            // VZ leaves the restored machine paused.
+            try await self.vm.restoreMachineState(from: stateURL, queue: self.queue)
+            try await self.vm.resume(queue: self.queue)
+
+            let agent = try await Vminitd(
+                connection: try await self.vm.waitForAgent(queue: self.queue),
+                group: self.group
+            )
+
+            // The guest clock is as stale as the save. Fix it now instead of at the next tick.
+            var now = timeval()
+            if gettimeofday(&now, nil) == 0 {
+                do {
+                    try await agent.setTime(sec: Int64(now.tv_sec), usec: Int32(now.tv_usec))
+                } catch {
+                    self.logger?.warning("failed to sync time after restore: \(error)")
+                }
+            }
+
+            // Don't close our remote context as we are providing
+            // it to our time sync routine.
+            await self.timeSyncer.start(context: agent)
         }
     }
 

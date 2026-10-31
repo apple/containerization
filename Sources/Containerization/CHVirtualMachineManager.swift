@@ -103,7 +103,11 @@ public struct CHVirtualMachineManager: VirtualMachineManager {
         self.logger = logger
     }
 
-    public func create(config: some VMCreationConfig) async throws -> any VirtualMachineInstance {
+    public func create(config: some VMCreationConfig, from savedState: URL? = nil) async throws -> any VirtualMachineInstance {
+        guard savedState == nil else {
+            throw ContainerizationError(.unsupported, message: "restoring from saved state")
+        }
+
         let vmConfig = config.configuration
 
         var instanceConfig = CHVirtualMachineInstance.Configuration()

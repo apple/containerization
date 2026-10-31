@@ -283,6 +283,14 @@ final class RuncProcess: ContainerProcess, Sendable {
         try self.io.closeStdin()
     }
 
+    func detachIO() throws {
+        throw ContainerizationError(.unsupported, message: "detaching stdio is not supported for processes run through an OCI runtime")
+    }
+
+    func attachIO(stdio: HostStdio) throws {
+        throw ContainerizationError(.unsupported, message: "attaching stdio is not supported for processes run through an OCI runtime")
+    }
+
     func delete() async throws {
         let shouldDelete = self.state.withLock { state -> Bool in
             switch state.state {
