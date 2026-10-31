@@ -1400,17 +1400,22 @@ extension IntegrationSuite {
             let vm = try await container.withVirtualMachineInstance { $0 }
             let hostPort: UInt32 = 2000
             let guestPort: UInt32 = 2001
+            let displacedListener = try vm.listen(hostPort)
+            listener = displacedListener
             let hostListener = try vm.listen(hostPort)
             listener = hostListener
             defer { try? hostListener.finish() }
+            try displacedListener.finish()
             let vminitd = try await Vminitd(connection: container.dialVsock(port: Vminitd.port), group: Self.eventLoop)
             let path = URL(filePath: "/run/test-relay.sock")
+            let intoGuest = UnixSocketConfiguration(source: path, destination: path, direction: .into)
+            let outOfGuest = UnixSocketConfiguration(source: path, destination: path, direction: .outOf)
             // Route host clients through both guest relays and back to the host listener.
-            try await vminitd.relaySocket(port: hostPort, configuration: .init(source: path, destination: path, direction: .into))
-            try await vminitd.relaySocket(port: guestPort, configuration: .init(source: path, destination: path, direction: .outOf))
+            try await vminitd.relaySocket(port: hostPort, configuration: intoGuest)
+            try await vminitd.relaySocket(port: guestPort, configuration: outOfGuest)
             var accepted = hostListener.makeAsyncIterator()
 
-            for round in 0..<100 {
+            for round in 0...100 {
                 let silentServer = round.isMultiple(of: 10)
                 let acceptDeadline = Task {
                     try await Task.sleep(for: .seconds(20))
@@ -1434,6 +1439,30 @@ extension IntegrationSuite {
                 acceptDeadline.cancel()
                 // Allow initial writable events to fire while both peers are idle.
                 try await Task.sleep(for: .milliseconds(10))
+                if round == 100 {
+                    // Keep both peers and the VM alive so test cleanup cannot cause the expected EOF.
+                    let request = Data([0x42])
+                    for client in clients { try client.write(contentsOf: request) }
+                    for peer in peers {
+                        guard try read(from: peer, context: "request before relay shutdown") == request else {
+                            throw IntegrationError.assert(msg: "request was not delivered before relay shutdown")
+                        }
+                    }
+                    try await withDeadline(seconds: 10, "guest socket relays to stop") {
+                        try await vminitd.stopSocketRelay(configuration: outOfGuest)
+                        try await vminitd.stopSocketRelay(configuration: intoGuest)
+                    }
+                    for connection in clients + peers {
+                        guard try read(from: connection, context: "EOF after relay shutdown").isEmpty else {
+                            throw IntegrationError.assert(msg: "stopped relay did not close its connection")
+                        }
+                    }
+                    _ = try await withDeadline(seconds: 10, "guest response after relay shutdown") {
+                        try await vminitd.getenv(key: "PATH")
+                    }
+                    closeConnections()
+                    break
+                }
                 for (index, client) in clients.enumerated() {
                     try client.write(contentsOf: Data([UInt8(index)]))
                     if !round.isMultiple(of: 2) {

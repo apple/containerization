@@ -203,6 +203,15 @@ extension LinuxProcess {
                         )
                     }
                     try listener.finish()
+                    // A listener that ends before the guest dials back would otherwise
+                    // leave this stream configured without a handle.
+                    guard let first else {
+                        try Task.checkCancellation()
+                        throw ContainerizationError(
+                            .invalidState,
+                            message: "vsock listener for \(name) (vsock port \(listener.port)) ended before the guest dialed back"
+                        )
+                    }
                     return (index, first)
                 }
             }

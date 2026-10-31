@@ -15,7 +15,9 @@
 //===----------------------------------------------------------------------===//
 
 #if os(Linux)
+import CShim
 import ContainerizationError
+import ContainerizationOS
 import Foundation
 import Logging
 import Synchronization
@@ -48,14 +50,17 @@ final class CHStdioPortSlot: Sendable {
     let port: UInt32
     let path: URL
     let listenFd: Int32
+    private let descriptor: OwnedDescriptor
 
     private struct State {
         /// The listener entitled to accepted connections right now.
-        var owner: VsockListener?
+        weak var owner: VsockListener?
+        var claim: UUID?
         /// Whether the accept loop is running. Once started it runs until
-        /// `shutdown()`, and it owns closing `listenFd`.
+        /// `shutdown()`, holding a descriptor use until it exits.
         var accepting: Bool
-        /// Set by `shutdown()`. Blocks further claims and stops the loop.
+        /// Set by `shutdown()` or a failed accept loop. Blocks further claims
+        /// and stops the loop.
         var closed: Bool
     }
 
@@ -70,11 +75,12 @@ final class CHStdioPortSlot: Sendable {
     /// fds per slot plus a lock to keep them from being written after reuse.
     private static let pollTimeoutMilliseconds: Int32 = 1000
 
-    init(port: UInt32, path: URL, listenFd: Int32) {
+    init(port: UInt32, path: URL, listenDescriptor: consuming DescriptorTransfer) {
         self.port = port
         self.path = path
-        self.listenFd = listenFd
-        self.state = Mutex(State(owner: nil, accepting: false, closed: false))
+        self.descriptor = listenDescriptor.takeOwner()
+        self.listenFd = descriptor.fileDescriptor
+        self.state = Mutex(State(owner: nil, claim: nil, accepting: false, closed: false))
     }
 
     /// Lend the slot to `listener`.
@@ -88,26 +94,37 @@ final class CHStdioPortSlot: Sendable {
             guard !state.closed else {
                 throw ContainerizationError(.invalidState, message: "vsock port \(port) is closed")
             }
-            guard state.owner == nil else {
+            // Loading the weak owner here can run its deinit under this mutex,
+            // reentering relinquish when the temporary strong reference drops.
+            guard state.claim == nil else {
                 throw ContainerizationError(
                     .invalidState,
                     message: "vsock port \(port) is already being listened on"
                 )
             }
             state.owner = listener
+            state.claim = listener.identity
         }
     }
 
-    /// Give up ownership without disturbing the socket. The accept loop keeps
-    /// running for the next tenant; connections that arrive in between are
+    /// Give up the matching claim without disturbing the socket. The accept
+    /// loop keeps running for the next tenant; connections that arrive in between are
     /// dropped by the loop.
-    func relinquish() {
-        state.withLock { $0.owner = nil }
+    func relinquish(_ identity: UUID) {
+        state.withLock {
+            guard $0.claim == identity else { return }
+            $0.owner = nil
+            $0.claim = nil
+        }
+    }
+
+    deinit {
+        try? descriptor.close()
     }
 
     /// Start the accept loop, if this is the slot's first tenant. The loop then
     /// runs until `shutdown()`, so ownership handoff never has to stop and
-    /// restart it — which is what makes `relinquish()`/`claim(by:)` safe
+    /// restart it — which is what makes `relinquish(_:)`/`claim(by:)` safe
     /// back-to-back with no settling period.
     func startAcceptingIfNeeded(logger: Logger?) {
         let shouldStart = state.withLock { state -> Bool in
@@ -117,7 +134,7 @@ final class CHStdioPortSlot: Sendable {
         }
         guard shouldStart else { return }
 
-        // The loop blocks in poll(2)/accept(2), which is inappropriate for
+        // The loop blocks in poll(2), which is inappropriate for
         // Swift's cooperative thread pool: a pool thread parked in a syscall
         // can't service other tasks until it returns. With even a few of these,
         // detached tasks queue behind the parked threads and never run, which
@@ -131,33 +148,41 @@ final class CHStdioPortSlot: Sendable {
 
     /// Stop the accept loop and release the socket. Idempotent, and safe to
     /// call whether or not a loop was ever started.
+    /// The descriptor closes after the loop releases its active use.
     func shutdown() {
-        // A running loop owns `listenFd` and closes it on its way out; with no
-        // loop there is nobody else to do it.
-        let closeHere = state.withLock { state -> Bool in
-            guard !state.closed else { return false }
+        // A running loop keeps `listenFd` alive through its descriptor use;
+        // with no active loop, closing the descriptor releases it immediately.
+        let listener = state.withLock { state -> VsockListener? in
+            guard !state.closed else { return nil }
             state.closed = true
+            let listener = state.owner
             state.owner = nil
-            return !state.accepting
+            state.claim = nil
+            return listener
         }
-        if closeHere {
-            _ = close(listenFd)
-        }
+        try? listener?.cancelAndDiscard()
+        try? descriptor.close()
     }
 
     private func acceptLoop(logger: Logger?) {
         logger?.debug("vsock acceptLoop starting port=\(port) listenFd=\(listenFd)")
+        guard let use = try? descriptor.acquire() else { return }
         defer {
-            _ = close(listenFd)
+            use.end()
+            try? descriptor.close()
             // Mark the slot closed on the way out, not just on the `shutdown()`
             // path. A slot whose loop has stopped can never serve another
             // tenant, and because it stays in the pool the allocator will hand
             // its port out again; without this, every later claim would succeed
             // and then silently wait out its whole dial-back window.
-            state.withLock {
+            let listener = state.withLock {
                 $0.closed = true
+                let listener = $0.owner
                 $0.owner = nil
+                $0.claim = nil
+                return listener
             }
+            try? listener?.cancelAndDiscard()
             logger?.debug("vsock acceptLoop exited port=\(port)")
         }
 
@@ -184,9 +209,18 @@ final class CHStdioPortSlot: Sendable {
                 return
             }
 
-            let connFd = accept(listenFd, nil, nil)
+            // Accept is nonblocking. Pair it with the current claim so a handover
+            // before delivery cannot send this connection to the next listener.
+            let accepted = state.withLock { state -> (fd: Int32, error: Int32, owner: VsockListener?)? in
+                guard !state.closed else { return nil }
+                let owner = state.owner
+                let fd = CZ_accept_cloexec(listenFd)
+                return (fd, errno, owner)
+            }
+            guard let accepted else { return }
+            let connFd = accepted.fd
             if connFd < 0 {
-                let savedErrno = errno
+                let savedErrno = accepted.error
                 if savedErrno == EINTR || savedErrno == EAGAIN || savedErrno == EWOULDBLOCK || savedErrno == ECONNABORTED {
                     continue
                 }
@@ -203,21 +237,19 @@ final class CHStdioPortSlot: Sendable {
                 return
             }
 
-            let handle = FileHandle(fileDescriptor: connFd, closeOnDealloc: true)
-            guard let owner = state.withLock({ $0.owner }) else {
+            let connection = DescriptorTransfer(adopting: connFd)
+            guard let owner = accepted.owner else {
                 // A dial for a stream that already gave up the port — e.g. a
                 // guest that got to its connect(2) after the host stopped
                 // waiting for it. Dropping it here is what keeps it from being
                 // delivered to the port's next tenant.
                 logger?.warning("vsock dial on port \(port) with no listener; dropping")
-                try? handle.close()
                 continue
             }
-            if case .terminated = owner.yield(handle) {
-                try? handle.close()
+            if !owner.yieldOwned(connection, closeOnDealloc: true) {
                 // That listener can never take another connection, so free the
                 // slot rather than wedging it, and keep accepting.
-                relinquish()
+                relinquish(owner.identity)
             }
         }
     }

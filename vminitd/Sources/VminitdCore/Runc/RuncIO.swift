@@ -26,12 +26,14 @@ import Synchronization
 
 final class RuncTerminalIO: RuncProcess.IO & Sendable {
     private struct State {
+        var closed = false
         var stdinSocket: Socket?
         var stdoutSocket: Socket?
 
         var stdin: IOPair?
         var stdout: IOPair?
         var terminal: Terminal?
+        var terminalOwner: OwnedDescriptor?
     }
 
     private let log: Logger?
@@ -49,20 +51,22 @@ final class RuncTerminalIO: RuncProcess.IO & Sendable {
 
     func resize(size: Terminal.Size) throws {
         try self.state.withLock {
-            if let terminal = $0.terminal {
-                try terminal.resize(size: size)
+            if let terminal = $0.terminal, let owner = $0.terminalOwner {
+                let use = try owner.acquire()
+                try withExtendedLifetime(use) { try terminal.resize(size: size) }
             }
         }
     }
 
     func create() throws {
         try self.state.withLock {
+            guard !$0.closed else { throw SocketError.invalidOperationOnSocket("start closed terminal I/O") }
             if let stdinPort = self.hostStdio.stdin {
                 let type = VsockType(
                     port: stdinPort,
                     cid: VsockType.hostCID
                 )
-                let stdinSocket = try Socket(type: type, closeOnDeinit: false)
+                let stdinSocket = try Socket(type: type)
                 try stdinSocket.connect()
                 $0.stdinSocket = stdinSocket
             }
@@ -72,7 +76,7 @@ final class RuncTerminalIO: RuncProcess.IO & Sendable {
                     port: stdoutPort,
                     cid: VsockType.hostCID
                 )
-                let stdoutSocket = try Socket(type: type, closeOnDeinit: false)
+                let stdoutSocket = try Socket(type: type)
                 try stdoutSocket.connect()
                 $0.stdoutSocket = stdoutSocket
             }
@@ -88,45 +92,63 @@ final class RuncTerminalIO: RuncProcess.IO & Sendable {
         // No pipes to close in terminal mode
     }
 
-    func attachConsole(fd: Int32) throws {
-        try self.state.withLock {
-            let term = try Terminal(descriptor: fd, setInitState: false)
-            $0.terminal = term
+    func attachConsole(descriptor: consuming DescriptorTransfer) throws {
+        let owner = descriptor.takeOwner()
+        let claimed = self.state.withLock {
+            guard !$0.closed, $0.terminalOwner == nil else { return false }
+            $0.terminalOwner = owner
+            return true
+        }
+        guard claimed else {
+            try? owner.close()
+            throw SocketError.invalidOperationOnSocket("attach terminal I/O")
+        }
+        do {
+            try self.state.withLock {
+                let use = try owner.acquire()
+                defer { withExtendedLifetime(use) {} }
+                // Terminal is a borrowed view; the session and stdout relay close the master.
+                let term = try Terminal(descriptor: use.fileDescriptor, setInitState: false)
+                $0.terminal = term
 
-            if let stdinSocket = $0.stdinSocket {
-                let pair = IOPair(
-                    readFrom: stdinSocket,
-                    // Unowned: the stdout pair shares this fd, so closing stdin
-                    // must not close the pty.
-                    writeTo: UnownedIOCloser(term),
-                    reason: "RuncTerminalIO stdin",
-                    logger: log
-                )
-                try pair.relay(ignoreHup: true)
-                $0.stdin = pair
-                // Ownership moves to the pair: `IOPair.close()` closes both of
-                // its ends, and clearing the field tells `close()` so.
-                $0.stdinSocket = nil
-            }
+                if let stdinSocket = $0.stdinSocket {
+                    let pair = IOPair(
+                        readFrom: try stdinSocket.takeDescriptor(),
+                        // Borrowed: the stdout pair shares this terminal, so closing stdin
+                        // must not close the pty master.
+                        writeToBorrowed: owner,
+                        reason: "RuncTerminalIO stdin",
+                        logger: log
+                    )
+                    try pair.relay(ignoreHup: true)
+                    $0.stdin = pair
+                    // Socket ownership moves to the pair; clearing the field tells `close()` so.
+                    $0.stdinSocket = nil
+                }
 
-            if let stdoutSocket = $0.stdoutSocket {
-                let pair = IOPair(
-                    readFrom: term,
-                    writeTo: stdoutSocket,
-                    reason: "RuncTerminalIO stdout",
-                    logger: log
-                )
-                try pair.relay(ignoreHup: true)
-                $0.stdout = pair
-                $0.stdoutSocket = nil
+                if let stdoutSocket = $0.stdoutSocket {
+                    let pair = IOPair(
+                        readFromTerminal: owner,
+                        writeTo: try stdoutSocket.takeDescriptor(),
+                        reason: "RuncTerminalIO stdout",
+                        logger: log
+                    )
+                    try pair.relay(ignoreHup: true)
+                    $0.stdout = pair
+                    $0.stdoutSocket = nil
+                }
             }
+        } catch {
+            try? owner.close()
+            try? self.close()
+            throw error
         }
     }
 
     func close() throws {
         self.state.withLock {
-            // stdout first: both pairs share the pty fd, and stdout must
-            // unregister it from epoll before stdin's close invalidates it.
+            $0.closed = true
+            // Active pairs drain through independent duplicates.
             if let stdout = $0.stdout {
                 stdout.close()
                 $0.stdout = nil
@@ -136,13 +158,14 @@ final class RuncTerminalIO: RuncProcess.IO & Sendable {
                 $0.stdin = nil
             }
 
-            // Anything still here was never adopted by an IOPair. `create()`
-            // connects these with `closeOnDeinit: false`, so not closing them
-            // leaks the vsock fds and the host never sees EOF.
+            // Anything still here was never adopted by an IOPair. Close these
+            // sockets so the host sees EOF even if console attachment never completed.
             $0.stdinSocket = Self.closeUnadopted($0.stdinSocket, reason: "stdin", log: self.log)
             $0.stdoutSocket = Self.closeUnadopted($0.stdoutSocket, reason: "stdout", log: self.log)
 
             $0.terminal = nil
+            try? $0.terminalOwner?.close()
+            $0.terminalOwner = nil
         }
     }
 
@@ -157,6 +180,8 @@ final class RuncTerminalIO: RuncProcess.IO & Sendable {
         }
         return nil
     }
+
+    deinit { try? close() }
 
     func closeStdin() throws {
         self.state.withLock {
@@ -195,7 +220,7 @@ final class RuncStandardIO: RuncProcess.IO & Sendable {
     }
 
     // NOP for non-terminal
-    func attachConsole(fd: Int32) throws {}
+    func attachConsole(descriptor: consuming DescriptorTransfer) throws {}
 
     func create() throws {
         try self.state.withLock {
@@ -207,11 +232,11 @@ final class RuncStandardIO: RuncProcess.IO & Sendable {
                     port: stdinPort,
                     cid: VsockType.hostCID
                 )
-                let stdinSocket = try Socket(type: type, closeOnDeinit: false)
+                let stdinSocket = try Socket(type: type)
                 try stdinSocket.connect()
 
                 let pair = IOPair(
-                    readFrom: stdinSocket,
+                    readFrom: try stdinSocket.takeDescriptor(),
                     writeTo: inPipe.fileHandleForWriting,
                     reason: "RuncStandardIO stdin",
                     logger: log
@@ -228,12 +253,12 @@ final class RuncStandardIO: RuncProcess.IO & Sendable {
                     port: stdoutPort,
                     cid: VsockType.hostCID
                 )
-                let stdoutSocket = try Socket(type: type, closeOnDeinit: false)
+                let stdoutSocket = try Socket(type: type)
                 try stdoutSocket.connect()
 
                 let pair = IOPair(
                     readFrom: outPipe.fileHandleForReading,
-                    writeTo: stdoutSocket,
+                    writeTo: try stdoutSocket.takeDescriptor(),
                     reason: "RuncStandardIO stdout",
                     logger: log
                 )
@@ -249,12 +274,12 @@ final class RuncStandardIO: RuncProcess.IO & Sendable {
                     port: stderrPort,
                     cid: VsockType.hostCID
                 )
-                let stderrSocket = try Socket(type: type, closeOnDeinit: false)
+                let stderrSocket = try Socket(type: type)
                 try stderrSocket.connect()
 
                 let pair = IOPair(
                     readFrom: errPipe.fileHandleForReading,
-                    writeTo: stderrSocket,
+                    writeTo: try stderrSocket.takeDescriptor(),
                     reason: "RuncStandardIO stderr",
                     logger: log
                 )
@@ -314,6 +339,8 @@ final class RuncStandardIO: RuncProcess.IO & Sendable {
             }
         }
     }
+
+    deinit { try? close() }
 
     func closeStdin() throws {
         self.state.withLock {

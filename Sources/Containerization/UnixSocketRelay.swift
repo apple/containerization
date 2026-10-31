@@ -15,7 +15,6 @@
 //===----------------------------------------------------------------------===//
 
 import ContainerizationError
-import ContainerizationIO
 import ContainerizationOS
 import Foundation
 import Logging
@@ -26,225 +25,199 @@ package final class UnixSocketRelay: Sendable {
     private let configuration: UnixSocketConfiguration
     private let vm: any VirtualMachineInstance
     private let log: Logger?
-    private let state: Mutex<State>
+    private let state = Mutex(State())
 
-    private struct State {
-        var activeRelays: [String: BidirectionalRelay] = [:]
-        var t: Task<(), Never>? = nil
-        var listener: VsockListener? = nil
+    private struct PathIdentity {
+        let device: dev_t
+        let inode: ino_t
     }
 
-    init(
-        port: UInt32,
-        socket: UnixSocketConfiguration,
-        vm: any VirtualMachineInstance,
-        log: Logger? = nil
-    ) throws {
+    private enum Lifecycle { case idle, running, stopped }
+
+    private struct State {
+        var lifecycle = Lifecycle.idle
+        var activeRelays: [UUID: BidirectionalRelay] = [:]
+        var task: Task<Void, Never>?
+        var listener: VsockListener?
+        var hostSocket: Socket?
+        var hostPathIdentity: PathIdentity?
+    }
+
+    init(port: UInt32, socket: UnixSocketConfiguration, vm: any VirtualMachineInstance, log: Logger? = nil) throws {
         self.port = port
         self.configuration = socket
         self.vm = vm
         self.log = log
-        self.state = Mutex<State>(.init())
     }
 
-    deinit {
-        state.withLock { $0.t?.cancel() }
-    }
-}
+    deinit { try? stop() }
 
-extension UnixSocketRelay {
     func start() async throws {
-        switch configuration.direction {
-        case .outOf:
-            try await setupHostVsockDial()
-        case .into:
-            try setupHostVsockListener()
-        }
-    }
-
-    func stop() throws {
         try state.withLock {
-            guard let t = $0.t else {
-                throw ContainerizationError(
-                    .invalidState,
-                    message: "failed to stop socket relay: relay has not been started"
-                )
-            }
-            t.cancel()
-            $0.t = nil
-            for (_, relay) in $0.activeRelays {
-                relay.stop()
-            }
-            $0.activeRelays.removeAll()
-
+            guard $0.lifecycle == .idle else { throw ContainerizationError(.invalidState, message: "socket relay is already started or stopped") }
+            $0.lifecycle = .running
+        }
+        do {
             switch configuration.direction {
-            case .outOf:
-                // If we created the host conn, lets unlink it also. It's possible it was
-                // already unlinked if the relay failed earlier.
-                try? FileManager.default.removeItem(at: self.configuration.destination)
-            case .into:
-                try $0.listener?.finish()
+            case .outOf: try setupHostVsockDial()
+            case .into: try setupHostVsockListener()
             }
+        } catch {
+            try? stop()
+            throw error
         }
     }
 
-    private func setupHostVsockDial() async throws {
-        let hostConn = configuration.destination
+    /// Stop is terminal; pending acquisitions cannot install another relay.
+    func stop() throws {
+        let previous = state.withLock { state in
+            let previous = state
+            state = State(lifecycle: .stopped)
+            return previous
+        }
+        previous.task?.cancel()
+        try? previous.hostSocket?.close()
+        for relay in previous.activeRelays.values { relay.stop() }
+        try previous.listener?.cancelAndDiscard()
+        if let identity = previous.hostPathIdentity {
+            // If we created the host conn, lets unlink it also. It's possible it was
+            // already unlinked if the relay failed earlier.
+            removeHostPath(ifMatches: identity)
+        }
+    }
 
-        let socketType = try UnixType(
-            path: hostConn.path,
-            unlinkExisting: true
-        )
-        let hostSocket = try Socket(type: socketType)
+    private func setupHostVsockDial() throws {
+        let path = configuration.destination
+        let hostSocket = try Socket(type: UnixType(path: path.path, unlinkExisting: true))
         try hostSocket.listen()
-
-        log?.info(
-            "listening on host UDS",
-            metadata: [
-                "path": "\(hostConn.path)",
-                "vport": "\(port)",
-            ])
-        let connectionStream = try hostSocket.acceptStream(closeOnDeinit: false)
-        state.withLock {
-            $0.t = Task {
+        var info = stat()
+        guard lstat(path.path, &info) == 0 else { throw POSIXError.fromErrno() }
+        let identity = PathIdentity(device: info.st_dev, inode: info.st_ino)
+        let connections: AsyncThrowingStream<Socket, any Error>
+        do { connections = try hostSocket.acceptStream() } catch {
+            removeHostPath(ifMatches: identity)
+            throw error
+        }
+        let log = self.log
+        let installed = state.withLock { state in
+            guard state.lifecycle == .running else { return false }
+            state.hostSocket = hostSocket
+            state.hostPathIdentity = identity
+            state.task = Task { [weak self] in
                 do {
-                    for try await connection in connectionStream {
+                    for try await connection in connections {
+                        guard !Task.isCancelled else { break }
                         do {
-                            try await self.handleHostUnixConn(
-                                hostConn: connection,
-                                port: self.port,
-                                vm: self.vm,
-                                log: self.log
-                            )
+                            guard let self else { break }
+                            try await self.handleHostUnixConn(connection)
                         } catch {
-                            try? connection.close()
                             if Task.isCancelled { break }
-                            self.log?.error("failed to setup relay between host socket and vsock \(self.port): \(error)")
+                            log?.error("failed to set up host to guest relay: \(error)")
                         }
                     }
                 } catch {
-                    log?.error("failed in unix socket relay loop: \(error)")
+                    if !Task.isCancelled { log?.error("failed in unix socket relay loop: \(error)") }
                 }
-                try? FileManager.default.removeItem(at: hostConn)
+                try? hostSocket.close()
+                self?.removeHostPath(ifMatches: identity)
             }
+            return true
         }
+        if !installed {
+            try? hostSocket.close()
+            removeHostPath(ifMatches: identity)
+        }
+    }
+
+    private func removeHostPath(ifMatches identity: PathIdentity) {
+        var current = stat()
+        let path = configuration.destination.path
+        guard lstat(path, &current) == 0, current.st_dev == identity.device, current.st_ino == identity.inode else { return }
+        _ = unlink(path)
     }
 
     private func setupHostVsockListener() throws {
-        let hostPath = configuration.source
-
         let listener = try vm.listen(port)
-        log?.info(
-            "listening on guest vsock",
-            metadata: [
-                "path": "\(hostPath)",
-                "vport": "\(port)",
-            ])
-
-        state.withLock {
-            $0.listener = listener
-            $0.t = Task {
-                defer { try? listener.finish() }
-                for await connection in listener {
+        let owned = vm is any OwnedVsockDialing
+        let log = self.log
+        let installed = state.withLock { state in
+            guard state.lifecycle == .running else { return false }
+            state.listener = listener
+            state.task = Task { [weak self] in
+                defer { try? listener.cancelAndDiscard() }
+                if owned {
                     do {
-                        try await self.handleGuestVsockConn(
-                            vsockConn: connection,
-                            hostConnectionPath: hostPath,
-                            port: self.port,
-                            log: self.log
-                        )
+                        while let connection = try await listener.nextOwned() {
+                            guard !Task.isCancelled, let self else { break }
+                            do { try self.handleGuestVsockConn(connection) } catch { log?.error("failed to set up guest to host relay: \(error)") }
+                        }
                     } catch {
-                        try? connection.close()
-                        self.log?.error("failed to setup relay between vsock \(self.port) and \(hostPath.path): \(error)")
+                        if !Task.isCancelled { log?.error("failed in vsock relay loop: \(error)") }
+                    }
+                } else {
+                    for await connection in listener {
+                        guard !Task.isCancelled, let self else {
+                            try? connection.close()
+                            break
+                        }
+                        do { try self.handleLegacyGuestConn(connection) } catch { log?.error("failed to set up legacy guest to host relay: \(error)") }
                     }
                 }
             }
+            return true
+        }
+        if !installed { try listener.cancelAndDiscard() }
+    }
+
+    private func handleHostUnixConn(_ host: Socket) async throws {
+        if let backend = vm as? any OwnedVsockDialing {
+            let guest = try await backend.dialOwned(port)
+            try Task.checkCancellation()
+            try install(BidirectionalRelay(descriptor1: host.takeDescriptor(), descriptor2: guest, log: log))
+        } else {
+            let guest = try await Self.adoptDuplicate(of: vm.dial(port))
+            try Task.checkCancellation()
+            try install(BidirectionalRelay(descriptor1: host.takeDescriptor(), descriptor2: guest, log: log))
         }
     }
 
-    private func handleHostUnixConn(
-        hostConn: ContainerizationOS.Socket,
-        port: UInt32,
-        vm: any VirtualMachineInstance,
-        log: Logger?
-    ) async throws {
-        let guestConn = try await vm.dial(port)
-        do {
-            log?.debug(
-                "initiating connection from host to guest",
-                metadata: [
-                    "vport": "\(port)",
-                    "hostFd": "\(guestConn.fileDescriptor)",
-                    "guestFd": "\(hostConn.fileDescriptor)",
-                ])
-            try await self.relay(
-                hostConn: hostConn,
-                guestFd: guestConn.fileDescriptor
-            )
-        } catch {
-            try? guestConn.close()
-            throw error
-        }
+    private func handleGuestVsockConn(_ guest: consuming DescriptorTransfer) throws {
+        let host = try Socket(type: UnixType(path: configuration.source.path))
+        try host.connect()
+        try install(BidirectionalRelay(descriptor1: host.takeDescriptor(), descriptor2: guest, log: log))
     }
 
-    private func handleGuestVsockConn(
-        vsockConn: FileHandle,
-        hostConnectionPath: URL,
-        port: UInt32,
-        log: Logger?
-    ) async throws {
-        let hostPath = hostConnectionPath.path
-        let socketType = try UnixType(path: hostPath)
-        let hostSocket = try Socket(
-            type: socketType,
-            closeOnDeinit: false
-        )
-        log?.debug(
-            "initiating connection from guest to host",
-            metadata: [
-                "vport": "\(port)",
-                "hostFd": "\(hostSocket.fileDescriptor)",
-                "guestFd": "\(vsockConn.fileDescriptor)",
-            ])
-        do {
-            try hostSocket.connect()
-            try await self.relay(
-                hostConn: hostSocket,
-                guestFd: vsockConn.fileDescriptor
-            )
-        } catch {
-            try? hostSocket.close()
-            throw error
-        }
+    private func handleLegacyGuestConn(_ guest: FileHandle) throws {
+        try handleGuestVsockConn(Self.adoptDuplicate(of: guest))
     }
 
-    private func relay(
-        hostConn: Socket,
-        guestFd: Int32
-    ) async throws {
-        let hostFd = hostConn.fileDescriptor
+    /// A custom backend's `FileHandle` may still close its descriptor, so the relay owns a duplicate.
+    private static func adoptDuplicate(of guest: FileHandle) throws -> DescriptorTransfer {
+        defer { try? guest.close() }
+        let fd = fcntl(guest.fileDescriptor, F_DUPFD_CLOEXEC, 0)
+        guard fd >= 0 else { throw POSIXError.fromErrno() }
+        return DescriptorTransfer(adopting: fd)
+    }
 
-        let relayID = UUID().uuidString
-        let relay = BidirectionalRelay(
-            fd1: hostFd,
-            fd2: guestFd,
-            log: log
-        )
-
-        state.withLock {
-            $0.activeRelays[relayID] = relay
+    private func install(_ relay: BidirectionalRelay) throws {
+        let identity = UUID()
+        let installed = state.withLock { state in
+            guard state.lifecycle == .running else { return false }
+            state.activeRelays[identity] = relay
+            return true
         }
-
-        do {
-            try relay.start()
-        } catch {
-            state.withLock { $0.activeRelays[relayID] = nil }
+        guard installed else {
+            relay.stop()
+            throw CancellationError()
+        }
+        do { try relay.start() } catch {
+            relay.stop()
+            state.withLock { $0.activeRelays[identity] = nil }
             throw error
         }
-
-        Task {
+        Task { [weak self] in
             await relay.waitForCompletion()
-            state.withLock { $0.activeRelays[relayID] = nil }
+            self?.state.withLock { $0.activeRelays[identity] = nil }
         }
     }
 }

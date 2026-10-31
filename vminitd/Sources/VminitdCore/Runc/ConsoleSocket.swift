@@ -86,10 +86,10 @@ final class ConsoleSocket: Sendable {
     }
 
     /// Receive the PTY master file descriptor from runc
-    func receiveMaster() throws -> Int32 {
+    func receiveMaster() throws -> DescriptorTransfer {
         let connection = try socket.accept()
         defer { try? connection.close() }
-        return try connection.receiveFileDescriptor()
+        return try connection.receiveOwnedDescriptor()
     }
 
     /// Close the socket and remove what it created on the filesystem.

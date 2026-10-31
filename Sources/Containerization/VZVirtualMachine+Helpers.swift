@@ -16,9 +16,9 @@
 
 #if os(macOS)
 import Foundation
-import Logging
 import Virtualization
 import ContainerizationError
+import ContainerizationOS
 
 extension VZVirtualMachine {
     nonisolated func connect(queue: DispatchQueue, port: UInt32) async throws -> VZVirtioSocketConnection {
@@ -40,27 +40,6 @@ extension VZVirtualMachine {
                     }
                 }
             }
-        }
-    }
-
-    func listen(queue: DispatchQueue, port: UInt32, listener: VZVirtioSocketListener) throws {
-        try queue.sync {
-            guard let vsock = self.socketDevices[0] as? VZVirtioSocketDevice else {
-                throw ContainerizationError(.invalidArgument, message: "no vsock device")
-            }
-            vsock.setSocketListener(listener, forPort: port)
-        }
-    }
-
-    func removeListener(queue: DispatchQueue, port: UInt32) throws {
-        try queue.sync {
-            guard let vsock = self.socketDevices[0] as? VZVirtioSocketDevice else {
-                throw ContainerizationError(
-                    .invalidArgument,
-                    message: "no vsock device to remove"
-                )
-            }
-            vsock.removeSocketListener(forPort: port)
         }
     }
 
@@ -139,13 +118,16 @@ extension VZVirtualMachine {
 }
 
 extension VZVirtioSocketConnection {
+    func dupOwned() throws -> DescriptorTransfer {
+        // Close the framework connection; the duplicate owns the socket.
+        defer { self.close() }
+        let fd = fcntl(self.fileDescriptor, F_DUPFD_CLOEXEC, 0)
+        guard fd >= 0 else { throw POSIXError.fromErrno() }
+        return DescriptorTransfer(adopting: fd)
+    }
+
     func dupHandle() throws -> FileHandle {
-        let fd = dup(self.fileDescriptor)
-        if fd == -1 {
-            throw POSIXError.fromErrno()
-        }
-        self.close()
-        return FileHandle(fileDescriptor: fd, closeOnDealloc: false)
+        try exportVsockHandle(dupOwned())
     }
 }
 

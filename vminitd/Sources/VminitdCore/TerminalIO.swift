@@ -24,12 +24,14 @@ import Synchronization
 
 final class TerminalIO: ManagedProcess.IO & Sendable {
     private struct State {
+        var closed = false
         var stdinSocket: Socket?
         var stdoutSocket: Socket?
 
         var stdin: IOPair?
         var stdout: IOPair?
         var parent: Terminal?
+        var parentOwner: OwnedDescriptor?
     }
 
     private let log: Logger?
@@ -47,14 +49,16 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
 
     func resize(size: Terminal.Size) throws {
         try self.state.withLock {
-            if let parent = $0.parent {
-                try parent.resize(size: size)
+            if let parent = $0.parent, let owner = $0.parentOwner {
+                let use = try owner.acquire()
+                try withExtendedLifetime(use) { try parent.resize(size: size) }
             }
         }
     }
 
     func start(process: inout Command) throws {
         try self.state.withLock {
+            guard !$0.closed else { throw SocketError.invalidOperationOnSocket("start closed terminal I/O") }
             process.stdin = nil
             process.stdout = nil
             process.stderr = nil
@@ -64,7 +68,7 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
                     port: stdinPort,
                     cid: VsockType.hostCID
                 )
-                let stdinSocket = try Socket(type: type, closeOnDeinit: false)
+                let stdinSocket = try Socket(type: type)
                 try stdinSocket.connect()
                 $0.stdinSocket = stdinSocket
             }
@@ -74,7 +78,7 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
                     port: stdoutPort,
                     cid: VsockType.hostCID
                 )
-                let stdoutSocket = try Socket(type: type, closeOnDeinit: false)
+                let stdoutSocket = try Socket(type: type)
                 try stdoutSocket.connect()
                 $0.stdoutSocket = stdoutSocket
             }
@@ -83,46 +87,60 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
 
     func attach(pid: Int32, fd: Int32) throws {
         try self.state.withLock {
-            let containerFd = CZ_pidfd_open(pid, 0)
-            guard containerFd != -1 else {
-                throw POSIXError.fromErrno()
-            }
-            defer { Foundation.close(Int32(containerFd)) }
+            guard !$0.closed, $0.parentOwner == nil else { throw SocketError.invalidOperationOnSocket("attach terminal I/O") }
+        }
+        do {
+            try self.state.withLock {
+                let containerFd = CZ_pidfd_open(pid, 0)
+                guard containerFd != -1 else {
+                    throw POSIXError.fromErrno()
+                }
+                defer { Foundation.close(Int32(containerFd)) }
 
-            let hostFd = CZ_pidfd_getfd(containerFd, fd, 0)
-            guard hostFd != -1 else {
-                throw POSIXError.fromErrno()
-            }
+                let hostFd = CZ_pidfd_getfd(containerFd, fd, 0)
+                guard hostFd != -1 else {
+                    throw POSIXError.fromErrno()
+                }
 
-            let term = try Terminal(descriptor: Int32(hostFd), setInitState: false)
-            $0.parent = term
+                let owner = OwnedDescriptor(adopting: Int32(hostFd))
+                $0.parentOwner = owner
+                // Terminal is a borrowed view; the session and stdout relay close the master.
+                let term = try Terminal(descriptor: Int32(hostFd), setInitState: false)
+                $0.parent = term
 
-            if let stdinSocket = $0.stdinSocket {
-                let pair = IOPair(
-                    readFrom: stdinSocket,
-                    writeTo: UnownedIOCloser(term),
-                    reason: "TerminalIO stdin",
-                    logger: log
-                )
-                try pair.relay(ignoreHup: true)
-                $0.stdin = pair
-            }
+                if let stdinSocket = $0.stdinSocket {
+                    let pair = IOPair(
+                        readFrom: try stdinSocket.takeDescriptor(),
+                        writeToBorrowed: owner,
+                        reason: "TerminalIO stdin",
+                        logger: log
+                    )
+                    try pair.relay(ignoreHup: true)
+                    $0.stdin = pair
+                    $0.stdinSocket = nil
+                }
 
-            if let stdoutSocket = $0.stdoutSocket {
-                let pair = IOPair(
-                    readFrom: term,
-                    writeTo: stdoutSocket,
-                    reason: "TerminalIO stdout",
-                    logger: log
-                )
-                try pair.relay(ignoreHup: true)
-                $0.stdout = pair
+                if let stdoutSocket = $0.stdoutSocket {
+                    let pair = IOPair(
+                        readFromTerminal: owner,
+                        writeTo: try stdoutSocket.takeDescriptor(),
+                        reason: "TerminalIO stdout",
+                        logger: log
+                    )
+                    try pair.relay(ignoreHup: true)
+                    $0.stdout = pair
+                    $0.stdoutSocket = nil
+                }
             }
+        } catch {
+            try? self.close()
+            throw error
         }
     }
 
     func close() throws {
         self.state.withLock {
+            $0.closed = true
             if let stdout = $0.stdout {
                 stdout.close()
                 $0.stdout = nil
@@ -133,8 +151,7 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
             }
 
             // If IOPairs were never created (process exited before attach),
-            // close the raw sockets directly since they have closeOnDeinit
-            // disabled.
+            // close the sockets directly so the host sees EOF.
             if let stdinSocket = $0.stdinSocket {
                 try? stdinSocket.close()
                 $0.stdinSocket = nil
@@ -145,8 +162,12 @@ final class TerminalIO: ManagedProcess.IO & Sendable {
             }
 
             $0.parent = nil
+            try? $0.parentOwner?.close()
+            $0.parentOwner = nil
         }
     }
+
+    deinit { try? close() }
 
     // NOP
     func closeAfterExec() throws {}

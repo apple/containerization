@@ -44,20 +44,25 @@ import Foundation
 ///
 /// The class has two distinct synchronization domains:
 ///
-/// - **Serial dispatch queue** — owns all I/O state: the `Direction` objects (`d1`, `d2`)
-///   and their read buffers (`buf1`, `buf2`). Every event handler, cancel handler, and
-///   `stop()` call runs on this queue. No locks are needed for that state because the
-///   queue is the exclusive executor. Fields in this domain are marked `nonisolated(unsafe)`.
+/// - **Serial dispatch queue** — owns all I/O state: the `Direction` objects (`d1`, `d2`),
+///   their read buffers (`buf1`, `buf2`), the lifecycle, and the active source count.
+///   Every event handler, cancel handler, and lifecycle transition runs on this queue.
+///   No locks are needed for that state because the queue is the exclusive executor.
+///   Fields in this domain are marked `nonisolated(unsafe)`.
 ///
-/// - **Mutexes** — protect the two pieces of state that cross the queue boundary:
-///   `activeDirections` (written by `start()`, which may run off-queue) and
-///   `completionState` (read by `waitForCompletion()` from any async context).
+/// - **Mutex and atomic** — protect the state that crosses the queue boundary:
+///   `completionState` (read by `waitForCompletion()` from any async context) and
+///   `stopRequested` (set before `stop()` enters the queue to interrupt a busy copy loop).
+///
+/// Each Dispatch source pins both descriptors until cancellation finishes.
 public final class BidirectionalRelay: Sendable {
+    private let owner1: OwnedDescriptor
+    private let owner2: OwnedDescriptor
     private let fd1: Int32
     private let fd2: Int32
     private let log: Logger?
     private let queue: DispatchQueue
-    private static let queueKey = DispatchSpecificKey<Void>()
+    private let queueKey = DispatchSpecificKey<Void>()
 
     /// Owns one direction of the relay: its read source, optional write source, and
     /// any data buffered due to backpressure.
@@ -94,16 +99,23 @@ public final class BidirectionalRelay: Sendable {
         }
     }
 
-    private enum CompletionState {
-        case pending
-        case waiting(CheckedContinuation<Void, Never>)
-        case completed
+    private struct CompletionState {
+        var completed = false
+        var waiters: [CheckedContinuation<Void, Never>] = []
     }
+
+    private enum Lifecycle { case idle, running, stopping, completed }
+    private nonisolated(unsafe) var lifecycle = Lifecycle.idle
+    // Counts active read and write sources, including replaced write sources whose
+    // cancel handlers have not run. Updated only on the queue. Whichever cancel
+    // handler drives the count to zero calls finish() exactly once.
+    private nonisolated(unsafe) var activeSources = 0
 
     private enum CopyResult {
         case ok
         case blocked
         case eof
+        case stopped
     }
 
     // Queue-owned state. Written by start() before activate(), so all subsequent
@@ -114,38 +126,53 @@ public final class BidirectionalRelay: Sendable {
     private nonisolated(unsafe) let d2 = Direction()  // fd2 → fd1
     private nonisolated(unsafe) let buf1: UnsafeMutableBufferPointer<UInt8>
     private nonisolated(unsafe) let buf2: UnsafeMutableBufferPointer<UInt8>
-
-    // Counts active read sources. Set to 2 in start() (possibly off-queue) and
-    // decremented in cancel handlers (always on the queue). The Mutex provides the
-    // cross-thread visibility guarantee for the initial write from start(). Whichever
-    // cancel handler drives the count to zero calls closeBothFds() exactly once —
-    // no cross-source isCancelled checks, no possibility of double-close.
-    private let activeDirections: Mutex<Int>
-
     // May be read from any async context (waitForCompletion) and written from the
-    // queue (closeBothFds), so it needs a Mutex rather than queue-only protection.
-    private let completionState: Mutex<CompletionState>
+    // queue (finish), so it needs a Mutex rather than queue-only protection.
+    private let completionState = Mutex(CompletionState())
+    private let stopRequested = Atomic(false)
 
     /// Creates a new bidirectional relay between two file descriptors.
+    ///
+    /// Takes ownership of both descriptors unless it throws for invalid or equal descriptors.
+    /// A started relay keeps itself alive until both directions finish or `stop()`. Any
+    /// supplied queue must be serial.
     ///
     /// - Parameters:
     ///   - fd1: The first file descriptor.
     ///   - fd2: The second file descriptor.
     ///   - queue: The dispatch queue to use for I/O operations. If nil, a new queue is created.
     ///   - log: The optional logger for debugging.
-    public init(
+    public convenience init(
         fd1: Int32,
         fd2: Int32,
         queue: DispatchQueue? = nil,
         log: Logger? = nil
+    ) throws {
+        guard fd1 >= 0, fd2 >= 0, fd1 != fd2 else {
+            throw ContainerizationError(.invalidArgument, message: "relay needs two distinct valid descriptors, got \(fd1) and \(fd2)")
+        }
+        self.init(
+            descriptor1: DescriptorTransfer(adopting: fd1),
+            descriptor2: DescriptorTransfer(adopting: fd2),
+            queue: queue,
+            log: log
+        )
+    }
+
+    /// Consumes exclusive control of both endpoints; start makes them nonblocking.
+    package init(
+        descriptor1: consuming DescriptorTransfer,
+        descriptor2: consuming DescriptorTransfer,
+        queue: DispatchQueue? = nil,
+        log: Logger? = nil
     ) {
-        self.fd1 = fd1
-        self.fd2 = fd2
+        self.owner1 = descriptor1.takeOwner()
+        self.owner2 = descriptor2.takeOwner()
+        self.fd1 = owner1.fileDescriptor
+        self.fd2 = owner2.fileDescriptor
         self.queue = queue ?? DispatchQueue(label: "com.apple.containerization.bidirectional-relay")
-        self.queue.setSpecific(key: Self.queueKey, value: ())
+        self.queue.setSpecific(key: queueKey, value: ())
         self.log = log
-        self.activeDirections = Mutex(0)
-        self.completionState = Mutex(.pending)
 
         let pageSize = Int(getpagesize())
         self.buf1 = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: pageSize)
@@ -153,6 +180,10 @@ public final class BidirectionalRelay: Sendable {
     }
 
     deinit {
+        queue.setSpecific(key: queueKey, value: nil)
+        // Handlers retain the relay until their sources finish cancelling, so this runs
+        // only before start or after completion.
+        if lifecycle == .idle { closeOwners() }
         buf1.deallocate()
         buf2.deallocate()
     }
@@ -175,73 +206,103 @@ public final class BidirectionalRelay: Sendable {
 
     /// Starts the bidirectional relay to copy data between fd1 and fd2.
     public func start() throws {
-        try Self.setNonBlocking(fd1)
-        try Self.setNonBlocking(fd2)
-
-        let src1 = DispatchSource.makeReadSource(fileDescriptor: fd1, queue: queue)
-        let src2 = DispatchSource.makeReadSource(fileDescriptor: fd2, queue: queue)
-        d1.readSource = src1
-        d2.readSource = src2
-        activeDirections.withLock { $0 = 2 }
-
-        src1.setEventHandler { [self] in handleRead(d1, from: fd1, to: fd2, buffer: buf1) }
-        src2.setEventHandler { [self] in handleRead(d2, from: fd2, to: fd1, buffer: buf2) }
-
-        src1.setCancelHandler { [self] in
-            d1.writeSource?.cancel()
-            d1.writeSource = nil
-            directionFinished()
+        try runOnQueue {
+            guard lifecycle == .idle, !stopRequested.load(ordering: .relaxed) else {
+                throw ContainerizationError(.invalidState, message: "relay already started or stopped")
+            }
+            do {
+                try Self.setNonBlocking(fd1)
+                try Self.setNonBlocking(fd2)
+                try Socket.suppressSigpipe(fd1)
+                try Socket.suppressSigpipe(fd2)
+            } catch {
+                stopOnQueue()
+                throw error
+            }
+            lifecycle = .running
+            installReadSource(d1, from: fd1, to: fd2, buffer: buf1)
+            installReadSource(d2, from: fd2, to: fd1, buffer: buf2)
         }
-        src2.setCancelHandler { [self] in
-            d2.writeSource?.cancel()
-            d2.writeSource = nil
-            directionFinished()
-        }
+    }
 
-        src1.activate()
-        src2.activate()
+    private func installReadSource(
+        _ dir: Direction, from sourceFD: Int32, to destinationFD: Int32,
+        buffer: UnsafeMutableBufferPointer<UInt8>
+    ) {
+        let (use1, use2) = acquireUses()
+        let source = DispatchSource.makeReadSource(fileDescriptor: sourceFD, queue: queue)
+        dir.readSource = source
+        activeSources += 1
+        // Handlers keep a started relay alive; Dispatch releases them after cancellation.
+        source.setEventHandler { [self] in
+            guard lifecycle == .running else { return }
+            handleRead(dir, from: sourceFD, to: destinationFD, buffer: buffer)
+        }
+        source.setCancelHandler { [self] in
+            use1.end()
+            use2.end()
+            dir.readSource = nil
+            dir.writeSource?.cancel()
+            dir.writeSource = nil
+            sourceFinished()
+        }
+        source.activate()
     }
 
     /// Stops the relay and closes both file descriptors.
+    /// Descriptor release waits for every source cancellation,
+    /// including write sources that were replaced while relieving backpressure.
     public func stop() {
-        runOnQueue {
-            d1.cancelRead()
-            d2.cancelRead()
+        // Interrupt a busy copy loop before waiting to enter its queue.
+        stopRequested.store(true, ordering: .relaxed)
+        runOnQueue { stopOnQueue() }
+    }
+
+    /// The owners close only after every source finishes, so acquiring cannot fail.
+    private func acquireUses() -> (OwnedDescriptor.Use, OwnedDescriptor.Use) {
+        guard let use1 = try? owner1.acquire(), let use2 = try? owner2.acquire() else {
+            preconditionFailure("relay descriptors closed while a source was active")
         }
+        return (use1, use2)
+    }
+
+    private func stopOnQueue() {
+        guard lifecycle != .completed else { return }
+        if lifecycle == .idle {
+            finish()
+            return
+        }
+        lifecycle = .stopping
+        d1.cancelRead()
+        d2.cancelRead()
+        d1.writeSource?.cancel()
+        d2.writeSource?.cancel()
+        if activeSources == 0 { finish() }
     }
 
     /// Waits for the relay to complete.
+    /// Returns after every source has stopped and both close attempts have finished.
     public func waitForCompletion() async {
-        await withCheckedContinuation { c in
-            completionState.withLock { state in
-                switch state {
-                case .pending:
-                    state = .waiting(c)
-                case .waiting:
-                    fatalError("waitForCompletion called multiple times")
-                case .completed:
-                    c.resume()
-                }
+        await withCheckedContinuation { continuation in
+            let completed = completionState.withLock { state in
+                if state.completed { return true }
+                state.waiters.append(continuation)
+                return false
             }
+            if completed { continuation.resume() }
         }
     }
 
-    private func runOnQueue(_ work: () -> Void) {
-        if DispatchQueue.getSpecific(key: Self.queueKey) != nil {
-            work()
-        } else {
-            queue.sync(execute: work)
+    private func runOnQueue<T>(_ work: () throws -> T) rethrows -> T {
+        if DispatchQueue.getSpecific(key: queueKey) != nil {
+            return try work()
         }
+        return try queue.sync(execute: work)
     }
 
-    private func directionFinished() {
-        let remaining = activeDirections.withLock { count -> Int in
-            count -= 1
-            return count
-        }
-        if remaining == 0 {
-            closeBothFds()
-        }
+    private func sourceFinished() {
+        activeSources -= 1
+        if activeSources == 0 { finish() }
     }
 
     private func handleRead(
@@ -251,9 +312,12 @@ public final class BidirectionalRelay: Sendable {
         buffer: UnsafeMutableBufferPointer<UInt8>
     ) {
         do {
-            switch try Self.copy(buffer: buffer, from: srcFd, to: dstFd, direction: dir) {
+            switch try Self.copy(buffer: buffer, from: srcFd, to: dstFd, direction: dir, shouldStop: { stopRequested.load(ordering: .relaxed) }) {
             case .ok:
                 break
+
+            case .stopped:
+                stopOnQueue()
 
             case .eof:
                 log?.debug(
@@ -300,15 +364,25 @@ public final class BidirectionalRelay: Sendable {
     }
 
     private func installWriteSource(for dir: Direction, from srcFd: Int32, to dstFd: Int32) {
-        let ws = DispatchSource.makeWriteSource(fileDescriptor: dstFd, queue: queue)
-        dir.writeSource = ws
-        ws.setEventHandler { [self] in drainPending(dir: dir, from: srcFd, to: dstFd) }
-        // No cancel handler: clearing pendingData from a cancel handler would race with
-        // a newly installed write source if drainPending completes and the read source
-        // immediately produces another blocked write, installing a fresh write source
-        // before the old cancel handler fires. pendingData is cleared explicitly by
-        // drainPending on success, and freed with Direction when the relay is torn down.
-        ws.activate()
+        let (use1, use2) = acquireUses()
+        let source = DispatchSource.makeWriteSource(fileDescriptor: dstFd, queue: queue)
+        dir.writeSource = source
+        activeSources += 1
+        source.setEventHandler { [self] in
+            guard lifecycle == .running else { return }
+            drainPending(dir: dir, from: srcFd, to: dstFd)
+        }
+        source.setCancelHandler { [self] in
+            use1.end()
+            use2.end()
+            // Clearing pendingData or writeSource here would race with a newly installed
+            // write source if drainPending completes and the read source immediately
+            // produces another blocked write, installing a fresh write source before
+            // the old cancel handler fires. pendingData is cleared explicitly by
+            // drainPending on success, and freed with Direction when the relay is torn down.
+            sourceFinished()
+        }
+        source.activate()
     }
 
     private func drainPending(dir: Direction, from srcFd: Int32, to dstFd: Int32) {
@@ -316,7 +390,8 @@ public final class BidirectionalRelay: Sendable {
         guard remaining > 0 else { return }
 
         let n = dir.pendingData.withUnsafeBufferPointer { buf in
-            write(dstFd, buf.baseAddress!.advanced(by: dir.pendingOffset), remaining)
+            guard let base = buf.baseAddress else { return 0 }
+            return Self.sendBytes(dstFd, base.advanced(by: dir.pendingOffset), remaining)
         }
 
         if n > 0 {
@@ -332,8 +407,8 @@ public final class BidirectionalRelay: Sendable {
                 )
                 dir.resumeRead()
             }
-        } else if n == -1 && errno == EAGAIN {
-            // Spurious write-ready notification; wait for the next one.
+        } else if n == -1 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+            // Spurious write-ready notification or interrupted write; wait for the next one.
         } else {
             log?.warning(
                 "write error during pending drain",
@@ -351,7 +426,7 @@ public final class BidirectionalRelay: Sendable {
         }
     }
 
-    /// Drains srcFd into dstFd in a loop until EAGAIN/EWOULDBLOCK or EOF.
+    /// Drains srcFd into dstFd in a loop until EAGAIN/EWOULDBLOCK, EOF, or stop.
     ///
     /// Looping until EAGAIN is required on Linux: libdispatch uses FIONREAD to decide
     /// whether to fire the read event, so when the only remaining readable condition is
@@ -361,13 +436,15 @@ public final class BidirectionalRelay: Sendable {
         buffer: UnsafeMutableBufferPointer<UInt8>,
         from srcFd: Int32,
         to dstFd: Int32,
-        direction: Direction
+        direction: Direction,
+        shouldStop: () -> Bool
     ) throws -> CopyResult {
         guard let base = buffer.baseAddress else {
             throw ContainerizationError(.invalidState, message: "buffer has no base address")
         }
 
         readLoop: while true {
+            if shouldStop() { return .stopped }
             let nr = read(srcFd, base, buffer.count)
             if nr == 0 { return .eof }
             if nr < 0 {
@@ -381,7 +458,8 @@ public final class BidirectionalRelay: Sendable {
 
             var offset = 0
             while offset < nr {
-                let nw = write(dstFd, base.advanced(by: offset), nr - offset)
+                if shouldStop() { return .stopped }
+                let nw = sendBytes(dstFd, base.advanced(by: offset), nr - offset)
                 if nw > 0 {
                     offset += nw
                 } else if nw < 0 {
@@ -407,13 +485,28 @@ public final class BidirectionalRelay: Sendable {
         }
     }
 
-    private func closeBothFds() {
+    private static func sendBytes(_ fd: Int32, _ buffer: UnsafeRawPointer, _ count: Int) -> Int {
+        // Darwin can reject SO_NOSIGPIPE on a disconnected socket; see Socket.suppressSigpipe.
+        let result = send(fd, buffer, count, Int32(MSG_NOSIGNAL))
+        // The public raw initializer also accepts pipes and files.
+        return result == -1 && errno == ENOTSOCK ? write(fd, buffer, count) : result
+    }
+
+    private func closeOwners() {
         log?.debug("closing fds", metadata: ["fd1": "\(fd1)", "fd2": "\(fd2)"])
-        close(fd1)
-        close(fd2)
-        completionState.withLock { state in
-            if case .waiting(let c) = state { c.resume() }
-            state = .completed
+        do { try owner1.close() } catch { log?.debug("relay close failed: \(error)") }
+        do { try owner2.close() } catch { log?.debug("relay close failed: \(error)") }
+    }
+
+    private func finish() {
+        closeOwners()
+        lifecycle = .completed
+        let waiters = completionState.withLock { state in
+            state.completed = true
+            let waiters = state.waiters
+            state.waiters.removeAll()
+            return waiters
         }
+        for waiter in waiters { waiter.resume() }
     }
 }

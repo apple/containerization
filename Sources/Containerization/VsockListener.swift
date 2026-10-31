@@ -14,7 +14,10 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import ContainerizationError
+import ContainerizationOS
 import Foundation
+import NIOCore
 import Synchronization
 
 #if os(macOS)
@@ -27,75 +30,173 @@ public final class VsockListener: NSObject, Sendable, AsyncSequence {
 
     /// The port the connections are for.
     public let port: UInt32
+    package let identity: UUID
 
-    private let connections: AsyncStream<FileHandle>
-    private let cont: AsyncStream<FileHandle>.Continuation
-    private let stopListening: @Sendable (_ port: UInt32) throws -> Void
-    private let finished: Mutex<Bool>
+    private enum Consumer: Equatable { case publicIterator, owned }
+    private struct Pending: Sendable {
+        let owner: OwnedDescriptor
+        let closeOnDealloc: Bool
 
-    package init(port: UInt32, stopListen: @Sendable @escaping (_ port: UInt32) throws -> Void) {
-        self.port = port
-        let (stream, continuation) = AsyncStream.makeStream(of: FileHandle.self)
-        self.connections = stream
-        self.cont = continuation
-        self.stopListening = stopListen
-        self.finished = Mutex(false)
+        func close() {
+            try? owner.close()
+        }
     }
 
+    private struct State {
+        var pending: CircularBuffer<Pending> = []
+        var waiter: CheckedContinuation<Pending?, Never>?
+        var consumer: Consumer?
+        var requesting = false
+        var finished = false
+        var released = false
+    }
+
+    private let state = Mutex(State())
+    private let stopListening: @Sendable (_ port: UInt32) throws -> Void
+
+    package init(port: UInt32, identity: UUID = UUID(), stopListen: @Sendable @escaping (_ port: UInt32) throws -> Void) {
+        self.port = port
+        self.identity = identity
+        self.stopListening = stopListen
+    }
+
+    deinit {
+        try? cancelAndDiscard()
+    }
+
+    /// Stop accepting new connections. Previously queued connections remain drainable.
     /// Idempotent: calling more than once is a no-op. setupIO and the
-    /// caller-side defer can both call finish without double-closing the
-    /// listening fd (a double-close would target whatever fd was reallocated
-    /// in between, hanging the next operation that touched it).
+    /// caller-side defer can both call finish without releasing the
+    /// backend listener twice.
     public func finish() throws {
-        let alreadyFinished = self.finished.withLock { state -> Bool in
-            if state {
-                return true
-            }
-            state = true
-            return false
+        seal(discard: false)
+        try releaseBackend()
+    }
+
+    package func cancelAndDiscard() throws {
+        seal(discard: true)
+        try releaseBackend()
+    }
+
+    /// A replaced VZ listener must finish without removing its successor.
+    package func replaced() {
+        state.withLock { $0.released = true }
+        seal(discard: false)
+    }
+
+    private func releaseBackend() throws {
+        let release = state.withLock {
+            guard !$0.released else { return false }
+            $0.released = true
+            return true
         }
-        if alreadyFinished {
-            return
+        if release { try stopListening(port) }
+    }
+
+    private func seal(discard: Bool) {
+        let (discarded, waiter) = state.withLock { state in
+            state.finished = true
+            let discarded = discard ? state.pending : []
+            if discard { state.pending.removeAll() }
+            let waiter = state.waiter
+            state.waiter = nil
+            return (discarded, waiter)
         }
-        self.cont.finish()
-        try self.stopListening(self.port)
+        for entry in discarded { entry.close() }
+        waiter?.resume(returning: nil)
     }
 
     /// Push an accepted connection into the listener's stream. Used by
     /// VMM-specific accept loops that don't go through a delegate (the
-    /// cloud-hypervisor backend on Linux). On macOS the VZ delegate hits
-    /// `cont.yield(_:)` directly via same-class access.
-    package func yield(_ handle: FileHandle) -> AsyncStream<FileHandle>.Continuation.YieldResult {
-        cont.yield(handle)
+    /// cloud-hypervisor backend on Linux), and by the VZ delegate on macOS.
+    @discardableResult
+    package func yieldOwned(_ descriptor: consuming DescriptorTransfer, closeOnDealloc: Bool = false) -> Bool {
+        let entry = Pending(owner: descriptor.takeOwner(), closeOnDealloc: closeOnDealloc)
+        let accepted = enqueue(entry)
+        if !accepted { entry.close() }
+        return accepted
     }
 
+    private func enqueue(_ entry: Pending) -> Bool {
+        let result = state.withLock { state -> (Bool, CheckedContinuation<Pending?, Never>?) in
+            guard !state.finished else { return (false, nil) }
+            if let waiter = state.waiter {
+                state.waiter = nil
+                return (true, waiter)
+            }
+            state.pending.append(entry)
+            return (true, nil)
+        }
+        result.1?.resume(returning: entry)
+        return result.0
+    }
+
+    private func next(for consumer: Consumer) async throws -> Pending? {
+        try state.withLock { state in
+            if state.consumer == nil { state.consumer = consumer }
+            guard state.consumer == consumer, !state.requesting else {
+                throw ContainerizationError(.invalidState, message: "vsock listener already has an active consumer")
+            }
+            state.requesting = true
+        }
+        defer { state.withLock { $0.requesting = false } }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                let result = state.withLock { state -> Pending?? in
+                    if !state.pending.isEmpty { return .some(state.pending.removeFirst()) }
+                    if state.finished { return .some(nil) }
+                    state.waiter = continuation
+                    return nil
+                }
+                if let result { continuation.resume(returning: result) }
+            }
+        } onCancel: {
+            try? self.cancelAndDiscard()
+        }
+    }
+
+    package func nextOwned() async throws -> DescriptorTransfer? {
+        guard let next = try await next(for: .owned) else { return nil }
+        return DescriptorTransfer(owner: next.owner)
+    }
+
+    /// Iterators share one connection stream, and only one may wait at a time. An iterator
+    /// that calls `next()` while another waits ends without an error. Cancelling a pending
+    /// `next()` removes the backend listener and discards queued connections.
     public func makeAsyncIterator() -> AsyncStream<FileHandle>.AsyncIterator {
-        connections.makeAsyncIterator()
+        let admitted = state.withLock { state in
+            guard state.consumer == nil || state.consumer == .publicIterator else { return false }
+            state.consumer = .publicIterator
+            return true
+        }
+        guard admitted else { return AsyncStream<FileHandle> { $0.finish() }.makeAsyncIterator() }
+        // A consumer cancelled between elements never re-enters next(for:), whose own
+        // handler would otherwise discard queued connections and release the backend.
+        return AsyncStream<FileHandle>(
+            unfolding: { [self] in
+                while let entry = try? await next(for: .publicIterator) {
+                    if let handle = try? exportVsockHandle(DescriptorTransfer(owner: entry.owner), closeOnDealloc: entry.closeOnDealloc) {
+                        return handle
+                    }
+                }
+                return nil
+            },
+            onCancel: { [self] in try? cancelAndDiscard() }
+        ).makeAsyncIterator()
     }
 }
 
 #if os(macOS)
-
 extension VsockListener: VZVirtioSocketListenerDelegate {
     public func listener(
         _: VZVirtioSocketListener, shouldAcceptNewConnection conn: VZVirtioSocketConnection,
         from _: VZVirtioSocketDevice
     ) -> Bool {
-        let fd = dup(conn.fileDescriptor)
-        guard fd != -1 else {
+        do {
+            return yieldOwned(try conn.dupOwned())
+        } catch {
             return false
         }
-        conn.close()
-
-        let fh = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
-        let result = cont.yield(fh)
-        if case .terminated = result {
-            try? fh.close()
-            return false
-        }
-
-        return true
     }
 }
-
 #endif
