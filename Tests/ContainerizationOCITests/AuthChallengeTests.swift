@@ -51,7 +51,16 @@ struct AuthChallengeTests {
                 Basic realm="Registry Realm"
                 """,
             expected: .init(type: "Basic", realm: "Registry Realm", service: nil, scope: nil, error: nil)),
-
+        .init(
+            input: """
+                Bearer realm="https://gcr.io/v2/token",service=gcr.io
+                """,
+            expected: .init(type: "Bearer", realm: "https://gcr.io/v2/token", service: "gcr.io", scope: nil, error: nil)),
+        .init(
+            input: """
+                Bearer realm="https://us-docker.pkg.dev/v2/token"
+                """,
+            expected: .init(type: "Bearer", realm: "https://us-docker.pkg.dev/v2/token", service: nil, scope: nil, error: nil)),
     ]
 
     @Test(arguments: testCases)
