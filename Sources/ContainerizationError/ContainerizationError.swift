@@ -104,6 +104,7 @@ extension ContainerizationError {
             case timeout
             case unsupported
             case interrupted
+            case notExecutable
         }
 
         private var value: Value
@@ -165,6 +166,10 @@ extension ContainerizationError {
 
         public static var interrupted: Self {
             Self(.interrupted)
+        }
+
+        public static var notExecutable: Self {
+            Self(.notExecutable)
         }
     }
 }

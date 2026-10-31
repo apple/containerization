@@ -85,12 +85,12 @@ extension App {
             }
 
             guard FileManager.default.fileExists(atPath: resolvedExecutable.path) else {
-                throw App.Failure(message: "failed to find target executable \(executableArg)")
+                throw ContainerizationError(.notFound, message: "failed to find target executable \(executableArg)")
             }
         } else {
             let path = Path.findPath(currentEnv) ?? Path.getCurrentPath()
             guard let found = Path.lookPath(executableArg, path: path) else {
-                throw App.Failure(message: "failed to find target executable \(executableArg)")
+                throw ContainerizationError(.notFound, message: "failed to find target executable \(executableArg)")
             }
             resolvedExecutable = found
         }
@@ -116,7 +116,20 @@ extension App {
         }
 
         guard execvpe(executable, argv, env) != -1 else {
-            throw App.Errno(stage: "execvpe(\(String(describing: executable)))", info: "failed to exec [\(process.args.joined(separator: " "))]")
+            let code: ContainerizationError.Code
+            switch errno {
+            case ENOENT:
+                code = .notFound
+            case EACCES, ENOEXEC:
+                code = .notExecutable
+            default:
+                code = .internalError
+            }
+            throw App.Errno(
+                code: code,
+                stage: "execvpe(\(String(describing: executable)))",
+                info: "failed to exec [\(process.args.joined(separator: " "))]"
+            )
         }
         fatalError("execvpe failed")
     }
@@ -254,9 +267,9 @@ extension App {
         }
     }
 
-    static func Errno(stage: String, info: String = "") -> ContainerizationError {
+    static func Errno(code: ContainerizationError.Code = .internalError, stage: String, info: String = "") -> ContainerizationError {
         let posix = POSIXError(.init(rawValue: errno)!, userInfo: ["stage": stage])
-        return ContainerizationError(.internalError, message: "\(info) \(String(describing: posix))")
+        return ContainerizationError(code, message: "\(info) \(String(describing: posix))")
     }
 
     static func Failure(message: String) -> ContainerizationError {
