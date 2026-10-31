@@ -190,11 +190,16 @@ extension EXT4 {
             }
         }
 
+        /// Physical block ranges of an inode, without their file offsets. Use `getFileExtents(inode:)` to read file contents.
         func getExtents(inode: InodeNumber) throws -> [(start: UInt32, end: UInt32)]? {
+            try getFileExtents(inode: inode)?.map { ($0.physicalBlock, $0.physicalBlock + $0.length) }
+        }
+
+        func getFileExtents(inode: InodeNumber) throws -> [FileExtent]? {
             let inode = try self.getInode(number: inode)
             let inodeBlock = Data(tupleToArray(inode.block))
             var offset = 0
-            var extents: [(start: UInt32, end: UInt32)] = []
+            var extents: [FileExtent] = []
 
             let extentHeaderSize = MemoryLayout<ExtentHeader>.size
             let extentIndexSize = MemoryLayout<ExtentIndex>.size
@@ -204,7 +209,10 @@ extension EXT4 {
                 $0.loadLittleEndian(as: ExtentHeader.self)
             }
             guard header.magic == EXT4.ExtentHeaderMagic else {
-                return []
+                return nil
+            }
+            guard extentHeaderSize + Int(header.entries) * extentLeafSize <= inodeBlock.count else {
+                throw Error.invalidExtents
             }
             offset += extentHeaderSize  // Jump to entries
             switch header.depth {
@@ -214,7 +222,7 @@ extension EXT4 {
                     let leaf = inodeBlock.subdata(in: offset..<offset + extentLeafSize).withUnsafeBytes {
                         $0.loadLittleEndian(as: ExtentLeaf.self)
                     }
-                    extents.append((leaf.startLow, leaf.startLow + UInt32(leaf.length)))
+                    extents.append(try Self.fileExtent(leaf))
                     offset += extentLeafSize
                 }
             case 1:
@@ -223,15 +231,20 @@ extension EXT4 {
                     let indexNode = inodeBlock.subdata(in: offset..<offset + extentIndexSize).withUnsafeBytes {
                         $0.loadLittleEndian(as: ExtentIndex.self)
                     }
+                    guard indexNode.leafHigh == 0 else {
+                        throw Error.invalidExtents
+                    }
                     try self.seek(block: indexNode.leafLow)
-                    guard let block = try self.handle.read(upToCount: Int(self.blockSize)) else {
+                    guard let block = try self.handle.read(upToCount: Int(self.blockSize)), block.count == Int(self.blockSize) else {
                         throw EXT4.Error.couldNotReadBlock(indexNode.leafLow)
                     }
                     var blockOffset = 0
                     let leafHeader = block.subdata(in: blockOffset..<extentHeaderSize).withUnsafeBytes {
                         $0.loadLittleEndian(as: ExtentHeader.self)
                     }
-                    guard leafHeader.magic == EXT4.ExtentHeaderMagic else {
+                    guard leafHeader.magic == EXT4.ExtentHeaderMagic, leafHeader.depth == 0,
+                        extentHeaderSize + Int(leafHeader.entries) * extentLeafSize <= block.count
+                    else {
                         throw Error.invalidExtents
                     }
                     blockOffset += extentHeaderSize
@@ -239,7 +252,7 @@ extension EXT4 {
                         let leaf = block.subdata(in: blockOffset..<blockOffset + extentLeafSize).withUnsafeBytes {
                             $0.loadLittleEndian(as: ExtentLeaf.self)
                         }
-                        extents.append((leaf.startLow, leaf.startLow + UInt32(leaf.length)))
+                        extents.append(try Self.fileExtent(leaf))
                         blockOffset += extentLeafSize
                     }
                     offset += extentIndexSize
@@ -248,6 +261,20 @@ extension EXT4 {
                 throw Error.deepExtentsUnimplemented
             }
             return extents
+        }
+
+        private static func fileExtent(_ leaf: ExtentLeaf) throws -> FileExtent {
+            // This reader only supports 32-bit block numbers.
+            guard leaf.startHigh == 0 else {
+                throw Error.invalidExtents
+            }
+            // A length above 32768 marks an unwritten extent of (length - 32768) blocks.
+            let initialized = UInt32(leaf.length) <= EXT4.MaxBlocksPerExtent
+            let length = initialized ? UInt32(leaf.length) : UInt32(leaf.length) - EXT4.MaxBlocksPerExtent
+            guard leaf.startLow <= UInt32.max - length, leaf.block <= UInt32.max - length else {
+                throw Error.invalidExtents
+            }
+            return FileExtent(logicalBlock: leaf.block, physicalBlock: leaf.startLow, length: length, initialized: initialized)
         }
 
         // MARK: Internal functions
