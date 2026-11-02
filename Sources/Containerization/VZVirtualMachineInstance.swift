@@ -50,6 +50,49 @@ public final class VZVirtualMachineInstance: Sendable {
         try await lock.withLock { _ in try await body() }
     }
 
+    /// Ask the guest to keep `size` bytes of memory, via the virtio memory balloon.
+    ///
+    /// This is a request: the guest may honor it partly or never, and the result can't be read back.
+    /// `size` must be a multiple of 1 MiB, between `VZVirtualMachineConfiguration.minimumAllowedMemorySize`
+    /// and the configured memory.
+    public func setTargetVirtualMachineMemory(size: UInt64) async throws {
+        try await lock.withLock { _ in
+            guard self.state == .running else {
+                throw ContainerizationError(.invalidState, message: "vm is not running (\(self.state))")
+            }
+
+            try Self.validateBalloonTarget(
+                size,
+                configured: self.config.vzMemorySize,
+                minimum: VZVirtualMachineConfiguration.minimumAllowedMemorySize
+            )
+
+            let found: Bool = self.queue.sync {
+                guard let balloon = self.vm.memoryBalloonDevices.lazy.compactMap({ $0 as? VZVirtioTraditionalMemoryBalloonDevice }).first else {
+                    return false
+                }
+                balloon.targetVirtualMachineMemorySize = size
+                return true
+            }
+            guard found else {
+                throw ContainerizationError(.unsupported, message: "vm has no memory balloon device")
+            }
+        }
+    }
+
+    static func validateBalloonTarget(_ size: UInt64, configured: UInt64, minimum: UInt64) throws {
+        let mib: UInt64 = 1 << 20
+        guard size % mib == 0 else {
+            throw ContainerizationError(.invalidArgument, message: "memory size \(size) is not a multiple of 1 MiB")
+        }
+        guard size >= minimum else {
+            throw ContainerizationError(.invalidArgument, message: "memory size \(size) is below the minimum of \(minimum) bytes")
+        }
+        guard size <= configured else {
+            throw ContainerizationError(.invalidArgument, message: "memory size \(size) exceeds the vm's memory of \(configured) bytes")
+        }
+    }
+
     /// The hotplug provider, if hotplug is enabled for this instance.
     public var hotplugProvider: (any HotplugProvider)? {
         get { _hotplugProvider.withLock { $0 } }
@@ -380,6 +423,12 @@ extension VZVirtualMachineInstance {
 }
 
 extension VZVirtualMachineInstance.Configuration {
+    /// `memoryInBytes` rounded up to the 1 MiB granularity Virtualization.framework requires.
+    var vzMemorySize: UInt64 {
+        let mib: UInt64 = 1 << 20
+        return (memoryInBytes + mib - 1) & ~(mib - 1)
+    }
+
     public static func installRosetta() async throws {
         do {
             #if arch(arm64)
@@ -414,8 +463,7 @@ extension VZVirtualMachineInstance.Configuration {
         var config = VZVirtualMachineConfiguration()
 
         config.cpuCount = self.cpus
-        let mib: UInt64 = 1 << 20
-        config.memorySize = (self.memoryInBytes + mib - 1) & ~(mib - 1)
+        config.memorySize = self.vzMemorySize
         config.entropyDevices = [VZVirtioEntropyDeviceConfiguration()]
         // Inert until the host lowers the balloon's target memory size.
         config.memoryBalloonDevices = [VZVirtioTraditionalMemoryBalloonDeviceConfiguration()]
