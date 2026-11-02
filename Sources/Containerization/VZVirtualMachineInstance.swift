@@ -143,7 +143,9 @@ public final class VZVirtualMachineInstance: Sendable {
 
         let vzConfig = try config.toVZ(allocator: allocator)
         if let checkpoint {
-            let saved = try VZVirtualMachineConfigurationSnapshot.load(from: checkpoint)
+            let saved = try VZVirtualMachineConfigurationSnapshot.load(
+                from: checkpoint.appending(path: Self.bundleConfigurationName)
+            )
             guard
                 let platform = vzConfig.platform as? VZGenericPlatformConfiguration,
                 let identifier = VZGenericMachineIdentifier(dataRepresentation: saved.platform.machineIdentifier)
