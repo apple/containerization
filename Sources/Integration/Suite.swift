@@ -680,6 +680,9 @@ struct IntegrationSuite: AsyncParsableCommand {
                 // Nested virtualization (VZ-only feature)
                 Test("nested virt", testNestedVirtualizationEnabled),
 
+                // Memory balloon (VZ-only)
+                Test("memory balloon target", testMemoryBalloonTarget),
+
                 // Filesystem operations (TODO: promote to cross-platform once verified on CH)
                 Test("container frozen ext4 clone", testFrozenExt4Clone),
                 Test("container trim ext4 clone", testTrimExt4Clone),

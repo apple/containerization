@@ -678,6 +678,85 @@ extension IntegrationSuite {
         }
     }
 
+    func testMemoryBalloonTarget() async throws {
+        let id = "test-memory-balloon-target"
+
+        let bs = try await bootstrap(id)
+        let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+            config.process.arguments = ["sleep", "infinity"]
+            config.bootLog = bs.bootLog
+        }
+
+        do {
+            try await container.create()
+            try await container.start()
+
+            guard let vm = try await container.withVirtualMachineInstance({ $0 }) as? VZVirtualMachineInstance else {
+                throw IntegrationError.assert(msg: "expected a VZVirtualMachineInstance")
+            }
+
+            // The guest driver should have bound to the default balloon device.
+            let exec = try await container.exec("check-balloon") { config in
+                config.arguments = ["sh", "-c", "ls /sys/bus/virtio/drivers/virtio_balloon | grep -q '^virtio'"]
+            }
+            try await exec.start()
+            let status = try await exec.wait()
+            try await exec.delete()
+            guard status.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "guest has no bound virtio-balloon device, status \(status)")
+            }
+
+            let configured = container.vm.memoryInBytes
+            let mib: UInt64 = 1 << 20
+
+            // Fill the page cache, which counts toward the container's memory usage but is reclaimable.
+            let load = try await container.exec("fill-cache") { config in
+                config.arguments = ["sh", "-c", "dd if=/dev/zero of=/root/balloon bs=1M count=128 status=none && sync && cat /root/balloon > /dev/null"]
+            }
+            try await load.start()
+            let loadStatus = try await load.wait()
+            try await load.delete()
+            guard loadStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "cache fill failed, status \(loadStatus)")
+            }
+            let before = try await container.statistics(categories: .memory).memory?.usageBytes ?? 0
+            guard before > 128 * mib else {
+                throw IntegrationError.assert(msg: "expected the cache fill to raise usage above 128 MiB, got \(before)")
+            }
+
+            // Inflating the balloon forces the guest to reclaim the cache, so usage should drop.
+            try await vm.setTargetVirtualMachineMemory(size: configured / 8 / mib * mib)
+            var after = before
+            for _ in 0..<50 {
+                try await Task.sleep(for: .milliseconds(100))
+                after = try await container.statistics(categories: .memory).memory?.usageBytes ?? after
+                if after < before * 3 / 4 { break }
+            }
+            guard after < before * 3 / 4 else {
+                throw IntegrationError.assert(msg: "memory usage did not drop after inflating the balloon: \(before) -> \(after)")
+            }
+
+            try await vm.setTargetVirtualMachineMemory(size: configured)
+
+            // Sizes outside what the vm can honor are rejected.
+            for invalid in [configured + mib, configured / 2 + 1, 0] {
+                do {
+                    try await vm.setTargetVirtualMachineMemory(size: invalid)
+                    throw IntegrationError.assert(msg: "expected size \(invalid) to be rejected")
+                } catch let error as ContainerizationError {
+                    guard error.code == .invalidArgument else { throw error }
+                }
+            }
+
+            try await container.kill(.kill)
+            try await container.wait()
+            try await container.stop()
+        } catch {
+            try? await container.stop()
+            throw error
+        }
+    }
+
     func testContainerManagerCreate() async throws {
         let id = "test-container-manager"
 
