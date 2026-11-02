@@ -417,6 +417,8 @@ extension VZVirtualMachineInstance.Configuration {
         let mib: UInt64 = 1 << 20
         config.memorySize = (self.memoryInBytes + mib - 1) & ~(mib - 1)
         config.entropyDevices = [VZVirtioEntropyDeviceConfiguration()]
+        // Inert until the host lowers the balloon's target memory size.
+        config.memoryBalloonDevices = [VZVirtioTraditionalMemoryBalloonDeviceConfiguration()]
         config.socketDevices = [VZVirtioSocketDeviceConfiguration()]
 
         if let bootLog = self.bootLog {
