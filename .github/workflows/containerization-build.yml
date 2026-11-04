@@ -44,6 +44,16 @@ jobs:
 
           echo "All commits are signed!"
 
+  proxy-forwarding:
+    name: Check dev-image proxy args
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6
+
+      - name: Check proxy flags without building the image
+        run: ./scripts/check-proxy-forwarding.sh
+
   containerization:
     permissions:
       contents: read

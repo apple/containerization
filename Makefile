@@ -142,6 +142,13 @@ PROXY_RUN_ENV := \
 	$(if $(https_proxy),--env https_proxy="$(https_proxy)") \
 	$(if $(no_proxy),--env no_proxy="$(no_proxy)")
 
+# Prints the flags `linux-image` and `linux_run` would receive.
+# scripts/check-proxy-forwarding.sh uses this so the check does not build the image.
+.PHONY: proxy-forwarding-args
+proxy-forwarding-args:
+	@printf 'BUILD %s\n' '$(PROXY_BUILD_ARGS)'
+	@printf 'RUN %s\n' '$(PROXY_RUN_ENV)'
+
 # Literal `,` for use inside $(call ...) arguments — bare commas are
 # treated as the call's argument separator and split the value early.
 comma := ,
