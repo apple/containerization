@@ -97,6 +97,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check dev-image proxy args
+        run: ./scripts/check-proxy-forwarding.sh
+
       - name: Check formatting
         run: | 
           ./scripts/install-hawkeye.sh
