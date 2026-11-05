@@ -701,6 +701,8 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("container NBD raw block", testContainerNBDRawBlock),
                 Test("container NBD volume identity", testContainerNBDVolumeIdentity),
                 Test("pod shared NBD volume", testPodSharedNBDVolume),
+                Test("pod NBD volume subpath", testPodNBDVolumeSubpath),
+                Test("pod volume file subpath", testPodVolumeFileSubpath),
                 Test("pod multiple NBD volumes", testPodMultipleNBDVolumes),
                 Test("pod unreferenced NBD volume", testPodUnreferencedVolume),
                 Test("pod NBD volume persistence", testPodNBDVolumePersistence),

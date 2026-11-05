@@ -337,7 +337,10 @@ let package = Package(
         ),
         .testTarget(
             name: "VminitdCoreTests",
-            dependencies: ["VminitdCore"]
+            dependencies: [
+                "VminitdCore",
+                .product(name: "Logging", package: "swift-log"),
+            ]
         ),
     ]
 )
