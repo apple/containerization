@@ -54,9 +54,8 @@ struct Application: AsyncParsableCommand {
         // When running as PID 1 with a Musl-static build, Swift's runtime
         // captures argc/argv as empty. Recover argv from /proc/self/cmdline.
         var command = try parseAsRoot(Self.procSelfArgv())
-        if let asyncCommand = command as? AsyncParsableCommand {
-            @safe nonisolated(unsafe) var unsafeCommand = asyncCommand
-            try await unsafeCommand.run()
+        if var asyncCommand = command as? AsyncParsableCommand {
+            try await asyncCommand.run()
         } else {
             try command.run()
         }

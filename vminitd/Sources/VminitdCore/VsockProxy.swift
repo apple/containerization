@@ -194,7 +194,7 @@ extension VsockProxy {
     ) async throws {
         try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
             do {
-                @safe nonisolated(unsafe) var relayTo: ContainerizationOS.Socket
+                let relayTo: ContainerizationOS.Socket
 
                 switch connType {
                 case .unix:
