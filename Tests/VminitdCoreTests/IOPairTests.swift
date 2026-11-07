@@ -42,7 +42,7 @@ struct IOPairTests {
     }
 
     private func write(_ bytes: [UInt8], to fd: Int32) throws {
-        try #require(bytes.withUnsafeBytes { Foundation.write(fd, $0.baseAddress, $0.count) } == bytes.count)
+        unsafe try #require(bytes.withUnsafeBytes { unsafe Foundation.write(fd, $0.baseAddress, $0.count) } == bytes.count)
     }
 
     private func fill(_ fd: Int32) throws -> Int {
@@ -53,7 +53,7 @@ struct IOPairTests {
         let bytes = [UInt8](repeating: 0xAA, count: 4096)
         var total = 0
         while true {
-            let count = bytes.withUnsafeBytes { Foundation.write(fd, $0.baseAddress, $0.count) }
+            let count = bytes.withUnsafeBytes { unsafe Foundation.write(fd, $0.baseAddress, $0.count) }
             if count == -1 {
                 try #require(errno == EAGAIN)
                 return total
@@ -71,10 +71,10 @@ struct IOPairTests {
         while true {
             try #require(clock.now < deadline, "Timed out reading relayed data")
             var event = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
-            let ready = poll(&event, 1, 100)
+            let ready = unsafe poll(&event, 1, 100)
             if ready == 0 || (ready == -1 && errno == EINTR) { continue }
             try #require(ready > 0)
-            let received = Foundation.read(fd, &bytes, bytes.count)
+            let received = unsafe Foundation.read(fd, &bytes, bytes.count)
             if received == -1 && (errno == EAGAIN || errno == EINTR) { continue }
             try #require(received >= 0)
             if received == 0 { return result }
@@ -86,7 +86,7 @@ struct IOPairTests {
     private func drain(_ fd: Int32) {
         _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
         var bytes = [UInt8](repeating: 0, count: 4096)
-        while Foundation.read(fd, &bytes, bytes.count) > 0 {}
+        while unsafe Foundation.read(fd, &bytes, bytes.count) > 0 {}
     }
 
     private func waitForHangup(_ fd: Int32) throws {
@@ -104,7 +104,7 @@ struct IOPairTests {
         try ProcessSupervisor.default.registerFd(fd, mask: .input) { mask in
             if mask.isHangup {
                 var byte: UInt8 = 1
-                #expect(Foundation.write(barrierWriter, &byte, 1) == 1)
+                unsafe #expect(Foundation.write(barrierWriter, &byte, 1) == 1)
             }
         }
         try #require(completed.wait(timeout: .now() + 5) == .success)
@@ -138,7 +138,7 @@ struct IOPairTests {
         let deadline = clock.now + .seconds(5)
         while true {
             var event = pollfd(fd: sourceFD, events: Int16(POLLIN), revents: 0)
-            try #require(poll(&event, 1, 0) >= 0)
+            unsafe try #require(poll(&event, 1, 0) >= 0)
             if event.revents & Int16(POLLIN) == 0 { break }
             try #require(clock.now < deadline, "Relay did not consume the source data")
             usleep(1000)
@@ -177,7 +177,7 @@ struct IOPairTests {
         #else
         let type = Int32(SOCK_STREAM.rawValue | SOCK_NONBLOCK.rawValue)
         #endif
-        try #require(socketpair(AF_UNIX, type, 0, &fds) == 0)
+        unsafe try #require(socketpair(AF_UNIX, type, 0, &fds) == 0)
         let shared = FileHandle(fileDescriptor: fds[0], closeOnDealloc: false)
         let peer = FileHandle(fileDescriptor: fds[1], closeOnDealloc: false)
         let input = Pipe()
@@ -212,14 +212,14 @@ struct IOPairTests {
     func terminalHangupReleasesBlockedInput(reopenSlave: Bool) throws {
         var masterFD: Int32 = -1
         var slaveFD: Int32 = -1
-        try #require(openpty(&masterFD, &slaveFD, nil, nil, nil) == 0)
+        unsafe try #require(openpty(&masterFD, &slaveFD, nil, nil, nil) == 0)
         let master = FileHandle(fileDescriptor: masterFD, closeOnDealloc: false)
         let slave = FileHandle(fileDescriptor: slaveFD, closeOnDealloc: false)
-        let path = String(cString: try #require(ttyname(slaveFD)))
+        let path = unsafe String(cString: try #require(ttyname(slaveFD)))
         var attributes = termios()
-        try #require(tcgetattr(slaveFD, &attributes) == 0)
-        cfmakeraw(&attributes)
-        try #require(tcsetattr(slaveFD, TCSANOW, &attributes) == 0)
+        unsafe try #require(tcgetattr(slaveFD, &attributes) == 0)
+        unsafe cfmakeraw(&attributes)
+        unsafe try #require(tcsetattr(slaveFD, TCSANOW, &attributes) == 0)
         let source = Pipe()
         let sourceClosed = DispatchSemaphore(value: 0)
         let pair = IOPair(
@@ -231,9 +231,9 @@ struct IOPairTests {
         var didClose = false
         defer {
             if !didClose {
-                let recoveryFD = Foundation.open(path, O_RDWR | O_NOCTTY | O_NONBLOCK)
+                let recoveryFD = unsafe Foundation.open(path, O_RDWR | O_NOCTTY | O_NONBLOCK)
                 if recoveryFD >= 0 {
-                    _ = tcsetattr(recoveryFD, TCSANOW, &attributes)
+                    _ = unsafe tcsetattr(recoveryFD, TCSANOW, &attributes)
                     for _ in 0..<100 {
                         drain(recoveryFD)
                         pair.close()
@@ -254,10 +254,10 @@ struct IOPairTests {
             try slave.close()
             try waitForHangup(masterFD)
             try #require(sourceClosed.wait(timeout: .now()) == .timedOut)
-            let reopenedFD = Foundation.open(path, O_RDWR | O_NOCTTY | O_NONBLOCK)
+            let reopenedFD = unsafe Foundation.open(path, O_RDWR | O_NOCTTY | O_NONBLOCK)
             try #require(reopenedFD >= 0)
             reopened = FileHandle(fileDescriptor: reopenedFD, closeOnDealloc: false)
-            try #require(tcsetattr(reopenedFD, TCSANOW, &attributes) == 0)
+            unsafe try #require(tcsetattr(reopenedFD, TCSANOW, &attributes) == 0)
         }
         let filled = try fill(masterFD)
         let payload = [UInt8](repeating: 0x42, count: 8192)
@@ -266,7 +266,7 @@ struct IOPairTests {
         let deadline = clock.now + .seconds(5)
         while true {
             var remaining: Int32 = 0
-            try #require(ioctl(source.fileHandleForReading.fileDescriptor, UInt(FIONREAD), &remaining) == 0)
+            unsafe try #require(ioctl(source.fileHandleForReading.fileDescriptor, UInt(FIONREAD), &remaining) == 0)
             if remaining < payload.count { break }
             try #require(clock.now < deadline, "Relay did not consume terminal input")
             usleep(1000)

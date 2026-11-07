@@ -118,7 +118,7 @@ final class ConsoleSocket: Sendable {
             // Unlinked here rather than left to the directory removal below: a
             // caller-supplied path has no owned directory. ENOENT is the end
             // state being asked for.
-            if unlink(self.socketPath) != 0 {
+            if unsafe unlink(self.socketPath) != 0 {
                 let err = errno
                 if err != ENOENT {
                     firstFailure =

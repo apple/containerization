@@ -40,11 +40,11 @@ struct MountVolumeSubpathsTests {
         let (from, to) = (dir.appending(path: "from").path, dir.appending(path: "to").path)
         guard (try? FileManager.default.createDirectory(atPath: from, withIntermediateDirectories: true)) != nil,
             (try? FileManager.default.createDirectory(atPath: to, withIntermediateDirectories: true)) != nil,
-            mount(from, to, nil, UInt(MS_BIND), nil) == 0
+            unsafe mount(from, to, nil, UInt(MS_BIND), nil) == 0
         else {
             return false
         }
-        umount2(to, Int32(MNT_DETACH))
+        unsafe umount2(to, Int32(MNT_DETACH))
         return true
     }()
 

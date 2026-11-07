@@ -40,7 +40,7 @@ struct DirectCommandRunner: CommandRunner {
         var rus = rusage()
         var ws = Int32()
 
-        let result = wait4(cmd.pid, &ws, 0, &rus)
+        let result = unsafe wait4(cmd.pid, &ws, 0, &rus)
         guard result == cmd.pid else {
             throw POSIXError(.init(rawValue: errno)!)
         }

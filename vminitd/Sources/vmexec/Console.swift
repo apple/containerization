@@ -30,7 +30,7 @@ class Console {
     let slavePath: String
 
     init() throws {
-        let masterFD = open("/dev/ptmx", O_RDWR | O_NOCTTY | O_CLOEXEC)
+        let masterFD = unsafe open("/dev/ptmx", O_RDWR | O_NOCTTY | O_CLOEXEC)
         guard masterFD != -1 else {
             throw App.Errno(stage: "open_ptmx")
         }
@@ -39,7 +39,7 @@ class Console {
             throw App.Errno(stage: "unlockpt")
         }
 
-        guard let slavePath = ptsname(masterFD) else {
+        guard let slavePath = unsafe ptsname(masterFD) else {
             throw App.Errno(stage: "ptsname")
         }
 
@@ -49,7 +49,7 @@ class Console {
 
     func configureStdIO() throws {
         let path = self.slavePath
-        let slaveFD = open(path, O_RDWR)
+        let slaveFD = unsafe open(path, O_RDWR)
         guard slaveFD != -1 else {
             throw App.Errno(stage: "open_pts")
         }

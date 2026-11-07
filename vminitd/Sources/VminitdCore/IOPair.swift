@@ -67,7 +67,7 @@ final class IOPair: Sendable {
                     case .again:
                         if self.closing {
                             var event = pollfd(fd: writeFd, events: 0, revents: 0)
-                            while poll(&event, 1, 0) == -1 && errno == EINTR {}
+                            while unsafe poll(&event, 1, 0) == -1 && errno == EINTR {}
                             if event.revents & Int16(POLLHUP | POLLERR) != 0 {
                                 self.close(logger: logger)
                             }

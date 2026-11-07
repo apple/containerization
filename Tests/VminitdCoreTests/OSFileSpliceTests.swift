@@ -36,17 +36,17 @@ struct OSFileSpliceTests {
         #else
         let type = Int32(SOCK_STREAM.rawValue | SOCK_NONBLOCK.rawValue)
         #endif
-        try #require(socketpair(AF_UNIX, type, 0, &fds) == 0)
+        unsafe try #require(socketpair(AF_UNIX, type, 0, &fds) == 0)
         return (fds[0], fds[1])
     }
 
     private func fillSendBuffer(_ fd: Int32) throws -> Int {
         var size: Int32 = 4096
-        try #require(setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &size, socklen_t(MemoryLayout<Int32>.size)) == 0)
+        unsafe try #require(setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &size, socklen_t(MemoryLayout<Int32>.size)) == 0)
         let bytes = [UInt8](repeating: 0xAA, count: 4096)
         var total = 0
         while true {
-            let count = bytes.withUnsafeBytes { Foundation.write(fd, $0.baseAddress, $0.count) }
+            let count = bytes.withUnsafeBytes { unsafe Foundation.write(fd, $0.baseAddress, $0.count) }
             if count == -1 {
                 try #require(errno == EAGAIN)
                 return total
@@ -57,7 +57,7 @@ struct OSFileSpliceTests {
     }
 
     private func write(_ bytes: [UInt8], to fd: Int32) throws {
-        let count = bytes.withUnsafeBytes { Foundation.write(fd, $0.baseAddress, $0.count) }
+        let count = bytes.withUnsafeBytes { unsafe Foundation.write(fd, $0.baseAddress, $0.count) }
         try #require(count == bytes.count)
     }
 
@@ -65,7 +65,7 @@ struct OSFileSpliceTests {
         var bytes = [UInt8](repeating: 0, count: 4096)
         var result: [UInt8] = []
         while true {
-            let count = bytes.withUnsafeMutableBytes { Foundation.read(fd, $0.baseAddress, $0.count) }
+            let count = bytes.withUnsafeMutableBytes { unsafe Foundation.read(fd, $0.baseAddress, $0.count) }
             if count == -1 {
                 try #require(errno == EAGAIN)
                 return result
@@ -101,7 +101,7 @@ struct OSFileSpliceTests {
             let recovery = DispatchWorkItem {
                 guard returned.wait(timeout: .now() + 5) == .timedOut else { return }
                 var bytes = [UInt8](repeating: 0, count: 4096)
-                while Foundation.read(serverPeer, &bytes, bytes.count) > 0 {}
+                while unsafe Foundation.read(serverPeer, &bytes, bytes.count) > 0 {}
             }
             DispatchQueue.global().async(execute: recovery)
             defer {

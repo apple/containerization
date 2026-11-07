@@ -56,7 +56,7 @@ struct OSFile: Sendable {
 
         var bytesRead: Int = 0
         while true {
-            let n = Foundation.read(
+            let n = unsafe Foundation.read(
                 self.fd,
                 buffer.baseAddress!.advanced(by: bytesRead),
                 buffer.count - bytesRead
@@ -87,7 +87,7 @@ struct OSFile: Sendable {
 
         var bytesWrote: Int = 0
         while true {
-            let n = Foundation.write(
+            let n = unsafe Foundation.write(
                 self.fd,
                 buffer.baseAddress!.advanced(by: bytesWrote),
                 buffer.count - bytesWrote
@@ -121,7 +121,7 @@ struct OSFile: Sendable {
     }
 
     static func open(path: String, mode: Int32) throws -> Self {
-        let fd = Foundation.open(path, mode)
+        let fd = unsafe Foundation.open(path, mode)
         if fd < 0 {
             throw POSIXError(.init(rawValue: errno)!)
         }

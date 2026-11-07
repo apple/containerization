@@ -310,7 +310,7 @@ extension ManagedContainer {
 
     func filesystemStats(of mount: String) throws -> CZ_Statfs {
         var s = CZ_Statfs()
-        guard CZ_statfs(mount, &s) == 0 else {
+        guard unsafe CZ_statfs(mount, &s) == 0 else {
             throw ContainerizationError(
                 .internalError,
                 message: "statfs(\(mount)) failed: errno \(errno)"
@@ -372,23 +372,23 @@ extension ManagedContainer {
             let path = "/proc/sys/" + key.replacingOccurrences(of: ".", with: "/")
             // Raw open/write rather than Data.write(to:): procfs rejects the
             // create-and-rename Foundation may use, and these are single-write files.
-            let fd = open(path, O_WRONLY, 0)
+            let fd = unsafe open(path, O_WRONLY, 0)
             let openErrno = errno
             if fd == -1 {
                 throw ContainerizationError(
                     .invalidArgument,
-                    message: "failed to open \(path) for sysctl \(key): \(String(cString: strerror(openErrno)))"
+                    message: unsafe "failed to open \(path) for sysctl \(key): \(String(cString: strerror(openErrno)))"
                 )
             }
             defer { close(fd) }
 
             let bytes = Array(value.utf8)
-            let written = bytes.withUnsafeBytes { write(fd, $0.baseAddress, bytes.count) }
+            let written = bytes.withUnsafeBytes { unsafe write(fd, $0.baseAddress, bytes.count) }
             let writeErrno = errno
             if written != bytes.count {
                 throw ContainerizationError(
                     .invalidArgument,
-                    message: "failed to set sysctl \(key)=\(value): \(String(cString: strerror(writeErrno)))"
+                    message: unsafe "failed to set sysctl \(key)=\(value): \(String(cString: strerror(writeErrno)))"
                 )
             }
             log.debug("applied sysctl \(key)=\(value)")

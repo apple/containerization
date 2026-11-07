@@ -67,8 +67,8 @@ public struct InitCommand: ParsableCommand {
 
         // Block all signals. We'll handle them synchronously via sigtimedwait
         var allSignals = sigset_t()
-        sigfillset(&allSignals)
-        sigprocmask(SIG_BLOCK, &allSignals, nil)
+        unsafe sigfillset(&allSignals)
+        unsafe sigprocmask(SIG_BLOCK, &allSignals, nil)
 
         let resolvedCommand = Path.lookPath(command)?.path ?? command
 
@@ -88,7 +88,7 @@ public struct InitCommand: ParsableCommand {
         var childExitStatus: Int32?
         while childExitStatus == nil {
             var siginfo = siginfo_t()
-            let sig = sigtimedwait(&allSignals, &siginfo, &timeout)
+            let sig = unsafe sigtimedwait(&allSignals, &siginfo, &timeout)
 
             if sig > 0 && !Self.ignoredSignals.contains(sig) {
                 _ = _kill(signalTarget, sig)
@@ -96,7 +96,7 @@ public struct InitCommand: ParsableCommand {
 
             while true {
                 var status: Int32 = 0
-                let pid = waitpid(-1, &status, WNOHANG)
+                let pid = unsafe waitpid(-1, &status, WNOHANG)
                 if pid <= 0 {
                     break
                 }

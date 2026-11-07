@@ -94,12 +94,12 @@ enum MountVolumeSubpaths {
         subpath: String,
         target: String
     ) throws {
-        let rootFd = open(source, RootfsResolver.oPath | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        let rootFd = unsafe open(source, RootfsResolver.oPath | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         guard rootFd >= 0 else {
             let code = errno
             throw ContainerizationError(
                 .notFound,
-                message: "subpath '\(subpath)': cannot open the mount source \(source): \(String(cString: strerror(code)))"
+                message: unsafe "subpath '\(subpath)': cannot open the mount source \(source): \(String(cString: strerror(code)))"
             )
         }
         defer { close(rootFd) }
@@ -139,18 +139,18 @@ enum MountVolumeSubpaths {
         for name in names {
             let path = dir + "/" + name
             // A path that is not a mount point is not an error.
-            _ = umount2(path, Int32(MNT_DETACH))
+            _ = unsafe umount2(path, Int32(MNT_DETACH))
             var st = stat()
-            guard lstat(path, &st) == 0 else { continue }
-            let rc = (st.st_mode & S_IFMT) == S_IFDIR ? rmdir(path) : unlink(path)
+            guard unsafe lstat(path, &st) == 0 else { continue }
+            let rc = unsafe (st.st_mode & S_IFMT) == S_IFDIR ? rmdir(path) : unlink(path)
             if rc != 0 {
                 let code = errno
-                log.error("cannot remove subpath staging \(path): \(String(cString: strerror(code)))")
+                log.error(unsafe "cannot remove subpath staging \(path): \(String(cString: strerror(code)))")
             }
         }
-        if rmdir(dir) != 0 {
+        if unsafe rmdir(dir) != 0 {
             let code = errno
-            log.error("cannot remove subpath staging directory \(dir): \(String(cString: strerror(code)))")
+            log.error(unsafe "cannot remove subpath staging directory \(dir): \(String(cString: strerror(code)))")
         }
     }
 }

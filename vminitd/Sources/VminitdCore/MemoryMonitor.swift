@@ -54,7 +54,7 @@ package final class MemoryMonitor: Sendable {
         self.inotifyFd = fd
 
         let eventsPath = cgroupManager.getMemoryEventsPath()
-        let wd = inotify_add_watch(
+        let wd = unsafe inotify_add_watch(
             inotifyFd,
             eventsPath,
             UInt32(IN_MODIFY)
@@ -91,7 +91,7 @@ package final class MemoryMonitor: Sendable {
         var buffer = [UInt8](repeating: 0, count: bufSize)
         while true {
             let bytesRead = buffer.withUnsafeMutableBytes { ptr in
-                read(inotifyFd, ptr.baseAddress!, bufSize)
+                unsafe read(inotifyFd, ptr.baseAddress!, bufSize)
             }
 
             if bytesRead < 0 {
