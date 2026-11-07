@@ -546,14 +546,6 @@ cleancontent:
 	@echo Cleaning the content...
 	@rm -rf ~/Library/Application\ Support/com.apple.containerization
 
-.PHONY: examples
-examples:
-	@echo Building examples...
-	@mkdir -p bin
-	@"$(MAKE)" -C examples/sandboxy build BUILD_CONFIGURATION=$(BUILD_CONFIGURATION)
-	@install examples/sandboxy/bin/sandboxy ./bin/
-	@codesign --force --sign - --timestamp=none --entitlements=signing/vz.entitlements bin/sandboxy
-
 .PHONY: cleanlinux
 cleanlinux:
 	@echo Cleaning Linux build files...
