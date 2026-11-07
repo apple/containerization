@@ -165,7 +165,7 @@ endif
 ifeq ($(UNAME_S),Darwin)
 .PHONY: linux-image
 linux-image:
-	container build \
+	@container build \
 		--progress plain \
 		-f images/linux-dev/Dockerfile \
 		--build-arg SWIFT_VERSION=$(SWIFT_VERSION) \
