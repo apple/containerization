@@ -44,7 +44,7 @@ class Console {
         }
 
         self.master = masterFD
-        self.slavePath = String(cString: slavePath)
+        self.slavePath = unsafe String(cString: slavePath)
     }
 
     func configureStdIO() throws {

@@ -135,7 +135,7 @@ public struct Cgroup2Manager: Sendable {
 
         let bytes = Array(value.utf8)
         let res = Syscall.retrying {
-            bytes.withUnsafeBytes { unsafe write(fd, $0.baseAddress!, bytes.count) }
+            unsafe bytes.withUnsafeBytes { unsafe write(fd, $0.baseAddress!, bytes.count) }
         }
         let writeErrno = errno
         if res == -1 {
@@ -370,7 +370,7 @@ public struct Cgroup2Manager: Sendable {
             let childPath = path.appending(path: item)
             var isDirectory: ObjCBool = false
 
-            if fileManager.fileExists(atPath: childPath.path, isDirectory: &isDirectory) && isDirectory.boolValue {
+            if unsafe fileManager.fileExists(atPath: childPath.path, isDirectory: &isDirectory) && isDirectory.boolValue {
                 if force {
                     do {
                         try Self.writeValue(

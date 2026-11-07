@@ -87,7 +87,7 @@ public struct InitCommand: ParsableCommand {
         // Handle signals and reap zombies
         var childExitStatus: Int32?
         while childExitStatus == nil {
-            var siginfo = siginfo_t()
+            var siginfo = unsafe siginfo_t()
             let sig = unsafe sigtimedwait(&allSignals, &siginfo, &timeout)
 
             if sig > 0 && !Self.ignoredSignals.contains(sig) {

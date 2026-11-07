@@ -96,9 +96,9 @@ extension App {
         }
 
         let executable = unsafe strdup(resolvedExecutable.path)
-        var argv = process.args.map { unsafe strdup($0) }
-        argv += [nil]
-        let env = process.env.map { unsafe strdup($0) } + [nil]
+        var argv = unsafe process.args.map { unsafe strdup($0) }
+        unsafe argv += [nil]
+        let env = unsafe process.env.map { unsafe strdup($0) } + [nil]
         let cwd = process.cwd
 
         // Create the working directory if it doesn't exist, this seems like the expected
@@ -116,7 +116,7 @@ extension App {
         }
 
         guard unsafe execvpe(executable, argv, env) != -1 else {
-            throw App.Errno(stage: "execvpe(\(String(describing: executable)))", info: "failed to exec [\(process.args.joined(separator: " "))]")
+            throw App.Errno(stage: unsafe "execvpe(\(String(describing: executable)))", info: "failed to exec [\(process.args.joined(separator: " "))]")
         }
         fatalError("execvpe failed")
     }
@@ -141,7 +141,7 @@ extension App {
     static func fixStdioPerms(user: ContainerizationOCI.User) throws {
         for i in 0...2 {
             var fdStat = stat()
-            try withUnsafeMutablePointer(to: &fdStat) { pointer in
+            unsafe try withUnsafeMutablePointer(to: &fdStat) { pointer in
                 guard unsafe fstat(Int32(i), pointer) == 0 else {
                     throw App.Errno(stage: "fstat(fd)")
                 }
@@ -277,8 +277,8 @@ extension App {
         }
 
         let bytes = Array(errorMessage.utf8)
-        _ = try? bytes.withUnsafeBytes { buffer in
-            try errorPipe.write(buffer)
+        _ = unsafe try? bytes.withUnsafeBytes { buffer in
+            unsafe try errorPipe.write(buffer)
         }
         try? errorPipe.close()
     }

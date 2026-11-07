@@ -383,7 +383,7 @@ extension ManagedContainer {
             defer { close(fd) }
 
             let bytes = Array(value.utf8)
-            let written = bytes.withUnsafeBytes { unsafe write(fd, $0.baseAddress, bytes.count) }
+            let written = unsafe bytes.withUnsafeBytes { unsafe write(fd, $0.baseAddress, bytes.count) }
             let writeErrno = errno
             if written != bytes.count {
                 throw ContainerizationError(

@@ -53,7 +53,7 @@ struct IOPairTests {
         let bytes = [UInt8](repeating: 0xAA, count: 4096)
         var total = 0
         while true {
-            let count = bytes.withUnsafeBytes { unsafe Foundation.write(fd, $0.baseAddress, $0.count) }
+            let count = unsafe bytes.withUnsafeBytes { unsafe Foundation.write(fd, $0.baseAddress, $0.count) }
             if count == -1 {
                 try #require(errno == EAGAIN)
                 return total
