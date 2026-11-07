@@ -55,7 +55,7 @@ struct Application: AsyncParsableCommand {
         // captures argc/argv as empty. Recover argv from /proc/self/cmdline.
         var command = try parseAsRoot(Self.procSelfArgv())
         if let asyncCommand = command as? AsyncParsableCommand {
-            nonisolated(unsafe) var unsafeCommand = asyncCommand
+            @safe nonisolated(unsafe) var unsafeCommand = asyncCommand
             try await unsafeCommand.run()
         } else {
             try command.run()
