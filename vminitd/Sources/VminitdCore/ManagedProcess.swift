@@ -221,6 +221,9 @@ extension ManagedProcess {
                             message: "no PTY data from sync pipe"
                         )
                     }
+                    guard ptyFd.count == size else {
+                        throw ContainerizationError(.internalError, message: "invalid payload")
+                    }
                     let fd = unsafe ptyFd.withUnsafeBytes { ptr in
                         unsafe ptr.load(as: Int32.self)
                     }
