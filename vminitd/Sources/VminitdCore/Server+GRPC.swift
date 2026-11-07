@@ -43,7 +43,7 @@ private let _umount = unsafe Musl.umount2
 private let _kill = Musl.kill
 private let _sync = Musl.sync
 typealias _stat_struct = Musl.stat
-private let _stat: @Sendable (UnsafePointer<CChar>, UnsafeMutablePointer<_stat_struct>) -> Int32 = unsafe stat
+private let _stat = unsafe stat
 #elseif canImport(Glibc)
 import Glibc
 private let _mount = unsafe Glibc.mount
@@ -51,7 +51,7 @@ private let _umount = unsafe Glibc.umount2
 private let _kill = Glibc.kill
 private let _sync = Glibc.sync
 typealias _stat_struct = Glibc.stat
-private let _stat: @Sendable (UnsafePointer<CChar>, UnsafeMutablePointer<_stat_struct>) -> Int32 = unsafe stat
+private let _stat = unsafe stat
 #endif
 
 extension ContainerizationError {

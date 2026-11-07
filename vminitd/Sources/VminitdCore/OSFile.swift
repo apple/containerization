@@ -49,18 +49,21 @@ struct OSFile: Sendable {
         }
     }
 
-    func read(_ buffer: UnsafeMutableBufferPointer<UInt8>) -> (read: Int, action: IOAction) {
+    func read(_ buffer: inout [UInt8]) -> (read: Int, action: IOAction) {
         if buffer.count == 0 {
             return (0, .success)
         }
 
+        let capacity = buffer.count
         var bytesRead: Int = 0
         while true {
-            let n = unsafe Foundation.read(
-                self.fd,
-                buffer.baseAddress!.advanced(by: bytesRead),
-                buffer.count - bytesRead
-            )
+            let n = unsafe buffer.withUnsafeMutableBytes { bytes in
+                unsafe Foundation.read(
+                    self.fd,
+                    bytes.baseAddress.map { unsafe $0 + bytesRead },
+                    capacity - bytesRead
+                )
+            }
             if n == -1 {
                 if errno == EAGAIN || errno == EIO {
                     return (bytesRead, .again)
@@ -80,18 +83,21 @@ struct OSFile: Sendable {
         }
     }
 
-    func write(_ buffer: UnsafeMutableBufferPointer<UInt8>) -> (wrote: Int, action: IOAction) {
+    func write(_ buffer: ArraySlice<UInt8>) -> (wrote: Int, action: IOAction) {
         if buffer.count == 0 {
             return (0, .success)
         }
 
+        let total = buffer.count
         var bytesWrote: Int = 0
         while true {
-            let n = unsafe Foundation.write(
-                self.fd,
-                buffer.baseAddress!.advanced(by: bytesWrote),
-                buffer.count - bytesWrote
-            )
+            let n = unsafe buffer.withUnsafeBytes { bytes in
+                unsafe Foundation.write(
+                    self.fd,
+                    bytes.baseAddress.map { unsafe $0 + bytesWrote },
+                    total - bytesWrote
+                )
+            }
             if n == -1 {
                 if errno == EAGAIN || errno == EIO {
                     return (bytesWrote, .again)

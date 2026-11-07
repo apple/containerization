@@ -456,7 +456,7 @@ struct RunCommand: ParsableCommand {
         guard fchdir(newRoot) == 0 else {
             throw App.Errno(stage: "fchdir(newroot)")
         }
-        guard unsafe CZ_pivot_root(toCString("."), toCString(".")) == 0 else {
+        guard unsafe CZ_pivot_root(".", ".") == 0 else {
             throw App.Errno(stage: "pivot_root()")
         }
         // change cwd to the old root
@@ -476,13 +476,6 @@ struct RunCommand: ParsableCommand {
         guard unsafe chdir("/") == 0 else {
             throw App.Errno(stage: "chdir(/)")
         }
-    }
-
-    private func toCString(_ str: String) -> UnsafeMutablePointer<CChar>? {
-        let cString = str.utf8CString
-        let cStringCopy = UnsafeMutableBufferPointer<CChar>.allocate(capacity: cString.count)
-        _ = cStringCopy.initialize(from: cString)
-        return UnsafeMutablePointer(cStringCopy.baseAddress)
     }
 
     private func mountConsole(path: String) throws {
