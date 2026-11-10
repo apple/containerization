@@ -141,7 +141,7 @@ define linux_run
 		echo "Creating Linux build volume $(LINUX_BUILD_VOLUME)..."; \
 		container volume create $(LINUX_BUILD_VOLUME) > /dev/null; \
 	fi
-	@container run --rm $(2) --memory 16gb --cpus 8 \
+	@container run --tty --rm $(2) --memory 16gb --cpus 8 \
 		--env SCRATCH_ROOT=$(LINUX_SCRATCH_ROOT) \
 		--env XDG_CACHE_HOME=$(LINUX_SHARED_CACHE) \
 		-v $(ROOT_DIR):/workspace \
@@ -165,7 +165,7 @@ endif
 ifeq ($(UNAME_S),Darwin)
 .PHONY: linux-image
 linux-image:
-	container build \
+	@container build \
 		--progress plain \
 		-f images/linux-dev/Dockerfile \
 		--build-arg SWIFT_VERSION=$(SWIFT_VERSION) \
