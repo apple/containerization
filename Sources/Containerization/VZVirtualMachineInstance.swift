@@ -19,13 +19,14 @@ import Foundation
 import ContainerizationError
 import ContainerizationExtras
 import ContainerizationOCI
+import ContainerizationOS
 import Logging
 import NIOCore
 import NIOPosix
 import Synchronization
 @preconcurrency import Virtualization
 
-public final class VZVirtualMachineInstance: Sendable {
+public final class VZVirtualMachineInstance: Sendable, OwnedVsockDialing {
     public typealias Agent = Vminitd
 
     /// Attached mounts on the virtual machine, organized by metadata ID.
@@ -99,6 +100,13 @@ public final class VZVirtualMachineInstance: Sendable {
     // `vm` isn't used concurrently.
     private nonisolated(unsafe) let vm: VZVirtualMachine
     private let queue: DispatchQueue
+    private let queueIdentity = DispatchSpecificKey<Void>()
+    private struct ListenerClaim {
+        let identity: UUID
+        weak var listener: VsockListener?
+    }
+    // Read and written exclusively on the VM queue.
+    private nonisolated(unsafe) var listenerClaims: [UInt32: ListenerClaim] = [:]
     private let lock: AsyncLock
     private let group: EventLoopGroup
     private let ownsGroup: Bool
@@ -139,9 +147,15 @@ public final class VZVirtualMachineInstance: Sendable {
             queue: self.queue
         )
 
+        self.queue.setSpecific(key: queueIdentity, value: ())
+
         for ext in config.extensions.compactMap({ $0 as? any VZInstanceExtension }) {
             try ext.didCreate(self)
         }
+    }
+
+    deinit {
+        queue.setSpecific(key: queueIdentity, value: nil)
     }
 }
 
@@ -275,44 +289,60 @@ extension VZVirtualMachineInstance: VirtualMachineInstance {
     }
 
     public func dial(_ port: UInt32) async throws -> FileHandle {
-        try await lock.withLock { _ in
+        try exportVsockHandle(await dialOwned(port))
+    }
+
+    package func dialOwned(_ port: UInt32) async throws -> DescriptorTransfer {
+        let owner = try await lock.withLock { _ in
             do {
-                let conn = try await self.vm.connect(
-                    queue: self.queue,
-                    port: port
-                )
-                return try conn.dupHandle()
+                let conn = try await self.vm.connect(queue: self.queue, port: port)
+                return try conn.dupOwned().takeOwner()
             } catch {
-                if let err = error as? ContainerizationError {
-                    throw err
-                }
-                throw ContainerizationError(
-                    .internalError,
-                    message: "failed to dial vsock port",
-                    cause: error
-                )
+                if let err = error as? ContainerizationError { throw err }
+                throw ContainerizationError(.internalError, message: "failed to dial vsock port", cause: error)
             }
         }
+        let result = DescriptorTransfer(owner: owner)
+        try Task.checkCancellation()
+        return result
+    }
+
+    private func onVMQueue<T>(_ body: () throws -> T) rethrows -> T {
+        if DispatchQueue.getSpecific(key: queueIdentity) != nil {
+            return try body()
+        }
+        return try queue.sync(execute: body)
     }
 
     public func listen(_ port: UInt32) throws -> VsockListener {
-        let stream = VsockListener(port: port, stopListen: self.stopListen)
+        let identity = UUID()
+        let stream = VsockListener(port: port, identity: identity) { [weak self] port in
+            try self?.stopListen(port, identity: identity)
+        }
         let listener = VZVirtioSocketListener()
         listener.delegate = stream
-
-        try self.vm.listen(
-            queue: queue,
-            port: port,
-            listener: listener
-        )
+        let displaced = try onVMQueue {
+            guard let vsock = vm.socketDevices.first as? VZVirtioSocketDevice else {
+                throw ContainerizationError(.invalidArgument, message: "no vsock device")
+            }
+            let displaced = listenerClaims[port]?.listener
+            listenerClaims[port] = ListenerClaim(identity: identity, listener: stream)
+            vsock.setSocketListener(listener, forPort: port)
+            return displaced
+        }
+        displaced?.replaced()
         return stream
     }
 
-    private func stopListen(_ port: UInt32) throws {
-        try self.vm.removeListener(
-            queue: queue,
-            port: port
-        )
+    private func stopListen(_ port: UInt32, identity: UUID) throws {
+        try onVMQueue {
+            guard listenerClaims[port]?.identity == identity else { return }
+            guard let vsock = vm.socketDevices.first as? VZVirtioSocketDevice else {
+                throw ContainerizationError(.invalidArgument, message: "no vsock device to remove")
+            }
+            listenerClaims[port] = nil
+            vsock.removeSocketListener(forPort: port)
+        }
     }
 
     // MARK: - Hotplug

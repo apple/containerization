@@ -17,6 +17,7 @@
 import ContainerizationError
 import ContainerizationExtras
 import ContainerizationOCI
+import ContainerizationOS
 import Foundation
 import Synchronization
 import Testing
@@ -144,7 +145,7 @@ struct LinuxProcessStdioTests {
                 guard let listener = vm.listener(forPort: Self.stdoutPort) else {
                     throw ContainerizationError(.internalError, message: "no listener for the stdout port")
                 }
-                _ = listener.yield(FileHandle(fileDescriptor: readEnd, closeOnDealloc: false))
+                listener.yieldOwned(DescriptorTransfer(adopting: readEnd))
             }
         )
 

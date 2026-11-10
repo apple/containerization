@@ -118,6 +118,20 @@ public final class ArchiveReader {
             .checkOk(elseThrow: { .unableToOpenArchive($0) })
     }
 
+    /// Borrows a descriptor without closing it. The caller must keep it open
+    /// until this reader is destroyed, including on extraction failure.
+    package init(format: Format, filter: Filter, borrowingFileDescriptor fd: Int32) throws {
+        self.underlying = archive_read_new()
+        self.fileHandle = nil
+
+        try archive_read_set_format(underlying, format.code)
+            .checkOk(elseThrow: .unableToSetFormat(format.code, format))
+        try archive_read_append_filter(underlying, filter.code)
+            .checkOk(elseThrow: .unableToAddFilter(filter.code, filter))
+        try archive_read_open_fd(underlying, fd, 4096)
+            .checkOk(elseThrow: { .unableToOpenArchive($0) })
+    }
+
     /// Initialize the `ArchiveReader` to read from a specified file URL
     /// by trying to auto determine the archives `Format` and `Filter`.
     public init(file: URL) throws {

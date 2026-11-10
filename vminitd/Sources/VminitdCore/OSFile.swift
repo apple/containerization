@@ -28,25 +28,20 @@ struct OSFile: Sendable {
     }
 
     private let fd: Int32
-
-    var closed: Bool {
-        Foundation.fcntl(fd, F_GETFD) == -1 && errno == EBADF
-    }
+    private let isSocket: Bool
 
     var fileDescriptor: Int32 { fd }
 
-    init(fd: Int32) {
+    init(fd: Int32, isSocket: Bool = false) {
         self.fd = fd
+        self.isSocket = isSocket
     }
 
-    init(handle: FileHandle) {
-        self.fd = handle.fileDescriptor
-    }
-
-    func close() throws {
-        guard Foundation.close(self.fd) == 0 else {
-            throw POSIXError(.init(rawValue: errno)!)
-        }
+    /// vminitd ignores SIGPIPE but test hosts may not, so socket writes use MSG_NOSIGNAL.
+    /// Probing once avoids a failing send() on every pipe or PTY write.
+    static func writer(fd: Int32) -> OSFile {
+        var info = _stat_struct()
+        return OSFile(fd: fd, isSocket: fstat(fd, &info) == 0 && info.st_mode & UInt32(S_IFMT) == UInt32(S_IFSOCK))
     }
 
     func read(_ buffer: UnsafeMutableBufferPointer<UInt8>) -> (read: Int, action: IOAction) {
@@ -62,6 +57,7 @@ struct OSFile: Sendable {
                 buffer.count - bytesRead
             )
             if n == -1 {
+                if errno == EINTR { continue }
                 if errno == EAGAIN || errno == EIO {
                     return (bytesRead, .again)
                 }
@@ -87,12 +83,11 @@ struct OSFile: Sendable {
 
         var bytesWrote: Int = 0
         while true {
-            let n = Foundation.write(
-                self.fd,
-                buffer.baseAddress!.advanced(by: bytesWrote),
-                buffer.count - bytesWrote
-            )
+            let address = buffer.baseAddress?.advanced(by: bytesWrote)
+            let remaining = buffer.count - bytesWrote
+            let n = isSocket ? send(self.fd, address, remaining, Int32(MSG_NOSIGNAL)) : Foundation.write(self.fd, address, remaining)
             if n == -1 {
+                if errno == EINTR { continue }
                 if errno == EAGAIN || errno == EIO {
                     return (bytesWrote, .again)
                 }
@@ -109,23 +104,6 @@ struct OSFile: Sendable {
             }
             return (bytesWrote, .success)
         }
-    }
-
-    static func pipe() -> (read: Self, write: Self) {
-        let pipe = Pipe()
-        return (Self(handle: pipe.fileHandleForReading), Self(handle: pipe.fileHandleForWriting))
-    }
-
-    static func open(path: String) throws -> Self {
-        try open(path: path, mode: O_RDONLY | O_CLOEXEC)
-    }
-
-    static func open(path: String, mode: Int32) throws -> Self {
-        let fd = Foundation.open(path, mode)
-        if fd < 0 {
-            throw POSIXError(.init(rawValue: errno)!)
-        }
-        return Self(fd: fd)
     }
 }
 

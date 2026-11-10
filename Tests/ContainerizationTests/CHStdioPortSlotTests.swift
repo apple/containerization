@@ -19,11 +19,39 @@ import ContainerizationError
 import ContainerizationExtras
 import ContainerizationOS
 import Foundation
+import NIOPosix
 import Testing
 
 @testable import Containerization
 
 struct CHStdioPortSlotTests {
+    @Test func vmSerializesListenerCreationOnTheSamePort() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ch-listen-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let vm = try CHVirtualMachineInstance(
+            group: MultiThreadedEventLoopGroup.singleton,
+            config: .init(),
+            runtimeRoot: directory,
+            chBinary: URL(fileURLWithPath: "/nonexistent/cloud-hypervisor"),
+            virtiofsdBinary: nil,
+            logger: nil
+        )
+        vm._state.withLock { $0 = .running }
+        let listeners = await withTaskGroup(of: VsockListener?.self) { group in
+            for _ in 0..<16 { group.addTask { try? vm.listen(43) } }
+            var listeners: [VsockListener] = []
+            for await listener in group {
+                if let listener { listeners.append(listener) }
+            }
+            return listeners
+        }
+        #expect(listeners.count == 1)
+        for listener in listeners { try? listener.finish() }
+        // Missing boot configuration runs teardown without retrying the absent VMM control socket.
+        vm._state.withLock { $0 = .stopped }
+        try? await vm.start()
+    }
+
     /// The regression this whole design exists for.
     ///
     /// The old `listen(_:)` closed the listening fd and unlinked the socket
@@ -63,11 +91,11 @@ struct CHStdioPortSlotTests {
         try second.finish()
     }
 
-    /// The cumulative half, without needing a VM: one slot must serve far more
-    /// tenants than a pool has ports. The old code gave each tenant its own
-    /// socket and destroyed it on finish, so `stdioPoolSize / 3` processes was
-    /// the hard ceiling for a VM's entire life.
-    @Test func slotServesFarMoreTenantsThanAPoolHasPorts() async throws {
+    /// The cumulative half, without needing a VM: one slot must serve repeated
+    /// tenants without consuming another pool port. The old code gave each
+    /// tenant its own socket and destroyed it on finish, so `stdioPoolSize / 3`
+    /// processes was the hard ceiling for a VM's entire life.
+    @Test func slotServesRepeatedTenants() async throws {
         let harness = try SlotHarness()
         defer { harness.cleanup() }
 
@@ -101,17 +129,19 @@ struct CHStdioPortSlotTests {
 
         // Late dial with nobody home.
         let straggler = try harness.dial()
-        try? await Task.sleep(for: .milliseconds(200))
-        try? straggler.close()
+        defer { try? straggler.close() }
+        try #require(try await harness.readByte(from: straggler) == nil)
 
         // The next tenant still gets its own connection.
         let next = harness.makeListener()
+        defer { try? next.finish() }
         try harness.slot.claim(by: next)
         let client = try harness.dial()
-        let accepted = try await harness.accept(on: next)
-        #expect(accepted != nil)
-        try? client.close()
-        try next.finish()
+        defer { try? client.close() }
+        let accepted = try #require(try await harness.accept(on: next))
+        defer { try? accepted.close() }
+        try accepted.write(contentsOf: Data([0xA7]))
+        #expect(try await harness.readByte(from: client) == 0xA7)
     }
 
     /// Two live listeners on one port would cross-wire two processes' stdio,
@@ -129,6 +159,33 @@ struct CHStdioPortSlotTests {
         // Once released, the slot is claimable again.
         try held.finish()
         try harness.slot.claim(by: harness.makeListener())
+    }
+
+    @Test func staleReleaseCannotClearReplacementClaim() throws {
+        let harness = try SlotHarness()
+        defer { harness.cleanup() }
+        let first = harness.makeListener()
+        try harness.slot.claim(by: first)
+        try first.finish()
+        let second = harness.makeListener()
+        try harness.slot.claim(by: second)
+        harness.slot.relinquish(first.identity)
+        #expect(throws: ContainerizationError.self) {
+            try harness.slot.claim(by: harness.makeListener())
+        }
+        try second.finish()
+    }
+
+    @Test func droppingListenerReleasesItsWeakClaim() throws {
+        let harness = try SlotHarness()
+        defer { harness.cleanup() }
+        do {
+            let listener = harness.makeListener()
+            try harness.slot.claim(by: listener)
+        }
+        let replacement = harness.makeListener()
+        try harness.slot.claim(by: replacement)
+        try replacement.finish()
     }
 
     @Test func shutdownRefusesFurtherClaims() throws {
@@ -161,12 +218,13 @@ private struct SlotHarness {
             port: Self.port
         )
         let fd = try chVsockBindListener(at: path)
-        self.slot = CHStdioPortSlot(port: Self.port, path: path, listenFd: fd)
+        self.slot = CHStdioPortSlot(port: Self.port, path: path, listenDescriptor: fd)
     }
 
     func makeListener() -> VsockListener {
         let slot = self.slot
-        return VsockListener(port: Self.port) { _ in slot.relinquish() }
+        let identity = UUID()
+        return VsockListener(port: Self.port, identity: identity) { _ in slot.relinquish(identity) }
     }
 
     func dial() throws -> Socket {
@@ -188,6 +246,23 @@ private struct SlotHarness {
     func accept(on listener: VsockListener) async throws -> FileHandle? {
         try await Timeout.run(seconds: 60) {
             await listener.first(where: { _ in true })
+        }
+    }
+
+    func readByte(from socket: Socket) async throws -> UInt8? {
+        try socket.setTimeout(option: .receive, seconds: 5)
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global().async {
+                do {
+                    var buffer = Data(count: 1)
+                    _ = try socket.read(buffer: &buffer)
+                    continuation.resume(returning: buffer.first)
+                } catch SocketError.closed {
+                    continuation.resume(returning: nil)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
         }
     }
 

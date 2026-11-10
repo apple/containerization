@@ -70,41 +70,41 @@ struct UnixSocketRelayTests {
         return result
     }
 
-    @Test(.timeLimit(.minutes(1)))
-    func refusedConnectionsCloseAndListenerRecovers() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func refusedConnectionsCloseAndListenerRecovers(owned: Bool) async throws {
         let path = URL(filePath: "/tmp/relay-\(UUID().uuidString).sock")
         defer { try? FileManager.default.removeItem(at: path) }
         let type = try UnixType(path: path.path, unlinkExisting: true)
         let unavailable = try Socket(type: type)
         try unavailable.listen()
         try unavailable.close()
-        let vm = RelayVirtualMachine()
+        // Built-in and custom backends take separate ownership paths through the relay.
+        let vm: any VirtualMachineInstance
+        if owned {
+            vm = OwnedRelayVirtualMachine()
+        } else {
+            vm = RelayVirtualMachine()
+        }
+        let listener = try vm.listen(1025)
         let relay = try UnixSocketRelay(
-            port: vm.listener.port,
+            port: listener.port,
             socket: .init(source: path, destination: path, direction: .into),
             vm: vm
         )
         try await relay.start()
         defer { try? relay.stop() }
-        let failures = try (0..<2).map { _ in try socketPair() }
-        defer {
-            for failure in failures {
-                try? failure.connection.close()
-                try? failure.peer.close()
-            }
-        }
-        for failure in failures { _ = vm.listener.yield(failure.connection) }
-        for failure in failures {
-            #expect(try await read(from: failure.peer.fileDescriptor, count: 1).isEmpty)
-        }
+        let refused = try socketPair()
+        defer { try? refused.peer.close() }
+        let refusedQueued = listener.yieldOwned(DescriptorTransfer(adopting: refused.connection.fileDescriptor))
+        try #require(refusedQueued)
+        #expect(try await read(from: refused.peer.fileDescriptor, count: 1).isEmpty)
 
         let server = try Socket(type: type)
         try server.listen()
         defer { try? server.close() }
         let (connection, peer) = try socketPair()
         defer { try? peer.close() }
-        if case .terminated = vm.listener.yield(connection) {
-            try? connection.close()
+        if !listener.yieldOwned(DescriptorTransfer(adopting: connection.fileDescriptor)) {
             Issue.record("A failed connection stopped the relay listener")
             return
         }
@@ -117,16 +117,20 @@ struct UnixSocketRelayTests {
         let response = Data("agent reply".utf8)
         #expect(try host.write(data: response) == response.count)
         #expect(try await read(from: peer.fileDescriptor, count: response.count) == response)
+        try relay.stop()
+        #expect(try await read(from: peer.fileDescriptor, count: 1).isEmpty)
+        #expect(try await read(from: host.fileDescriptor, count: 1).isEmpty)
     }
 
-    @Test(.timeLimit(.minutes(1)))
-    func refusedDialsCloseAndListenerRecovers() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func refusedDialsCloseAndListenerRecovers(owned: Bool) async throws {
         let path = URL(filePath: "/tmp/relay-\(UUID().uuidString).sock")
         defer { try? FileManager.default.removeItem(at: path) }
         let type = try UnixType(path: path.path)
-        let vm = RelayVirtualMachine()
+        let dial = DialSlot()
+        let vm: any VirtualMachineInstance = owned ? OwnedRelayVirtualMachine(dialSlot: dial) : RelayVirtualMachine(dialSlot: dial)
         let relay = try UnixSocketRelay(
-            port: vm.listener.port,
+            port: 1025,
             socket: .init(source: path, destination: path, direction: .outOf),
             vm: vm
         )
@@ -141,12 +145,12 @@ struct UnixSocketRelayTests {
         let (connection, peer) = try socketPair()
         defer {
             try? peer.close()
-            vm.dialConnection.withLock {
+            dial.connection.withLock {
                 try? $0?.close()
                 $0 = nil
             }
         }
-        vm.dialConnection.withLock { $0 = connection }
+        dial.connection.withLock { $0 = connection }
         let host = try Socket(type: type)
         defer { try? host.close() }
         try host.connect()
@@ -154,13 +158,27 @@ struct UnixSocketRelayTests {
         _ = try host.write(data: request)
         #expect(try await read(from: peer.fileDescriptor, count: request.count) == request)
     }
+
+}
+
+/// One connection a test VM hands out on its next dial.
+private final class DialSlot: Sendable {
+    let connection = Mutex<FileHandle?>(nil)
+
+    func take() throws -> FileHandle {
+        try connection.withLock {
+            guard let connection = $0 else { throw POSIXError(.ECONNREFUSED) }
+            $0 = nil
+            return connection
+        }
+    }
 }
 
 private final class RelayVirtualMachine: VirtualMachineInstance {
     typealias Agent = Vminitd
 
     let listener = VsockListener(port: 1025) { _ in }
-    let dialConnection = Mutex<FileHandle?>(nil)
+    let dialSlot: DialSlot
     var state: VirtualMachineInstanceState { .running }
     var mounts: [String: [AttachedFilesystem]] { [:] }
 
@@ -168,12 +186,32 @@ private final class RelayVirtualMachine: VirtualMachineInstance {
     func dialAgent() async throws -> Vminitd {
         throw ContainerizationError(.unsupported, message: "dialAgent")
     }
+    init(dialSlot: DialSlot = DialSlot()) { self.dialSlot = dialSlot }
+
+    func dial(_ port: UInt32) async throws -> FileHandle { try dialSlot.take() }
+    func start() async throws {}
+    func stop() async throws {}
+}
+
+private final class OwnedRelayVirtualMachine: OwnedVsockDialing {
+    typealias Agent = Vminitd
+
+    let listener = VsockListener(port: 1025) { _ in }
+    let dialSlot: DialSlot
+    var state: VirtualMachineInstanceState { .running }
+    var mounts: [String: [AttachedFilesystem]] { [:] }
+
+    func listen(_ port: UInt32) throws -> VsockListener { listener }
+    func dialAgent() async throws -> Vminitd {
+        throw ContainerizationError(.unsupported, message: "dialAgent")
+    }
+    init(dialSlot: DialSlot = DialSlot()) { self.dialSlot = dialSlot }
+
+    func dialOwned(_ port: UInt32) async throws -> DescriptorTransfer {
+        DescriptorTransfer(adopting: try dialSlot.take().fileDescriptor)
+    }
     func dial(_ port: UInt32) async throws -> FileHandle {
-        try dialConnection.withLock {
-            guard let connection = $0 else { throw POSIXError(.ECONNREFUSED) }
-            $0 = nil
-            return connection
-        }
+        throw ContainerizationError(.unsupported, message: "dial")
     }
     func start() async throws {}
     func stop() async throws {}

@@ -60,11 +60,11 @@ final class StandardIO: ManagedProcess.IO & Sendable {
                     port: stdinPort,
                     cid: VsockType.hostCID
                 )
-                let stdinSocket = try Socket(type: type, closeOnDeinit: false)
+                let stdinSocket = try Socket(type: type)
                 try stdinSocket.connect()
 
                 let pair = IOPair(
-                    readFrom: stdinSocket,
+                    readFrom: try stdinSocket.takeDescriptor(),
                     writeTo: inPipe.fileHandleForWriting,
                     reason: "StandardIO stdin",
                     logger: log
@@ -83,12 +83,12 @@ final class StandardIO: ManagedProcess.IO & Sendable {
                     port: stdoutPort,
                     cid: VsockType.hostCID
                 )
-                let stdoutSocket = try Socket(type: type, closeOnDeinit: false)
+                let stdoutSocket = try Socket(type: type)
                 try stdoutSocket.connect()
 
                 let pair = IOPair(
                     readFrom: outPipe.fileHandleForReading,
-                    writeTo: stdoutSocket,
+                    writeTo: try stdoutSocket.takeDescriptor(),
                     reason: "StandardIO stdout",
                     logger: log
                 )
@@ -106,12 +106,12 @@ final class StandardIO: ManagedProcess.IO & Sendable {
                     port: stderrPort,
                     cid: VsockType.hostCID
                 )
-                let stderrSocket = try Socket(type: type, closeOnDeinit: false)
+                let stderrSocket = try Socket(type: type)
                 try stderrSocket.connect()
 
                 let pair = IOPair(
                     readFrom: errPipe.fileHandleForReading,
-                    writeTo: stderrSocket,
+                    writeTo: try stderrSocket.takeDescriptor(),
                     reason: "StandardIO stderr",
                     logger: log
                 )
@@ -144,6 +144,8 @@ final class StandardIO: ManagedProcess.IO & Sendable {
             }
         }
     }
+
+    deinit { try? close() }
 
     func closeStdin() throws {
         self.state.withLock {

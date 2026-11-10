@@ -29,7 +29,6 @@ import Musl
 
 @Suite("BidirectionalRelay tests")
 final class BidirectionalRelayTests {
-
     // Raw write() to a socketpair whose peer is closed must not kill the
     // `swift test` process with SIGPIPE on Linux. See ignoreSIGPIPEForTests().
     init() { ignoreSIGPIPEForTests() }
@@ -37,11 +36,7 @@ final class BidirectionalRelayTests {
     /// Creates a Unix domain socket pair and returns (fd0, fd1).
     private func makeSocketPair() throws -> (Int32, Int32) {
         var fds: [Int32] = [0, 0]
-        #if os(macOS)
-        let result = socketpair(AF_UNIX, SOCK_STREAM, 0, &fds)
-        #else
-        let result = socketpair(AF_UNIX, Int32(SOCK_STREAM.rawValue), 0, &fds)
-        #endif
+        let result = socketpair(AF_UNIX, _SOCK_STREAM, 0, &fds)
         try #require(result == 0, "socketpair should succeed, errno: \(errno)")
         return (fds[0], fds[1])
     }
@@ -51,7 +46,7 @@ final class BidirectionalRelayTests {
         var offset = 0
         while offset < data.count {
             let n = data.withUnsafeBufferPointer { buf in
-                write(fd, buf.baseAddress!.advanced(by: offset), data.count - offset)
+                write(fd, buf.baseAddress?.advanced(by: offset), data.count - offset)
             }
             try #require(n > 0, "write failed, errno: \(errno)")
             offset += n
@@ -61,7 +56,7 @@ final class BidirectionalRelayTests {
     /// Reads exactly `count` bytes from a file descriptor with a timeout.
     /// Returns the data read, or nil if the timeout expires.
     private func readWithTimeout(fd: Int32, count: Int, timeoutSeconds: Double) -> [UInt8]? {
-        // Set fd to non-blocking for poll-based reading.
+        // Set fd to non-blocking so reads cannot outlast the timeout.
         let flags = fcntl(fd, F_GETFL)
         _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
         defer { _ = fcntl(fd, F_SETFL, flags) }
@@ -72,7 +67,7 @@ final class BidirectionalRelayTests {
 
         while totalRead < count && Date() < deadline {
             let n = result.withUnsafeMutableBufferPointer { buf in
-                read(fd, buf.baseAddress!.advanced(by: totalRead), count - totalRead)
+                read(fd, buf.baseAddress?.advanced(by: totalRead), count - totalRead)
             }
             if n > 0 {
                 totalRead += n
@@ -92,13 +87,24 @@ final class BidirectionalRelayTests {
         setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &bufSize, socklen_t(MemoryLayout<Int32>.size))
     }
 
+    /// Waits until the relay's destination stops accepting data, so the relay is backpressured.
+    private func waitUntilFull(_ fd: Int32) throws {
+        let deadline = Date().addingTimeInterval(5)
+        while true {
+            var event = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+            if poll(&event, 1, 0) == 0 { return }
+            try #require(Date() < deadline, "relay destination never filled")
+            usleep(1000)
+        }
+    }
+
     // MARK: - Test 1: Basic relay
 
     @Test
     func testBasicRelay() throws {
         // Create two socketpairs:
-        //   pair1: (a0) --- relay ---> (b0)
-        //   pair2: (a1) <-- relay --- (b1)
+        //   pair1: a0 <-> a1
+        //   pair2: b0 <-> b1
         // The relay connects a1 <-> b0.
         // Write to a0, read from b1 (data flows: a0 → a1 → relay → b0 → b1).
         let (a0, a1) = try makeSocketPair()
@@ -108,7 +114,8 @@ final class BidirectionalRelayTests {
             close(b1)
         }
 
-        let relay = BidirectionalRelay(fd1: a1, fd2: b0)
+        let relay = try BidirectionalRelay(fd1: a1, fd2: b0)
+        defer { relay.stop() }
         try relay.start()
 
         let testData: [UInt8] = Array("Hello, BidirectionalRelay!".utf8)
@@ -123,8 +130,6 @@ final class BidirectionalRelayTests {
 
         let reverseReceived = readWithTimeout(fd: a0, count: reverseData.count, timeoutSeconds: 2.0)
         #expect(reverseReceived == reverseData, "Data should flow in reverse through the relay")
-
-        relay.stop()
     }
 
     // MARK: - Test 2: Cross-connection head-of-line blocking
@@ -154,8 +159,12 @@ final class BidirectionalRelayTests {
         // Shrink send buffers to make them fill quickly.
         setSendBufferSize(fd: b0, size: 4096)
 
-        let relay1 = BidirectionalRelay(fd1: a1, fd2: b0, queue: sharedQueue)
-        let relay2 = BidirectionalRelay(fd1: c1, fd2: d0, queue: sharedQueue)
+        let relay1 = try BidirectionalRelay(fd1: a1, fd2: b0, queue: sharedQueue)
+        let relay2 = try BidirectionalRelay(fd1: c1, fd2: d0, queue: sharedQueue)
+        defer {
+            relay1.stop()
+            relay2.stop()
+        }
 
         try relay1.start()
         try relay2.start()
@@ -167,12 +176,12 @@ final class BidirectionalRelayTests {
         let a0flags = fcntl(a0, F_GETFL)
         _ = fcntl(a0, F_SETFL, a0flags | O_NONBLOCK)
         _ = largeData.withUnsafeBufferPointer { buf in
-            write(a0, buf.baseAddress!, buf.count)
+            write(a0, buf.baseAddress, buf.count)
         }
         _ = fcntl(a0, F_SETFL, a0flags)  // restore
 
-        // Give relay1 time to process and get blocked.
-        usleep(100_000)  // 100ms
+        // Wait for relay1 to process the data and become backpressured.
+        try waitUntilFull(b0)
 
         // Now test relay2: it should still work despite relay1 being backpressured.
         let testData: [UInt8] = Array("relay2 works!".utf8)
@@ -183,9 +192,6 @@ final class BidirectionalRelayTests {
         if let received {
             #expect(received == testData, "Relay2 data should be correct")
         }
-
-        relay1.stop()
-        relay2.stop()
     }
 
     // MARK: - Test 3: Backpressure recovery
@@ -198,59 +204,58 @@ final class BidirectionalRelayTests {
             close(a0)
             close(b1)
         }
-
-        // Shrink b0's send buffer so backpressure kicks in quickly.
+        // Shrink send buffers so backpressure kicks in quickly.
+        setSendBufferSize(fd: a0, size: 4096)
         setSendBufferSize(fd: b0, size: 4096)
+        for fd in [a0, b1] {
+            let flags = fcntl(fd, F_GETFL)
+            try #require(flags >= 0)
+            try #require(fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0)
+        }
 
-        let relay = BidirectionalRelay(fd1: a1, fd2: b0)
+        let relay = try BidirectionalRelay(fd1: a1, fd2: b0)
+        defer { relay.stop() }
         try relay.start()
 
         // Write enough data to trigger backpressure (more than the send buffer).
-        let totalBytes = 32768
-        let sendData = [UInt8]((0..<totalBytes).map { UInt8($0 & 0xFF) })
-
-        // Write in a background thread since it may partially block.
-        let writeThread = Thread {
-            var offset = 0
-            while offset < sendData.count {
-                let n = sendData.withUnsafeBufferPointer { buf in
-                    write(a0, buf.baseAddress!.advanced(by: offset), min(4096, sendData.count - offset))
+        let payload = (0..<65_536).map { UInt8(truncatingIfNeeded: $0) }
+        var received: [UInt8] = []
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        var sent = 0
+        var backpressured = false
+        let deadline = ContinuousClock.now + .seconds(5)
+        while received.count < payload.count && ContinuousClock.now < deadline {
+            if sent < payload.count {
+                let count = payload.withUnsafeBufferPointer { bytes in
+                    write(a0, bytes.baseAddress?.advanced(by: sent), payload.count - sent)
                 }
-                if n > 0 {
-                    offset += n
-                } else if n == -1 && (errno == EAGAIN || errno == EWOULDBLOCK) {
-                    usleep(1000)
-                } else {
-                    break
+                if count > 0 {
+                    sent += count
+                    if sent == payload.count {
+                        try #require(shutdown(a0, Int32(SHUT_WR)) == 0)
+                    }
+                } else if count == -1 && (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    backpressured = true
+                } else if count != -1 || errno != EINTR {
+                    try #require(count > 0, "write failed, errno: \(errno)")
                 }
             }
-        }
-        writeThread.start()
-
-        // Read from b1 (drain) — this should relieve backpressure.
-        var received = [UInt8]()
-        let readBuf = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: 4096)
-        defer { readBuf.deallocate() }
-
-        let deadline = Date().addingTimeInterval(5.0)
-        let b1flags = fcntl(b1, F_GETFL)
-        _ = fcntl(b1, F_SETFL, b1flags | O_NONBLOCK)
-
-        while received.count < totalBytes && Date() < deadline {
-            let n = read(b1, readBuf.baseAddress!, readBuf.count)
-            if n > 0 {
-                received.append(contentsOf: UnsafeBufferPointer(start: readBuf.baseAddress!, count: n))
-            } else if n == -1 && (errno == EAGAIN || errno == EWOULDBLOCK) {
-                usleep(1000)
-            } else {
-                break
+            if !backpressured { continue }
+            // Read from b1 (drain) — this should relieve backpressure.
+            let count = buffer.withUnsafeMutableBytes { read(b1, $0.baseAddress, $0.count) }
+            if count > 0 {
+                received.append(contentsOf: buffer.prefix(count))
+            } else if count == -1 && (errno == EAGAIN || errno == EWOULDBLOCK) {
+                var event = pollfd(fd: b1, events: Int16(POLLIN), revents: 0)
+                _ = poll(&event, 1, 10)
+            } else if count != -1 || errno != EINTR {
+                try #require(count > 0, "read failed, errno: \(errno)")
             }
         }
-
-        #expect(received.count == totalBytes, "All bytes should be received after backpressure recovery (got \(received.count)/\(totalBytes))")
-        #expect(received == sendData, "Received data should match sent data")
-
-        relay.stop()
+        #expect(backpressured)
+        #expect(sent == payload.count)
+        #expect(received == payload)
+        #expect(peerSeesEOF(b1), "EOF should follow the buffered payload after backpressure clears")
     }
 
     // MARK: - Test 4: EOF handling
@@ -259,14 +264,21 @@ final class BidirectionalRelayTests {
     func testEOFHandling() async throws {
         let (a0, a1) = try makeSocketPair()
         let (b0, b1) = try makeSocketPair()
+        let firstPeer = FileHandle(fileDescriptor: a0, closeOnDealloc: true)
+        let secondPeer = FileHandle(fileDescriptor: b1, closeOnDealloc: true)
+        defer {
+            try? firstPeer.close()
+            try? secondPeer.close()
+        }
 
-        let relay = BidirectionalRelay(fd1: a1, fd2: b0)
+        let relay = try BidirectionalRelay(fd1: a1, fd2: b0)
+        defer { relay.stop() }
         try relay.start()
 
         // Write some data, then close one end.
         let testData: [UInt8] = Array("goodbye".utf8)
         try writeAll(fd: a0, data: testData)
-        close(a0)
+        try firstPeer.close()
 
         // Read the data from the other end.
         let received = readWithTimeout(fd: b1, count: testData.count, timeoutSeconds: 2.0)
@@ -275,24 +287,10 @@ final class BidirectionalRelayTests {
         // Close b1 as well so both directions see EOF.
         // (a0 closed → a1 reads EOF → source1 done;
         //  b1 closed → b0 reads EOF → source2 done → relay complete)
-        close(b1)
+        try secondPeer.close()
 
         // The relay should detect EOF on both directions and complete.
-        let completed = await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                await relay.waitForCompletion()
-                return true
-            }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: 3_000_000_000)  // 3 seconds
-                return false
-            }
-            let result = await group.next()!
-            group.cancelAll()
-            return result
-        }
-
-        #expect(completed, "Relay should complete after both sides reach EOF")
+        try await withTestCompletionTimeout { await relay.waitForCompletion() }
     }
 
     // MARK: - Test 5: Stop while under backpressure
@@ -304,11 +302,17 @@ final class BidirectionalRelayTests {
         // would never deliver the cancel handler, leaking file descriptors.
         let (a0, a1) = try makeSocketPair()
         let (b0, b1) = try makeSocketPair()
+        defer {
+            // Close the external ends after stopping the relay.
+            close(a0)
+            close(b1)
+        }
 
         // Shrink b0's send buffer so backpressure kicks in quickly.
         setSendBufferSize(fd: b0, size: 4096)
 
-        let relay = BidirectionalRelay(fd1: a1, fd2: b0)
+        let relay = try BidirectionalRelay(fd1: a1, fd2: b0)
+        defer { relay.stop() }
         try relay.start()
 
         // Write enough to trigger backpressure but don't read from b1.
@@ -316,34 +320,86 @@ final class BidirectionalRelayTests {
         let a0flags = fcntl(a0, F_GETFL)
         _ = fcntl(a0, F_SETFL, a0flags | O_NONBLOCK)
         _ = largeData.withUnsafeBufferPointer { buf in
-            write(a0, buf.baseAddress!, buf.count)
+            write(a0, buf.baseAddress, buf.count)
         }
 
-        // Give relay time to enter backpressure state (readSource suspended).
-        usleep(100_000)  // 100ms
+        // Wait until the relay's destination buffer is full.
+        try waitUntilFull(b0)
 
         // Stop the relay while it's backpressured. This should not hang or leak.
         relay.stop()
-
-        // Close the external ends — the relay's fds should already be closed by stop().
-        close(a0)
-        close(b1)
+        relay.stop()
 
         // The relay should complete (cancel handlers should have fired).
-        let completed = await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                await relay.waitForCompletion()
-                return true
-            }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: 3_000_000_000)  // 3 seconds
-                return false
-            }
-            let result = await group.next()!
-            group.cancelAll()
-            return result
-        }
+        try await withTestCompletionTimeout { await relay.waitForCompletion() }
+        #expect(throws: (any Error).self) { try relay.start() }
+    }
 
-        #expect(completed, "Relay should complete after stop() even when backpressured")
+    private func peerSeesEOF(_ fd: Int32) -> Bool {
+        var event = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+        var result: Int32
+        repeat { result = poll(&event, 1, 2000) } while result < 0 && errno == EINTR
+        guard result > 0 else { return false }
+        var byte: UInt8 = 0
+        return read(fd, &byte, 1) == 0
+    }
+
+    @Test
+    func startedRelayOutlivesItsLastReference() throws {
+        let (a0, a1) = try makeSocketPair()
+        let (b0, b1) = try makeSocketPair()
+        defer {
+            close(a0)
+            close(b1)
+        }
+        try BidirectionalRelay(fd1: a1, fd2: b0).start()
+        let data = Array("still relaying".utf8)
+        try writeAll(fd: a0, data: data)
+        #expect(readWithTimeout(fd: b1, count: data.count, timeoutSeconds: 2.0) == data)
+    }
+
+    /// Darwin rejects SO_NOSIGPIPE once the peer has closed; Linux has no equivalent failure.
+    @Test
+    func startForwardsDataFromPeerThatAlreadyClosed() throws {
+        let (a0, a1) = try makeSocketPair()
+        let (b0, b1) = try makeSocketPair()
+        defer { close(b1) }
+        let data = Array("request".utf8)
+        try writeAll(fd: a0, data: data)
+        close(a0)
+        let relay = try BidirectionalRelay(fd1: a1, fd2: b0)
+        defer { relay.stop() }
+        try relay.start()
+        #expect(readWithTimeout(fd: b1, count: data.count, timeoutSeconds: 2.0) == data)
+        #expect(peerSeesEOF(b1))
+    }
+
+    @Test
+    func stoppingBeforeStartClosesBothEndpointsAndCompletes() async throws {
+        let (a0, a1) = try makeSocketPair()
+        let (b0, b1) = try makeSocketPair()
+        defer {
+            close(a0)
+            close(b1)
+        }
+        let relay = try BidirectionalRelay(fd1: a1, fd2: b0)
+        defer { relay.stop() }
+        relay.stop()
+        try await withTestCompletionTimeout { await relay.waitForCompletion() }
+        #expect(throws: (any Error).self) { try relay.start() }
+        #expect(peerSeesEOF(a0))
+        #expect(peerSeesEOF(b1))
+    }
+
+    @Test
+    func invalidDescriptorsThrowAndStayWithCaller() throws {
+        let (a0, a1) = try makeSocketPair()
+        defer {
+            close(a0)
+            close(a1)
+        }
+        #expect(throws: (any Error).self) { try BidirectionalRelay(fd1: a1, fd2: -1) }
+        #expect(throws: (any Error).self) { try BidirectionalRelay(fd1: a1, fd2: a1) }
+        #expect(fcntl(a1, F_GETFD) >= 0)
     }
 }

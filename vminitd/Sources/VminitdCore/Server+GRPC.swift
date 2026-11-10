@@ -87,6 +87,14 @@ extension ContainerizationError {
     }
 }
 
+/// Proxied connects block until the peer accepts. File copies hold `Initd.blockingPool`
+/// threads for whole transfers, so connects get a fixed pool, started on first use.
+private let proxyConnectPool: NIOThreadPool = {
+    let pool = NIOThreadPool(numberOfThreads: 4)
+    pool.start()
+    return pool
+}()
+
 extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServiceProtocol {
     public func setTime(
         request: Com_Apple_Containerization_Sandbox_V3_SetTimeRequest,
@@ -216,6 +224,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             port: request.vsockPort,
             path: URL(fileURLWithPath: request.guestPath),
             udsPerms: request.guestSocketPermissions,
+            blockingPool: proxyConnectPool,
             log: log
         )
 
@@ -505,13 +514,21 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
 
         // Connect to the host's vsock port for data transfer.
         let vsockType = VsockType(port: request.vsockPort, cid: VsockType.hostCID)
-        let sock = try Socket(type: vsockType, closeOnDeinit: false)
+        let sock = try Socket(type: vsockType)
         try sock.connect()
-        let sockFd = sock.fileDescriptor
+        let owner = try sock.takeDescriptor().takeOwner()
+        defer { try? owner.close() }
+        let use = try owner.acquire()
+        let sockFd = use.fileDescriptor
+        // Exclusive ownership permits blocking mode for archive/native I/O.
+        let flags = fcntl(sockFd, F_GETFL)
+        guard flags >= 0, fcntl(sockFd, F_SETFL, flags & ~O_NONBLOCK) == 0 else {
+            throw POSIXError.fromErrno()
+        }
 
         // Dispatch blocking I/O onto the thread pool.
-        let rejected: [String] = try await blockingPool.runIfActive { [self] in
-            defer { try? sock.close() }
+        let rejected: [String] = try await blockingPool.runIfActive { [self, use] in
+            defer { use.end() }
 
             let rootFd = try openRootDirectory(root)
             defer { close(rootFd) }
@@ -560,8 +577,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
 
             // /proc/self/fd pins the resolved directory against path swaps during extraction.
             return try RootfsResolver.withDirectoryInRoot(dirFd: rootFd, path: path) { destFd in
-                let fileHandle = FileHandle(fileDescriptor: sockFd, closeOnDealloc: false)
-                let reader = try ArchiveReader(format: .pax, filter: .gzip, fileHandle: fileHandle)
+                let reader = try ArchiveReader(format: .pax, filter: .gzip, borrowingFileDescriptor: sockFd)
                 return try reader.extractContents(to: URL(fileURLWithPath: "/proc/self/fd/\(destFd)"))
             }
         }
@@ -622,18 +638,27 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
 
         // Connect to the host's vsock port and dispatch blocking I/O onto the thread pool.
         let vsockType = VsockType(port: request.vsockPort, cid: VsockType.hostCID)
-        let sock = try Socket(type: vsockType, closeOnDeinit: false)
+        let sock = try Socket(type: vsockType)
         try sock.connect()
 
-        try await blockingPool.runIfActive { [self] in
-            defer { try? sock.close() }
+        let owner = try sock.takeDescriptor().takeOwner()
+        defer { try? owner.close() }
+        let use = try owner.acquire()
+        let sockFd = use.fileDescriptor
+        let flags = fcntl(sockFd, F_GETFL)
+        guard flags >= 0, fcntl(sockFd, F_SETFL, flags & ~O_NONBLOCK) == 0 else {
+            throw POSIXError.fromErrno()
+        }
+
+        try await blockingPool.runIfActive { [self, use] in
+            defer { use.end() }
 
             if isArchive {
                 // TODO: archiveDirectory is path-based; running containers can still
                 // race directory copyOut. Close this with an fd-relative archive writer.
                 let source = try FileDescriptorOps.getCanonicalPath(FileDescriptor(rawValue: fd)).string
                 let writer = try ArchiveWriter(configuration: .init(format: .pax, filter: .gzip))
-                try writer.open(fileDescriptor: sock.fileDescriptor)
+                try writer.open(fileDescriptor: sockFd)
                 try writer.archiveDirectory(URL(fileURLWithPath: source))
                 try writer.finishEncoding()
             } else {
@@ -657,7 +682,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                     var written = 0
                     while written < n {
                         let w = buf.withUnsafeBytes { ptr in
-                            write(sock.fileDescriptor, ptr.baseAddress! + written, n - written)
+                            send(sockFd, ptr.baseAddress?.advanced(by: written), n - written, Int32(MSG_NOSIGNAL))
                         }
                         guard w > 0 else {
                             throw RPCError(

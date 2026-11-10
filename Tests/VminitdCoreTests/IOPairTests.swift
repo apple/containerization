@@ -25,22 +25,11 @@ import Musl
 import Glibc
 #endif
 
+@testable import ContainerizationOS
 @testable import VminitdCore
 
 @Suite("I/O pair tests", .serialized)
 struct IOPairTests {
-    private struct CloseObserver: IOCloser {
-        let handle: FileHandle
-        let closed: DispatchSemaphore
-
-        var fileDescriptor: Int32 { handle.fileDescriptor }
-
-        func close() throws {
-            try handle.close()
-            closed.signal()
-        }
-    }
-
     private func write(_ bytes: [UInt8], to fd: Int32) throws {
         try #require(bytes.withUnsafeBytes { Foundation.write(fd, $0.baseAddress, $0.count) } == bytes.count)
     }
@@ -87,6 +76,14 @@ struct IOPairTests {
         _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
         var bytes = [UInt8](repeating: 0, count: 4096)
         while Foundation.read(fd, &bytes, bytes.count) > 0 {}
+    }
+
+    private func expectSlaveHangup(_ slave: Int32, timeout: Int32 = 1_000) throws {
+        var event = pollfd(fd: slave, events: Int16(POLLIN), revents: 0)
+        var ready: Int32
+        repeat { ready = poll(&event, 1, timeout) } while ready == -1 && errno == EINTR
+        try #require(ready > 0)
+        #expect(event.revents & Int16(POLLHUP) != 0)
     }
 
     private func waitForHangup(_ fd: Int32) throws {
@@ -170,7 +167,7 @@ struct IOPairTests {
     }
 
     @Test
-    func sharedReadAndWriteDescriptorPreservesUnownedDestination() throws {
+    func sharedReadAndWriteDescriptorPreservesBorrowedDestination() throws {
         var fds: [Int32] = [0, 0]
         #if canImport(Musl)
         let type = SOCK_STREAM | SOCK_NONBLOCK
@@ -178,23 +175,23 @@ struct IOPairTests {
         let type = Int32(SOCK_STREAM.rawValue | SOCK_NONBLOCK.rawValue)
         #endif
         try #require(socketpair(AF_UNIX, type, 0, &fds) == 0)
-        let shared = FileHandle(fileDescriptor: fds[0], closeOnDealloc: false)
+        let shared = OwnedDescriptor(adopting: fds[0])
+        defer { try? shared.close() }
         let peer = FileHandle(fileDescriptor: fds[1], closeOnDealloc: false)
-        let input = Pipe()
-        let output = Pipe()
-        let stdin = IOPair(readFrom: input.fileHandleForReading, writeTo: UnownedIOCloser(shared), reason: "shared stdin test")
-        let stdout = IOPair(readFrom: shared, writeTo: output.fileHandleForWriting, reason: "shared stdout test")
+        defer { try? peer.close() }
+        var input: [Int32] = [-1, -1]
+        try #require(pipe(&input) == 0)
+        defer { _ = Foundation.close(input[1]) }
+        let stdin = IOPair(readFrom: DescriptorTransfer(adopting: input[0]), writeToBorrowed: shared, reason: "shared stdin test")
+        var output: [Int32] = [-1, -1]
+        try #require(pipe(&output) == 0)
+        defer { _ = Foundation.close(output[0]) }
+        let stdout = IOPair(readFromTerminal: shared, writeTo: DescriptorTransfer(adopting: output[1]), reason: "shared stdout test")
         defer {
             drain(peer.fileDescriptor)
-            drain(output.fileHandleForReading.fileDescriptor)
+            drain(output[0])
             stdin.close()
             stdout.close()
-            try? shared.close()
-            try? peer.close()
-            for pipe in [input, output] {
-                try? pipe.fileHandleForReading.close()
-                try? pipe.fileHandleForWriting.close()
-            }
         }
         try stdin.relay(ignoreHup: true)
         try stdout.relay(ignoreHup: true)
@@ -205,7 +202,7 @@ struct IOPairTests {
         let response = Array("terminal output after stdin closes".utf8)
         try write(response, to: peer.fileDescriptor)
         try #require(shutdown(peer.fileDescriptor, Int32(SHUT_WR)) == 0)
-        #expect(try read(from: output.fileHandleForReading.fileDescriptor) == response)
+        #expect(try read(from: output[0]) == response)
     }
 
     @Test(arguments: [false, true])
@@ -213,18 +210,29 @@ struct IOPairTests {
         var masterFD: Int32 = -1
         var slaveFD: Int32 = -1
         try #require(openpty(&masterFD, &slaveFD, nil, nil, nil) == 0)
-        let master = FileHandle(fileDescriptor: masterFD, closeOnDealloc: false)
+        let master = OwnedDescriptor(adopting: masterFD)
+        defer { try? master.close() }
         let slave = FileHandle(fileDescriptor: slaveFD, closeOnDealloc: false)
+        defer { try? slave.close() }
         let path = String(cString: try #require(ttyname(slaveFD)))
         var attributes = termios()
         try #require(tcgetattr(slaveFD, &attributes) == 0)
         cfmakeraw(&attributes)
         try #require(tcsetattr(slaveFD, TCSANOW, &attributes) == 0)
-        let source = Pipe()
+        var source: [Int32] = [-1, -1]
+        try #require(pipe(&source) == 0)
+        defer { _ = Foundation.close(source[1]) }
         let sourceClosed = DispatchSemaphore(value: 0)
+        let sourceOwner = OwnedDescriptor(
+            adopting: source[0],
+            closeImplementation: { fd in
+                let result = Foundation.close(fd)
+                sourceClosed.signal()
+                return result
+            })
         let pair = IOPair(
-            readFrom: CloseObserver(handle: source.fileHandleForReading, closed: sourceClosed),
-            writeTo: UnownedIOCloser(master),
+            readFrom: DescriptorTransfer(owner: sourceOwner),
+            writeToBorrowed: master,
             reason: "terminal hangup test"
         )
         var reopened: FileHandle?
@@ -243,11 +251,7 @@ struct IOPairTests {
                 }
             }
             pair.close()
-            try? source.fileHandleForReading.close()
-            try? source.fileHandleForWriting.close()
             try? reopened?.close()
-            try? master.close()
-            try? slave.close()
         }
         try pair.relay(ignoreHup: true)
         if reopenSlave {
@@ -261,12 +265,12 @@ struct IOPairTests {
         }
         let filled = try fill(masterFD)
         let payload = [UInt8](repeating: 0x42, count: 8192)
-        try write(payload, to: source.fileHandleForWriting.fileDescriptor)
+        try write(payload, to: source[1])
         let clock = ContinuousClock()
         let deadline = clock.now + .seconds(5)
         while true {
             var remaining: Int32 = 0
-            try #require(ioctl(source.fileHandleForReading.fileDescriptor, UInt(FIONREAD), &remaining) == 0)
+            try #require(ioctl(sourceOwner.fileDescriptor, UInt(FIONREAD), &remaining) == 0)
             if remaining < payload.count { break }
             try #require(clock.now < deadline, "Relay did not consume terminal input")
             usleep(1000)
@@ -282,6 +286,45 @@ struct IOPairTests {
         }
         didClose = sourceClosed.wait(timeout: .now() + 1) == .success
         #expect(didClose)
+    }
+
+    @Test
+    func endingTerminalOutputRelayHangsUpSession() throws {
+        var masterFD: Int32 = -1
+        var slaveFD: Int32 = -1
+        try #require(openpty(&masterFD, &slaveFD, nil, nil, nil) == 0)
+        let master = OwnedDescriptor(adopting: masterFD)
+        defer { try? master.close() }
+        defer { _ = Foundation.close(slaveFD) }
+        var host: [Int32] = [-1, -1]
+        #if canImport(Musl)
+        let type = SOCK_STREAM
+        #else
+        let type = Int32(SOCK_STREAM.rawValue)
+        #endif
+        try #require(socketpair(AF_UNIX, type, 0, &host) == 0)
+        let stdout = IOPair(readFromTerminal: master, writeTo: DescriptorTransfer(adopting: host[0]), reason: "terminal output test")
+        defer { stdout.close() }
+        try stdout.relay(ignoreHup: true)
+        // Output after the host stops reading fails with EPIPE, which ends the relay.
+        _ = Foundation.close(host[1])
+        try write(Array("output".utf8), to: slaveFD)
+        try expectSlaveHangup(slaveFD, timeout: 5_000)
+    }
+
+    @Test
+    func rejectedConsoleAttachmentClosesMaster() throws {
+        let terminal = try RuncTerminalIO(stdio: HostStdio(stdin: nil, stdout: nil, stderr: nil, terminal: true), log: nil)
+        try terminal.close()
+        var master: Int32 = -1
+        var slave: Int32 = -1
+        try #require(openpty(&master, &slave, nil, nil, nil) == 0)
+        defer { _ = Foundation.close(slave) }
+        #expect(throws: SocketError.invalidOperationOnSocket("attach terminal I/O")) {
+            try terminal.attachConsole(descriptor: DescriptorTransfer(adopting: master))
+        }
+        // Keep deinit from hiding a leaked rejected descriptor.
+        try withExtendedLifetime(terminal) { try expectSlaveHangup(slave) }
     }
 }
 

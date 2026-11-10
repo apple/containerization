@@ -81,21 +81,19 @@ public struct VsockType: SocketType, Sendable {
     }
 
     public func accept(fd: Int32) throws -> (Int32, SocketType) {
-        var clientFD: Int32 = -1
         var addr = sockaddr_vm()
-
-        while clientFD < 0 {
-            var size = socklen_t(MemoryLayout<sockaddr_vm>.stride)
-            clientFD = withUnsafeMutablePointer(to: &addr) { pointer in
-                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { pointer in
-                    sysAccept(fd, pointer, &size)
-                }
-            }
-            if clientFD < 0 && errno != EINTR {
-                throw Socket.errnoToError(msg: "accept failed")
-            }
+        var size = socklen_t(MemoryLayout<sockaddr_vm>.stride)
+        let clientFD = withUnsafeMutablePointer(to: &addr) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sysAccept(fd, $0, &size) }
         }
-        return (clientFD, VsockType(sockaddr: addr))
+        guard clientFD >= 0 else { throw Socket.errnoToError(msg: "accept failed") }
+        guard size >= MemoryLayout<sockaddr_vm>.size else {
+            _ = sysClose(clientFD)
+            // EPROTO marks this as a failure of one connection, not of the listener.
+            throw SocketError.withErrno("short vsock peer address", errno: EPROTO)
+        }
+        let peer = VsockType(sockaddr: addr)
+        return (clientFD, peer)
     }
 
     public func withSockAddr(_ closure: (UnsafePointer<sockaddr>, UInt32) throws -> Void) throws {

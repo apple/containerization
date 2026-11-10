@@ -749,6 +749,23 @@ struct ArchiveReaderTests {
         }
     }
 
+    @Test func failedBorrowedExtractionKeepsDescriptorOpen() throws {
+        let extractDirectory = try createExtractionDirectory(name: "truncated-borrowed")
+        let directory = extractDirectory.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let archive = try Self.writePartialBlockArchive(in: directory)
+
+        let handle = try FileHandle(forReadingFrom: archive)
+        defer { try? handle.close() }
+        do {
+            let reader = try ArchiveReader(format: .paxRestricted, filter: .none, borrowingFileDescriptor: handle.fileDescriptor)
+            #expect(throws: (any Error).self) {
+                try reader.extractContents(to: extractDirectory)
+            }
+        }
+        #expect(fcntl(handle.fileDescriptor, F_GETFD) >= 0, "Failed extraction must not close a borrowed descriptor")
+    }
+
     static func writePartialBlockArchive(in directory: URL) throws -> URL {
         let blockSize = 512
         let full = directory.appendingPathComponent("full.tar")
