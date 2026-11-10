@@ -159,7 +159,8 @@ let package = Package(
         .testTarget(
             name: "ContainerizationArchiveTests",
             dependencies: [
-                "ContainerizationArchive"
+                "ContainerizationArchive",
+                .product(name: "libzstd", package: "zstd"),
             ],
             resources: [
                 .copy("Resources/test.tar.zst")
