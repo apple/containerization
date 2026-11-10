@@ -554,8 +554,14 @@ examples:
 	@install examples/sandboxy/bin/sandboxy ./bin/
 	@codesign --force --sign - --timestamp=none --entitlements=signing/vz.entitlements bin/sandboxy
 
+.PHONY: cleanlinux
+cleanlinux:
+	@echo Cleaning Linux build files...
+	@container image delete --force $(LINUX_DEV_IMAGE) > /dev/null 2>&1 || true
+	@container volume delete $(LINUX_BUILD_VOLUME) > /dev/null 2>&1 || true
+
 .PHONY: clean
-clean:
+clean: cleanlinux
 	@echo Cleaning build files...
 	@rm -rf bin/
 	@rm -rf _site/
