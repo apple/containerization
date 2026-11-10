@@ -123,7 +123,7 @@ extension VZVirtualMachine {
 
 extension VZVirtualMachine {
     func waitForAgent(queue: DispatchQueue) async throws -> FileHandle {
-        let agentConnectionRetryCount: Int = 200
+        let agentConnectionRetryCount: Int = 500
         let agentConnectionSleepDuration: Duration = .milliseconds(20)
 
         for _ in 0...agentConnectionRetryCount {
