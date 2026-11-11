@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG SWIFT_VERSION=6.3
+ARG SWIFT_VERSION=6.4.2
 FROM swift:${SWIFT_VERSION}-noble
 
 RUN apt-get update \

@@ -88,4 +88,4 @@ These are independently consumable Swift modules. Keep their dependencies narrow
 
 ## Requirements
 
-Apple silicon Mac, macOS 26, Xcode 26. The host-side build uses Xcode's Swift toolchain (`/usr/bin/swift`); the Linux guest is built inside the dev container, so the apple/`container` CLI is required (see the README). The pinned Swift version (`.swift-version`, currently `6.3.0`) tags the dev image and the CI Swift Linux container. Older macOS releases are not supported.
+Apple silicon Mac, macOS 26, Xcode 26. The host-side build uses Xcode's Swift toolchain (`/usr/bin/swift`); the Linux guest is built inside the dev container, so the apple/`container` CLI is required (see the README). The pinned Swift version (`.swift-version`, currently `6.4.2`) tags the dev image and the CI Swift Linux container. Older macOS releases are not supported.
