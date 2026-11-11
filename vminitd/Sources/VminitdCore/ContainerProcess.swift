@@ -62,6 +62,16 @@ protocol ContainerProcess: AnyObject, Sendable {
     /// - Throws: If stdin cannot be closed
     func closeStdin() throws
 
+    /// Take down the relays that carry the process's stdio to the host without disturbing the
+    /// process, so the virtual machine can be paused.
+    /// - Throws: If the relays cannot be detached, or the process does not support it.
+    func detachIO() throws
+
+    /// Connect a process whose stdio was detached to the host again.
+    /// - Parameter stdio: The new vsock ports the host is listening on.
+    /// - Throws: If the relays cannot be attached, or the process does not support it.
+    func attachIO(stdio: HostStdio) throws
+
     /// Delete the container process and clean up resources
     /// - Throws: If cleanup fails
     func delete() async throws

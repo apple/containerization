@@ -92,6 +92,24 @@ jobs:
       DEVELOPER_DIR: "/Applications/Xcode_swift_6.3.app/Contents/Developer"
 
     steps:
+      # The runner user has no login keychain. Create an empty, unlocked one so anything that
+      # needs a keychain during VM state save (checkpoint tests) has one to use.
+      - name: Ensure login keychain
+        continue-on-error: true
+        run: |
+          KC="$HOME/Library/Keychains/login.keychain-db"
+          if [ ! -f "$KC" ]; then
+            mkdir -p "$HOME/Library/Keychains"
+            security create-keychain -p "" "$KC"
+            security default-keychain -s "$KC"
+            security list-keychains -d user -s "$KC" /Library/Keychains/System.keychain
+          fi
+          security unlock-keychain -p "" "$KC"
+          # No timeout, and do not lock on sleep.
+          security set-keychain-settings "$KC"
+          security list-keychains
+          security show-keychain-info "$KC"
+
       - name: Checkout repository
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6
         with:

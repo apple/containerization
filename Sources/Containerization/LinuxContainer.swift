@@ -763,7 +763,14 @@ extension LinuxContainer {
     /// Create and start the underlying container's virtual machine
     /// and set up the runtime environment. The container's init process
     /// is NOT running afterwards.
-    public func create() async throws {
+    ///
+    /// - Parameter checkpoint: A directory written by ``checkpoint(to:)``. The virtual machine is
+    ///   then restored from the checkpoint's saved state instead of booted, and none of the
+    ///   guest setup below is redone: it is already part of the saved state. The container's
+    ///   init process is already running in the restored guest, so the container is started
+    ///   afterwards (do not call ``start()``): its stdio is connected to the
+    ///   `config.process` streams again.
+    public func create(from checkpoint: URL? = nil) async throws {
         try await self.state.withLock { state in
             try state.validateForCreate()
 
@@ -800,8 +807,53 @@ extension LinuxContainer {
                 nestedVirtualization: self.config.virtualization
             )
             let creationConfig = StandardVMConfig(configuration: vmConfig)
-            let vm = try await self.vmm.create(config: creationConfig)
+            let savedState = checkpoint?.appending(path: Checkpoint.stateDirectoryName)
+            let vm = try await self.vmm.create(config: creationConfig, from: savedState)
             let relayManager = UnixSocketRelayManager(vm: vm, log: self.logger)
+
+            if let savedState {
+                let createdState = State.CreatedState(
+                    vm: vm,
+                    relayManager: relayManager,
+                    fileMountContext: fileMountContextHolder.withLock { $0 }
+                )
+                var agent: (any VirtualMachineAgent)?
+                do {
+                    try await vm.restore(from: savedState)
+
+                    // The init process is already running in the guest. Give it a LinuxProcess
+                    // and connect its stdio again, rather than starting it.
+                    let restoredAgent = try await vm.dialAgent()
+                    agent = restoredAgent
+                    let stdio = IOUtil.setup(
+                        portAllocator: self.hostVsockPorts,
+                        stdin: self.config.process.stdin,
+                        stdout: self.config.process.stdout,
+                        stderr: self.config.process.stderr
+                    )
+                    let process = LinuxProcess(
+                        self.id,
+                        containerID: self.id,
+                        spec: try self.generateRuntimeSpec(for: .containerInit),
+                        io: stdio,
+                        portAllocator: self.hostVsockPorts,
+                        ociRuntimePath: self.config.ociRuntimePath,
+                        agent: restoredAgent,
+                        vm: vm,
+                        logger: self.logger
+                    )
+                    try await process.attachIO()
+
+                    state = .started(.init(createdState, process: process))
+                } catch {
+                    try? await agent?.close()
+                    try? await relayManager.stopAll()
+                    try? await vm.stop()
+                    state.setErrored(error: error)
+                    throw error
+                }
+                return
+            }
 
             do {
                 try await vm.start()
@@ -1003,6 +1055,100 @@ extension LinuxContainer {
                 try? await createdState.vm.stop()
                 state.setErrored(error: error)
                 throw error
+            }
+        }
+    }
+
+    /// Checkpoint the running container to a new directory at `url`, then keep it running.
+    ///
+    /// The directory holds `container.json` (see ``Checkpoint``) and `state/`, the virtual
+    /// machine's saved state bundle. The container is paused for the duration of the checkpoint
+    /// and resumed afterwards, whether or not the checkpoint succeeded.
+    ///
+    /// Only memory and board are captured, not disks. To make the checkpoint restorable, preserve
+    /// the backing disk images (e.g. clone them) in `whilePaused`.
+    ///
+    /// - Parameters:
+    ///   - url: The directory to create.
+    ///   - whilePaused: Called after the state is saved, before the container resumes. If it
+    ///     throws, the checkpoint is removed and the error is rethrown. The guest is frozen
+    ///     until it returns, and the container's state is locked, so keep it short and don't
+    ///     call back into this container.
+    ///
+    /// - Throws: ``ContainerizationError`` with `.invalidState` if the container is not running,
+    ///   `.exists` if `url` already exists, and `.unsupported` if the container has processes
+    ///   started through ``exec(_:configuration:)`` or the virtual machine cannot be saved.
+    public func checkpoint(
+        to url: URL,
+        whilePaused: @escaping @Sendable () async throws -> Void = {}
+    ) async throws {
+        try await self.state.withLock { state in
+            let startedState = try state.startedState("checkpoint")
+
+            // Exec'd processes would have to be reconstructed on restore.
+            guard startedState.vendedProcesses.isEmpty else {
+                throw ContainerizationError(
+                    .unsupported,
+                    message: "failed to checkpoint: container has \(startedState.vendedProcesses.count) exec'd process(es) running"
+                )
+            }
+
+            let fm = FileManager.default
+            if fm.fileExists(atPath: url.path) {
+                throw ContainerizationError(.exists, message: "\(url.path) already exists")
+            }
+
+            let vm = startedState.vm
+
+            // The bundle holds a dump of guest memory.
+            try fm.createDirectory(
+                at: url,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+
+            // The connections that carry the process's stdio to the host do not survive a restore,
+            // and a save must not catch them half-way through a transfer. Take them down first.
+            // If this fails the process's stdio is partly gone, so give up.
+            let process = startedState.process
+            do {
+                try await process.detachIO()
+            } catch {
+                try? fm.removeItem(at: url)
+                throw error
+            }
+
+            var failure: Error?
+            var pausedState: State.PausedState?
+            do {
+                try await vm.pause()
+                let paused = State.PausedState(startedState)
+                state = .paused(paused)
+                pausedState = paused
+
+                try await vm.save(to: url.appending(path: Checkpoint.stateDirectoryName))
+                try await whilePaused()
+                try Checkpoint(id: self.id).save(to: url.appending(path: Checkpoint.manifestName))
+            } catch {
+                failure = error
+                try? fm.removeItem(at: url)
+            }
+
+            // Whether or not the save worked, do not leave the container frozen.
+            if let pausedState {
+                try await vm.resume()
+                state = .started(.init(pausedState))
+            }
+
+            // And connect the process's stdio again, so the container carries on.
+            do {
+                try await process.attachIO()
+            } catch {
+                failure = failure ?? error
+            }
+
+            if let failure {
+                throw failure
             }
         }
     }

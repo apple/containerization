@@ -740,6 +740,102 @@ public nonisolated struct Com_Apple_Containerization_Sandbox_V3_CloseProcessStdi
   public init() {}
 }
 
+public nonisolated struct Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var id: String = String()
+
+  public var containerID: String {
+    get {_containerID ?? String()}
+    set {_containerID = newValue}
+  }
+  /// Returns true if `containerID` has been explicitly set.
+  public var hasContainerID: Bool {self._containerID != nil}
+  /// Clears the value of `containerID`. Subsequent reads from it will return its default value.
+  public mutating func clearContainerID() {self._containerID = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _containerID: String? = nil
+}
+
+public nonisolated struct Com_Apple_Containerization_Sandbox_V3_DetachProcessIOResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var id: String = String()
+
+  public var containerID: String {
+    get {_containerID ?? String()}
+    set {_containerID = newValue}
+  }
+  /// Returns true if `containerID` has been explicitly set.
+  public var hasContainerID: Bool {self._containerID != nil}
+  /// Clears the value of `containerID`. Subsequent reads from it will return its default value.
+  public mutating func clearContainerID() {self._containerID = nil}
+
+  public var stdin: UInt32 {
+    get {_stdin ?? 0}
+    set {_stdin = newValue}
+  }
+  /// Returns true if `stdin` has been explicitly set.
+  public var hasStdin: Bool {self._stdin != nil}
+  /// Clears the value of `stdin`. Subsequent reads from it will return its default value.
+  public mutating func clearStdin() {self._stdin = nil}
+
+  public var stdout: UInt32 {
+    get {_stdout ?? 0}
+    set {_stdout = newValue}
+  }
+  /// Returns true if `stdout` has been explicitly set.
+  public var hasStdout: Bool {self._stdout != nil}
+  /// Clears the value of `stdout`. Subsequent reads from it will return its default value.
+  public mutating func clearStdout() {self._stdout = nil}
+
+  public var stderr: UInt32 {
+    get {_stderr ?? 0}
+    set {_stderr = newValue}
+  }
+  /// Returns true if `stderr` has been explicitly set.
+  public var hasStderr: Bool {self._stderr != nil}
+  /// Clears the value of `stderr`. Subsequent reads from it will return its default value.
+  public mutating func clearStderr() {self._stderr = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _containerID: String? = nil
+  fileprivate var _stdin: UInt32? = nil
+  fileprivate var _stdout: UInt32? = nil
+  fileprivate var _stderr: UInt32? = nil
+}
+
+public nonisolated struct Com_Apple_Containerization_Sandbox_V3_AttachProcessIOResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 public nonisolated struct Com_Apple_Containerization_Sandbox_V3_MkdirRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -3090,6 +3186,137 @@ nonisolated extension Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinRes
   }
 
   public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse, rhs: Com_Apple_Containerization_Sandbox_V3_CloseProcessStdinResponse) -> Bool {
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".DetachProcessIORequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}containerID\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.id) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self._containerID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if !self.id.isEmpty {
+      try visitor.visitSingularStringField(value: self.id, fieldNumber: 1)
+    }
+    try { if let v = self._containerID {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 2)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest, rhs: Com_Apple_Containerization_Sandbox_V3_DetachProcessIORequest) -> Bool {
+    if lhs.id != rhs.id {return false}
+    if lhs._containerID != rhs._containerID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Com_Apple_Containerization_Sandbox_V3_DetachProcessIOResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".DetachProcessIOResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_DetachProcessIOResponse, rhs: Com_Apple_Containerization_Sandbox_V3_DetachProcessIOResponse) -> Bool {
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".AttachProcessIORequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}containerID\0\u{1}stdin\0\u{1}stdout\0\u{1}stderr\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.id) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self._containerID) }()
+      case 3: try { try decoder.decodeSingularUInt32Field(value: &self._stdin) }()
+      case 4: try { try decoder.decodeSingularUInt32Field(value: &self._stdout) }()
+      case 5: try { try decoder.decodeSingularUInt32Field(value: &self._stderr) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if !self.id.isEmpty {
+      try visitor.visitSingularStringField(value: self.id, fieldNumber: 1)
+    }
+    try { if let v = self._containerID {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 2)
+    } }()
+    try { if let v = self._stdin {
+      try visitor.visitSingularUInt32Field(value: v, fieldNumber: 3)
+    } }()
+    try { if let v = self._stdout {
+      try visitor.visitSingularUInt32Field(value: v, fieldNumber: 4)
+    } }()
+    try { if let v = self._stderr {
+      try visitor.visitSingularUInt32Field(value: v, fieldNumber: 5)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest, rhs: Com_Apple_Containerization_Sandbox_V3_AttachProcessIORequest) -> Bool {
+    if lhs.id != rhs.id {return false}
+    if lhs._containerID != rhs._containerID {return false}
+    if lhs._stdin != rhs._stdin {return false}
+    if lhs._stdout != rhs._stdout {return false}
+    if lhs._stderr != rhs._stderr {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Com_Apple_Containerization_Sandbox_V3_AttachProcessIOResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".AttachProcessIOResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Com_Apple_Containerization_Sandbox_V3_AttachProcessIOResponse, rhs: Com_Apple_Containerization_Sandbox_V3_AttachProcessIOResponse) -> Bool {
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

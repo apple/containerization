@@ -71,6 +71,13 @@ public protocol VirtualMachineAgent: Sendable {
     func waitProcess(id: String, containerID: String?, timeoutInSeconds: Int64?) async throws -> ExitStatus
     func deleteProcess(id: String, containerID: String?) async throws
     func closeProcessStdin(id: String, containerID: String?) async throws
+    /// Take down the relays that carry a process's stdio to the host, without disturbing the
+    /// process. The host must have closed its stdin connection first and must read stdout and
+    /// stderr until EOF.
+    func detachProcessIO(id: String, containerID: String?) async throws
+    /// Connect a process whose stdio was detached to the host again, over new vsock ports the
+    /// host is listening on.
+    func attachProcessIO(id: String, containerID: String?, stdinPort: UInt32?, stdoutPort: UInt32?, stderrPort: UInt32?) async throws
 
     // Networking
     func up(name: String, mtu: UInt32?) async throws
@@ -89,6 +96,14 @@ public protocol VirtualMachineAgent: Sendable {
 extension VirtualMachineAgent {
     public func closeProcessStdin(id: String, containerID: String?) async throws {
         throw ContainerizationError(.unsupported, message: "closeProcessStdin")
+    }
+
+    public func detachProcessIO(id: String, containerID: String?) async throws {
+        throw ContainerizationError(.unsupported, message: "detachProcessIO")
+    }
+
+    public func attachProcessIO(id: String, containerID: String?, stdinPort: UInt32?, stdoutPort: UInt32?, stderrPort: UInt32?) async throws {
+        throw ContainerizationError(.unsupported, message: "attachProcessIO")
     }
 
     public func configureHosts(config: Hosts, location: String) async throws {

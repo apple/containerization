@@ -680,6 +680,12 @@ struct IntegrationSuite: AsyncParsableCommand {
                 // Nested virtualization (VZ-only feature)
                 Test("nested virt", testNestedVirtualizationEnabled),
 
+                // VM checkpoint / restore (VZ-only)
+                Test("checkpoint reattaches process IO", testCheckpointReattachesProcessIO),
+                Test("checkpoint writes bundle", testCheckpointWritesBundle),
+                Test("checkpoint and restore", testCheckpointAndRestore),
+                Test("restore from missing checkpoint fails", testRestoreFromMissingCheckpointFails),
+
                 // Filesystem operations (TODO: promote to cross-platform once verified on CH)
                 Test("container frozen ext4 clone", testFrozenExt4Clone),
                 Test("container trim ext4 clone", testTrimExt4Clone),
