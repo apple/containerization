@@ -36,6 +36,8 @@ endif
 LIBC ?= musl
 ifeq ($(LIBC),musl)
 SWIFT_SDK_FLAGS := --swift-sdk $(MUSL_ARCH)-swift-linux-musl
+# TODO: Remove once Swift no longer passes `-rdynamic` to static links.
+SWIFT_SDK_FLAGS += -Xswiftc -Xclang-linker -Xswiftc -Wno-unused-command-line-argument
 endif
 
 SWIFT_CONFIGURATION := $(SWIFT_SDK_FLAGS) $(SWIFT_WARNING_CONFIG) -Xlinker -s --disable-automatic-resolution
