@@ -68,7 +68,21 @@ private final class LiveStdin: ReaderStream, Sendable {
     }
 }
 
+/// Only one virtual machine state is saved at a time. Concurrent saves of different machines
+/// failed on CI with "permission denied" while a single save succeeded.
+private let checkpointLock = AsyncLock()
+
 extension IntegrationSuite {
+    private func checkpointSerially(
+        _ container: LinuxContainer,
+        to url: URL,
+        whilePaused: @escaping @Sendable () async throws -> Void = {}
+    ) async throws {
+        try await checkpointLock.withLock { _ in
+            try await container.checkpoint(to: url, whilePaused: whilePaused)
+        }
+    }
+
     /// A process with state that only memory can carry: it numbers the lines it reads.
     private static let lineCounter = ["/bin/sh", "-c", "n=0; while read l; do n=$((n+1)); echo \"$n:$l\"; done"]
 
@@ -118,17 +132,17 @@ extension IntegrationSuite {
             try await waitForOutput(stdout, toContain: "1:a")
 
             // The process keeps its state and its stdio across a checkpoint, more than once.
-            try await container.checkpoint(to: scratch.appendingPathComponent("first"))
+            try await checkpointSerially(container, to: scratch.appendingPathComponent("first"))
             stdin.send("b")
             try await waitForOutput(stdout, toContain: "2:b")
 
-            try await container.checkpoint(to: scratch.appendingPathComponent("second"))
+            try await checkpointSerially(container, to: scratch.appendingPathComponent("second"))
             stdin.send("c")
             try await waitForOutput(stdout, toContain: "3:c")
 
             // A checkpoint that cannot be taken must not disturb the process either.
             do {
-                try await container.checkpoint(to: scratch.appendingPathComponent("first"))
+                try await checkpointSerially(container, to: scratch.appendingPathComponent("first"))
                 throw IntegrationError.assert(msg: "checkpoint to an existing directory should fail")
             } catch let error as ContainerizationError {
                 guard error.code == .exists else {
@@ -165,7 +179,7 @@ extension IntegrationSuite {
 
             let bundle = scratch.appendingPathComponent("bundle")
             let ranWhilePaused = Mutex(false)
-            try await container.checkpoint(to: bundle) {
+            try await checkpointSerially(container, to: bundle) {
                 ranWhilePaused.withLock { $0 = true }
             }
             guard ranWhilePaused.withLock({ $0 }) else {
@@ -188,7 +202,7 @@ extension IntegrationSuite {
             struct PausedFailure: Swift.Error {}
             let failed = scratch.appendingPathComponent("failed")
             do {
-                try await container.checkpoint(to: failed) { throw PausedFailure() }
+                try await checkpointSerially(container, to: failed) { throw PausedFailure() }
                 throw IntegrationError.assert(msg: "checkpoint should have failed")
             } catch is PausedFailure {}
             guard !FileManager.default.fileExists(atPath: failed.path) else {
@@ -233,7 +247,7 @@ extension IntegrationSuite {
 
             // The disk is not part of the checkpoint. Preserve it while the guest is frozen.
             let rootfsPath = URL(fileURLWithPath: bs.rootfs.source)
-            try await container.checkpoint(to: bundle) {
+            try await checkpointSerially(container, to: bundle) {
                 try FileManager.default.copyItem(at: rootfsPath, to: rootfsCopy)
             }
 
