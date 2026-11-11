@@ -194,8 +194,7 @@ extension VsockProxy {
     ) async throws {
         try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
             do {
-                // `relayTo` isn't used concurrently.
-                nonisolated(unsafe) var relayTo: ContainerizationOS.Socket
+                let relayTo: ContainerizationOS.Socket
 
                 switch connType {
                 case .unix:
@@ -217,12 +216,10 @@ extension VsockProxy {
 
                 try relayTo.connect()
 
-                // `clientFile` isn't used concurrently.
-                nonisolated(unsafe) var clientFile = OSFile.SpliceFile(fd: conn.fileDescriptor)
-                nonisolated(unsafe) var eofFromClient = false
-                // `serverFile` isn't used concurrently.
-                nonisolated(unsafe) var serverFile = OSFile.SpliceFile(fd: relayTo.fileDescriptor)
-                nonisolated(unsafe) var eofFromServer = false
+                @safe nonisolated(unsafe) var clientFile = OSFile.SpliceFile(fd: conn.fileDescriptor)
+                @safe nonisolated(unsafe) var eofFromClient = false
+                @safe nonisolated(unsafe) var serverFile = OSFile.SpliceFile(fd: relayTo.fileDescriptor)
+                @safe nonisolated(unsafe) var eofFromServer = false
 
                 // A full hangup stops writes to that endpoint, but its queued reads must drain.
                 let cleanup = { @Sendable [log, port, path, action] in

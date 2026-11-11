@@ -64,7 +64,7 @@ public struct PauseCommand: ParsableCommand {
         let sigchldSource = DispatchSource.makeSignalSource(signal: SIGCHLD)
         sigchldSource.setEventHandler {
             var status: Int32 = 0
-            while waitpid(-1, &status, WNOHANG) > 0 {}
+            while unsafe waitpid(-1, &status, WNOHANG) > 0 {}
         }
         sigchldSource.resume()
 

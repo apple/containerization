@@ -54,18 +54,17 @@ struct Application: AsyncParsableCommand {
         // When running as PID 1 with a Musl-static build, Swift's runtime
         // captures argc/argv as empty. Recover argv from /proc/self/cmdline.
         var command = try parseAsRoot(Self.procSelfArgv())
-        if let asyncCommand = command as? AsyncParsableCommand {
-            nonisolated(unsafe) var unsafeCommand = asyncCommand
-            try await unsafeCommand.run()
+        if var asyncCommand = command as? AsyncParsableCommand {
+            try await asyncCommand.run()
         } else {
             try command.run()
         }
     }
 
     private static func versionMetadata() -> Logger.Metadata {
-        let gitCommit = String(cString: CZ_get_git_commit())
-        let gitTag = String(cString: CZ_get_git_tag())
-        let buildTime = String(cString: CZ_get_build_time())
+        let gitCommit = unsafe String(cString: CZ_get_git_commit())
+        let gitTag = unsafe String(cString: CZ_get_git_tag())
+        let buildTime = unsafe String(cString: CZ_get_build_time())
         var metadata: Logger.Metadata = ["commit": "\(gitCommit)", "built": "\(buildTime)"]
         if !gitTag.isEmpty {
             metadata["tag"] = "\(gitTag)"

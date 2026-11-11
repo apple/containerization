@@ -54,7 +54,8 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "VminitdCore", package: "containerization"),
                 "CVersion",
-            ]
+            ],
+            swiftSettings: [.strictMemorySafety()]
         ),
         .executableTarget(
             name: "vmexec",
@@ -65,7 +66,8 @@ let package = Package(
                 .product(name: "Containerization", package: "containerization"),
                 .product(name: "ContainerizationOS", package: "containerization"),
                 .product(name: "VminitdCore", package: "containerization"),
-            ]
+            ],
+            swiftSettings: [.strictMemorySafety()]
         ),
     ]
 )
