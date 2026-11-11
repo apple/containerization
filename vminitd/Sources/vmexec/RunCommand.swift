@@ -170,7 +170,7 @@ struct RunCommand: ParsableCommand {
 
         // Wait for the grandparent to tell us that they acked our pid.
         var pidAckBuffer = [UInt8](repeating: 0, count: App.ackPid.count)
-        let pidAckBytesRead = unsafe try pidAckBuffer.withUnsafeMutableBytes { buffer in
+        let pidAckBytesRead = try pidAckBuffer.withUnsafeMutableBytes { buffer in
             unsafe try ackPipe.read(into: buffer)
         }
         guard pidAckBytesRead > 0 else {
@@ -197,13 +197,13 @@ struct RunCommand: ParsableCommand {
             try pty.configureStdIO()
             var masterFD = pty.master
 
-            unsafe try withUnsafeBytes(of: &masterFD) { bytes in
+            try withUnsafeBytes(of: &masterFD) { bytes in
                 _ = unsafe try syncPipe.write(bytes)
             }
 
             // Wait for the grandparent to tell us that they acked our console.
             var consoleAckBuffer = [UInt8](repeating: 0, count: App.ackConsole.count)
-            let consoleAckBytesRead = unsafe try consoleAckBuffer.withUnsafeMutableBytes { buffer in
+            let consoleAckBytesRead = try consoleAckBuffer.withUnsafeMutableBytes { buffer in
                 unsafe try ackPipe.read(into: buffer)
             }
             guard consoleAckBytesRead > 0 else {
@@ -224,7 +224,7 @@ struct RunCommand: ParsableCommand {
         }
 
         if !spec.hostname.isEmpty {
-            let errCode = unsafe spec.hostname.withCString { ptr in
+            let errCode = spec.hostname.withCString { ptr in
                 unsafe sethostname(ptr, spec.hostname.count)
             }
             guard errCode == 0 else {
@@ -360,7 +360,7 @@ struct RunCommand: ParsableCommand {
 
             // Send our child's pid before we exit.
             var childPid = processID
-            unsafe try withUnsafeBytes(of: &childPid) { bytes in
+            try withUnsafeBytes(of: &childPid) { bytes in
                 _ = unsafe try syncPipe.write(bytes)
             }
         }
@@ -411,7 +411,7 @@ struct RunCommand: ParsableCommand {
         defer { close(file) }
 
         var devNullStat = stat()
-        unsafe try withUnsafeMutablePointer(to: &devNullStat) { pointer in
+        try withUnsafeMutablePointer(to: &devNullStat) { pointer in
             guard unsafe fstat(file, pointer) == 0 else {
                 throw App.Errno(stage: "fstat(/dev/null)")
             }
@@ -419,7 +419,7 @@ struct RunCommand: ParsableCommand {
 
         for fd: Int32 in 0...2 {
             var fdStat = stat()
-            unsafe try withUnsafeMutablePointer(to: &fdStat) { pointer in
+            try withUnsafeMutablePointer(to: &fdStat) { pointer in
                 guard unsafe fstat(fd, pointer) == 0 else {
                     throw App.Errno(stage: "fstat(fd)")
                 }
