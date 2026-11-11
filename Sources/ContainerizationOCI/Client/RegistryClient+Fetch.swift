@@ -233,9 +233,8 @@ extension RegistryClient {
         var hasher = SHA256()
         var received: Int64 = 0
         let fs = _NIOFileSystem.FileSystem.shared
-        let handle = try await fs.openFile(forWritingAt: FilePath(file.absolutePath()), options: .newFile(replaceExisting: true))
-        var writer = handle.bufferedWriter()
-        do {
+        try await fs.withFileHandle(forWritingAt: FilePath(file.absolutePath()), options: .newFile(replaceExisting: true)) { handle in
+            var writer = handle.bufferedWriter()
             try await self.fetchBlob(name: name, descriptor: descriptor) { (size, body) in
                 var itr = body.makeAsyncIterator()
                 while let buf = try await itr.next() {
@@ -256,15 +255,6 @@ extension RegistryClient {
                 }
             }
             try await writer.flush()
-            try await handle.close()
-        } catch {
-            do {
-                try await handle.close()
-            } catch {
-                // Use `detachUnsafeFileDescriptor()` as suggested by the error message to prevent a leak detection crash when `close()` fails.
-                _ = try handle.detachUnsafeFileDescriptor()
-            }
-            throw error
         }
         let computedDigest = hasher.finalize()
         try Self.verifyContentDigest(computedDigest, matches: descriptor)
