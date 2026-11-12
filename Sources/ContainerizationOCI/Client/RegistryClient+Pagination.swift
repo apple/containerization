@@ -20,22 +20,38 @@ import Foundation
 import NIOFoundationCompat
 
 extension RegistryClient {
+    /// The number of entries requested per page with the `n` query parameter.
+    static let listPageSize = 100
+
+    /// The largest number of pages `collectPages` follows by default.
+    static let maxListPages = 500
+
     /// One page of a list endpoint and the request for the page after it, if any.
     struct ListPage: Sendable {
         let entries: [String]
         let next: URLComponents?
     }
 
-    /// Collect the entries of a list endpoint by following the `Link` header of each page, starting at `first`.
+    /// Collect the entries of a list endpoint by following the next-page request of each page, starting at `first`.
     /// `shouldContinue` is called with each page's entries; returning `false` stops paging.
+    /// Throws if a page requests a page that was already fetched, or if more than `maxPages` pages are fetched.
     static func collectPages(
         from first: URLComponents,
+        maxPages: Int = maxListPages,
         shouldContinue: ([String]) -> Bool = { _ in true },
         fetch: (URLComponents) async throws -> ListPage
     ) async throws -> [String] {
         var collected: [String] = []
+        var requested: Set<URLComponents> = []
         var components = first
         while true {
+            guard requested.insert(components).inserted else {
+                throw ContainerizationError(.invalidState, message: "list pagination returned to an earlier page: \(components.string ?? "")")
+            }
+            guard requested.count <= maxPages else {
+                throw ContainerizationError(.invalidState, message: "list pagination exceeded \(maxPages) pages")
+            }
+
             let page = try await fetch(components)
             collected.append(contentsOf: page.entries)
 
@@ -45,6 +61,15 @@ extension RegistryClient {
             components = next
         }
         return collected
+    }
+
+    /// The query of a list request: a page size and, when given, the entry to start after.
+    static func listQuery(last: String? = nil) -> [URLQueryItem] {
+        var items = [URLQueryItem(name: "n", value: String(listPageSize))]
+        if let last {
+            items.append(URLQueryItem(name: "last", value: last))
+        }
+        return items
     }
 
     /// Request one page of a list endpoint.
@@ -67,24 +92,79 @@ extension RegistryClient {
 
             let buffer = try await response.body.collect(upTo: self.bufferSize)
             let decoded = try JSONDecoder().decode(Page.self, from: buffer)
-            let next = try Self.nextPage(linkHeader: response.headers["Link"].first, base: self.base)
-            return ListPage(entries: entries(decoded), next: next)
+            let pageEntries = entries(decoded)
+            if let next = try Self.nextPage(linkHeaders: response.headers["Link"], base: self.base) {
+                return ListPage(entries: pageEntries, next: next)
+            }
+            return ListPage(entries: pageEntries, next: Self.pageAfter(entries: pageEntries, request: components))
         }
     }
 
-    /// The request for the page named by a `Link: <url>; rel="next"` header, or `nil` if there is no header.
-    /// Only the path and query of the link are used; the scheme and host come from `base`.
-    static func nextPage(linkHeader: String?, base: URLComponents) throws -> URLComponents? {
-        guard let linkHeader, !linkHeader.isEmpty else {
+    /// The request for the page after a full page that had no `Link` header, or `nil` if the page is not full.
+    static func pageAfter(entries: [String], request: URLComponents) -> URLComponents? {
+        guard entries.count >= listPageSize, let last = entries.last else {
             return nil
         }
-        let target = linkHeader.prefix { $0 != ";" }.trimmingCharacters(in: CharacterSet(charactersIn: " <>"))
+        var next = request
+        next.queryItems = listQuery(last: last)
+        return next
+    }
+
+    /// The request for the page named by the `rel="next"` link in `Link` headers, or `nil` if there is none.
+    /// Throws if there is more than one `rel="next"` link.
+    /// Only the path and query of the link are used; the scheme and host come from `base`.
+    static func nextPage(linkHeaders: [String], base: URLComponents) throws -> URLComponents? {
+        var targets: [String] = []
+        for header in linkHeaders {
+            targets.append(contentsOf: linkTargets(header: header, relation: "next"))
+        }
+        guard targets.count <= 1 else {
+            throw ContainerizationError(.invalidArgument, message: "multiple next page links: \(linkHeaders)")
+        }
+        guard let target = targets.first else {
+            return nil
+        }
         guard let link = URLComponents(string: target), !link.path.isEmpty else {
-            throw ContainerizationError(.invalidArgument, message: "invalid next page link: \(linkHeader)")
+            throw ContainerizationError(.invalidArgument, message: "invalid next page link: \(target)")
         }
         var next = base
         next.percentEncodedPath = link.percentEncodedPath
         next.percentEncodedQuery = link.percentEncodedQuery
         return next
+    }
+
+    /// The targets of the links in a `Link` header value whose `rel` parameter includes `relation`.
+    static func linkTargets(header: String, relation: String) -> [String] {
+        var targets: [String] = []
+        var remaining = Substring(header)
+        while let open = remaining.firstIndex(of: "<"), let close = remaining[open...].firstIndex(of: ">") {
+            let target = remaining[remaining.index(after: open)..<close]
+            let afterTarget = remaining[remaining.index(after: close)...]
+            let parametersEnd = afterTarget.firstIndex(of: "<") ?? afterTarget.endIndex
+            if hasRelation(parameters: afterTarget[..<parametersEnd], relation: relation) {
+                targets.append(target.trimmingCharacters(in: .whitespaces))
+            }
+            remaining = afterTarget[parametersEnd...]
+        }
+        return targets
+    }
+
+    /// Whether the `;`-separated link parameters contain a `rel` parameter that names `relation`.
+    private static func hasRelation(parameters: Substring, relation: String) -> Bool {
+        for parameter in parameters.split(separator: ";") {
+            let nameAndValue = parameter.split(separator: "=", maxSplits: 1)
+            guard nameAndValue.count == 2 else {
+                continue
+            }
+            let name = nameAndValue[0].trimmingCharacters(in: .whitespaces)
+            guard name.lowercased() == "rel" else {
+                continue
+            }
+            let value = nameAndValue[1].trimmingCharacters(in: CharacterSet(charactersIn: " \t,\""))
+            if value.lowercased().split(whereSeparator: \.isWhitespace).contains(Substring(relation)) {
+                return true
+            }
+        }
+        return false
     }
 }

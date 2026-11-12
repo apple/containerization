@@ -120,19 +120,79 @@ struct RegistryClientPaginationTests {
         LinkTestCase(linkHeader: #"</v2/org/app/tags/list>; rel="next""#, expected: "https://registry.test/v2/org/app/tags/list"),
     ])
     func nextPage(testCase: LinkTestCase) throws {
-        let next = try RegistryClient.nextPage(linkHeader: testCase.linkHeader, base: testBase)
+        let next = try RegistryClient.nextPage(linkHeaders: [testCase.linkHeader], base: testBase)
 
         #expect(next?.string == testCase.expected)
     }
 
-    @Test(arguments: [nil, ""])
-    func nextPageIsNilWithoutLinkHeader(linkHeader: String?) throws {
-        #expect(try RegistryClient.nextPage(linkHeader: linkHeader, base: testBase) == nil)
+    @Test(arguments: [[], [""], [#"</v2/org/app/tags/list?last=a>; rel="prev""#]])
+    func nextPageIsNilWithoutNextLink(linkHeaders: [String]) throws {
+        #expect(try RegistryClient.nextPage(linkHeaders: linkHeaders, base: testBase) == nil)
+    }
+
+    @Test(arguments: [
+        #"</v2/a?last=1>; rel="prev", </v2/a?last=3>; rel="next""#,
+        #"</v2/a?last=3>; REL="Next"; title="more""#,
+        #"</v2/a?last=3>; rel="last next""#,
+    ])
+    func nextPagePicksTheNextLink(linkHeader: String) throws {
+        let next = try RegistryClient.nextPage(linkHeaders: [linkHeader], base: testBase)
+
+        #expect(next?.string == "https://registry.test/v2/a?last=3")
+    }
+
+    @Test func nextPageSearchesEveryHeader() throws {
+        let next = try RegistryClient.nextPage(
+            linkHeaders: [#"</v2/a?last=1>; rel="prev""#, #"</v2/a?last=3>; rel="next""#],
+            base: testBase
+        )
+
+        #expect(next?.string == "https://registry.test/v2/a?last=3")
+    }
+
+    @Test func nextPageThrowsWithMultipleNextLinks() {
+        #expect(throws: ContainerizationError.self) {
+            try RegistryClient.nextPage(linkHeaders: [#"</v2/a?last=1>; rel="next""#, #"</v2/a?last=2>; rel="next""#], base: testBase)
+        }
     }
 
     @Test func nextPageThrowsWithoutPath() {
         #expect(throws: ContainerizationError.self) {
-            try RegistryClient.nextPage(linkHeader: #"<>; rel="next""#, base: testBase)
+            try RegistryClient.nextPage(linkHeaders: [#"<>; rel="next""#], base: testBase)
         }
+    }
+
+    @Test func pageAfterFullPageStartsAfterItsLastEntry() {
+        let entries = (0..<RegistryClient.listPageSize).map { "tag\($0)" }
+
+        let next = RegistryClient.pageAfter(entries: entries, request: testRequest("/v2/app/tags/list?n=100"))
+
+        #expect(next?.string == "https://registry.test/v2/app/tags/list?n=100&last=tag99")
+    }
+
+    @Test func pageAfterPartialPageIsNil() {
+        #expect(RegistryClient.pageAfter(entries: ["a", "b"], request: testRequest("/v2/app/tags/list?n=100")) == nil)
+    }
+
+    @Test func throwsWhenAPageRepeats() async throws {
+        let endpoint = FakeListEndpoint { request in
+            request == "/list" ? page(["a"], next: "/list?last=a") : page(["a"], next: "/list")
+        }
+
+        await #expect(throws: ContainerizationError.self) {
+            try await RegistryClient.collectPages(from: testRequest("/list"), fetch: endpoint.fetch)
+        }
+        #expect(endpoint.requests == ["/list", "/list?last=a"])
+    }
+
+    @Test func throwsAfterMaxPages() async throws {
+        let endpoint = FakeListEndpoint { request in
+            page([request], next: request + "x")
+        }
+
+        await #expect(throws: ContainerizationError.self) {
+            try await RegistryClient.collectPages(from: testRequest("/list"), maxPages: 3, fetch: endpoint.fetch)
+        }
+        #expect(endpoint.requests == ["/list", "/listx", "/listxx"])
     }
 }

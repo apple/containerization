@@ -27,7 +27,7 @@ struct RegistryClientCatalogTests {
         let repositories = try await RegistryClient.collectCatalog(prefix: nil, base: testBase, fetch: endpoint.fetch)
 
         #expect(repositories == ["org/a", "team/b"])
-        #expect(endpoint.requests == ["/v2/_catalog"])
+        #expect(endpoint.requests == ["/v2/_catalog?n=100"])
     }
 
     @Test func treatsShortPrefixAsNone() async throws {
@@ -36,7 +36,7 @@ struct RegistryClientCatalogTests {
         let repositories = try await RegistryClient.collectCatalog(prefix: "t", base: testBase, fetch: endpoint.fetch)
 
         #expect(repositories == ["org/a", "team/b"])
-        #expect(endpoint.requests == ["/v2/_catalog"])
+        #expect(endpoint.requests == ["/v2/_catalog?n=100"])
     }
 
     @Test func prefixSkipsAheadFiltersAndStopsPastPrefix() async throws {
@@ -47,12 +47,12 @@ struct RegistryClientCatalogTests {
         let repositories = try await RegistryClient.collectCatalog(prefix: "team/", base: testBase, fetch: endpoint.fetch)
 
         #expect(repositories == ["team/app", "team/web"])
-        #expect(endpoint.requests == ["/v2/_catalog?last=team"])
+        #expect(endpoint.requests == ["/v2/_catalog?n=100&last=team"])
     }
 
     @Test func prefixContinuesWhilePageStillMatches() async throws {
         let endpoint = FakeListEndpoint { request in
-            request == "/v2/_catalog?last=team"
+            request == "/v2/_catalog?n=100&last=team"
                 ? page(["team/a", "team/b"], next: "/v2/_catalog?last=team%2Fb")
                 : page(["team/c", "tools/lint"], next: "/v2/_catalog?last=tools%2Flint")
         }
@@ -60,7 +60,7 @@ struct RegistryClientCatalogTests {
         let repositories = try await RegistryClient.collectCatalog(prefix: "team/", base: testBase, fetch: endpoint.fetch)
 
         #expect(repositories == ["team/a", "team/b", "team/c"])
-        #expect(endpoint.requests == ["/v2/_catalog?last=team", "/v2/_catalog?last=team%2Fb"])
+        #expect(endpoint.requests == ["/v2/_catalog?n=100&last=team", "/v2/_catalog?last=team%2Fb"])
     }
 
     @Test func prefixWithNoMatchesReturnsNothing() async throws {
@@ -69,6 +69,6 @@ struct RegistryClientCatalogTests {
         let repositories = try await RegistryClient.collectCatalog(prefix: "team/", base: testBase, fetch: endpoint.fetch)
 
         #expect(repositories.isEmpty)
-        #expect(endpoint.requests == ["/v2/_catalog?last=team"])
+        #expect(endpoint.requests == ["/v2/_catalog?n=100&last=team"])
     }
 }

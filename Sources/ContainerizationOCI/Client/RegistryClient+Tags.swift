@@ -37,6 +37,7 @@ extension RegistryClient {
     public func tags(name: String) async throws -> [String] {
         var first = base
         first.path = "/v2/\(name)/tags/list"
+        first.queryItems = Self.listQuery()
 
         return try await Self.collectPages(from: first) { components in
             try await self.fetchListPage(components: components, page: TagsResponse.self, entries: \.entries)

@@ -49,12 +49,13 @@ extension RegistryClient {
         first.path = "/v2/_catalog"
 
         guard let prefix, prefix.count >= 2 else {
+            first.queryItems = listQuery()
             return try await collectPages(from: first, fetch: fetch)
         }
 
         // The registry returns entries that sort after `last`, so dropping the last
         // character of the prefix starts the listing just before the matching entries.
-        first.queryItems = [URLQueryItem(name: "last", value: String(prefix.dropLast()))]
+        first.queryItems = listQuery(last: String(prefix.dropLast()))
         let repos = try await collectPages(
             from: first,
             shouldContinue: { page in
