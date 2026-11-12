@@ -150,6 +150,15 @@ struct RegistryClientPaginationTests {
         #expect(next?.string == "https://registry.test/v2/a?last=3")
     }
 
+    @Test func nextPageIgnoresRepeatedIdenticalNextLinks() throws {
+        let next = try RegistryClient.nextPage(
+            linkHeaders: [#"</v2/a?last=3>; rel="next""#, #"</v2/a?last=3>; rel="next""#],
+            base: testBase
+        )
+
+        #expect(next?.string == "https://registry.test/v2/a?last=3")
+    }
+
     @Test func nextPageThrowsWithMultipleNextLinks() {
         #expect(throws: ContainerizationError.self) {
             try RegistryClient.nextPage(linkHeaders: [#"</v2/a?last=1>; rel="next""#, #"</v2/a?last=2>; rel="next""#], base: testBase)
@@ -194,5 +203,86 @@ struct RegistryClientPaginationTests {
             try await RegistryClient.collectPages(from: testRequest("/list"), maxPages: 3, fetch: endpoint.fetch)
         }
         #expect(endpoint.requests == ["/list", "/listx", "/listxx"])
+    }
+
+    @Test func throwsPastMaxEntries() async throws {
+        let endpoint = FakeListEndpoint { request in
+            page([request + "1", request + "2"], next: request + "x")
+        }
+
+        await #expect(throws: ContainerizationError.self) {
+            try await RegistryClient.collectPages(from: testRequest("/list"), maxEntries: 5, fetch: endpoint.fetch)
+        }
+        #expect(endpoint.requests == ["/list", "/listx", "/listxx"])
+    }
+
+    @Test func returnsExactlyMaxEntries() async throws {
+        let endpoint = FakeListEndpoint { _ in page(["a", "b", "c"]) }
+
+        let entries = try await RegistryClient.collectPages(from: testRequest("/list"), maxEntries: 3, fetch: endpoint.fetch)
+
+        #expect(entries == ["a", "b", "c"])
+    }
+
+    @Test func throwsAfterConsecutiveEmptyPages() async throws {
+        let endpoint = FakeListEndpoint { request in
+            page([], next: request + "x")
+        }
+
+        await #expect(throws: ContainerizationError.self) {
+            try await RegistryClient.collectPages(from: testRequest("/list"), fetch: endpoint.fetch)
+        }
+        #expect(endpoint.requests == ["/list", "/listx", "/listxx"])
+    }
+
+    @Test func followsEmptyPagesThatAreNotConsecutive() async throws {
+        let endpoint = FakeListEndpoint { request in
+            switch request {
+            case "/list": page([], next: "/list?a")
+            case "/list?a": page([], next: "/list?b")
+            case "/list?b": page(["x"], next: "/list?c")
+            case "/list?c": page([], next: "/list?d")
+            default: page(["y"])
+            }
+        }
+
+        let entries = try await RegistryClient.collectPages(from: testRequest("/list"), fetch: endpoint.fetch)
+
+        #expect(entries == ["x", "y"])
+    }
+
+    /// Link headers come from the registry; none of these may trap.
+    @Test(arguments: [
+        #"<%zz>; rel="next""#,
+        #"</v2/a%>; rel="next""#,
+        #"</v2/a b?x= y>; rel="next""#,
+        "</v2/a\u{0}b>; rel=\"next\"",
+        "</v2/\u{1F600}?q=\u{202E}>; rel=\"next\"",
+        #"<//evil.invalid/v2/a>; rel="next""#,
+        #"<http://[::1/v2/a>; rel="next""#,
+        #"<<<<<>; rel="next""#,
+        #"<"#,
+        #">"#,
+        #"<a>; rel="#,
+        #"<a>; rel=;;;,,,<"#,
+    ])
+    func nextPageDoesNotTrapOnMalformedLinks(linkHeader: String) {
+        _ = try? RegistryClient.nextPage(linkHeaders: [linkHeader], base: testBase)
+    }
+
+    @Test func requireSamePathAcceptsANewQueryOnTheSamePath() throws {
+        try RegistryClient.requireSamePath(
+            next: testRequest("/v2/org/app/tags/list?last=b&n=100"),
+            request: testRequest("/v2/org/app/tags/list?n=100")
+        )
+    }
+
+    @Test func requireSamePathThrowsForAnotherPath() {
+        #expect(throws: ContainerizationError.self) {
+            try RegistryClient.requireSamePath(
+                next: testRequest("/v2/other/manifests/latest"),
+                request: testRequest("/v2/org/app/tags/list?n=100")
+            )
+        }
     }
 }

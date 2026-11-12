@@ -32,14 +32,16 @@ extension RegistryClient {
     /// Implements GET /v2/<name>/tags/list from the OCI Distribution Spec with pagination.
     /// Pages are followed through the response's `Link` header.
     ///
-    /// - Parameter name: The repository name (e.g., "library/alpine").
+    /// - Parameters:
+    ///   - name: The repository name (e.g., "library/alpine").
+    ///   - maxEntries: The most tags to fetch from the registry. Throws if the repository has more.
     /// - Returns: The repository's tags in the order the registry returned them.
-    public func tags(name: String) async throws -> [String] {
+    public func tags(name: String, maxEntries: Int = RegistryClient.defaultMaxListEntries) async throws -> [String] {
         var first = base
         first.path = "/v2/\(name)/tags/list"
         first.queryItems = Self.listQuery()
 
-        return try await Self.collectPages(from: first) { components in
+        return try await Self.collectPages(from: first, maxEntries: maxEntries) { components in
             try await self.fetchListPage(components: components, page: TagsResponse.self, entries: \.entries)
         }
     }

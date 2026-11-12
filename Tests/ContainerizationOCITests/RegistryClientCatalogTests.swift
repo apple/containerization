@@ -14,6 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import ContainerizationError
 import Foundation
 import Testing
 
@@ -30,13 +31,43 @@ struct RegistryClientCatalogTests {
         #expect(endpoint.requests == ["/v2/_catalog?n=100"])
     }
 
-    @Test func treatsShortPrefixAsNone() async throws {
+    @Test func treatsEmptyPrefixAsNone() async throws {
         let endpoint = FakeListEndpoint { _ in page(["org/a", "team/b"]) }
 
-        let repositories = try await RegistryClient.collectCatalog(prefix: "t", base: testBase, fetch: endpoint.fetch)
+        let repositories = try await RegistryClient.collectCatalog(prefix: "", base: testBase, fetch: endpoint.fetch)
 
         #expect(repositories == ["org/a", "team/b"])
         #expect(endpoint.requests == ["/v2/_catalog?n=100"])
+    }
+
+    @Test func singleCharacterPrefixFiltersFromTheStartOfTheCatalog() async throws {
+        let endpoint = FakeListEndpoint { _ in page(["org/a", "team/b", "tools/lint", "zoo/c"], next: "/v2/_catalog?last=zoo%2Fc") }
+
+        let repositories = try await RegistryClient.collectCatalog(prefix: "t", base: testBase, fetch: endpoint.fetch)
+
+        #expect(repositories == ["team/b", "tools/lint"])
+        #expect(endpoint.requests == ["/v2/_catalog?n=100"])
+    }
+
+    @Test func singleCharacterPrefixContinuesUntilThePrefixIsReached() async throws {
+        let endpoint = FakeListEndpoint { request in
+            request == "/v2/_catalog?n=100"
+                ? page(["a/one", "b/two"], next: "/v2/_catalog?last=b%2Ftwo")
+                : page(["t/three", "u/four"], next: "/v2/_catalog?last=u%2Ffour")
+        }
+
+        let repositories = try await RegistryClient.collectCatalog(prefix: "t", base: testBase, fetch: endpoint.fetch)
+
+        #expect(repositories == ["t/three"])
+        #expect(endpoint.requests == ["/v2/_catalog?n=100", "/v2/_catalog?last=b%2Ftwo"])
+    }
+
+    @Test func throwsPastMaxEntries() async throws {
+        let endpoint = FakeListEndpoint { _ in page(["a", "b", "c"]) }
+
+        await #expect(throws: ContainerizationError.self) {
+            try await RegistryClient.collectCatalog(prefix: nil, maxEntries: 2, base: testBase, fetch: endpoint.fetch)
+        }
     }
 
     @Test func prefixSkipsAheadFiltersAndStopsPastPrefix() async throws {

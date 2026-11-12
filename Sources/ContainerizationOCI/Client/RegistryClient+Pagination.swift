@@ -23,8 +23,14 @@ extension RegistryClient {
     /// The number of entries requested per page with the `n` query parameter.
     static let listPageSize = 100
 
-    /// The largest number of pages `collectPages` follows by default.
-    static let maxListPages = 500
+    /// The default limit on the entries `tags(name:)` and `catalog(prefix:)` collect.
+    public static let defaultMaxListEntries = 10_000
+
+    /// The largest number of pages `collectPages` follows.
+    static let maxListPages = 1_000
+
+    /// The largest number of consecutive empty pages `collectPages` follows.
+    static let maxEmptyListPages = 3
 
     /// One page of a list endpoint and the request for the page after it, if any.
     struct ListPage: Sendable {
@@ -34,15 +40,18 @@ extension RegistryClient {
 
     /// Collect the entries of a list endpoint by following the next-page request of each page, starting at `first`.
     /// `shouldContinue` is called with each page's entries; returning `false` stops paging.
-    /// Throws if a page requests a page that was already fetched, or if more than `maxPages` pages are fetched.
+    /// Throws if a page requests a page that was already fetched, if more than `maxEntries` entries
+    /// or `maxPages` pages are collected, or if `maxEmptyListPages` empty pages follow one another.
     static func collectPages(
         from first: URLComponents,
+        maxEntries: Int = defaultMaxListEntries,
         maxPages: Int = maxListPages,
         shouldContinue: ([String]) -> Bool = { _ in true },
         fetch: (URLComponents) async throws -> ListPage
     ) async throws -> [String] {
         var collected: [String] = []
         var requested: Set<URLComponents> = []
+        var consecutiveEmptyPages = 0
         var components = first
         while true {
             guard requested.insert(components).inserted else {
@@ -54,6 +63,18 @@ extension RegistryClient {
 
             let page = try await fetch(components)
             collected.append(contentsOf: page.entries)
+            guard collected.count <= maxEntries else {
+                throw ContainerizationError(.invalidState, message: "list pagination exceeded \(maxEntries) entries")
+            }
+
+            if page.entries.isEmpty {
+                consecutiveEmptyPages += 1
+            } else {
+                consecutiveEmptyPages = 0
+            }
+            guard consecutiveEmptyPages < maxEmptyListPages else {
+                throw ContainerizationError(.invalidState, message: "list pagination returned \(maxEmptyListPages) empty pages in a row")
+            }
 
             guard shouldContinue(page.entries), let next = page.next else {
                 break
@@ -94,9 +115,17 @@ extension RegistryClient {
             let decoded = try JSONDecoder().decode(Page.self, from: buffer)
             let pageEntries = entries(decoded)
             if let next = try Self.nextPage(linkHeaders: response.headers["Link"], base: self.base) {
+                try Self.requireSamePath(next: next, request: components)
                 return ListPage(entries: pageEntries, next: next)
             }
             return ListPage(entries: pageEntries, next: Self.pageAfter(entries: pageEntries, request: components))
+        }
+    }
+
+    /// Throws if `next` is not a request for the same path as `request`.
+    static func requireSamePath(next: URLComponents, request: URLComponents) throws {
+        guard next.path == request.path else {
+            throw ContainerizationError(.invalidArgument, message: "next page link \(next.path) is not the listed path \(request.path)")
         }
     }
 
@@ -111,12 +140,14 @@ extension RegistryClient {
     }
 
     /// The request for the page named by the `rel="next"` link in `Link` headers, or `nil` if there is none.
-    /// Throws if there is more than one `rel="next"` link.
+    /// Throws if the headers name more than one distinct `rel="next"` target.
     /// Only the path and query of the link are used; the scheme and host come from `base`.
     static func nextPage(linkHeaders: [String], base: URLComponents) throws -> URLComponents? {
         var targets: [String] = []
         for header in linkHeaders {
-            targets.append(contentsOf: linkTargets(header: header, relation: "next"))
+            for target in linkTargets(header: header, relation: "next") where !targets.contains(target) {
+                targets.append(target)
+            }
         }
         guard targets.count <= 1 else {
             throw ContainerizationError(.invalidArgument, message: "multiple next page links: \(linkHeaders)")
