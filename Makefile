@@ -141,7 +141,7 @@ define linux_run
 		echo "Creating Linux build volume $(LINUX_BUILD_VOLUME)..."; \
 		container volume create $(LINUX_BUILD_VOLUME) > /dev/null; \
 	fi
-	@container run --rm $(2) --memory 16gb --cpus 8 \
+	@container run --tty --rm $(2) --memory 16gb --cpus 8 \
 		--env SCRATCH_ROOT=$(LINUX_SCRATCH_ROOT) \
 		--env XDG_CACHE_HOME=$(LINUX_SHARED_CACHE) \
 		-v $(ROOT_DIR):/workspace \
@@ -165,7 +165,7 @@ endif
 ifeq ($(UNAME_S),Darwin)
 .PHONY: linux-image
 linux-image:
-	container build \
+	@container build \
 		--progress plain \
 		-f images/linux-dev/Dockerfile \
 		--build-arg SWIFT_VERSION=$(SWIFT_VERSION) \
@@ -546,16 +546,14 @@ cleancontent:
 	@echo Cleaning the content...
 	@rm -rf ~/Library/Application\ Support/com.apple.containerization
 
-.PHONY: examples
-examples:
-	@echo Building examples...
-	@mkdir -p bin
-	@"$(MAKE)" -C examples/sandboxy build BUILD_CONFIGURATION=$(BUILD_CONFIGURATION)
-	@install examples/sandboxy/bin/sandboxy ./bin/
-	@codesign --force --sign - --timestamp=none --entitlements=signing/vz.entitlements bin/sandboxy
+.PHONY: cleanlinux
+cleanlinux:
+	@echo Cleaning Linux build files...
+	@container image delete --force $(LINUX_DEV_IMAGE) > /dev/null 2>&1 || true
+	@container volume delete $(LINUX_BUILD_VOLUME) > /dev/null 2>&1 || true
 
 .PHONY: clean
-clean:
+clean: cleanlinux
 	@echo Cleaning build files...
 	@rm -rf bin/
 	@rm -rf _site/

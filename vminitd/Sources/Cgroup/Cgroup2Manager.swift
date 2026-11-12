@@ -73,7 +73,7 @@ public struct Cgroup2Manager: Sendable {
     ) throws -> Cgroup2Manager {
         let path = mountPoint.appending(path: group.path)
         var s = statfs()
-        let res = statfs(path.path, &s)
+        let res = unsafe statfs(path.path, &s)
         if res != 0 {
             throw Error.errno(errno: errno, message: "failed to statfs \(path.path)")
         }
@@ -126,7 +126,7 @@ public struct Cgroup2Manager: Sendable {
         let file = path.appending(path: fileName)
         // errno is read immediately: callers match on ENOENT, so it decides
         // control flow, and `file.path` allocates a temporary that can clobber it.
-        let fd = open(file.path, O_WRONLY, 0)
+        let fd = unsafe open(file.path, O_WRONLY, 0)
         let openErrno = errno
         if fd == -1 {
             throw Error.errno(errno: openErrno, message: "failed to open \(file.path)")
@@ -135,7 +135,7 @@ public struct Cgroup2Manager: Sendable {
 
         let bytes = Array(value.utf8)
         let res = Syscall.retrying {
-            bytes.withUnsafeBytes { write(fd, $0.baseAddress!, bytes.count) }
+            unsafe bytes.withUnsafeBytes { unsafe write(fd, $0.baseAddress!, bytes.count) }
         }
         let writeErrno = errno
         if res == -1 {
@@ -351,7 +351,7 @@ public struct Cgroup2Manager: Sendable {
 
         // errno read immediately; `self.path.path` allocates a temporary that
         // can clobber it.
-        let result = rmdir(self.path.path)
+        let result = unsafe rmdir(self.path.path)
         let err = errno
         if result != 0 && err != ENOENT {
             throw Error.errno(errno: err, message: "failed to remove cgroup directory \(self.path.path)")
@@ -370,7 +370,7 @@ public struct Cgroup2Manager: Sendable {
             let childPath = path.appending(path: item)
             var isDirectory: ObjCBool = false
 
-            if fileManager.fileExists(atPath: childPath.path, isDirectory: &isDirectory) && isDirectory.boolValue {
+            if unsafe fileManager.fileExists(atPath: childPath.path, isDirectory: &isDirectory) && isDirectory.boolValue {
                 if force {
                     do {
                         try Self.writeValue(
@@ -391,7 +391,7 @@ public struct Cgroup2Manager: Sendable {
                 }
 
                 try removeChildCgroups(at: childPath, force: force)
-                let result = rmdir(childPath.path)
+                let result = unsafe rmdir(childPath.path)
                 let err = errno
                 if result != 0 && err != ENOENT {
                     throw Error.errno(errno: err, message: "failed to remove child cgroup \(childPath.path)")

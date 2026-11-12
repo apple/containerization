@@ -42,10 +42,10 @@ struct ContainerMount {
 
     func configureConsole() throws {
         let ptmx = rootfs + "/dev/ptmx"
-        guard remove(ptmx) == 0 else {
+        guard unsafe remove(ptmx) == 0 else {
             throw App.Errno(stage: "remove(ptmx)")
         }
-        guard symlink("pts/ptmx", ptmx) == 0 else {
+        guard unsafe symlink("pts/ptmx", ptmx) == 0 else {
             throw App.Errno(stage: "symlink(pts/ptmx)")
         }
     }

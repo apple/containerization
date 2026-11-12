@@ -182,8 +182,8 @@ extension ManagedProcess {
                     throw ContainerizationError(.internalError, message: "invalid payload")
                 }
 
-                let pid = piddata.withUnsafeBytes { ptr in
-                    ptr.load(as: Int32.self)
+                let pid = unsafe piddata.withUnsafeBytes { ptr in
+                    unsafe ptr.load(as: Int32.self)
                 }
 
                 log.info(
@@ -221,8 +221,11 @@ extension ManagedProcess {
                             message: "no PTY data from sync pipe"
                         )
                     }
-                    let fd = ptyFd.withUnsafeBytes { ptr in
-                        ptr.load(as: Int32.self)
+                    guard ptyFd.count == size else {
+                        throw ContainerizationError(.internalError, message: "invalid payload")
+                    }
+                    let fd = unsafe ptyFd.withUnsafeBytes { ptr in
+                        unsafe ptr.load(as: Int32.self)
                     }
                     log.info(
                         "received PTY FD from container, attaching",

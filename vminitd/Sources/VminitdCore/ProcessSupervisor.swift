@@ -32,8 +32,7 @@ final class ProcessSupervisor: Sendable {
     private let nextGeneration = Atomic<UInt32>(1)
 
     private let queue: DispatchQueue
-    // `DispatchSourceSignal` is thread-safe.
-    private nonisolated(unsafe) let source: DispatchSourceSignal
+    @safe private nonisolated(unsafe) let source: DispatchSourceSignal
 
     private struct State {
         var processes: [any ContainerProcess] = []

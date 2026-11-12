@@ -33,7 +33,7 @@ struct ProcessSupervisorTests {
 
     private static func writeByte(to fd: Int32) throws {
         var byte: UInt8 = 1
-        try #require(Foundation.write(fd, &byte, 1) == 1)
+        unsafe try #require(Foundation.write(fd, &byte, 1) == 1)
     }
 
     @Test
@@ -86,7 +86,7 @@ struct ProcessSupervisorTests {
                         // Whichever event runs first replaces the registration for the other event in this batch.
                         try supervisor.unregisterFd(otherFD)
                         var byte: UInt8 = 0
-                        try #require(Foundation.read(otherFD, &byte, 1) == 1)
+                        unsafe try #require(Foundation.read(otherFD, &byte, 1) == 1)
                         try supervisor.registerFd(otherFD, mask: .input) { _ in
                             state.withLock { current in
                                 guard !current.closed else { return }

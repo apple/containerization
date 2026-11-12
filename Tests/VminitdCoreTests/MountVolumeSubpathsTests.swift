@@ -40,11 +40,11 @@ struct MountVolumeSubpathsTests {
         let (from, to) = (dir.appending(path: "from").path, dir.appending(path: "to").path)
         guard (try? FileManager.default.createDirectory(atPath: from, withIntermediateDirectories: true)) != nil,
             (try? FileManager.default.createDirectory(atPath: to, withIntermediateDirectories: true)) != nil,
-            mount(from, to, nil, UInt(MS_BIND), nil) == 0
+            unsafe mount(from, to, nil, UInt(MS_BIND), nil) == 0
         else {
             return false
         }
-        umount2(to, Int32(MNT_DETACH))
+        unsafe umount2(to, Int32(MNT_DETACH))
         return true
     }()
 
@@ -97,7 +97,7 @@ struct MountVolumeSubpathsTests {
         // The missing directories were made in the volume, and each staging path is a bind of
         // what the subpath names.
         var isDir: ObjCBool = false
-        #expect(FileManager.default.fileExists(atPath: volume.path + "/a/b/c", isDirectory: &isDir) && isDir.boolValue)
+        unsafe #expect(FileManager.default.fileExists(atPath: volume.path + "/a/b/c", isDirectory: &isDir) && isDir.boolValue)
         #expect(try isMounted(dir + "/0"))
         #expect(try isMounted(dir + "/1"))
         try Data("via-staging".utf8).write(to: URL(fileURLWithPath: dir + "/0/marker"))

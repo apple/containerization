@@ -34,24 +34,24 @@ import NIOPosix
 import SwiftProtobuf
 import SystemPackage
 
-private let _setenv = Foundation.setenv
+private let _setenv = unsafe Foundation.setenv
 
 #if canImport(Musl)
 import Musl
-private let _mount = Musl.mount
-private let _umount = Musl.umount2
+private let _mount = unsafe Musl.mount
+private let _umount = unsafe Musl.umount2
 private let _kill = Musl.kill
 private let _sync = Musl.sync
 typealias _stat_struct = Musl.stat
-private let _stat: @Sendable (UnsafePointer<CChar>, UnsafeMutablePointer<_stat_struct>) -> Int32 = stat
+private let _stat = unsafe stat
 #elseif canImport(Glibc)
 import Glibc
-private let _mount = Glibc.mount
-private let _umount = Glibc.umount2
+private let _mount = unsafe Glibc.mount
+private let _umount = unsafe Glibc.umount2
 private let _kill = Glibc.kill
 private let _sync = Glibc.sync
 typealias _stat_struct = Glibc.stat
-private let _stat: @Sendable (UnsafePointer<CChar>, UnsafeMutablePointer<_stat_struct>) -> Int32 = stat
+private let _stat = unsafe stat
 #endif
 
 extension ContainerizationError {
@@ -100,7 +100,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             ])
 
         var tv = timeval(tv_sec: time_t(request.sec), tv_usec: suseconds_t(request.usec))
-        guard settimeofday(&tv, nil) == 0 else {
+        guard unsafe settimeofday(&tv, nil) == 0 else {
             let error = swiftErrno("settimeofday")
             log.error(
                 "setTime",
@@ -339,7 +339,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             }
 
             let mode = request.mode > 0 ? mode_t(request.mode) : mode_t(0644)
-            let fd = open(request.path, flags, mode)
+            let fd = unsafe open(request.path, flags, mode)
             guard fd != -1 else {
                 let error = swiftErrno("open")
                 throw RPCError(
@@ -402,7 +402,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         defer { close(fd) }
 
         var s = _stat_struct()
-        guard fstat(fd, &s) == 0 else {
+        guard unsafe fstat(fd, &s) == 0 else {
             return .with { $0.error = "\(swiftErrno("fstat"))" }
         }
         return .with {
@@ -487,7 +487,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         guard !root.isEmpty else {
             throw RPCError(code: .invalidArgument, message: "missing root filesystem")
         }
-        let fd = open(root, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        let fd = unsafe open(root, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
         guard fd != -1 else {
             throw RPCError(code: .internalError, message: "failed to open root filesystem '\(root)': \(swiftErrno("open"))")
         }
@@ -533,7 +533,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
 
                 var buf = [UInt8](repeating: 0, count: Self.copyChunkSize)
                 while true {
-                    let n = read(sockFd, &buf, buf.count)
+                    let n = unsafe read(sockFd, &buf, buf.count)
                     if n == 0 { break }
                     guard n > 0 else {
                         throw RPCError(
@@ -543,8 +543,8 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                     }
                     var written = 0
                     while written < n {
-                        let w = buf.withUnsafeBytes { ptr in
-                            write(fd, ptr.baseAddress! + written, n - written)
+                        let w = unsafe buf.withUnsafeBytes { ptr in
+                            unsafe write(fd, ptr.baseAddress! + written, n - written)
                         }
                         guard w > 0 else {
                             throw RPCError(
@@ -602,7 +602,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         defer { close(fd) }
 
         var s = _stat_struct()
-        guard fstat(fd, &s) == 0 else {
+        guard unsafe fstat(fd, &s) == 0 else {
             throw RPCError(code: .internalError, message: "copy: failed to stat '\(path)': \(swiftErrno("fstat"))")
         }
         let fileType = s.st_mode & UInt32(S_IFMT)
@@ -638,7 +638,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                 try writer.finishEncoding()
             } else {
                 // Reopen through the pinned fd after confirming this is a regular file.
-                let srcFd = open("/proc/self/fd/\(fd)", O_RDONLY | O_CLOEXEC)
+                let srcFd = unsafe open("/proc/self/fd/\(fd)", O_RDONLY | O_CLOEXEC)
                 guard srcFd != -1 else {
                     throw RPCError(code: .internalError, message: "copy: failed to open '\(path)': \(swiftErrno("open"))")
                 }
@@ -646,7 +646,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
 
                 var buf = [UInt8](repeating: 0, count: Self.copyChunkSize)
                 while true {
-                    let n = read(srcFd, &buf, buf.count)
+                    let n = unsafe read(srcFd, &buf, buf.count)
                     if n == 0 { break }
                     guard n > 0 else {
                         throw RPCError(
@@ -656,8 +656,8 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                     }
                     var written = 0
                     while written < n {
-                        let w = buf.withUnsafeBytes { ptr in
-                            write(sock.fileDescriptor, ptr.baseAddress! + written, n - written)
+                        let w = unsafe buf.withUnsafeBytes { ptr in
+                            unsafe write(sock.fileDescriptor, ptr.baseAddress! + written, n - written)
                         }
                         guard w > 0 else {
                             throw RPCError(
@@ -796,7 +796,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             throw RPCError(code: .invalidArgument, message: "path must be absolute")
         }
 
-        let selfMountFd = open("/proc/self/ns/mnt", O_RDONLY | O_CLOEXEC)
+        let selfMountFd = unsafe open("/proc/self/ns/mnt", O_RDONLY | O_CLOEXEC)
         if selfMountFd < 0 {
             let error = swiftErrno("open")
             throw RPCError(code: .internalError, message: "failed to open self mount namespace", cause: error)
@@ -804,7 +804,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
 
         defer { close(selfMountFd) }
 
-        let containerMountFd = open("/proc/\(containerPid)/ns/mnt", O_RDONLY | O_CLOEXEC)
+        let containerMountFd = unsafe open("/proc/\(containerPid)/ns/mnt", O_RDONLY | O_CLOEXEC)
         if containerMountFd < 0 {
             let error = swiftErrno("open")
             throw RPCError(code: .internalError, message: "failed to open container mount namespace", cause: error)
@@ -813,14 +813,14 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         defer { close(containerMountFd) }
 
         var finfo = _stat_struct()
-        let selfMountStat = fstat(selfMountFd, &finfo)
+        let selfMountStat = unsafe fstat(selfMountFd, &finfo)
         if selfMountStat != 0 {
             let error = swiftErrno("fstat")
             throw RPCError(code: .internalError, message: "failed to stat self mount namespace", cause: error)
         }
         let selfInode = finfo.st_ino
 
-        let containerMountStat = fstat(containerMountFd, &finfo)
+        let containerMountStat = unsafe fstat(containerMountFd, &finfo)
         if containerMountStat != 0 {
             let error = swiftErrno("fstat")
             throw RPCError(code: .internalError, message: "failed to stat container mount namespace", cause: error)
@@ -851,13 +851,13 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         operation: Com_Apple_Containerization_Sandbox_V3_FilesystemOperationRequest.OneOf_Operation
     ) throws {
         var finfo = _stat_struct()
-        let rc = _stat(path.string, &finfo)
+        let rc = unsafe _stat(path.string, &finfo)
         if rc != 0 {
             let error = swiftErrno("stat")
             throw RPCError(code: .notFound, message: "failed to stat path", cause: error)
         }
 
-        let fd = open(path.string, O_RDONLY | O_NOFOLLOW)
+        let fd = unsafe open(path.string, O_RDONLY | O_NOFOLLOW)
         if fd < 0 {
             if errno == ELOOP {
                 throw RPCError(code: .internalError, message: "path cannot be a symlink")
@@ -919,7 +919,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
     private func trimFilesystem(fd: Int32) throws {
         let FITRIM: UInt = 0xC018_5879
         var trange = fitrim_range(start: 0, len: UInt64.max, min_len: 0)
-        let rc: CInt = ioctl(fd, FITRIM, &trange)
+        let rc: CInt = unsafe ioctl(fd, FITRIM, &trange)
         if rc != 0 {
             let error = swiftErrno("ioctl(FITRIM)")
             throw RPCError(code: .internalError, message: "trim failed", cause: error)
@@ -939,7 +939,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
         #if os(Linux)
         // Best effort EBUSY handle.
         for _ in 0...50 {
-            let result = _umount(request.path, request.flags)
+            let result = unsafe _umount(request.path, request.flags)
             if result == -1 {
                 if errno == EBUSY {
                     try await Task.sleep(for: .milliseconds(10))
@@ -972,7 +972,7 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
                 "value": "\(request.value)",
             ])
 
-        guard _setenv(request.key, request.value, 1) == 0 else {
+        guard unsafe _setenv(request.key, request.value, 1) == 0 else {
             let error = swiftErrno("setenv")
 
             log.error(
