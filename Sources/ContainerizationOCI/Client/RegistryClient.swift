@@ -121,9 +121,8 @@ public final class RegistryClient: ContentClient {
 
         // proxy configuration assumes all client requests will go to `base` URL
         self.proxyURL = ProxyUtils.proxyFromEnvironment(scheme: scheme, host: host)
-        if let proxyURL = self.proxyURL, let proxyHost = proxyURL.host {
-            let proxyPort = proxyURL.port ?? (proxyURL.scheme == "https" ? 443 : 80)
-            httpConfiguration.proxy = HTTPClient.Configuration.Proxy.server(host: proxyHost, port: proxyPort)
+        if let proxyURL = self.proxyURL, let proxy = Self.httpProxy(for: proxyURL) {
+            httpConfiguration.proxy = proxy
         }
         if tlsConfiguration != nil {
             httpConfiguration.tlsConfiguration = tlsConfiguration
@@ -176,6 +175,20 @@ public final class RegistryClient: ContentClient {
             }
         }
         return request
+    }
+
+    /// Builds the HTTP client proxy for `proxyURL`. Credentials in the URL's user info
+    /// (`http://user:password@host:port`) are sent as Basic proxy authorization.
+    internal static func httpProxy(for proxyURL: URL) -> HTTPClient.Configuration.Proxy? {
+        guard let proxyHost = proxyURL.host else {
+            return nil
+        }
+        let proxyPort = proxyURL.port ?? (proxyURL.scheme == "https" ? 443 : 80)
+        var authorization: HTTPClient.Authorization?
+        if let user = proxyURL.user(percentEncoded: false) {
+            authorization = .basic(username: user, password: proxyURL.password(percentEncoded: false) ?? "")
+        }
+        return .server(host: proxyHost, port: proxyPort, authorization: authorization)
     }
 
     internal func request<T>(
