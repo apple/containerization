@@ -225,7 +225,7 @@ struct RunCommand: ParsableCommand {
 
         if !spec.hostname.isEmpty {
             let errCode = unsafe spec.hostname.withCString { ptr in
-                unsafe sethostname(ptr, spec.hostname.count)
+                unsafe sethostname(ptr, spec.hostname.utf8.count)
             }
             guard errCode == 0 else {
                 throw App.Errno(stage: "sethostname()")
