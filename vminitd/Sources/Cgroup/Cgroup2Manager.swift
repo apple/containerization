@@ -135,7 +135,7 @@ public struct Cgroup2Manager: Sendable {
 
         let bytes = Array(value.utf8)
         let res = Syscall.retrying {
-            unsafe bytes.withUnsafeBytes { unsafe write(fd, $0.baseAddress!, bytes.count) }
+            bytes.withUnsafeBytes { unsafe write(fd, $0.baseAddress!, bytes.count) }
         }
         let writeErrno = errno
         if res == -1 {

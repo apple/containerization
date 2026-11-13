@@ -141,7 +141,7 @@ extension App {
     static func fixStdioPerms(user: ContainerizationOCI.User) throws {
         for i in 0...2 {
             var fdStat = stat()
-            unsafe try withUnsafeMutablePointer(to: &fdStat) { pointer in
+            try withUnsafeMutablePointer(to: &fdStat) { pointer in
                 guard unsafe fstat(Int32(i), pointer) == 0 else {
                     throw App.Errno(stage: "fstat(fd)")
                 }
@@ -277,7 +277,7 @@ extension App {
         }
 
         let bytes = Array(errorMessage.utf8)
-        _ = unsafe try? bytes.withUnsafeBytes { buffer in
+        _ = try? bytes.withUnsafeBytes { buffer in
             unsafe try errorPipe.write(buffer)
         }
         try? errorPipe.close()

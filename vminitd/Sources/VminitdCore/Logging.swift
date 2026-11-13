@@ -103,7 +103,7 @@ private struct StderrLogHandler: LogHandler {
         if ms < 0 { ms += 1000 }
         var tm = unsafe tm()
         unsafe gmtime_r(&time, &tm)
-        let buf = unsafe withUnsafeTemporaryAllocation(of: CChar.self, capacity: 32) { ptr -> String in
+        let buf = withUnsafeTemporaryAllocation(of: CChar.self, capacity: 32) { ptr -> String in
             unsafe strftime(ptr.baseAddress!, 32, "%Y-%m-%dT%H:%M:%S", &tm)
             return unsafe String(cString: ptr.baseAddress!)
         }

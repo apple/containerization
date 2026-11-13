@@ -90,7 +90,7 @@ package final class MemoryMonitor: Sendable {
         let bufSize = Self.inotifyEventSize * 10
         var buffer = [UInt8](repeating: 0, count: bufSize)
         while true {
-            let bytesRead = unsafe buffer.withUnsafeMutableBytes { ptr in
+            let bytesRead = buffer.withUnsafeMutableBytes { ptr in
                 unsafe read(inotifyFd, ptr.baseAddress!, bufSize)
             }
 

@@ -57,7 +57,7 @@ struct OSFile: Sendable {
         let capacity = buffer.count
         var bytesRead: Int = 0
         while true {
-            let n = unsafe buffer.withUnsafeMutableBytes { bytes in
+            let n = buffer.withUnsafeMutableBytes { bytes in
                 unsafe Foundation.read(
                     self.fd,
                     bytes.baseAddress.map { unsafe $0 + bytesRead },
@@ -91,7 +91,7 @@ struct OSFile: Sendable {
         let total = buffer.count
         var bytesWrote: Int = 0
         while true {
-            let n = unsafe buffer.withUnsafeBytes { bytes in
+            let n = buffer.withUnsafeBytes { bytes in
                 unsafe Foundation.write(
                     self.fd,
                     bytes.baseAddress.map { unsafe $0 + bytesWrote },

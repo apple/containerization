@@ -36,6 +36,8 @@ endif
 LIBC ?= musl
 ifeq ($(LIBC),musl)
 SWIFT_SDK_FLAGS := --swift-sdk $(MUSL_ARCH)-swift-linux-musl
+# TODO: Remove once Swift no longer passes `-rdynamic` to static links.
+SWIFT_SDK_FLAGS += -Xswiftc -Xclang-linker -Xswiftc -Wno-unused-command-line-argument
 endif
 
 SWIFT_CONFIGURATION := $(SWIFT_SDK_FLAGS) $(SWIFT_WARNING_CONFIG) -Xlinker -s --disable-automatic-resolution
@@ -44,9 +46,9 @@ SCRATCH_ROOT ?=
 SCRATCH_PATH ?= $(if $(SCRATCH_ROOT),$(SCRATCH_ROOT)/build-vminitd-$(LIBC))
 SWIFT_CONFIGURATION += $(if $(SCRATCH_PATH),--scratch-path $(SCRATCH_PATH))
 
-SWIFT_VERSION := 6.3.0
-SWIFT_SDK_URL := https://download.swift.org/swift-6.3-release/static-sdk/swift-6.3-RELEASE/swift-6.3-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz
-SWIFT_SDK_CHECKSUM := d2078b69bdeb5c31202c10e9d8a11d6f66f82938b51a4b75f032ccb35c4c286c
+SWIFT_VERSION := 6.4.2
+SWIFT_SDK_URL := https://download.swift.org/swift-6.4.2-release/static-sdk/swift-6.4.2-RELEASE/swift-6.4.2-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz
+SWIFT_SDK_CHECKSUM := 3786b179936d9cc9e266dd506bd1654176358d7b25288e243359f4d17cc4dc5a
 SWIFT_SDK_PATH := /tmp/$(notdir $(SWIFT_SDK_URL))
 
 # vminitd is built inside the Linux dev container (see the root Makefile's

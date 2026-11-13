@@ -14,6 +14,8 @@
 # limitations under the License.
 
 opts=()
+# TODO: Remove after updating Swift past 6.4.2.
+opts+=("--build-system" "native")
 opts+=("--allow-writing-to-directory" "$1")
 opts+=("generate-documentation")
 opts+=("--target" "Containerization")
