@@ -208,7 +208,7 @@ public final class RegistryClient: ContentClient {
                     let authHeader = _response.headers[TokenRequest.authenticateHeaderName]
                     let challenges = Self.parseWWWAuthenticateHeaders(headers: authHeader)
 
-                    if !challenges.contains(where: { $0.type == "Bearer" }), challenges.contains(where: { $0.type == "Basic" }) {
+                    if !challenges.contains(where: { $0.type == "bearer" }), challenges.contains(where: { $0.type == "basic" }) {
                         guard !attemptedBasicAuth, let basicAuth = authentication as? BasicAuthentication else {
                             throw Error.invalidStatus(url: path, _response.status, reason: "access denied or wrong credentials")
                         }

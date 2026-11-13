@@ -255,9 +255,13 @@ extension RegistryClient {
             throw Error.insecureCredentialExchange(message: "registry \(host()) requested authentication over an insecure connection")
         }
         let parsedHeaders = Self.parseWWWAuthenticateHeaders(headers: authenticateHeaders)
-        let bearerChallenge = parsedHeaders.first { $0.type == "Bearer" }
+        let bearerChallenge = parsedHeaders.first { $0.type == "bearer" }
         guard let bearerChallenge else {
-            throw ContainerizationError(.invalidArgument, message: "missing Bearer challenge in \(TokenRequest.authenticateHeaderName) header")
+            let offeredSchemes = parsedHeaders.map(\.type).joined(separator: ", ")
+            throw ContainerizationError(
+                .invalidArgument,
+                message: "missing Bearer challenge in \(TokenRequest.authenticateHeaderName) header. Server offered schemes: [\(offeredSchemes)]"
+            )
         }
         guard let realm = bearerChallenge.realm else {
             throw ContainerizationError(.invalidArgument, message: "cannot parse realm from \(TokenRequest.authenticateHeaderName) header")
@@ -268,7 +272,7 @@ extension RegistryClient {
     }
 
     internal static func parseWWWAuthenticateHeaders(headers: [String]) -> [AuthenticateChallenge] {
-        var parsed: [String: [String: String]] = [:]
+        var parsedChallenges: [AuthenticateChallenge] = []
         for challenge in headers {
             let trimmedChallenge = challenge.trimmingCharacters(in: .whitespacesAndNewlines)
             let parts = trimmedChallenge.split(separator: " ", maxSplits: 1)
@@ -287,16 +291,12 @@ extension RegistryClient {
                 if let keyRange = Range(match.range(at: 1), in: header),
                     let valueRange = Range(match.range(at: 2), in: header)
                 {
-                    let key = String(header[keyRange])
+                    let key = String(header[keyRange]).lowercased()
                     let value = String(header[valueRange])
                     params[key] = value
                 }
             }
-            parsed[String(scheme)] = params
-        }
-        var parsedChallenges: [AuthenticateChallenge] = []
-        for (type, values) in parsed {
-            parsedChallenges.append(.init(type: type, values: values))
+            parsedChallenges.append(.init(type: String(scheme).lowercased(), values: params))
         }
         return parsedChallenges
     }
