@@ -24,7 +24,7 @@ struct InterfaceTests {
     /// A minimal `Interface` conformer that only sets the IPv4 surface, relying on the
     /// protocol's default extensions to fill in `ipv6Address`, `ipv6Gateway`, and `mtu`.
     private struct V4OnlyInterface: Interface {
-        let ipv4Address: CIDRv4
+        let ipv4Address: CIDRv4?
         let ipv4Gateway: IPv4Address?
         let macAddress: MACAddress?
     }
