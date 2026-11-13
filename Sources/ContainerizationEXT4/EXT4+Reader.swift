@@ -193,6 +193,17 @@ extension EXT4 {
         func getExtents(inode: InodeNumber) throws -> [(start: UInt32, end: UInt32)]? {
             let inode = try self.getInode(number: inode)
             let inodeBlock = Data(tupleToArray(inode.block))
+            return try self.decodeExtents(inodeBlock: inodeBlock)
+        }
+
+        /// Decode the extent tree rooted in an inode's block region.
+        ///
+        /// `inodeBlock` is untrusted (it comes from an ext4 image), so the entry
+        /// count in each extent header is validated against the bytes actually
+        /// available before every fixed-size read. Without these checks a crafted
+        /// `entries` count drives `subdata` past the end of the buffer and traps
+        /// the process.
+        internal func decodeExtents(inodeBlock: Data) throws -> [(start: UInt32, end: UInt32)] {
             var offset = 0
             var extents: [(start: UInt32, end: UInt32)] = []
 
@@ -200,6 +211,9 @@ extension EXT4 {
             let extentIndexSize = MemoryLayout<ExtentIndex>.size
             let extentLeafSize = MemoryLayout<ExtentLeaf>.size
             // read extent header
+            guard offset + extentHeaderSize <= inodeBlock.count else {
+                return []
+            }
             let header = inodeBlock.subdata(in: offset..<offset + extentHeaderSize).withUnsafeBytes {
                 $0.loadLittleEndian(as: ExtentHeader.self)
             }
@@ -211,6 +225,9 @@ extension EXT4 {
             case 0:
                 // When depth is 0 the extent header is followed by extent leaves
                 for _ in 0..<header.entries {
+                    guard offset + extentLeafSize <= inodeBlock.count else {
+                        throw Error.invalidExtents
+                    }
                     let leaf = inodeBlock.subdata(in: offset..<offset + extentLeafSize).withUnsafeBytes {
                         $0.loadLittleEndian(as: ExtentLeaf.self)
                     }
@@ -220,6 +237,9 @@ extension EXT4 {
             case 1:
                 // When depth is 1 the extent header is followed by extent indices which point to leaves
                 for _ in 0..<header.entries {
+                    guard offset + extentIndexSize <= inodeBlock.count else {
+                        throw Error.invalidExtents
+                    }
                     let indexNode = inodeBlock.subdata(in: offset..<offset + extentIndexSize).withUnsafeBytes {
                         $0.loadLittleEndian(as: ExtentIndex.self)
                     }
@@ -228,7 +248,10 @@ extension EXT4 {
                         throw EXT4.Error.couldNotReadBlock(indexNode.leafLow)
                     }
                     var blockOffset = 0
-                    let leafHeader = block.subdata(in: blockOffset..<extentHeaderSize).withUnsafeBytes {
+                    guard blockOffset + extentHeaderSize <= block.count else {
+                        throw Error.invalidExtents
+                    }
+                    let leafHeader = block.subdata(in: blockOffset..<blockOffset + extentHeaderSize).withUnsafeBytes {
                         $0.loadLittleEndian(as: ExtentHeader.self)
                     }
                     guard leafHeader.magic == EXT4.ExtentHeaderMagic else {
@@ -236,6 +259,9 @@ extension EXT4 {
                     }
                     blockOffset += extentHeaderSize
                     for _ in 0..<leafHeader.entries {
+                        guard blockOffset + extentLeafSize <= block.count else {
+                            throw Error.invalidExtents
+                        }
                         let leaf = block.subdata(in: blockOffset..<blockOffset + extentLeafSize).withUnsafeBytes {
                             $0.loadLittleEndian(as: ExtentLeaf.self)
                         }
