@@ -295,6 +295,55 @@ public struct ContainerManager: Sendable {
         )
     }
 
+    /// Returns a new container whose root filesystem is a copy-on-write clone of the image's snapshot.
+    ///
+    /// The first container for an image unpacks it into `snapshots`, and later containers clone
+    /// that snapshot instead of unpacking the image again. The clone is the read-only lower layer
+    /// of an overlayfs, and the container writes to a new, empty writable layer.
+    ///
+    /// - Parameters:
+    ///   - id: The container ID.
+    ///   - image: The image.
+    ///   - snapshots: The snapshots to clone the root filesystem from. Its `path` must be on the
+    ///     same APFS volume as this manager's image store, or creation fails.
+    ///   - writableLayerSizeInBytes: The size of the writable layer that holds the container's writes.
+    ///   - networking: Whether to create a network interface for this container. Defaults to `true`.
+    ///     When `false`, no network resources are allocated and `releaseNetwork`/`delete` remain safe to call.
+    ///   - vm: The size of the VM the container runs in.
+    ///   - progress: Optional handler for tracking unpacking progress when the image has no snapshot yet.
+    public mutating func create(
+        _ id: String,
+        image: Image,
+        snapshots: SnapshotManager,
+        writableLayerSizeInBytes: UInt64,
+        networking: Bool = true,
+        vm: VMResources = .default,
+        progress: ProgressHandler? = nil,
+        configuration: (inout LinuxContainer.Configuration) throws -> Void
+    ) async throws -> LinuxContainer {
+        let path = try createContainerRoot(id)
+
+        let rootfs = try await snapshots.clone(
+            image,
+            to: path.appendingPathComponent("rootfs.ext4"),
+            progress: progress
+        )
+        let writableLayer = try createEmptyFilesystem(
+            at: path.appendingPathComponent("writable.ext4"),
+            size: writableLayerSizeInBytes
+        )
+
+        return try await create(
+            id,
+            image: image,
+            rootfs: rootfs,
+            writableLayer: writableLayer,
+            networking: networking,
+            vm: vm,
+            configuration: configuration
+        )
+    }
+
     /// Returns a new container from the provided image and root filesystem mount.
     /// - Parameters:
     ///   - id: The container ID.

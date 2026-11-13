@@ -674,6 +674,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 // ContainerManager-based tests (ContainerManager is macOS-only)
                 Test("container stop idempotency", testContainerStopIdempotency),
                 Test("container manager", testContainerManagerCreate),
+                Test("container manager snapshot", testContainerManagerCreateFromSnapshot),
                 Test("container reuse", testContainerReuse),
                 Test("container /dev/console", testContainerDevConsole),
 
