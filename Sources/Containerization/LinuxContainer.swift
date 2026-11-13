@@ -26,6 +26,20 @@ import SystemPackage
 
 import struct ContainerizationOS.Terminal
 
+/// The error the guest-facing half of `copyOut` failed with, kept so the host-facing half reports
+/// it instead of the "nothing arrived" error it sees when the producer ends early.
+private final class CopyOutProducerError: Sendable {
+    private let value = Mutex<(any Error)?>(nil)
+
+    func store(_ error: any Error) {
+        value.withLock { $0 = error }
+    }
+
+    func load() -> (any Error)? {
+        value.withLock { $0 }
+    }
+}
+
 /// `LinuxContainer` is an easy to use type for launching and managing the
 /// full lifecycle of a Linux container ran inside of a virtual machine.
 public final class LinuxContainer: Container, Sendable {
@@ -1532,34 +1546,45 @@ extension LinuxContainer {
             defer { try? listener.finish() }
 
             let (metadataStream, metadataCont) = AsyncStream.makeStream(of: Vminitd.CopyMetadata.self)
+            let producerError = CopyOutProducerError()
 
             try await withThrowingTaskGroup(of: Void.self) { group in
                 group.addTask {
                     defer { metadataCont.finish() }
-                    try await state.vm.withAgent { agent in
-                        guard let vminitd = agent as? Vminitd else {
-                            throw ContainerizationError(.unsupported, message: "copyOut requires Vminitd agent")
-                        }
-                        try await vminitd.copy(
-                            direction: .copyOut,
-                            root: root,
-                            path: sourcePath,
-                            vsockPort: port,
-                            onMetadata: { meta in
-                                metadataCont.yield(meta)
-                                metadataCont.finish()
+                    do {
+                        try await state.vm.withAgent { agent in
+                            guard let vminitd = agent as? Vminitd else {
+                                throw ContainerizationError(.unsupported, message: "copyOut requires Vminitd agent")
                             }
-                        )
+                            try await vminitd.copy(
+                                direction: .copyOut,
+                                root: root,
+                                path: sourcePath,
+                                vsockPort: port,
+                                onMetadata: { meta in
+                                    metadataCont.yield(meta)
+                                    metadataCont.finish()
+                                }
+                            )
+                        }
+                    } catch {
+                        // Store the error before either stream ends, so the other task, which
+                        // wakes when they end, reports the guest's error instead of its own.
+                        producerError.store(error)
+                        try? listener.finish()
+                        throw error
                     }
                 }
 
                 group.addTask {
                     guard let metadata = await metadataStream.first(where: { _ in true }) else {
-                        throw ContainerizationError(.internalError, message: "copyOut: no metadata received")
+                        throw producerError.load()
+                            ?? ContainerizationError(.internalError, message: "copyOut: no metadata received")
                     }
 
                     guard let conn = await listener.first(where: { _ in true }) else {
-                        throw ContainerizationError(.internalError, message: "copyOut: vsock connection not established")
+                        throw producerError.load()
+                            ?? ContainerizationError(.internalError, message: "copyOut: vsock connection not established")
                     }
                     try listener.finish()
 
