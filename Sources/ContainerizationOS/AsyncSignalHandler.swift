@@ -43,19 +43,22 @@ public final class AsyncSignalHandler: Sendable {
     /// Cancel every AsyncStream of signals, as well as the underlying
     /// DispatchSignalSource's for each registered signal.
     public func cancel() {
-        self.state.withLock {
-            if $0.conts.isEmpty {
-                return
-            }
-
-            for cont in $0.conts {
-                cont.finish()
-            }
-            for source in $0.sources {
-                source.cancel()
-            }
+        let resources = self.state.withLock {
+            let continuations = $0.conts
+            let sources = $0.sources
             $0.conts.removeAll()
             $0.sources.removeAll()
+            return (continuations, sources)
+        }
+
+        // Finishing a continuation invokes its onTermination callback, which
+        // calls cancel() again. Release the state lock before doing so to keep
+        // cancellation idempotent without recursively acquiring the mutex.
+        for continuation in resources.0 {
+            continuation.finish()
+        }
+        for source in resources.1 {
+            source.cancel()
         }
     }
 
