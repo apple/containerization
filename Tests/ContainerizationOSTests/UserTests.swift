@@ -150,4 +150,54 @@ final class UsersTests {
             #expect(testCase.expect.shell == user.shell)
         }
     }
+
+    @Test
+    func testExecUserNonASCIIPasswdGroup() throws {
+        let passwordContent = """
+            root:x:0:0:root:/root:/bin/bash
+            platform:x:1000:1000:José Müller:/home/platform:/bin/bash
+            """
+
+        let groupContent = """
+            root:x:0:
+            platform:x:1000:
+            café:x:1001:platform
+            """
+
+        let fileManager = FileManager.default
+        let tempDir = fileManager.uniqueTemporaryDirectory()
+        defer { try? fileManager.removeItem(at: tempDir) }
+        let passwdPath = tempDir.appending(path: "etc/passwd")
+        let groupPath = tempDir.appending(path: "etc/group")
+        try Self.createFile(path: passwdPath, content: Data(passwordContent.utf8))
+        try Self.createFile(path: groupPath, content: Data(groupContent.utf8))
+
+        let user = try User.getExecUser(userString: "platform", passwdPath: passwdPath, groupPath: groupPath)
+        #expect(user.uid == 1000)
+        #expect(user.gid == 1000)
+        #expect(Set(user.sgids) == Set([1001]))
+        #expect(user.home == "/home/platform")
+        #expect(user.shell == "/bin/bash")
+    }
+
+    @Test
+    func testExecUserInvalidUTF8Passwd() throws {
+        // A legacy Latin-1 byte (0xE9) in the GECOS field must not make the whole file unreadable.
+        var passwordContent = Data("root:x:0:0:root:/root:/bin/bash\nold:x:1001:1001:Jos".utf8)
+        passwordContent.append(0xE9)
+        passwordContent.append(Data(" M:/home/old:/bin/sh\n".utf8))
+
+        let fileManager = FileManager.default
+        let tempDir = fileManager.uniqueTemporaryDirectory()
+        defer { try? fileManager.removeItem(at: tempDir) }
+        let passwdPath = tempDir.appending(path: "etc/passwd")
+        let groupPath = tempDir.appending(path: "etc/group")
+        try Self.createFile(path: passwdPath, content: passwordContent)
+        try Self.createFile(path: groupPath, content: Data("root:x:0:\n".utf8))
+
+        let user = try User.getExecUser(userString: "old", passwdPath: passwdPath, groupPath: groupPath)
+        #expect(user.uid == 1001)
+        #expect(user.home == "/home/old")
+        #expect(user.shell == "/bin/sh")
+    }
 }
