@@ -42,17 +42,11 @@ extension ArraySlice<UInt8> {
     }
 }
 
+// Array storage pointers are valid only inside their unsafe-byte access closure.
+// These helpers return copied values or offsets, never borrowed pointers.
 extension [UInt8] {
     package func hexEncodedString() -> String {
         self.map { String(format: "%02hhx", $0) }.joined()
-    }
-
-    package mutating func bind<T>(as type: T.Type, offset: Int = 0, size: Int? = nil) -> UnsafeMutablePointer<T>? {
-        guard self.count >= (size ?? MemoryLayout<T>.size) + offset else {
-            return nil
-        }
-
-        return self.withUnsafeMutableBytes { $0.baseAddress?.advanced(by: offset).assumingMemoryBound(to: T.self) }
     }
 
     package mutating func copyIn<T>(as type: T.Type, value: T, offset: Int = 0, size: Int? = nil) -> Int? {
