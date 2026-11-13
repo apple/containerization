@@ -18,9 +18,11 @@
 
 import Containerization
 import ContainerizationArchive
+import ContainerizationEXT4
 import ContainerizationError
 import ContainerizationExtras
 import Foundation
+import SystemPackage
 import Testing
 
 @testable import Containerization
@@ -151,6 +153,66 @@ struct ContainerManagerTests {
             #expect(!description.contains("missing ipv4 gateway"))
         }
         #expect(closureWasCalled, "configuration closure must be invoked to validate interfaces")
+    }
+
+    @Test func testCreateFromSnapshotClonesTheSnapshotIntoTheContainerDirectory() async throws {
+        let fm = FileManager.default
+        let root = fm.uniqueTemporaryDirectory(create: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let kernelPath = root.appendingPathComponent("vmlinux")
+        fm.createFile(atPath: kernelPath.path, contents: Data(), attributes: nil)
+        let initfsPath = root.appendingPathComponent("initfs.ext4")
+        fm.createFile(atPath: initfsPath.path, contents: Data(), attributes: nil)
+
+        let kernel = Kernel(path: kernelPath, platform: .linuxArm)
+        let initfs = Mount.block(format: "ext4", source: initfsPath.path, destination: "/")
+
+        var manager = try ContainerManager(kernel: kernel, initfs: initfs, root: root)
+
+        let tempDir = fm.uniqueTemporaryDirectory()
+        defer { try? fm.removeItem(at: tempDir) }
+
+        let tarPath = try #require(Foundation.Bundle.module.url(forResource: "scratch", withExtension: "tar"))
+        let reader = try ArchiveReader(format: .pax, filter: .none, file: tarPath)
+        let rejectedPaths = try reader.extractContents(to: tempDir)
+        #expect(rejectedPaths.isEmpty)
+
+        let images = try await manager.imageStore.load(from: tempDir)
+        let image = try #require(images.first)
+
+        let snapshots = try SnapshotManager(path: root.appendingPathComponent("snapshots"), capacityInBytes: 16.mib())
+
+        let first = try await manager.create(
+            "snapshot-first",
+            image: image,
+            snapshots: snapshots,
+            writableLayerSizeInBytes: 16.mib(),
+            networking: false
+        ) { _ in }
+
+        let directory = root.appendingPathComponent("containers").appendingPathComponent("snapshot-first")
+        let writableLayer = try #require(first.writableLayer)
+        #expect(first.rootfs.source == directory.appendingPathComponent("rootfs.ext4").absolutePath())
+        #expect(writableLayer.source == directory.appendingPathComponent("writable.ext4").absolutePath())
+        #expect(try EXT4.EXT4Reader(blockDevice: FilePath(first.rootfs.source)).exists(FilePath("/file")))
+        #expect(try !EXT4.EXT4Reader(blockDevice: FilePath(writableLayer.source)).exists(FilePath("/file")))
+
+        let snapshot = try #require(try await snapshots.get(image))
+        let inode = try #require(try fm.attributesOfItem(atPath: snapshot.absolutePath())[.systemFileNumber] as? Int)
+
+        let second = try await manager.create(
+            "snapshot-second",
+            image: image,
+            snapshots: snapshots,
+            writableLayerSizeInBytes: 16.mib(),
+            networking: false
+        ) { _ in }
+
+        // The second container clones the same snapshot instead of unpacking the image again.
+        #expect((try fm.attributesOfItem(atPath: snapshot.absolutePath())[.systemFileNumber] as? Int) == inode)
+        #expect(second.rootfs.source != first.rootfs.source)
+        #expect(fm.fileExists(atPath: second.rootfs.source))
     }
 }
 

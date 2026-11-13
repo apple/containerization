@@ -851,6 +851,96 @@ extension IntegrationSuite {
         }
     }
 
+    func testContainerManagerCreateFromSnapshot() async throws {
+        let id = "test-container-manager-snapshot"
+
+        let bs = try await bootstrap(id)
+
+        var manager = try ContainerManager(vmm: bs.vmm)
+        // Under the image store, so the clones in containers/ are on the same volume.
+        let snapshotsPath = manager.imageStore.path.appendingPathComponent("snapshots-\(UUID().uuidString)")
+        let snapshots = try SnapshotManager(path: snapshotsPath)
+        defer {
+            try? manager.delete("\(id)-write")
+            try? manager.delete("\(id)-read")
+            try? FileManager.default.removeItem(at: snapshotsPath)
+        }
+
+        let writeBuffer = BufferWriter()
+        let writer = try await manager.create(
+            "\(id)-write",
+            image: bs.image,
+            snapshots: snapshots,
+            writableLayerSizeInBytes: 512.mib()
+        ) { config in
+            config.process.arguments = ["/bin/sh", "-c", "echo snapshot-write > /etc/snapshot-test && cat /etc/snapshot-test"]
+            config.process.stdout = writeBuffer
+            config.bootLog = bs.bootLog
+        }
+
+        guard let snapshot = try await snapshots.get(bs.image)?.absolutePath() else {
+            throw IntegrationError.assert(msg: "no snapshot after the first create")
+        }
+        let before = try Self.snapshotIdentity(snapshot)
+
+        try await writer.create()
+        try await writer.start()
+        let writeStatus = try await writer.wait()
+        try await writer.stop()
+
+        guard writeStatus.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "writer process status \(writeStatus) != 0")
+        }
+        let written = String(data: writeBuffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard written == "snapshot-write" else {
+            throw IntegrationError.assert(msg: "writer should have printed 'snapshot-write', got '\(written ?? "nil")'")
+        }
+
+        // A second container from the same snapshot must not see the first container's write.
+        let readBuffer = BufferWriter()
+        let reader = try await manager.create(
+            "\(id)-read",
+            image: bs.image,
+            snapshots: snapshots,
+            writableLayerSizeInBytes: 512.mib()
+        ) { config in
+            config.process.arguments = ["/bin/sh", "-c", "test -f /etc/snapshot-test && echo exists || echo not-exists"]
+            config.process.stdout = readBuffer
+            config.bootLog = bs.bootLog
+        }
+
+        try await reader.create()
+        try await reader.start()
+        let readStatus = try await reader.wait()
+        try await reader.stop()
+
+        guard readStatus.exitCode == 0 else {
+            throw IntegrationError.assert(msg: "reader process status \(readStatus) != 0")
+        }
+        let read = String(data: readBuffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard read == "not-exists" else {
+            throw IntegrationError.assert(msg: "reader should have printed 'not-exists', got '\(read ?? "nil")'")
+        }
+
+        // Neither container may change the shared snapshot, and the second create reuses it.
+        let after = try Self.snapshotIdentity(snapshot)
+        guard before == after else {
+            throw IntegrationError.assert(msg: "the snapshot changed: \(before) -> \(after)")
+        }
+    }
+
+    /// The inode, modification date, and size of a file, to tell whether anything replaced or wrote it.
+    private static func snapshotIdentity(_ path: String) throws -> String {
+        let attributes = try FileManager.default.attributesOfItem(atPath: path)
+        guard let inode = attributes[.systemFileNumber] as? Int,
+            let modified = attributes[.modificationDate] as? Date,
+            let size = attributes[.size] as? UInt64
+        else {
+            throw IntegrationError.assert(msg: "cannot read the attributes of \(path): \(attributes)")
+        }
+        return "inode=\(inode) modified=\(modified.timeIntervalSince1970) size=\(size)"
+    }
+
     #endif
 
     func testContainerStatistics() async throws {
