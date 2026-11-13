@@ -80,8 +80,10 @@ public struct Vminitd: Sendable {
 
     /// Close the connection to the guest agent.
     public func close() async throws {
-        self.grpcClient.beginGracefulShutdown()
-        try await self.connectionTask.value
+        // Cancel the connection task. beginGracefulShutdown() before the transport consumes the
+        // channel skips connect() and the writer is never finished.
+        self.connectionTask.cancel()
+        _ = await self.connectionTask.result
     }
 }
 
