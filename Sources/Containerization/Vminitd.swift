@@ -79,6 +79,9 @@ public struct Vminitd: Sendable {
     }
 
     /// Close the connection to the guest agent.
+    ///
+    /// This cancels the connection task rather than shutting down gracefully, so any RPCs still
+    /// in flight on this agent are cancelled too.
     public func close() async throws {
         // Cancel the connection task. beginGracefulShutdown() before the transport consumes the
         // channel skips connect() and the writer is never finished.
