@@ -189,7 +189,7 @@ extension RegistryClient {
             throw ContainerizationError(.invalidArgument, message: "invalid url \(components.path)")
         }
 
-        var tokenHTTPRequest = HTTPClientRequest(url: url)
+        var tokenHTTPRequest = buildRequest(url: url, method: .GET, headers: nil)
         if let credentials = try await authentication?.token() {
             tokenHTTPRequest.headers.add(name: "Authorization", value: credentials)
         }
