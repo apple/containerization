@@ -31,6 +31,32 @@ import Musl
 #endif
 
 struct UnixSocketRelayTests {
+    @Test func stopAllRetriesOnlyUnfinishedRelays() async throws {
+        let allowStop = Mutex(false)
+        let stoppedPorts = Mutex<[UInt32]>([])
+        let vm = RelayVirtualMachine { port in
+            if port == 1026 && !allowStop.withLock({ $0 }) {
+                throw POSIXError(.EIO)
+            }
+            stoppedPorts.withLock { $0.append(port) }
+        }
+        let manager = UnixSocketRelayManager(vm: vm)
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("relay.sock")
+        for port: UInt32 in [1025, 1026] {
+            try await manager.start(port: port, socket: .init(source: path, destination: path, direction: .into))
+        }
+
+        await #expect(throws: POSIXError(.EIO)) {
+            try await manager.stopAll()
+        }
+        #expect(stoppedPorts.withLock { $0 } == [1025])
+
+        allowStop.withLock { $0 = true }
+        try await manager.stopAll()
+        try await manager.stopAll()
+        #expect(stoppedPorts.withLock { $0.sorted() } == [1025, 1026])
+    }
+
     private func socketPair() throws -> (connection: FileHandle, peer: FileHandle) {
         var fds: [Int32] = [-1, -1]
         #if canImport(Glibc)
@@ -72,7 +98,7 @@ struct UnixSocketRelayTests {
 
     @Test(.timeLimit(.minutes(1)))
     func refusedConnectionsCloseAndListenerRecovers() async throws {
-        let path = URL(filePath: "/tmp/relay-\(UUID().uuidString).sock")
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("relay-\(UUID().uuidString).sock")
         defer { try? FileManager.default.removeItem(at: path) }
         let type = try UnixType(path: path.path, unlinkExisting: true)
         let unavailable = try Socket(type: type)
@@ -121,7 +147,7 @@ struct UnixSocketRelayTests {
 
     @Test(.timeLimit(.minutes(1)))
     func refusedDialsCloseAndListenerRecovers() async throws {
-        let path = URL(filePath: "/tmp/relay-\(UUID().uuidString).sock")
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("relay-\(UUID().uuidString).sock")
         defer { try? FileManager.default.removeItem(at: path) }
         let type = try UnixType(path: path.path)
         let vm = RelayVirtualMachine()
@@ -159,12 +185,23 @@ struct UnixSocketRelayTests {
 private final class RelayVirtualMachine: VirtualMachineInstance {
     typealias Agent = Vminitd
 
-    let listener = VsockListener(port: 1025) { _ in }
+    let listener: VsockListener
+    private let stopListening: @Sendable (UInt32) throws -> Void
     let dialConnection = Mutex<FileHandle?>(nil)
     var state: VirtualMachineInstanceState { .running }
     var mounts: [String: [AttachedFilesystem]] { [:] }
 
-    func listen(_ port: UInt32) throws -> VsockListener { listener }
+    init(stopListening: @escaping @Sendable (UInt32) throws -> Void = { _ in }) {
+        self.stopListening = stopListening
+        self.listener = VsockListener(port: 1025, stopListen: stopListening)
+    }
+
+    func listen(_ port: UInt32) throws -> VsockListener {
+        if port == listener.port {
+            return listener
+        }
+        return VsockListener(port: port, stopListen: stopListening)
+    }
     func dialAgent() async throws -> Vminitd {
         throw ContainerizationError(.unsupported, message: "dialAgent")
     }

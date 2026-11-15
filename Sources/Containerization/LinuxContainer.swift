@@ -194,7 +194,7 @@ public final class LinuxContainer: Container, Sendable {
         /// The container has run and fully stopped.
         case stopped
         /// An error occurred during the lifetime of this class.
-        case errored(Swift.Error)
+        case errored(Swift.Error, cleanup: FailedCreateCleanup? = nil)
         /// The container is paused.
         case paused(PausedState)
 
@@ -202,6 +202,35 @@ public final class LinuxContainer: Container, Sendable {
             let vm: any VirtualMachineInstance
             let relayManager: UnixSocketRelayManager
             var fileMountContext: FileMountContext
+        }
+
+        struct FailedCreateCleanup: Sendable {
+            var vm: (any VirtualMachineInstance)?
+            var relayManager: UnixSocketRelayManager?
+
+            mutating func stop() async throws {
+                var firstError: Error?
+                // Terminate before relay cleanup so a relay failure cannot skip VM stop.
+                if let vm {
+                    do {
+                        try await vm.stop()
+                        self.vm = nil
+                    } catch {
+                        firstError = error
+                    }
+                }
+                if let relayManager {
+                    do {
+                        try await relayManager.stopAll()
+                        self.relayManager = nil
+                    } catch {
+                        firstError = firstError ?? error
+                    }
+                }
+                if let firstError {
+                    throw firstError
+                }
+            }
         }
 
         struct StartedState: Sendable {
@@ -248,7 +277,7 @@ public final class LinuxContainer: Container, Sendable {
             switch self {
             case .created(let state):
                 return state
-            case .errored(let err):
+            case .errored(let err, _):
                 throw err
             default:
                 throw ContainerizationError(
@@ -262,7 +291,7 @@ public final class LinuxContainer: Container, Sendable {
             switch self {
             case .started(let state):
                 return state
-            case .errored(let err):
+            case .errored(let err, _):
                 throw err
             default:
                 throw ContainerizationError(
@@ -276,7 +305,7 @@ public final class LinuxContainer: Container, Sendable {
             switch self {
             case .paused(let state):
                 return state
-            case .errored(let err):
+            case .errored(let err, _):
                 throw err
             default:
                 throw ContainerizationError(
@@ -290,7 +319,7 @@ public final class LinuxContainer: Container, Sendable {
             switch self {
             case .initialized, .stopped:
                 break
-            case .errored(let err):
+            case .errored(let err, _):
                 throw err
             default:
                 throw ContainerizationError(
@@ -312,7 +341,7 @@ public final class LinuxContainer: Container, Sendable {
                 return state.vm
             case .paused(let state):
                 return state.vm
-            case .errored(let err):
+            case .errored(let err, _):
                 throw err
             default:
                 throw ContainerizationError(
@@ -910,9 +939,14 @@ extension LinuxContainer {
                 }
                 state = .created(.init(vm: vm, relayManager: relayManager, fileMountContext: fileMountContextHolder.withLock { $0 }))
             } catch {
-                try? await relayManager.stopAll()
-                try? await vm.stop()
                 state.setErrored(error: error)
+                var cleanup = State.FailedCreateCleanup(vm: vm, relayManager: relayManager)
+                do {
+                    try await cleanup.stop()
+                } catch let cleanupError {
+                    state = .errored(error, cleanup: cleanup)
+                    self.logger?.error("failed to clean up container creation: \(cleanupError)")
+                }
                 throw error
             }
         }
@@ -1013,6 +1047,17 @@ extension LinuxContainer {
         try await self.state.withLock { state in
             // Allow stop to be called multiple times.
             if case .stopped = state {
+                return
+            }
+
+            if case .errored(let error, var cleanup?) = state {
+                do {
+                    try await cleanup.stop()
+                    state = .stopped
+                } catch let cleanupError {
+                    state = .errored(error, cleanup: cleanup)
+                    throw cleanupError
+                }
                 return
             }
 

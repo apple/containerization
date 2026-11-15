@@ -64,13 +64,13 @@ extension UnixSocketRelay {
 
     func stop() throws {
         try state.withLock {
-            guard let t = $0.t else {
+            guard $0.t != nil || $0.listener != nil else {
                 throw ContainerizationError(
                     .invalidState,
                     message: "failed to stop socket relay: relay has not been started"
                 )
             }
-            t.cancel()
+            $0.t?.cancel()
             $0.t = nil
             for (_, relay) in $0.activeRelays {
                 relay.stop()
@@ -84,6 +84,7 @@ extension UnixSocketRelay {
                 try? FileManager.default.removeItem(at: self.configuration.destination)
             case .into:
                 try $0.listener?.finish()
+                $0.listener = nil
             }
         }
     }
