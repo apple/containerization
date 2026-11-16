@@ -21,6 +21,21 @@ import Testing
 @testable import ContainerizationNetlink
 
 struct NetlinkSessionTest {
+    @Test(arguments: ["2400000002000000", "1400000003000000"])
+    func testNegativeErrorCode(messagePrefix: String) throws {
+        let mockSocket = try MockNetlinkSocket()
+        // NLMSG_ERROR echoes the request header; NLMSG_DONE carries just the errno.
+        let echoedHeader = messagePrefix.hasPrefix("24") ? "10000000120001000000000000000000" : ""
+        mockSocket.responses.append([UInt8](hex: messagePrefix + "0000000000000000" + "ffffffff" + echoedHeader))
+
+        let session = NetlinkSession(socket: mockSocket)
+        #expect(throws: NetlinkDataError.responseError(rc: -1)) {
+            try session.linkGet(interface: "eth0")
+        }
+        #expect(mockSocket.requests.count == 1)
+        #expect(mockSocket.responseIndex == 1)
+    }
+
     @Test func testNetworkLinkDown() throws {
         let mockSocket = try MockNetlinkSocket()
         mockSocket.pid = 0xc00c_c00c
