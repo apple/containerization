@@ -334,17 +334,18 @@ extension IntegrationSuite {
         }
     }
 
-    /// startProcess throws if vmexec cannot exec the binary, so a pid proves the share is executable.
+    /// startProcess throws if vmexec cannot exec the script.
     func testPodVirtiofsVolumeExec() async throws {
         let id = "test-pod-virtiofs-volume-exec"
         let dir = try Self.makeShareDir(id)
-        // Static, so it runs without the container rootfs's loader.
-        let vmexec = URL(filePath: FileManager.default.currentDirectoryPath).appending(path: "vminitd/bin/vmexec")
-        try FileManager.default.copyItem(at: vmexec, to: dir.appending(path: "vmexec"))
+        // Kernel applies the share's noexec check to the script itself; /sbin/vmexec comes from the initfs.
+        let script = dir.appending(path: "probe")
+        try "#!/sbin/vmexec\n".write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
 
         try await withRootShell(id, configure: { $0.volumes = [Self.shareVolume(dir, readOnly: true)] }) { shell in
             let processID = "virtiofs-exec"
-            let process = ContainerizationOCI.Process(args: ["/run/volumes/\(Self.shareVolumeName)/vmexec"])
+            let process = ContainerizationOCI.Process(args: ["/run/volumes/\(Self.shareVolumeName)/probe"])
             try await shell.vminitd.createProcess(
                 id: processID,
                 containerID: nil,
