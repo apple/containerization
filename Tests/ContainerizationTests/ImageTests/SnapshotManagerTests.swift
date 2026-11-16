@@ -36,12 +36,10 @@ import Musl
 
 @Suite
 struct SnapshotManagerTests {
-    /// The linux/arm64 manifest in `scratch.tar`. Its one layer holds `/file`.
-    private static let manifest = "872d74070f985083ac362527084460ff5a21815dfabd6e8de8baf677206340ee"
-    /// The linux/amd64 manifest in `scratch.tar`, with the same layer.
-    private static let amd64Manifest = "3f2b0792ca7c9418ca2483c03bef2e3d3ea23205d0add5bd5cc55cdbc993027e"
-    /// The layer blob of both manifests.
+    /// The layer blob of the linux/arm64 and linux/amd64 manifests in `scratch.tar`. It holds `/file`.
     private static let layer = "530a471644602a73c05568aa468506f7a630f6c0a0e43e9052f1f4469d8241cf"
+    /// The snapshot key of both manifests. The chain ID of one layer is the layer's digest.
+    private static let key = layer
     private static let platform = Platform(arch: "arm64", os: "linux")
     /// Small, so the tests do not create 512 GiB sparse files.
     private static let capacity: UInt64 = 16.mib()
@@ -52,8 +50,8 @@ struct SnapshotManagerTests {
         let image: Containerization.Image
         let snapshots: SnapshotManager
 
-        var entry: String { self.file("\(SnapshotManagerTests.manifest).ext4") }
-        var lock: String { self.file("\(SnapshotManagerTests.manifest).lock") }
+        var entry: String { self.file("\(SnapshotManagerTests.key).ext4") }
+        var lock: String { self.file("\(SnapshotManagerTests.key).lock") }
 
         func file(_ name: String) -> String {
             self.snapshots.path.appendingPathComponent(name).absolutePath()
@@ -95,7 +93,7 @@ struct SnapshotManagerTests {
         }
     }
 
-    @Test func unpackNamesTheSnapshotByItsManifestDigest() async throws {
+    @Test func unpackNamesTheSnapshotByTheChainIDOfItsLayers() async throws {
         let f = try await makeFixture()
         defer { try? FileManager.default.removeItem(at: f.root) }
 
@@ -226,7 +224,7 @@ struct SnapshotManagerTests {
         defer { try? FileManager.default.removeItem(at: f.root) }
 
         // A fill that died leaves its temporary file behind.
-        let leftover = f.file(".\(Self.manifest).\(UUID().uuidString).tmp")
+        let leftover = f.file(".\(Self.key).\(UUID().uuidString).tmp")
         try Data("partial".utf8).write(to: URL(fileURLWithPath: leftover))
         #expect(try await f.snapshots.get(f.image, for: Self.platform) == nil)
 
@@ -240,6 +238,7 @@ struct SnapshotManagerTests {
         let f = try await makeFixture()
         defer { try? FileManager.default.removeItem(at: f.root) }
 
+        try await f.snapshots.unpack(f.image, for: Self.platform)
         let destination = f.root.appendingPathComponent("rootfs.ext4")
         let clone = try await f.snapshots.clone(f.image, for: Self.platform, to: destination)
         #expect(clone.source == destination.absolutePath())
@@ -273,7 +272,7 @@ struct SnapshotManagerTests {
 
         try await f.snapshots.unpack(f.image, for: Self.platform)
         let result = try await f.snapshots.delete(keeping: [])
-        #expect(result.deleted == ["sha256:\(Self.manifest)"])
+        #expect(result.deleted == ["sha256:\(Self.key)"])
         #expect(result.freed > 0)
         #expect(!FileManager.default.fileExists(atPath: f.entry))
     }
@@ -282,16 +281,16 @@ struct SnapshotManagerTests {
         let f = try await makeFixture()
         defer { try? FileManager.default.removeItem(at: f.root) }
 
-        // Both platforms of the kept image, and a snapshot whose image is gone.
+        // Both platforms of the kept image share one snapshot. Another snapshot's image is gone.
         try await f.snapshots.unpack(f.image, for: Self.platform)
-        try await f.snapshots.unpack(f.image, for: Platform(arch: "amd64", os: "linux"))
+        let amd64 = try await f.snapshots.unpack(f.image, for: Platform(arch: "amd64", os: "linux"))
+        #expect(amd64.absolutePath() == f.entry)
         let gone = String(repeating: "0", count: 64)
         try Data("gone".utf8).write(to: URL(fileURLWithPath: f.file("\(gone).ext4")))
 
         let result = try await f.snapshots.delete(keeping: [f.image])
         #expect(result.deleted == ["sha256:\(gone)"])
         #expect(FileManager.default.fileExists(atPath: f.entry))
-        #expect(FileManager.default.fileExists(atPath: f.file("\(Self.amd64Manifest).ext4")))
         #expect(!FileManager.default.fileExists(atPath: f.file("\(gone).ext4")))
     }
 
@@ -300,7 +299,7 @@ struct SnapshotManagerTests {
         defer { try? FileManager.default.removeItem(at: f.root) }
 
         try await f.snapshots.unpack(f.image, for: Self.platform)
-        let liveFill = f.file(".\(Self.manifest).\(UUID().uuidString).tmp")
+        let liveFill = f.file(".\(Self.key).\(UUID().uuidString).tmp")
         try Data("being written".utf8).write(to: URL(fileURLWithPath: liveFill))
         let held = try Self.lock(f.lock)
         let skipped = try await f.snapshots.delete(keeping: [])
@@ -310,7 +309,7 @@ struct SnapshotManagerTests {
 
         Self.unlock(held)
         let removed = try await f.snapshots.delete(keeping: [])
-        #expect(removed.deleted == ["sha256:\(Self.manifest)"])
+        #expect(removed.deleted == ["sha256:\(Self.key)"])
         #expect(!FileManager.default.fileExists(atPath: liveFill))
     }
 
@@ -341,17 +340,19 @@ struct SnapshotManagerTests {
         #expect(FileManager.default.fileExists(atPath: f.entry))
     }
 
-    @Test func cloneUnpacksAgainAfterTheSnapshotIsDeleted() async throws {
+    @Test func cloneWithoutASnapshotThrowsNotFound() async throws {
         let f = try await makeFixture()
         defer { try? FileManager.default.removeItem(at: f.root) }
 
-        try await f.snapshots.unpack(f.image, for: Self.platform)
-        try await f.snapshots.delete(keeping: [])
+        let destination = f.root.appendingPathComponent("rootfs.ext4")
+        do {
+            _ = try await f.snapshots.clone(f.image, for: Self.platform, to: destination)
+            Issue.record("expected a .notFound error")
+        } catch let error as ContainerizationError {
+            #expect(error.code == .notFound)
+        }
         #expect(!FileManager.default.fileExists(atPath: f.entry))
-
-        let clone = try await f.snapshots.clone(f.image, for: Self.platform, to: f.root.appendingPathComponent("rootfs.ext4"))
-        #expect(FileManager.default.fileExists(atPath: f.entry))
-        #expect(try EXT4.EXT4Reader(blockDevice: FilePath(clone.source)).exists(FilePath("/file")))
+        #expect(!FileManager.default.fileExists(atPath: destination.absolutePath()))
     }
 
     @Test func deleteRemovesLeftoverTemporaryFilesAndKeepsOtherFiles() async throws {
@@ -359,7 +360,7 @@ struct SnapshotManagerTests {
         defer { try? FileManager.default.removeItem(at: f.root) }
 
         try await f.snapshots.unpack(f.image, for: Self.platform)
-        let leftover = f.file(".\(Self.manifest).\(UUID().uuidString).tmp")
+        let leftover = f.file(".\(Self.key).\(UUID().uuidString).tmp")
         try Data("partial".utf8).write(to: URL(fileURLWithPath: leftover))
         let other = f.file("notes.txt")
         try Data("not a snapshot".utf8).write(to: URL(fileURLWithPath: other))

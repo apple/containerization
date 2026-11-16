@@ -856,10 +856,10 @@ extension IntegrationSuite {
 
         let bs = try await bootstrap(id)
 
-        var manager = try ContainerManager(vmm: bs.vmm)
-        // Under the image store, so the clones in containers/ are on the same volume.
-        let snapshotsPath = manager.imageStore.path.appendingPathComponent("snapshots-\(UUID().uuidString)")
+        // Under the manager's image store, so the clones in containers/ are on the same volume.
+        let snapshotsPath = ImageStore.default.path.appendingPathComponent("snapshots-\(UUID().uuidString)")
         let snapshots = try SnapshotManager(path: snapshotsPath)
+        var manager = try ContainerManager(vmm: bs.vmm, snapshots: snapshots)
         defer {
             try? manager.delete("\(id)-write")
             try? manager.delete("\(id)-read")
@@ -870,7 +870,6 @@ extension IntegrationSuite {
         let writer = try await manager.create(
             "\(id)-write",
             image: bs.image,
-            snapshots: snapshots,
             writableLayerSizeInBytes: 512.mib()
         ) { config in
             config.process.arguments = ["/bin/sh", "-c", "echo snapshot-write > /etc/snapshot-test && cat /etc/snapshot-test"]
@@ -901,7 +900,6 @@ extension IntegrationSuite {
         let reader = try await manager.create(
             "\(id)-read",
             image: bs.image,
-            snapshots: snapshots,
             writableLayerSizeInBytes: 512.mib()
         ) { config in
             config.process.arguments = ["/bin/sh", "-c", "test -f /etc/snapshot-test && echo exists || echo not-exists"]

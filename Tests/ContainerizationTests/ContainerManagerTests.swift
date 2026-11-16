@@ -168,7 +168,8 @@ struct ContainerManagerTests {
         let kernel = Kernel(path: kernelPath, platform: .linuxArm)
         let initfs = Mount.block(format: "ext4", source: initfsPath.path, destination: "/")
 
-        var manager = try ContainerManager(kernel: kernel, initfs: initfs, root: root)
+        let snapshots = try SnapshotManager(path: root.appendingPathComponent("snapshots"), capacityInBytes: 16.mib())
+        var manager = try ContainerManager(kernel: kernel, initfs: initfs, root: root, snapshots: snapshots)
 
         let tempDir = fm.uniqueTemporaryDirectory()
         defer { try? fm.removeItem(at: tempDir) }
@@ -181,12 +182,9 @@ struct ContainerManagerTests {
         let images = try await manager.imageStore.load(from: tempDir)
         let image = try #require(images.first)
 
-        let snapshots = try SnapshotManager(path: root.appendingPathComponent("snapshots"), capacityInBytes: 16.mib())
-
         let first = try await manager.create(
             "snapshot-first",
             image: image,
-            snapshots: snapshots,
             writableLayerSizeInBytes: 16.mib(),
             networking: false
         ) { _ in }
@@ -204,7 +202,6 @@ struct ContainerManagerTests {
         let second = try await manager.create(
             "snapshot-second",
             image: image,
-            snapshots: snapshots,
             writableLayerSizeInBytes: 16.mib(),
             networking: false
         ) { _ in }
