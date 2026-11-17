@@ -104,7 +104,7 @@ final class CHProcess: Sendable {
 
         let exitTask = Task<ExitReason, Never>.detached { [command, logger] in
             do {
-                let status = try command.wait()
+                let status = try await command.waitAsync()
                 if status >= 128 {
                     return .signalled(status - 128)
                 }

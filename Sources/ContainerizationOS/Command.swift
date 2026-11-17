@@ -163,6 +163,17 @@ extension Command {
         self.state.pid.store(child, ordering: .releasing)
     }
 
+    /// Wait for the process to exit on a dedicated thread and return the exit status.
+    /// `wait4` blocks the calling thread; on the cooperative pool enough concurrent
+    /// waits starve async scheduling.
+    public func waitAsync() async throws -> Int32 {
+        try await withCheckedThrowingContinuation { (cc: CheckedContinuation<Int32, Swift.Error>) in
+            Thread.detachNewThread {
+                cc.resume(with: Result { try self.wait() })
+            }
+        }
+    }
+
     /// Wait for the process to exit and return the exit status.
     @discardableResult
     public func wait() throws -> Int32 {
