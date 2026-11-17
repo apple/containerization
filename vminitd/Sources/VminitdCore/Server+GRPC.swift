@@ -336,9 +336,11 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             }
             if request.flags.append {
                 flags |= O_APPEND
+            } else {
+                flags |= O_TRUNC
             }
 
-            let mode = request.mode > 0 ? mode_t(request.mode) : mode_t(0644)
+            let mode = request.mode > 0 ? mode_t(request.mode) : mode_t(0o644)
             let fd = unsafe open(request.path, flags, mode)
             guard fd != -1 else {
                 let error = swiftErrno("open")
