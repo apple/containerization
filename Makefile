@@ -442,7 +442,7 @@ integration:
 		exit 1; \
 	fi; \
 	echo "Running the integration tests with kernel $$kernel..."; \
-	./bin/containerization-integration --kernel "$$kernel"
+	./bin/containerization-integration --kernel "$$kernel" $(linux_integration_filter)
 
 .PHONY: fetch-default-kernel
 fetch-default-kernel:

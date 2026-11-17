@@ -1017,17 +1017,36 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             ])
 
         do {
-            if !request.hasContainerID {
-                throw ContainerizationError(
-                    .invalidArgument,
-                    message: "processes in the root of the vm not implemented"
-                )
-            }
-
             var ociSpec = try JSONDecoder().decode(
                 ContainerizationOCI.Spec.self,
                 from: request.configuration
             )
+
+            if !request.hasContainerID {
+
+                guard let process = ociSpec.process else {
+                    throw ContainerizationError(
+                        .invalidArgument,
+                        message: "oci runtime spec missing process configuration"
+                    )
+                }
+
+                let stdioPorts = HostStdio(
+                    stdin: request.hasStdin ? request.stdin : nil,
+                    stdout: request.hasStdout ? request.stdout : nil,
+                    stderr: request.hasStderr ? request.stderr : nil,
+                    terminal: process.terminal
+                )
+
+                try await self.state.createRootProcess(
+                    id: request.id,
+                    stdio: stdioPorts,
+                    process: process,
+                    resources: ociSpec.linux?.resources,
+                    log: self.log
+                )
+                return .init()
+            }
 
             try ociAlterations(id: request.id, ociSpec: &ociSpec)
 
@@ -1121,10 +1140,8 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
 
         do {
             if !request.hasContainerID {
-                throw ContainerizationError(
-                    .invalidArgument,
-                    message: "processes in the root of the vm not implemented"
-                )
+                try await self.state.killRootProcess(id: request.id, signal: request.signal)
+                return .init()
             }
 
             let ctr = try await self.state.get(container: request.containerID)
@@ -1164,10 +1181,8 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
 
         do {
             if !request.hasContainerID {
-                throw ContainerizationError(
-                    .invalidArgument,
-                    message: "processes in the root of the vm not implemented"
-                )
+                try await self.state.deleteRootProcess(id: request.id)
+                return .init()
             }
 
             let ctr = try await self.state.get(container: request.containerID)
@@ -1218,10 +1233,8 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
 
         do {
             if !request.hasContainerID {
-                throw ContainerizationError(
-                    .invalidArgument,
-                    message: "processes in the root of the vm not implemented"
-                )
+                let pid = try await self.state.startRootProcess(id: request.id)
+                return .with { $0.pid = pid }
             }
 
             let ctr = try await self.state.get(container: request.containerID)
@@ -1317,15 +1330,10 @@ extension Initd: Com_Apple_Containerization_Sandbox_V3_SandboxContext.SimpleServ
             ])
 
         do {
-            if !request.hasContainerID {
-                throw ContainerizationError(
-                    .invalidArgument,
-                    message: "processes in the root of the vm not implemented"
-                )
-            }
-
-            let ctr = try await self.state.get(container: request.containerID)
-            let exitStatus = try await ctr.wait(execID: request.id)
+            let exitStatus =
+                request.hasContainerID
+                ? try await self.state.get(container: request.containerID).wait(execID: request.id)
+                : try await self.state.waitRootProcess(id: request.id)
 
             return .with {
                 $0.exitCode = exitStatus.exitCode

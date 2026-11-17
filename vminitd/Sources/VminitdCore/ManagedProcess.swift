@@ -57,6 +57,9 @@ final class ManagedProcess: ContainerProcess, Sendable {
     private let command: Command
     private let state: Mutex<State>
     private let owningPid: Int32?
+    // For root of VM processes, we have to pass in cgroup because they cannot
+    // share the cgroup of vminit
+    private let cgroup: Cgroup2Manager?
     private let ackPipe: Pipe
     private let syncPipe: Pipe
     private let errorPipe: Pipe
@@ -74,6 +77,7 @@ final class ManagedProcess: ContainerProcess, Sendable {
         stdio: HostStdio,
         bundle: ContainerizationOCI.Bundle,
         owningPid: Int32? = nil,
+        cgroup: Cgroup2Manager? = nil,
         log: Logger
     ) throws {
         self.id = id
@@ -81,6 +85,7 @@ final class ManagedProcess: ContainerProcess, Sendable {
         log[metadataKey: "id"] = "\(id)"
         self.log = log
         self.owningPid = owningPid
+        self.cgroup = cgroup
 
         let syncPipe = Pipe()
         try syncPipe.setCloexec()
@@ -195,7 +200,9 @@ extension ManagedProcess {
 
                 // This should probably happen in vmexec, but we don't need to set any cgroup
                 // toggles so the problem is much simpler to just do it here.
-                if let owningPid {
+                if let cgroup {
+                    try cgroup.addProcess(pid: pid)
+                } else if let owningPid {
                     let cgManager = try Cgroup2Manager.loadFromPid(pid: owningPid)
                     try cgManager.addProcess(pid: pid)
                 }

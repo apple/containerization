@@ -643,6 +643,16 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("container mount sort by depth", testMountsSortedByDepth),
             Test("pod single file mount", testPodSingleFileMount),
 
+            // Root-of-VM processes
+            Test("pod root process capabilities", testPodRootProcessCapabilities),
+            Test("pod root process namespaces", testPodRootProcessNamespaces),
+            Test("pod root process DNS", testPodRootProcessDNS),
+            Test("pod root process cgroup", testPodRootProcessCgroup),
+            Test("pod root process rejects invalid", testPodRootProcessRejectsInvalid),
+            Test("pod virtiofs volume read-only", testPodVirtiofsVolumeReadOnly),
+            Test("pod virtiofs volume writable", testPodVirtiofsVolumeWritable),
+            Test("pod virtiofs volume exec", testPodVirtiofsVolumeExec),
+
             // runc-backed runtime (skipped unless `make fetch-runc` was run)
             Test("runc process true", testRuncProcessTrue),
             Test("runc process false", testRuncProcessFalse),

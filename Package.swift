@@ -357,6 +357,7 @@ package.targets.append(
             .product(name: "ArgumentParser", package: "swift-argument-parser"),
             .product(name: "NIOCore", package: "swift-nio"),
             .product(name: "NIOPosix", package: "swift-nio"),
+            .product(name: "GRPCCore", package: "grpc-swift-2"),
             "Containerization",
         ],
         path: "Sources/Integration"

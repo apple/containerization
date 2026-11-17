@@ -81,6 +81,11 @@ install -m 0755 "$VMEXEC" "$STAGING/sbin/vmexec"
 # Optional; selected per-container with `--oci-runtime-path /sbin/runc`.
 [ -z "$RUNC" ] || install -m 0755 "$RUNC" "$STAGING/sbin/runc"
 ln -sf sbin/vminitd "$STAGING/proc/self/exe"
+# The root is read-only; the pod writes the resolver config under /run at create.
+mkdir -p "$STAGING/etc"
+ln -sf ../run/etc/resolv.conf "$STAGING/etc/resolv.conf"
+# NIOSSL needs a system CA path to build any TLS context.
+mkdir -p "$STAGING/etc/ssl/certs"
 
 mkdir -p "$(dirname "$EXT4")"
 rm -f "$EXT4"
