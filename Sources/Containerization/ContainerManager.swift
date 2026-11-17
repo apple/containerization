@@ -33,6 +33,9 @@ public struct ContainerManager: Sendable {
     private let vmm: VirtualMachineManager
     private var network: Network?
     private let logger: Logger?
+    /// When set, `create(_:image:...)` clones the root filesystem from these snapshots
+    /// instead of unpacking the image for each container.
+    public let snapshots: SnapshotManager?
 
     private var containerRoot: URL {
         self.imageStore.path.appendingPathComponent("containers")
@@ -48,10 +51,12 @@ public struct ContainerManager: Sendable {
         network: Network? = nil,
         rosetta: Bool = false,
         nestedVirtualization: Bool = false,
+        snapshots: SnapshotManager? = nil,
         logger: Logger? = nil
     ) throws {
         self.imageStore = imageStore
         self.network = network
+        self.snapshots = snapshots
         self.logger = logger
         try Self.createRootDirectory(path: self.imageStore.path)
         self.vmm = VZVirtualMachineManager(
@@ -73,6 +78,7 @@ public struct ContainerManager: Sendable {
         network: Network? = nil,
         rosetta: Bool = false,
         nestedVirtualization: Bool = false,
+        snapshots: SnapshotManager? = nil,
         logger: Logger? = nil
     ) throws {
         if let root {
@@ -81,6 +87,7 @@ public struct ContainerManager: Sendable {
             self.imageStore = ImageStore.default
         }
         self.network = network
+        self.snapshots = snapshots
         self.logger = logger
         try Self.createRootDirectory(path: self.imageStore.path)
         self.vmm = VZVirtualMachineManager(
@@ -102,10 +109,12 @@ public struct ContainerManager: Sendable {
         network: Network? = nil,
         rosetta: Bool = false,
         nestedVirtualization: Bool = false,
+        snapshots: SnapshotManager? = nil,
         logger: Logger? = nil
     ) async throws {
         self.imageStore = imageStore
         self.network = network
+        self.snapshots = snapshots
         self.logger = logger
         try Self.createRootDirectory(path: self.imageStore.path)
 
@@ -145,6 +154,7 @@ public struct ContainerManager: Sendable {
         network: Network? = nil,
         rosetta: Bool = false,
         nestedVirtualization: Bool = false,
+        snapshots: SnapshotManager? = nil,
         logger: Logger? = nil
     ) async throws {
         if let root {
@@ -153,6 +163,7 @@ public struct ContainerManager: Sendable {
             self.imageStore = ImageStore.default
         }
         self.network = network
+        self.snapshots = snapshots
         self.logger = logger
         try Self.createRootDirectory(path: self.imageStore.path)
 
@@ -187,12 +198,14 @@ public struct ContainerManager: Sendable {
     public init(
         vmm: any VirtualMachineManager,
         network: Network? = nil,
+        snapshots: SnapshotManager? = nil,
         logger: Logger? = nil
     ) throws {
         self.imageStore = ImageStore.default
         try Self.createRootDirectory(path: self.imageStore.path)
         self.network = network
         self.vmm = vmm
+        self.snapshots = snapshots
         self.logger = logger
     }
 
@@ -241,10 +254,15 @@ public struct ContainerManager: Sendable {
     }
 
     /// Returns a new container from the provided image.
+    ///
+    /// If the manager has `snapshots`, the root filesystem is a clone of the image's snapshot, and
+    /// the image is unpacked into `snapshots` first if it has no snapshot. The snapshots' `path`
+    /// must be on the same APFS volume as the image store, or creation fails.
     /// - Parameters:
     ///   - id: The container ID.
     ///   - image: The image.
     ///   - rootfsSizeInBytes: The size of the root filesystem in bytes. Defaults to 8 GiB.
+    ///     Ignored when the manager has `snapshots`.
     ///   - writableLayerSizeInBytes: Optional size for a separate writable layer. When provided,
     ///     the rootfs becomes read-only and an overlayfs is used with a separate writable layer of this size.
     ///   - readOnly: Whether to mount the root filesystem as read-only.
@@ -263,36 +281,51 @@ public struct ContainerManager: Sendable {
         progress: ProgressHandler? = nil,
         configuration: (inout LinuxContainer.Configuration) throws -> Void
     ) async throws -> LinuxContainer {
+        // Unpack before the container's directory exists, so a failed or cancelled unpack
+        // leaves nothing behind.
+        if let snapshots {
+            try await snapshots.unpack(image, progress: progress)
+        }
         let path = try createContainerRoot(id)
 
-        var rootfs = try await unpack(
-            image: image,
-            destination: path.appendingPathComponent("rootfs.ext4"),
-            size: rootfsSizeInBytes,
-            progress: progress
-        )
-        if readOnly {
-            rootfs.options.append("ro")
-        }
+        do {
+            var rootfs: Mount
+            if let snapshots {
+                rootfs = try await snapshots.clone(image, to: path.appendingPathComponent("rootfs.ext4"))
+            } else {
+                rootfs = try await unpack(
+                    image: image,
+                    destination: path.appendingPathComponent("rootfs.ext4"),
+                    size: rootfsSizeInBytes,
+                    progress: progress
+                )
+            }
+            if readOnly {
+                rootfs.options.append("ro")
+            }
 
-        // Create writable layer if size is specified.
-        var writableLayer: Mount? = nil
-        if let writableLayerSize = writableLayerSizeInBytes {
-            writableLayer = try createEmptyFilesystem(
-                at: path.appendingPathComponent("writable.ext4"),
-                size: writableLayerSize
+            // Create writable layer if size is specified.
+            var writableLayer: Mount? = nil
+            if let writableLayerSize = writableLayerSizeInBytes {
+                writableLayer = try createEmptyFilesystem(
+                    at: path.appendingPathComponent("writable.ext4"),
+                    size: writableLayerSize
+                )
+            }
+
+            return try await create(
+                id,
+                image: image,
+                rootfs: rootfs,
+                writableLayer: writableLayer,
+                networking: networking,
+                vm: vm,
+                configuration: configuration
             )
+        } catch {
+            try? FileManager.default.removeItem(at: path)
+            throw error
         }
-
-        return try await create(
-            id,
-            image: image,
-            rootfs: rootfs,
-            writableLayer: writableLayer,
-            networking: networking,
-            vm: vm,
-            configuration: configuration
-        )
     }
 
     /// Returns a new container from the provided image and root filesystem mount.
