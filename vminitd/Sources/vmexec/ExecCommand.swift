@@ -105,7 +105,7 @@ struct ExecCommand: ParsableCommand {
         if processID == 0 {  // child
             // Wait for the grandparent to tell us that they acked our pid.
             var pidAckBuffer = [UInt8](repeating: 0, count: App.ackPid.count)
-            let pidAckBytesRead = unsafe try pidAckBuffer.withUnsafeMutableBytes { buffer in
+            let pidAckBytesRead = try pidAckBuffer.withUnsafeMutableBytes { buffer in
                 unsafe try ackPipe.read(into: buffer)
             }
             guard pidAckBytesRead > 0 else {
@@ -126,13 +126,13 @@ struct ExecCommand: ParsableCommand {
                 try pty.configureStdIO()
                 var masterFD = pty.master
 
-                unsafe try withUnsafeBytes(of: &masterFD) { bytes in
+                try withUnsafeBytes(of: &masterFD) { bytes in
                     _ = unsafe try syncPipe.write(bytes)
                 }
 
                 // Wait for the grandparent to tell us that they acked our console.
                 var consoleAckBuffer = [UInt8](repeating: 0, count: App.ackConsole.count)
-                let consoleAckBytesRead = unsafe try consoleAckBuffer.withUnsafeMutableBytes { buffer in
+                let consoleAckBytesRead = try consoleAckBuffer.withUnsafeMutableBytes { buffer in
                     unsafe try ackPipe.read(into: buffer)
                 }
                 guard consoleAckBytesRead > 0 else {
@@ -176,7 +176,7 @@ struct ExecCommand: ParsableCommand {
         } else {  // parent process
             // Send our child's pid to our parent before we exit.
             var childPid = processID
-            unsafe try withUnsafeBytes(of: &childPid) { bytes in
+            try withUnsafeBytes(of: &childPid) { bytes in
                 _ = unsafe try syncPipe.write(bytes)
             }
         }
