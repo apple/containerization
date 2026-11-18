@@ -113,7 +113,7 @@ final class VirtiofsdProcess: Sendable {
 
         let exitTask = Task<Void, Never>.detached { [command, logger] in
             do {
-                _ = try command.wait()
+                _ = try await command.waitAsync()
             } catch {
                 logger?.error("virtiofsd wait failed: \(error)")
             }
