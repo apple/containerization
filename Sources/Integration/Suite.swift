@@ -720,6 +720,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("pod NBD concurrent writes", testPodNBDConcurrentWrites),
                 Test("pod NBD volume identity", testPodNBDVolumeIdentity),
                 Test("pod filesystem operation", testPodFilesystemOperation),
+                Test("pod USB rootfs hotplug", testPodUSBRootfsHotplug),
                 Test("pod shared disk image volume", testPodSharedDiskImageVolume),
                 Test("pod shared tmpfs volume", testPodSharedTmpfsVolume),
                 Test("pod attach volume duplicate name", testPodAttachVolumeDuplicateName),
@@ -739,8 +740,7 @@ struct IntegrationSuite: AsyncParsableCommand {
             ] + macOS26Tests()
         let tests: [Test] = crossPlatformTests + macOSOnlyTests
         #else
-        // Hotplug into a running pod VM is CH-only (VZ has no runtime hotplug),
-        // and no pod test elsewhere exercises addContainer-after-create.
+        // Exercise the cloud-hypervisor block and virtiofs hotplug paths.
         let linuxOnlyTests: [Test] = [
             Test("pod hotplug block rootfs", testPodHotplugBlockRootfs),
             Test("pod hotplug virtiofs rootfs", testPodHotplugVirtiofsRootfs),

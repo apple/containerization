@@ -34,6 +34,9 @@ public final class VZVirtualMachineInstance: Sendable {
         _mounts.withLock { $0 }
     }
 
+    /// Local disk images in the final VZ configuration, including extension-provided boot disks.
+    let bootDiskImageURLs: [URL]
+
     /// The underlying Virtualization framework virtual machine.
     public var vzVirtualMachine: VZVirtualMachine { vm }
 
@@ -134,10 +137,9 @@ public final class VZVirtualMachineInstance: Sendable {
         let (mountAttachments, _) = try config.mountAttachments(allocator: allocator)
         self._mounts = Mutex(mountAttachments)
 
-        self.vm = VZVirtualMachine(
-            configuration: try config.toVZ(allocator: allocator),
-            queue: self.queue
-        )
+        let vzConfig = try config.toVZ(allocator: allocator)
+        self.bootDiskImageURLs = vzConfig.storageDevices.compactMap { ($0.attachment as? VZDiskImageStorageDeviceAttachment)?.url }
+        self.vm = VZVirtualMachine(configuration: vzConfig, queue: self.queue)
 
         for ext in config.extensions.compactMap({ $0 as? any VZInstanceExtension }) {
             try ext.didCreate(self)
