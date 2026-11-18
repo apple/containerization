@@ -14,10 +14,9 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import ContainerizationOS
 import Foundation
 import Testing
-
-import ContainerizationOS
 
 #if canImport(Darwin)
 import Darwin
@@ -36,8 +35,8 @@ final class CommandWaitAsyncTests {
         let childCount = max(50, 4 * ProcessInfo.processInfo.processorCount)
         var commands: [Command] = []
         var waits: [Task<Int32, any Error>] = []
-        for _ in 0 ..< childCount {
-            var command = Command("/bin/sleep", arguments: ["600"])
+        for _ in 0..<childCount {
+            let command = Command("/bin/sleep", arguments: ["600"])
             try command.start()
             commands.append(command)
             waits.append(Task { try await command.waitAsync() })
@@ -49,7 +48,7 @@ final class CommandWaitAsyncTests {
         }
 
         let start = ContinuousClock.now
-        for _ in 0 ..< 20 {
+        for _ in 0..<20 {
             try await Task.sleep(for: .milliseconds(25))
         }
         #expect(ContinuousClock.now - start < .seconds(10))
@@ -63,7 +62,7 @@ final class CommandWaitAsyncTests {
     }
 
     @Test func returnsExitStatus() async throws {
-        var command = Command("/bin/sh", arguments: ["-c", "exit 42"])
+        let command = Command("/bin/sh", arguments: ["-c", "exit 42"])
         try command.start()
         #expect(try await command.waitAsync() == 42)
     }
