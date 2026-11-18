@@ -103,11 +103,14 @@ private final class RecordingTLSServer: @unchecked Sendable {
         self.seenBox = seenBox
     }
 
-    static func start(respond: @escaping @Sendable (_ requestHead: String) -> String) throws -> RecordingTLSServer {
+    static func start(
+        applicationProtocols: [String] = ["http/1.1"],
+        respond: @escaping @Sendable (_ requestHead: String) -> String
+    ) throws -> RecordingTLSServer {
         let identity = try Self.makeEphemeralIdentity()
         var tls = TLSConfiguration.makeServerConfiguration(
             certificateChain: [.certificate(identity.certificate)], privateKey: .privateKey(identity.privateKey))
-        tls.applicationProtocols = ["http/1.1"]
+        tls.applicationProtocols = applicationProtocols
         let sslContext = try NIOSSLContext(configuration: tls)
 
         let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
@@ -269,6 +272,20 @@ struct RealmRequestTests {
         var tls = TLSConfiguration.makeClientConfiguration()
         tls.certificateVerification = .none
         return RegistryClient(host: "127.0.0.1", scheme: "https", port: port, authentication: authentication, retryOptions: nil, tlsConfiguration: tls)
+    }
+
+    @Test(.timeLimit(.minutes(1)), .enabled(if: loopbackIsDirect))
+    func registryRequestsUseHTTP1() async throws {
+        let registry = try RecordingTLSServer.start(applicationProtocols: ["h2", "http/1.1"]) { _ in
+            "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        }
+        defer { registry.stop() }
+
+        let client = Self.insecureTLSClient(port: registry.port, authentication: nil)
+        try await client.ping()
+
+        #expect(registry.seen.count == 1)
+        #expect(registry.seen[0].hasPrefix("GET /v2/ HTTP/1.1\r\n"))
     }
 
     /// The `registry:3` shape: Basic challenge, no Bearer.

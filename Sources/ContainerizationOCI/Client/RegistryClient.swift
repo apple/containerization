@@ -118,6 +118,8 @@ public final class RegistryClient: ContentClient {
         self.retryOptions = retryOptions
         self.bufferSize = bufferSize
         var httpConfiguration = HTTPClient.Configuration()
+        // A registry can sit behind an HTTP/2 proxy while its backend only supports HTTP/1.1.
+        httpConfiguration.httpVersion = .http1Only
 
         // proxy configuration assumes all client requests will go to `base` URL
         self.proxyURL = ProxyUtils.proxyFromEnvironment(scheme: scheme, host: host)
