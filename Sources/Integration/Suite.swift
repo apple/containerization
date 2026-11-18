@@ -317,12 +317,12 @@ struct IntegrationSuite: AsyncParsableCommand {
         // container on the failure path too (see RuncTests), or this unlinks
         // the clones out from under a still-running VM.
         if self.maxConcurrency == 1 {
-            let preserve = fsPath.absolutePath()
             if let entries = try? FileManager.default.contentsOfDirectory(
                 at: Self.testDir,
                 includingPropertiesForKeys: nil
             ) {
-                for url in entries where url.absolutePath() != preserve {
+                // Directory listings can resolve symlinks in the parent path.
+                for url in entries where url.lastPathComponent != fsPath.lastPathComponent {
                     try? FileManager.default.removeItem(at: url)
                 }
             }
