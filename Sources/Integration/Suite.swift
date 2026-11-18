@@ -498,6 +498,10 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("container statistics", testContainerStatistics),
             Test("container network protocol statistics", testContainerNetworkProtocolStatistics),
             Test("container cgroup limits", testCgroupLimits),
+            Test("cgroup cleanup empty domain", testEmptyDomainCgroupCleanup),
+            Test("cgroup cleanup empty threaded", testEmptyThreadedCgroupCleanup),
+            Test("cgroup cleanup live domain", testLiveDomainCgroupCleanup),
+            Test("cgroup cleanup live threaded", testLiveThreadedCgroupCleanup),
             Test("container memory events OOM kill", testMemoryEventsOOMKill),
 
             // Console / boot / lifecycle
