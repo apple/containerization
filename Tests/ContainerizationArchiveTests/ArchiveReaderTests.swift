@@ -658,6 +658,66 @@ struct ArchiveReaderTests {
         }
     }
 
+    // MARK: - FileHandle Stream Auto-Detect Tests
+
+    /// The stream-based auto-detecting reader must accept an uncompressed tar
+    /// stream, matching `docker cp -` / `podman cp -` input semantics.
+    @Test func readUncompressedTarFromFileHandle() throws {
+        let archiveURL = try createTestArchive(
+            name: "stream-plain",
+            entries: [
+                ("dir/", .directory, nil),
+                ("dir/file.txt", .regular("streamed plain"), nil),
+            ])
+        defer { try? FileManager.default.removeItem(at: archiveURL.deletingLastPathComponent()) }
+
+        let extractDir = try createExtractionDirectory(name: "stream-plain")
+        defer { try? FileManager.default.removeItem(at: extractDir.deletingLastPathComponent()) }
+
+        let fh = try FileHandle(forReadingFrom: archiveURL)
+        defer { try? fh.close() }
+
+        let reader = try ArchiveReader(fileHandle: fh)
+        let rejected = try reader.extractContents(to: extractDir)
+
+        #expect(rejected.isEmpty)
+        let content = try String(contentsOf: extractDir.appendingPathComponent("dir/file.txt"), encoding: .utf8)
+        #expect(content == "streamed plain")
+    }
+
+    /// The stream-based auto-detecting reader must also accept a gzip-compressed
+    /// tar stream (the format the guest emits internally for directory copies),
+    /// without being told the filter up front.
+    @Test func readGzipTarFromFileHandle() throws {
+        let testDirectory = createTemporaryDirectory(baseName: "ArchiveReaderTests")!
+        defer { try? FileManager.default.removeItem(at: testDirectory) }
+        let archiveURL = testDirectory.appendingPathComponent("stream-gzip.tar.gz")
+
+        let writer = try ArchiveWriter(configuration: .init(format: .pax, filter: .gzip))
+        try writer.open(file: archiveURL)
+        let entry = WriteEntry()
+        entry.path = "hello.txt"
+        entry.fileType = .regular
+        entry.permissions = 0o644
+        let data = "streamed gzip".data(using: .utf8)!
+        entry.size = numericCast(data.count)
+        try writer.writeEntry(entry: entry, data: data)
+        try writer.finishEncoding()
+
+        let extractDir = try createExtractionDirectory(name: "stream-gzip")
+        defer { try? FileManager.default.removeItem(at: extractDir.deletingLastPathComponent()) }
+
+        let fh = try FileHandle(forReadingFrom: archiveURL)
+        defer { try? fh.close() }
+
+        let reader = try ArchiveReader(fileHandle: fh)
+        let rejected = try reader.extractContents(to: extractDir)
+
+        #expect(rejected.isEmpty)
+        let content = try String(contentsOf: extractDir.appendingPathComponent("hello.txt"), encoding: .utf8)
+        #expect(content == "streamed gzip")
+    }
+
     // MARK: - Zstd Compression Tests
 
     @Test func readZstdCompressedArchive() throws {
