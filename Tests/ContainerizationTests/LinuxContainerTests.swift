@@ -198,12 +198,13 @@ struct LinuxContainerTests {
         #expect(explicit.memoryInBytes == 512.mib())
     }
 
-    /// A `VirtualMachineManager` that records the configuration it is handed and
-    /// then refuses to boot. `LinuxContainer.create()` builds the `VMConfiguration`
-    /// and passes it straight to `vmm.create`, so this captures the VM sizing
-    /// without needing a real VM.
     private final class StubVMM: VirtualMachineManager {
         private let captured = Mutex<VMConfiguration?>(nil)
+        private let instance: (any VirtualMachineInstance)?
+
+        init(instance: (any VirtualMachineInstance)? = nil) {
+            self.instance = instance
+        }
 
         /// The configuration `LinuxContainer.create()` asked for, if it got that far.
         var capturedConfiguration: VMConfiguration? {
@@ -212,8 +213,97 @@ struct LinuxContainerTests {
 
         func create(config: some VMCreationConfig) async throws -> any VirtualMachineInstance {
             captured.withLock { $0 = config.configuration }
+            if let instance {
+                return instance
+            }
             throw ContainerizationError(.unsupported, message: "stub")
         }
+    }
+
+    private enum LifecycleError: Error {
+        case startup
+        case stop
+    }
+
+    private final class FailingVirtualMachine: VirtualMachineInstance {
+        typealias Agent = Vminitd
+
+        private struct Status {
+            var running = false
+            var stopFailures = 2
+            var stopCalls = 0
+        }
+
+        private let status = Mutex(Status())
+
+        var state: VirtualMachineInstanceState {
+            status.withLock { $0.running ? .running : .stopped }
+        }
+
+        var mounts: [String: [AttachedFilesystem]] {
+            [:]
+        }
+
+        var stopCalls: Int {
+            status.withLock { $0.stopCalls }
+        }
+
+        func start() async throws {
+            status.withLock { $0.running = true }
+            throw LifecycleError.startup
+        }
+
+        func stop() async throws {
+            try status.withLock {
+                $0.stopCalls += 1
+                if $0.stopFailures > 0 {
+                    $0.stopFailures -= 1
+                    throw LifecycleError.stop
+                }
+                $0.running = false
+            }
+        }
+
+        func dialAgent() async throws -> Vminitd {
+            throw ContainerizationError(.unsupported, message: "dialAgent")
+        }
+
+        func dial(_ port: UInt32) async throws -> FileHandle {
+            throw ContainerizationError(.unsupported, message: "dial")
+        }
+
+        func listen(_ port: UInt32) throws -> VsockListener {
+            throw ContainerizationError(.unsupported, message: "listen")
+        }
+    }
+
+    @Test func stopRetriesCleanupAfterFailedCreation() async throws {
+        let vm = FailingVirtualMachine()
+        let container = try LinuxContainer("failed-creation", rootfs: Self.testRootfs, vmm: StubVMM(instance: vm)) { config in
+            config.process.arguments = ["/bin/true"]
+        }
+
+        await #expect(throws: LifecycleError.startup) {
+            try await container.create()
+        }
+        #expect(vm.state == .running)
+        #expect(vm.stopCalls == 1)
+
+        await #expect(throws: LifecycleError.stop) {
+            try await container.stop()
+        }
+        #expect(vm.state == .running)
+        #expect(vm.stopCalls == 2)
+
+        await #expect(throws: LifecycleError.startup) {
+            try await container.create()
+        }
+        try await container.stop()
+        #expect(vm.state == .stopped)
+        #expect(vm.stopCalls == 3)
+
+        try await container.stop()
+        #expect(vm.stopCalls == 3)
     }
 
     @Test func runtimeSpecUsesContainerLimitsNotVMSize() async throws {

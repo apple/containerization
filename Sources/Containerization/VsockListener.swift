@@ -42,23 +42,17 @@ public final class VsockListener: NSObject, Sendable, AsyncSequence {
         self.finished = Mutex(false)
     }
 
-    /// Idempotent: calling more than once is a no-op. setupIO and the
-    /// caller-side defer can both call finish without double-closing the
-    /// listening fd (a double-close would target whatever fd was reallocated
-    /// in between, hanging the next operation that touched it).
+    /// Listener removal is serialized and is not repeated after success.
+    /// Failed removal can be retried.
     public func finish() throws {
-        let alreadyFinished = self.finished.withLock { state -> Bool in
+        try self.finished.withLock { state in
             if state {
-                return true
+                return
             }
+            self.cont.finish()
+            try self.stopListening(self.port)
             state = true
-            return false
         }
-        if alreadyFinished {
-            return
-        }
-        self.cont.finish()
-        try self.stopListening(self.port)
     }
 
     /// Push an accepted connection into the listener's stream. Used by
