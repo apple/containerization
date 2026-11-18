@@ -114,7 +114,7 @@ public struct VmnetNetwork: Network {
 
     /// A network interface supporting the vmnet_network_ref.
     public struct Interface: Containerization.Interface, VZInterface, Sendable {
-        public let ipv4Address: CIDRv4
+        public let ipv4Address: CIDRv4?
         public let ipv4Gateway: IPv4Address?
         public let ipv6Address: CIDRv6?
         public let ipv6Gateway: IPv6Address?
