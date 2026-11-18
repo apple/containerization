@@ -59,12 +59,11 @@ struct FileMountContext: Sendable {
         !preparedMounts.isEmpty
     }
 
-    /// Returns the set of virtiofs tags for file mount holding directories.
-    /// These should be filtered out from OCI spec mounts since we mount them
-    /// separately under /run.
-    var holdingDirectoryTags: Set<String> {
-        Set(preparedMounts.map { $0.tag })
-    }
+    /// The virtiofs tags of holding shares added for file mounts. These should be
+    /// filtered out from OCI spec mounts since we mount them separately under /run.
+    /// A file whose parent directory is also a directory mount reuses that mount's
+    /// share, so its tag is not included.
+    private(set) var holdingDirectoryTags: Set<String> = []
 }
 
 extension FileMountContext {
@@ -81,6 +80,19 @@ extension FileMountContext {
         var transformed: [Mount] = []
         // Track parent directories we've already added a share for to avoid duplicates.
         var sharedParentTags: Set<String> = []
+
+        // Shares are keyed by host path, so a directory mount of a file's parent
+        // already provides the share the file needs. Adding a holding share with
+        // the same tag would get the directory mount filtered out with it.
+        let directoryTags = try Set(
+            mounts.compactMap { mount -> String? in
+                guard case .virtiofs = mount.runtimeOptions else { return nil }
+                var isDirectory: ObjCBool = false
+                guard FileManager.default.fileExists(atPath: mount.source, isDirectory: &isDirectory),
+                    isDirectory.boolValue
+                else { return nil }
+                return try hashFilePath(path: mount.source)
+            })
 
         for mount in mounts {
             // Only virtiofs mounts can be files
@@ -108,8 +120,9 @@ extension FileMountContext {
             let prepared = try context.prepareFileMount(mount: mount, runtimeOptions: runtimeOpts)
 
             // Only add the directory share once per unique parent directory.
-            if !sharedParentTags.contains(prepared.tag) {
+            if !directoryTags.contains(prepared.tag) && !sharedParentTags.contains(prepared.tag) {
                 sharedParentTags.insert(prepared.tag)
+                context.holdingDirectoryTags.insert(prepared.tag)
                 // The destination here is unused. We mount the share ourselves
                 // to a location under /run in mountHoldingDirectories.
                 let directoryShare = Mount.share(
