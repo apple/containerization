@@ -280,12 +280,13 @@ extension RegistryClient {
             }
             var params: [String: String] = [:]
             let header = String(parts[1])
-            let pattern = #"(\w+)="([^"]+)"#
+            // A value is a quoted-string or a bare token (RFC 7235 §2.1); gcr.io sends `service=gcr.io` unquoted.
+            let pattern = #"(\w+)=(?:"([^"]+)"|([^\s,"]+))"#
             let regex = try! NSRegularExpression(pattern: pattern, options: [])
             let matches = regex.matches(in: header, options: [], range: NSRange(header.startIndex..., in: header))
             for match in matches {
                 if let keyRange = Range(match.range(at: 1), in: header),
-                    let valueRange = Range(match.range(at: 2), in: header)
+                    let valueRange = Range(match.range(at: 2), in: header) ?? Range(match.range(at: 3), in: header)
                 {
                     let key = String(header[keyRange])
                     let value = String(header[valueRange])
