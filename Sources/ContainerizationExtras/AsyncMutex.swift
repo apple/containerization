@@ -36,7 +36,7 @@ public actor AsyncMutex<T: Sendable> {
 
     /// withLock provides a scoped locking API to run a function while holding the lock.
     /// The protected value is passed to the closure for safe access.
-    public func withLock<R: Sendable>(_ body: @Sendable @escaping (inout T) async throws -> R) async rethrows -> R {
+    public func withLock<R: Sendable>(_ body: @Sendable (inout T) async throws -> R) async rethrows -> R {
         while self.busy {
             await withCheckedContinuation { cc in
                 self.queue.append(cc)
