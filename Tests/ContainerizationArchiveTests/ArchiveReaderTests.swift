@@ -438,6 +438,59 @@ struct ArchiveReaderTests {
         #expect((perms & permMask) == 0o755, "Permissions should be preserved")
     }
 
+    @Test func preserveSpecialPermissionBits() throws {
+        // Extraction must preserve the sticky/set-user-ID/set-group-ID bits, and
+        // ownership must be applied before the permission mode: Darwin's fchown
+        // clears set-user-ID/set-group-ID even when chowning a file to its own
+        // existing owner/group. Use the current process's real uid/gid so the
+        // fchown below is permitted without requiring root.
+        let uid = getuid()
+        let gid = getgid()
+
+        let testDirectory = createTemporaryDirectory(baseName: "ArchiveReaderTests")!
+        let archiveURL = testDirectory.appendingPathComponent("special-perms.tar")
+        let archiver = try ArchiveWriter(format: .paxRestricted, filter: .none, file: archiveURL)
+
+        let dirEntry = WriteEntry()
+        dirEntry.path = "sticky-dir"
+        dirEntry.fileType = .directory
+        dirEntry.permissions = 0o1777
+        dirEntry.owner = uid
+        dirEntry.group = gid
+        dirEntry.size = 0
+        try archiver.writeEntry(entry: dirEntry, data: nil)
+
+        let fileEntry = WriteEntry()
+        fileEntry.path = "setid-file"
+        fileEntry.fileType = .regular
+        fileEntry.permissions = 0o6755
+        fileEntry.owner = uid
+        fileEntry.group = gid
+        let data = Data("setuid/setgid content".utf8)
+        fileEntry.size = numericCast(data.count)
+        try archiver.writeEntry(entry: fileEntry, data: data)
+
+        try archiver.finishEncoding()
+        defer { try? FileManager.default.removeItem(at: testDirectory) }
+
+        let extractDir = try createExtractionDirectory(name: "special-perms")
+        defer { try? FileManager.default.removeItem(at: extractDir.deletingLastPathComponent()) }
+
+        let reader = try ArchiveReader(format: .paxRestricted, filter: .none, file: archiveURL)
+        let rejectedPaths = try reader.extractContents(to: extractDir)
+        #expect(rejectedPaths.isEmpty)
+
+        let permMask: UInt16 = 0o7777
+
+        let dirAttrs = try FileManager.default.attributesOfItem(atPath: extractDir.appendingPathComponent("sticky-dir").path)
+        let dirPerms = (dirAttrs[.posixPermissions] as? NSNumber)?.uint16Value ?? 0
+        #expect((dirPerms & permMask) == 0o1777, "Sticky bit should be preserved on directories")
+
+        let fileAttrs = try FileManager.default.attributesOfItem(atPath: extractDir.appendingPathComponent("setid-file").path)
+        let filePerms = (fileAttrs[.posixPermissions] as? NSNumber)?.uint16Value ?? 0
+        #expect((filePerms & permMask) == 0o6755, "Set-ID bits should be preserved after ownership is applied")
+    }
+
     // MARK: - Duplicate Entry Tests
 
     @Test func duplicateRegularFiles() throws {
