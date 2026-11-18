@@ -2277,5 +2277,73 @@ extension IntegrationSuite {
             throw error
         }
     }
+
+    /// Attach a tmpfs pod volume to a running pod VM after create(), then add
+    /// two containers that share it: one writes a file, the other reads it
+    /// back from a different path. CH-only: adding a container after create()
+    /// hotplugs its rootfs, which VZ cannot do.
+    func testPodAttachTmpfsVolume() async throws {
+        let id = "test-pod-attach-tmpfs-volume"
+        let bs = try await bootstrap(id)
+
+        let pod = try LinuxPod(id, vmm: bs.vmm, vm: .default) { config in
+            config.bootLog = bs.bootLog
+        }
+
+        try await pod.addContainer("seed", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "seed")) { config in
+            config.process.arguments = ["/bin/sleep", "infinity"]
+        }
+
+        try await pod.create()
+        try await pod.attachVolume(.init(name: "late", source: .tmpfs(sizeBytes: 128.mib()), format: "tmpfs"))
+
+        let writerBuffer = BufferWriter()
+        try await pod.addContainer("writer", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "writer")) { config in
+            config.process.arguments = ["/bin/sh", "-c", "echo bar > /late/foo && grep /late /proc/mounts"]
+            config.process.stdout = writerBuffer
+            config.mounts.append(.sharedMount(name: "late", destination: "/late"))
+        }
+
+        let readerBuffer = BufferWriter()
+        try await pod.addContainer("reader", rootfs: try cloneRootfs(bs.rootfs, testID: id, containerID: "reader")) { config in
+            config.process.arguments = ["/bin/sh", "-c", "cat /also-late/foo"]
+            config.process.stdout = readerBuffer
+            config.mounts.append(.sharedMount(name: "late", destination: "/also-late"))
+        }
+
+        do {
+            try await pod.startContainer("writer")
+            let writerStatus = try await pod.waitContainer("writer")
+            guard writerStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "writer exited with status \(writerStatus)")
+            }
+
+            try await pod.startContainer("reader")
+            let readerStatus = try await pod.waitContainer("reader")
+            guard readerStatus.exitCode == 0 else {
+                throw IntegrationError.assert(msg: "reader exited with status \(readerStatus)")
+            }
+
+            try await pod.stop()
+        } catch {
+            try? await pod.stop()
+            throw error
+        }
+
+        let writerOut = String(data: writerBuffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard writerOut.contains("tmpfs /late tmpfs") else {
+            throw IntegrationError.assert(msg: "attached volume /late is not backed by tmpfs: \(writerOut)")
+        }
+        // tmpfs reports its size in /proc/mounts in kibibytes with a trailing 'k'.
+        let expectedSizeKiB: UInt64 = 128 * 1024
+        guard writerOut.contains("size=\(expectedSizeKiB)k") else {
+            throw IntegrationError.assert(msg: "attached tmpfs is not of expected size (\(expectedSizeKiB)k): \(writerOut)")
+        }
+
+        let readerOut = String(data: readerBuffer.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard readerOut == "bar" else {
+            throw IntegrationError.assert(msg: "reader: expected 'bar', got '\(readerOut)'")
+        }
+    }
     #endif
 }

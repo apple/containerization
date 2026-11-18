@@ -722,6 +722,7 @@ struct IntegrationSuite: AsyncParsableCommand {
                 Test("pod filesystem operation", testPodFilesystemOperation),
                 Test("pod shared disk image volume", testPodSharedDiskImageVolume),
                 Test("pod shared tmpfs volume", testPodSharedTmpfsVolume),
+                Test("pod attach volume duplicate name", testPodAttachVolumeDuplicateName),
 
                 // cctl --block CLI wiring
                 Test("cctl block NBD mount", testCctlBlockNBDMount),
@@ -743,6 +744,7 @@ struct IntegrationSuite: AsyncParsableCommand {
         let linuxOnlyTests: [Test] = [
             Test("pod hotplug block rootfs", testPodHotplugBlockRootfs),
             Test("pod hotplug virtiofs rootfs", testPodHotplugVirtiofsRootfs),
+            Test("pod attach tmpfs volume", testPodAttachTmpfsVolume),
         ]
         let tests: [Test] = crossPlatformTests + linuxOnlyTests
         #endif

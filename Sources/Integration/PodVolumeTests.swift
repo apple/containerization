@@ -1057,6 +1057,43 @@ extension IntegrationSuite {
         }
     }
 
+    /// Attaching a volume whose name is already declared or attached fails.
+    func testPodAttachVolumeDuplicateName() async throws {
+        let id = "test-pod-attach-volume-duplicate-name"
+        let bs = try await bootstrap(id)
+
+        let pod = try LinuxPod(id, vmm: bs.vmm, vm: VMResources(cpus: 1, memoryInBytes: 512.mib())) { config in
+            config.bootLog = bs.bootLog
+            config.volumes = [
+                .init(name: "declared", source: .tmpfs(sizeBytes: 64.mib()), format: "tmpfs")
+            ]
+        }
+
+        try await pod.addContainer("container1", rootfs: bs.rootfs) { config in
+            config.process.arguments = ["/bin/true"]
+        }
+
+        do {
+            try await pod.create()
+            try await pod.attachVolume(.init(name: "attached", source: .tmpfs(), format: "tmpfs"))
+
+            for name in ["declared", "attached"] {
+                do {
+                    try await pod.attachVolume(.init(name: name, source: .tmpfs(), format: "tmpfs"))
+                    throw IntegrationError.assert(msg: "attachVolume(\"\(name)\") succeeded for a duplicate name")
+                } catch let error as ContainerizationError {
+                    guard error.code == .invalidArgument else {
+                        throw error
+                    }
+                }
+            }
+            try await pod.stop()
+        } catch {
+            try? await pod.stop()
+            throw error
+        }
+    }
+
     /// `cctl run --block` in filesystem mode: the ext4 on the NBD export is
     /// mounted at dst, and a write from the container lands on the backing file.
     func testCctlBlockNBDMount() async throws {
