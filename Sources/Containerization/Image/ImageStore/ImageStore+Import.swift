@@ -31,14 +31,28 @@ extension ImageStore {
         let progress: ProgressHandler?
         let name: String
         let maxConcurrentDownloads: Int
+        let reusesStoredContent: Bool
 
         public init(name: String, contentStore: ContentStore, client: ContentClient, ingestDir: URL, progress: ProgressHandler? = nil, maxConcurrentDownloads: Int = 3) {
+            self.init(
+                name: name, contentStore: contentStore, client: client, ingestDir: ingestDir, progress: progress, maxConcurrentDownloads: maxConcurrentDownloads,
+                reusesStoredContent: true)
+        }
+
+        /// - Parameter reusesStoredContent: Whether to take blobs the content store already has
+        ///   instead of fetching them from the client. With `false`, every blob must come from the
+        ///   client, so the source cannot use content it does not hold.
+        init(
+            name: String, contentStore: ContentStore, client: ContentClient, ingestDir: URL, progress: ProgressHandler? = nil, maxConcurrentDownloads: Int = 3,
+            reusesStoredContent: Bool
+        ) {
             self.client = client
             self.ingestDir = ingestDir
             self.contentStore = contentStore
             self.progress = progress
             self.name = name
             self.maxConcurrentDownloads = maxConcurrentDownloads
+            self.reusesStoredContent = reusesStoredContent
         }
 
         /// Pull the required image layers for the provided descriptor and platform(s) into the given directory using the provided client. Returns a descriptor to the Index manifest.
@@ -101,10 +115,10 @@ extension ImageStore {
         private func getManifestContent<T: Sendable & Codable>(descriptor: Descriptor) async throws -> T {
             do {
                 let encoded = try descriptor.digest.validatedDigestEncoding()
-                if let content = try await self.contentStore.get(digest: descriptor.digest) {
+                if let content = try? LocalContent(path: ingestDir.appending(path: encoded)) {
                     return try content.decode()
                 }
-                if let content = try? LocalContent(path: ingestDir.appending(path: encoded)) {
+                if self.reusesStoredContent, let content = try await self.contentStore.get(digest: descriptor.digest) {
                     return try content.decode()
                 }
                 return try await self.client.fetch(name: name, descriptor: descriptor)
@@ -184,15 +198,25 @@ extension ImageStore {
 
         private func fetch(_ descriptor: Descriptor) async throws {
             let encoded = try descriptor.digest.validatedDigestEncoding()
-            if let found = try await self.contentStore.get(digest: descriptor.digest) {
-                try FileManager.default.copyItem(at: found.path, to: ingestDir.appendingPathComponent(encoded))
-                await progress?([
-                    // Count the size of the blob
-                    .addSize(descriptor.size),
-                    // Count the number of blobs
-                    .addItems(1),
-                ])
-                return
+            if self.reusesStoredContent, let found = try await self.contentStore.get(digest: descriptor.digest) {
+                let destination = ingestDir.appendingPathComponent(encoded)
+                do {
+                    try FileManager.default.copyItem(at: found.path, to: destination)
+                    await progress?([
+                        // Count the size of the blob
+                        .addSize(descriptor.size),
+                        // Count the number of blobs
+                        .addItems(1),
+                    ])
+                    return
+                } catch {
+                    // A garbage collection of the content store can delete the blob after the lookup.
+                    // Then fetch it from the source like any blob the store does not have.
+                    guard !FileManager.default.fileExists(atPath: found.path.path) else {
+                        throw error
+                    }
+                    try? FileManager.default.removeItem(at: destination)
+                }
             }
 
             if descriptor.size > 1.mib() {

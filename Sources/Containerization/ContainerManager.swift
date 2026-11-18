@@ -328,6 +328,50 @@ public struct ContainerManager: Sendable {
         }
     }
 
+    /// Returns a new container from the provided image and root filesystem mount, with a new, empty
+    /// writable layer in the container's directory.
+    ///
+    /// Use this for a root filesystem that is not a file in the container's directory, for example
+    /// an image's snapshot served over a network block device. The root filesystem is the read-only
+    /// lower layer of an overlayfs, and the container writes to the writable layer.
+    /// - Parameters:
+    ///   - id: The container ID.
+    ///   - image: The image.
+    ///   - rootfs: The root filesystem mount. The `destination` field is ignored as mounting is handled internally.
+    ///   - writableLayerSizeInBytes: The size of the writable layer that holds the container's writes.
+    ///   - networking: Whether to create a network interface for this container. Defaults to `true`.
+    ///     When `false`, no network resources are allocated and `releaseNetwork`/`delete` remain safe to call.
+    ///   - vm: The size of the VM the container runs in.
+    public mutating func create(
+        _ id: String,
+        image: Image,
+        rootfs: Mount,
+        writableLayerSizeInBytes: UInt64,
+        networking: Bool = true,
+        vm: VMResources = .default,
+        configuration: (inout LinuxContainer.Configuration) throws -> Void
+    ) async throws -> LinuxContainer {
+        let path = try createContainerRoot(id)
+        do {
+            let writableLayer = try createEmptyFilesystem(
+                at: path.appendingPathComponent("writable.ext4"),
+                size: writableLayerSizeInBytes
+            )
+            return try await create(
+                id,
+                image: image,
+                rootfs: rootfs,
+                writableLayer: writableLayer,
+                networking: networking,
+                vm: vm,
+                configuration: configuration
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: path)
+            throw error
+        }
+    }
+
     /// Returns a new container from the provided image and root filesystem mount.
     /// - Parameters:
     ///   - id: The container ID.

@@ -182,6 +182,64 @@ public class ImageStoreTests: ContainsAuth {
         #expect(message.contains(Self.scratchAmd64Manifest), "\(message)")
     }
 
+    @Test func testLoadAsReferenceIgnoresTheLayoutsName() async throws {
+        let tempDir = try extractScratch(removing: [])
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let arm64 = ContainerizationOCI.Platform(arch: "arm64", os: "linux")
+        let image = try await self.store.load(from: tempDir, as: "registry.local/chosen:1", platform: arm64)
+        #expect(image.reference == "registry.local/chosen:1")
+        _ = try await image.manifest(for: arm64)
+
+        // The name in the layout is never stored, so the layout cannot replace an image stored under it.
+        #expect(try await self.store.getOrNil(reference: "registry.local/integration-tests/scratch:latest") == nil)
+        // Only the requested platform is imported.
+        let amd64 = ContainerizationOCI.Platform(arch: "amd64", os: "linux")
+        await #expect(throws: (any Error).self) {
+            _ = try await image.manifest(for: amd64)
+        }
+    }
+
+    @Test func testLoadAsReferenceRejectsALayoutWithMoreThanOneImage() async throws {
+        let tempDir = try extractScratch(removing: [])
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+        let indexPath = tempDir.appending(path: "index.json")
+        var index = try JSONDecoder().decode(ContainerizationOCI.Index.self, from: Data(contentsOf: indexPath))
+        index = ContainerizationOCI.Index(manifests: index.manifests + index.manifests)
+        try JSONEncoder().encode(index).write(to: indexPath)
+
+        let error = await #expect(throws: ContainerizationError.self) {
+            _ = try await self.store.load(from: tempDir, as: "registry.local/chosen:1")
+        }
+        #expect(error?.code == .invalidArgument)
+        #expect(try await self.store.getOrNil(reference: "registry.local/chosen:1") == nil)
+    }
+
+    @Test func testLoadAsReferenceTakesNoContentFromTheStore() async throws {
+        // The store holds the image's layer, from an image loaded before.
+        let full = try extractScratch(removing: [])
+        defer {
+            try? FileManager.default.removeItem(at: full)
+        }
+        _ = try await self.store.load(from: full)
+
+        // A layout that names the layer without holding it cannot have the store fill it in.
+        let layer = "530a471644602a73c05568aa468506f7a630f6c0a0e43e9052f1f4469d8241cf"
+        let partial = try extractScratch(removing: [layer])
+        defer {
+            try? FileManager.default.removeItem(at: partial)
+        }
+        let arm64 = ContainerizationOCI.Platform(arch: "arm64", os: "linux")
+        await #expect(throws: (any Error).self) {
+            _ = try await self.store.load(from: partial, as: "registry.local/chosen:1", platform: arm64)
+        }
+        #expect(try await self.store.getOrNil(reference: "registry.local/chosen:1") == nil)
+    }
+
     @Test func testGetOrNilMissingReference() async throws {
         #expect(try await self.store.getOrNil(reference: "registry.local/missing:latest") == nil)
     }
