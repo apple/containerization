@@ -30,28 +30,37 @@ struct AuthChallengeTests {
             input: """
                 Bearer realm="https://domain.io/token",service="domain.io",scope="repository:user/image:pull"
                 """,
-            expected: .init(type: "Bearer", realm: "https://domain.io/token", service: "domain.io", scope: "repository:user/image:pull", error: nil)),
+            expected: .init(type: "bearer", realm: "https://domain.io/token", service: "domain.io", scope: "repository:user/image:pull", error: nil)),
         .init(
             input: """
                 Bearer realm="https://foo-bar-registry.com/auth",service="Awesome Registry"
                 """,
-            expected: .init(type: "Bearer", realm: "https://foo-bar-registry.com/auth", service: "Awesome Registry", scope: nil, error: nil)),
+            expected: .init(type: "bearer", realm: "https://foo-bar-registry.com/auth", service: "Awesome Registry", scope: nil, error: nil)),
         .init(
             input: """
                 Bearer realm="users.example.com", scope="create delete"
                 """,
-            expected: .init(type: "Bearer", realm: "users.example.com", service: nil, scope: "create delete", error: nil)),
+            expected: .init(type: "bearer", realm: "users.example.com", service: nil, scope: "create delete", error: nil)),
         .init(
             input: """
                 Bearer realm="https://auth.server.io/token",service="registry.server.io"
                 """,
-            expected: .init(type: "Bearer", realm: "https://auth.server.io/token", service: "registry.server.io", scope: nil, error: nil)),
+            expected: .init(type: "bearer", realm: "https://auth.server.io/token", service: "registry.server.io", scope: nil, error: nil)),
         .init(
             input: """
                 Basic realm="Registry Realm"
                 """,
-            expected: .init(type: "Basic", realm: "Registry Realm", service: nil, scope: nil, error: nil)),
-
+            expected: .init(type: "basic", realm: "Registry Realm", service: nil, scope: nil, error: nil)),
+        .init(
+            input: """
+                BASIC realm="Sonatype Nexus Repository Manager"
+                """,
+            expected: .init(type: "basic", realm: "Sonatype Nexus Repository Manager", service: nil, scope: nil, error: nil)),
+        .init(
+            input: """
+                BEARER Realm="https://auth.example.com/token",Service="registry.example.com",Scope="repository:org/app:pull"
+                """,
+            expected: .init(type: "bearer", realm: "https://auth.example.com/token", service: "registry.example.com", scope: "repository:org/app:pull", error: nil)),
     ]
 
     @Test(arguments: testCases)
@@ -78,10 +87,13 @@ struct AuthChallengeTests {
         #expect(request.service == nil)
     }
 
-    /// A challenge that supplies `service` still round-trips it.
-    @Test func challengeWithServiceIsPreserved() throws {
+    /// A challenge that supplies `service` still round-trips it, regardless of scheme or parameter key case.
+    @Test(arguments: [
+        #"Bearer realm="https://auth.docker.io/token",service="registry.docker.io""#,
+        #"BEARER Realm="https://auth.docker.io/token",Service="registry.docker.io""#,
+    ])
+    func challengeWithServiceIsPreserved(challenge: String) throws {
         let client = RegistryClient(host: "registry-1.docker.io", scheme: "https")
-        let challenge = #"Bearer realm="https://auth.docker.io/token",service="registry.docker.io""#
 
         let request = try client.createTokenRequest(parsing: [challenge])
 

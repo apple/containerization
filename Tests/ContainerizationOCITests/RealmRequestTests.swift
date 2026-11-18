@@ -271,14 +271,20 @@ struct RealmRequestTests {
         return RegistryClient(host: "127.0.0.1", scheme: "https", port: port, authentication: authentication, retryOptions: nil, tlsConfiguration: tls)
     }
 
-    /// The `registry:3` shape: Basic challenge, no Bearer.
-    @Test(.timeLimit(.minutes(1)), .enabled(if: loopbackIsDirect))
-    func basicChallengeIsAnsweredOnceOverTLS() async throws {
+    /// The `registry:3` and Sonatype Nexus (`BASIC`) shape: Basic challenge (any case), no Bearer.
+    @Test(
+        .timeLimit(.minutes(1)),
+        .enabled(if: loopbackIsDirect),
+        arguments: ["Basic", "BASIC", "basic"]
+    )
+    func basicChallengeIsAnsweredOnceOverTLS(scheme: String) async throws {
+        let challenge =
+            "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: \(scheme) realm=\"Registry Realm\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         let registry = try RecordingTLSServer.start { head in
             if head.contains("Authorization: Basic ") {
                 return "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
             }
-            return basicChallenge
+            return challenge
         }
         defer { registry.stop() }
 
