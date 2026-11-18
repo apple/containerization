@@ -155,6 +155,59 @@ struct ContainerManagerTests {
         #expect(closureWasCalled, "configuration closure must be invoked to validate interfaces")
     }
 
+    @Test func testCreateFromRootfsAddsAnEmptyWritableLayerInTheContainerDirectory() async throws {
+        let fm = FileManager.default
+        let root = fm.uniqueTemporaryDirectory(create: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let kernelPath = root.appendingPathComponent("vmlinux")
+        fm.createFile(atPath: kernelPath.path, contents: Data(), attributes: nil)
+        let initfsPath = root.appendingPathComponent("initfs.ext4")
+        fm.createFile(atPath: initfsPath.path, contents: Data(), attributes: nil)
+
+        let kernel = Kernel(path: kernelPath, platform: .linuxArm)
+        let initfs = Mount.block(format: "ext4", source: initfsPath.path, destination: "/")
+
+        var manager = try ContainerManager(kernel: kernel, initfs: initfs, root: root, network: NilGatewayNetwork())
+
+        let tempDir = fm.uniqueTemporaryDirectory()
+        defer { try? fm.removeItem(at: tempDir) }
+
+        let tarPath = try #require(Foundation.Bundle.module.url(forResource: "scratch", withExtension: "tar"))
+        let reader = try ArchiveReader(format: .pax, filter: .none, file: tarPath)
+        let rejectedPaths = try reader.extractContents(to: tempDir)
+        #expect(rejectedPaths.isEmpty)
+
+        let images = try await manager.imageStore.load(from: tempDir)
+        let image = try #require(images.first)
+
+        // Stands in for a root filesystem outside the container's directory, such as an NBD export.
+        let rootfsPath = root.appendingPathComponent("shared.ext4")
+        fm.createFile(atPath: rootfsPath.path, contents: Data(), attributes: nil)
+        let rootfs = Mount.block(format: "ext4", source: rootfsPath.path, destination: "/")
+
+        let container = try await manager.create(
+            "rootfs-writable",
+            image: image,
+            rootfs: rootfs,
+            writableLayerSizeInBytes: 16.mib(),
+            networking: false
+        ) { _ in }
+
+        let directory = root.appendingPathComponent("containers").appendingPathComponent("rootfs-writable")
+        let writableLayer = try #require(container.writableLayer)
+        #expect(container.rootfs.source == rootfsPath.path)
+        #expect(writableLayer.source == directory.appendingPathComponent("writable.ext4").absolutePath())
+        #expect(try !EXT4.EXT4Reader(blockDevice: FilePath(writableLayer.source)).exists(FilePath("/file")))
+
+        // A failed create removes the container's directory, so the ID can be used again. With
+        // networking, NilGatewayNetwork makes the create fail after the directory exists.
+        await #expect(throws: ContainerizationError.self) {
+            _ = try await manager.create("rootfs-failed", image: image, rootfs: rootfs, writableLayerSizeInBytes: 16.mib()) { _ in }
+        }
+        #expect(!fm.fileExists(atPath: root.appendingPathComponent("containers").appendingPathComponent("rootfs-failed").path))
+    }
+
     @Test func testCreateFromSnapshotClonesTheSnapshotIntoTheContainerDirectory() async throws {
         let fm = FileManager.default
         let root = fm.uniqueTemporaryDirectory(create: true)

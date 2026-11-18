@@ -64,6 +64,30 @@ extension ImageStore {
         try client.createOCILayoutStructure(directory: out, manifests: saved)
     }
 
+    /// Imports the one image in an OCI Image Layout directory and stores it under `reference`.
+    ///
+    /// Unlike ``load(from:progress:)``, this ignores the layout's names and takes every blob from the
+    /// layout, never from the content store, so an untrusted layout cannot replace another image or
+    /// use another image's layers. An image already stored under `reference` is replaced.
+    ///
+    /// - Parameters:
+    ///   - directory: A URL to a directory on disk that follows the OCI Image Layout structure.
+    ///   - reference: The name to store the image under.
+    ///   - platform: The platform to import. Defaults to `nil`, which imports every platform in the layout.
+    ///   - progress: An optional handler over which progress update events about the load operation can be received.
+    /// - Returns: The loaded image.
+    /// - Throws: A `ContainerizationError` with code `.invalidArgument` if the layout does not hold exactly one image.
+    public func load(from directory: URL, as reference: String, platform: Platform? = nil, progress: ProgressHandler? = nil) async throws -> Image {
+        let client = try LocalOCILayoutClient(root: directory)
+        let manifests = try client.loadIndexFromOCILayout(directory: directory).manifests
+        guard manifests.count == 1, let root = manifests.first else {
+            throw ContainerizationError(.invalidArgument, message: "OCI layout at \(directory.path) holds \(manifests.count) images, not 1")
+        }
+        return try await self.load(
+            [(root, reference)], from: client, matcher: createPlatformMatcher(for: platform), reusesStoredContent: false, progress: progress
+        )[0]
+    }
+
     /// Imports one or more images and their associated layers from an OCI Image Layout directory.
     ///
     /// - Parameters:
@@ -74,22 +98,35 @@ extension ImageStore {
     public func load(from directory: URL, progress: ProgressHandler? = nil) async throws -> [Image] {
         let client = try LocalOCILayoutClient(root: directory)
         let index = try client.loadIndexFromOCILayout(directory: directory)
-        let matcher = createPlatformMatcher(for: nil)
+        let roots = index.manifests.map { ($0, client.getImageReferencefromDescriptor(descriptor: $0)) }
+        let images = try await self.load(roots, from: client, matcher: createPlatformMatcher(for: nil), reusesStoredContent: true, progress: progress)
+        guard images.count > 0 else {
+            throw ContainerizationError(.internalError, message: "failed to import image")
+        }
+        return images
+    }
 
+    /// Imports each root into one ingest session, then stores each image under its reference.
+    private func load(
+        _ roots: [(descriptor: Descriptor, reference: String)],
+        from client: LocalOCILayoutClient,
+        matcher: @Sendable (Platform) -> Bool,
+        reusesStoredContent: Bool,
+        progress: ProgressHandler?
+    ) async throws -> [Image] {
         var loaded: [Image.Description] = []
         let (id, tempDir) = try await self.contentStore.newIngestSession()
         do {
-            for descriptor in index.manifests {
-                let reference = client.getImageReferencefromDescriptor(descriptor: descriptor)
-                let ref = try Reference.parse(reference)
-                let name = ref.path
-                let operation = ImportOperation(name: name, contentStore: self.contentStore, client: client, ingestDir: tempDir, progress: progress)
-                let indexDesc = try await operation.import(root: descriptor, matcher: matcher)
-                loaded.append(Image.Description(reference: reference, descriptor: indexDesc))
+            for root in roots {
+                let name = try Reference.parse(root.reference).path
+                let operation = ImportOperation(
+                    name: name, contentStore: self.contentStore, client: client, ingestDir: tempDir, progress: progress, reusesStoredContent: reusesStoredContent)
+                let indexDesc = try await operation.import(root: root.descriptor, matcher: matcher)
+                loaded.append(Image.Description(reference: root.reference, descriptor: indexDesc))
             }
 
             let loadedImages = loaded
-            let importedImages = try await self.lock.withLock { lock in
+            return try await self.lock.withLock { lock in
                 var images: [Image] = []
                 try await self.contentStore.completeIngestSession(id)
                 for description in loadedImages {
@@ -98,10 +135,6 @@ extension ImageStore {
                 }
                 return images
             }
-            guard importedImages.count > 0 else {
-                throw ContainerizationError(.internalError, message: "failed to import image")
-            }
-            return importedImages
         } catch {
             try? await self.contentStore.cancelIngestSession(id)
             throw error
