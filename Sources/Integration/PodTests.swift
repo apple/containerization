@@ -26,6 +26,18 @@ import Foundation
 import Logging
 import SystemPackage
 
+#if os(macOS)
+import Synchronization
+
+private struct CaptureUSBTestVM: VZInstanceExtension {
+    let onCreate: @Sendable (VZVirtualMachineInstance) -> Void
+
+    func didCreate(_ instance: VZVirtualMachineInstance) {
+        onCreate(instance)
+    }
+}
+#endif
+
 extension IntegrationSuite {
     /// Clone a rootfs mount to a new location for use by a container in a pod
     func cloneRootfs(_ rootfs: Containerization.Mount, testID: String, containerID: String) throws -> Containerization.Mount {
@@ -2142,6 +2154,86 @@ extension IntegrationSuite {
         }
     }
 
+    #if os(macOS)
+    func testPodUSBRootfsHotplug() async throws {
+        let id = "test-pod-usb-rootfs"
+        let bs = try await bootstrap(id)
+        let disk = try cloneRootfs(bs.rootfs, testID: id, containerID: "late")
+        let captured = Mutex<VZVirtualMachineInstance?>(nil)
+        defer { captured.withLock { $0 = nil } }
+        let pod = try LinuxPod(id, vmm: bs.vmm) { config in
+            config.bootLog = bs.bootLog
+            config.extensions = [VZUSBRootfsHotplug(), CaptureUSBTestVM { vm in captured.withLock { $0 = vm } }]
+        }
+        try await pod.addContainer("seed", rootfs: bs.rootfs) { $0.process.arguments = ["/bin/sleep", "infinity"] }
+        try await pod.create()
+        do {
+            try await pod.startContainer("seed")
+            do {
+                try await pod.addContainer("boot-alias", rootfs: bs.rootfs) { _ in }
+                throw IntegrationError.assert(msg: "attached a writable boot image twice")
+            } catch let error as ContainerizationError where error.code == .exists {}
+            let probe = try await pod.execInContainer("seed", processID: "drivers") {
+                $0.arguments = ["/bin/sh", "-c", "test -d /sys/bus/pci/drivers/xhci_hcd && test -d /sys/bus/usb/drivers/usb-storage && test -d /sys/bus/scsi/drivers/sd"]
+            }
+            try await probe.start()
+            let hasDrivers = try await probe.wait().exitCode == 0
+            try await probe.delete()
+            do {
+                try await pod.addContainer("writer", rootfs: disk) { $0.process.arguments = ["/bin/sh", "-c", "echo persisted > /marker"] }
+            } catch let error as ContainerizationError where !hasDrivers && error.code == .unsupported {
+                throw SkipTest(reason: "guest kernel lacks USB mass-storage support")
+            }
+            let peer = try cloneRootfs(bs.rootfs, testID: id, containerID: "peer")
+            try await pod.addContainer("peer", rootfs: peer) { $0.process.arguments = ["/bin/sh", "-c", "test ! -e /marker"] }
+            try await pod.startContainer("writer")
+            guard try await pod.waitContainer("writer").exitCode == 0 else {
+                throw IntegrationError.assert(msg: "failed to write the hotplugged rootfs")
+            }
+            try await pod.stopContainer("writer")
+
+            let output = BufferWriter()
+            try await pod.addContainer("reader", rootfs: disk) {
+                $0.process.arguments = ["/bin/cat", "/marker"]
+                $0.process.stdout = output
+            }
+            try await pod.startContainer("reader")
+            guard try await pod.waitContainer("reader").exitCode == 0, String(decoding: output.data, as: UTF8.self) == "persisted\n" else {
+                throw IntegrationError.assert(msg: "failed to read the reattached rootfs")
+            }
+            try await pod.stopContainer("reader")
+            try await pod.startContainer("peer")
+            guard try await pod.waitContainer("peer").exitCode == 0 else {
+                throw IntegrationError.assert(msg: "peer saw the writer's rootfs")
+            }
+            // stopContainer must keep a failed cleanup retryable without
+            // allowing the partially released container to start.
+            try await pod.addContainer("unstarted", rootfs: disk) { _ in }
+            guard let vm = captured.withLock({ $0 }) else { throw IntegrationError.assert(msg: "missing VZ instance") }
+            try await vm.pause()
+            do {
+                do {
+                    try await pod.stopContainer("unstarted")
+                    throw IntegrationError.assert(msg: "stop succeeded while the guest was paused")
+                } catch let error as ContainerizationError where error.code == .invalidState {}
+                do {
+                    try await pod.startContainer("unstarted")
+                    throw IntegrationError.assert(msg: "start succeeded during rootfs cleanup")
+                } catch let error as ContainerizationError where error.code == .invalidState {}
+                try await vm.resume()
+            } catch {
+                try? await vm.resume()
+                throw error
+            }
+            try await pod.stopContainer("unstarted")
+            try await pod.stop()
+        } catch {
+            try? await pod.stop()
+            throw error
+        }
+    }
+    #endif
+
     #if os(Linux)
     /// Unpack an image's layers into a host directory to use as a virtiofs
     /// (directory-share) rootfs. Assumes a single-layer image (the alpine
@@ -2179,8 +2271,7 @@ extension IntegrationSuite {
     }
 
     /// Hotplug a container with a virtiofs (directory-share) rootfs into a
-    /// running pod VM, plus an additional virtiofs file-mount. CH-only: VZ has
-    /// no runtime hotplug.
+    /// running pod VM, plus an additional virtiofs file-mount. CH-only: VZ does not hotplug directory shares.
     func testPodHotplugVirtiofsRootfs() async throws {
         let id = "test-pod-hotplug-virtiofs-rootfs"
         let bs = try await bootstrap(id)
@@ -2280,8 +2371,8 @@ extension IntegrationSuite {
 
     /// Attach a tmpfs pod volume to a running pod VM after create(), then add
     /// two containers that share it: one writes a file, the other reads it
-    /// back from a different path. CH-only: adding a container after create()
-    /// hotplugs its rootfs, which VZ cannot do.
+    /// back from a different path. This test uses the CH backend
+    /// to attach the two root filesystems.
     func testPodAttachTmpfsVolume() async throws {
         let id = "test-pod-attach-tmpfs-volume"
         let bs = try await bootstrap(id)

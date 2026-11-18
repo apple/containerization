@@ -80,6 +80,7 @@ public final class LinuxPod: Sendable {
         /// pause process — see ``shareProcessNamespace``.
         public var seccompProfile: LinuxContainer.Configuration.SeccompProfile = .unconfined
         /// Extension objects that participate in the VM instance lifecycle.
+        /// On macOS, append `VZUSBRootfsHotplug()` to attach ext4 container root filesystems after boot.
         public var extensions: [any Sendable] = []
 
         public init() {}
@@ -212,6 +213,7 @@ public final class LinuxPod: Sendable {
             case registered
             case created
             case started
+            case stopping
             case stopped
             case errored
         }
@@ -1187,11 +1189,13 @@ extension LinuxPod {
                 return
             }
 
-            // Handle containers that were hotplugged but never started
-            if container.state == .created {
-                // Release the hotplug device and virtiofs shares
-                try? await createdState.vm.releaseHotplug(id: containerID)
-                try? await createdState.vm.releaseVirtioFS(id: containerID)
+            // A failed release can already have removed part of the rootfs.
+            // Allow stop to retry, but never start the container in that state.
+            if container.state == .created || container.state == .stopping {
+                container.state = .stopping
+                state.containers[containerID] = container
+                try await createdState.vm.releaseHotplug(id: containerID)
+                try await createdState.vm.releaseVirtioFS(id: containerID)
 
                 container.state = .stopped
                 state.containers[containerID] = container
