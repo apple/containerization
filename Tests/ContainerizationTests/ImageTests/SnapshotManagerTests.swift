@@ -413,16 +413,16 @@ struct SnapshotManagerTests {
         let config = Descriptor(mediaType: MediaTypes.imageConfig, digest: "sha256:" + String(repeating: "0", count: 64), size: 0)
         let manifest = try JSONEncoder().encode(
             Manifest(config: config, layers: layers.map { Descriptor(mediaType: MediaTypes.imageLayerGzip, digest: $0, size: 0) }))
-        let manifestDigest = SHA256.hash(data: manifest)
+        let manifestHex = SHA256.hash(data: manifest).encoded
         let manifestDescriptor = Descriptor(
-            mediaType: MediaTypes.imageManifest, digest: manifestDigest.digestString, size: Int64(manifest.count), platform: Self.platform)
+            mediaType: MediaTypes.imageManifest, digest: "sha256:\(manifestHex)", size: Int64(manifest.count), platform: Self.platform)
         let index = try JSONEncoder().encode(Index(manifests: [manifestDescriptor]))
-        let indexDigest = SHA256.hash(data: index)
+        let indexHex = SHA256.hash(data: index).encoded
         try await store.ingest { dir in
-            try manifest.write(to: dir.appendingPathComponent(manifestDigest.encoded))
-            try index.write(to: dir.appendingPathComponent(indexDigest.encoded))
+            try manifest.write(to: dir.appendingPathComponent(manifestHex))
+            try index.write(to: dir.appendingPathComponent(indexHex))
         }
-        let indexDescriptor = Descriptor(mediaType: MediaTypes.index, digest: indexDigest.digestString, size: Int64(index.count))
+        let indexDescriptor = Descriptor(mediaType: MediaTypes.index, digest: "sha256:\(indexHex)", size: Int64(index.count))
         return Containerization.Image(description: .init(reference: "example.com/layers:latest", descriptor: indexDescriptor), contentStore: store)
     }
 
