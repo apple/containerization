@@ -38,7 +38,7 @@ import Musl
 /// because `LinuxContainer` attaches its root filesystem writable.
 ///
 /// A snapshot is keyed by the chain ID of the image's layers, so images that differ only in
-/// their config share one.
+/// their config share one. ``key(of:for:)`` returns the key.
 ///
 /// Processes that run as the same user can share one `path`. A lock per snapshot lets one process
 /// unpack an image while the others wait for it, with no time limit; cancel the task to stop
@@ -134,6 +134,17 @@ public struct SnapshotManager: Sendable {
     ///   for `platform`.
     public func get(_ image: Image, for platform: Platform = .current) async throws -> URL? {
         self.existing(try await Self.key(of: image, for: platform))
+    }
+
+    /// Returns the key of the image's snapshot for `platform`, whether or not the snapshot exists.
+    ///
+    /// The key depends only on the layer digests in the image's manifest, so every image with the
+    /// same layers has the same key, and the layers need not be in the content store.
+    ///
+    /// - Throws: A `ContainerizationError` with code `.unsupported` if `image` has no manifest
+    ///   for `platform`.
+    public static func key(of image: Image, for platform: Platform = .current) async throws -> ParsedDigest {
+        try chainID(of: try await image.manifest(for: platform).layers)
     }
 
     /// Clones the image's snapshot for `platform` to `destination`.
@@ -265,10 +276,6 @@ public struct SnapshotManager: Sendable {
             try FileManager.default.removeItem(at: file)
         }
         return freed
-    }
-
-    private static func key(of image: Image, for platform: Platform) async throws -> ParsedDigest {
-        try chainID(of: try await image.manifest(for: platform).layers)
     }
 
     /// The chain ID of `layers`, built as in the OCI image spec but from the layer blob digests

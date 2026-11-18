@@ -19,6 +19,7 @@ import ContainerizationError
 import ContainerizationExtras
 import ContainerizationOCI
 import ContainerizationOS
+import Crypto
 import Foundation
 import SystemPackage
 import Testing
@@ -106,6 +107,37 @@ struct SnapshotManagerTests {
 
         let found = try #require(try await f.snapshots.get(f.image, for: Self.platform))
         #expect(found.absolutePath() == f.entry)
+    }
+
+    @Test func keyNeedsOnlyTheManifest() async throws {
+        let f = try await makeFixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+
+        // Without its layer blob, the image cannot be unpacked, but its key is still known.
+        let blob = f.root.appendingPathComponent("store/content/blobs/sha256/\(Self.layer)")
+        try FileManager.default.removeItem(at: blob)
+
+        for platform in [Self.platform, Platform(arch: "amd64", os: "linux")] {
+            #expect(try await SnapshotManager.key(of: f.image, for: platform).description == "sha256:\(Self.key)")
+        }
+    }
+
+    @Test func keyChainsTheLayerDigestsInOrder() async throws {
+        let root = FileManager.default.uniqueTemporaryDirectory(create: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        func key(_ layers: [String]) async throws -> String {
+            try await SnapshotManager.key(of: Self.makeImage(layers: layers, in: root), for: Self.platform).description
+        }
+
+        let layers = ["a", "b", "c"].map { "sha256:" + String(repeating: $0, count: 64) }
+        // Computed outside this code: sha256("sha256:<sha256(\"<a> <b>\")> <c>").
+        let chained = "sha256:c1377126441fb2f5ec2c21ae2a60255331d639e830f0ee1b40a36e52d4c40588"
+        #expect(try await key(layers) == chained)
+        #expect(try await key(layers.reversed()) != chained)
+        #expect(try await key([layers[0]]) == layers[0])
+        // The sha256 of no data.
+        #expect(try await key([]) == "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
     }
 
     @Test func unpackReusesTheSnapshot() async throws {
@@ -373,6 +405,26 @@ struct SnapshotManagerTests {
     }
 
     // MARK: - Helpers
+
+    /// An image whose arm64 manifest lists `layers`. Only the index and the manifest are in the
+    /// store, which is all ``SnapshotManager/key(of:for:)`` reads.
+    private static func makeImage(layers: [String], in root: URL) async throws -> Containerization.Image {
+        let store = try LocalContentStore(path: root.appendingPathComponent(UUID().uuidString))
+        let config = Descriptor(mediaType: MediaTypes.imageConfig, digest: "sha256:" + String(repeating: "0", count: 64), size: 0)
+        let manifest = try JSONEncoder().encode(
+            Manifest(config: config, layers: layers.map { Descriptor(mediaType: MediaTypes.imageLayerGzip, digest: $0, size: 0) }))
+        let manifestDigest = SHA256.hash(data: manifest)
+        let manifestDescriptor = Descriptor(
+            mediaType: MediaTypes.imageManifest, digest: manifestDigest.digestString, size: Int64(manifest.count), platform: Self.platform)
+        let index = try JSONEncoder().encode(Index(manifests: [manifestDescriptor]))
+        let indexDigest = SHA256.hash(data: index)
+        try await store.ingest { dir in
+            try manifest.write(to: dir.appendingPathComponent(manifestDigest.encoded))
+            try index.write(to: dir.appendingPathComponent(indexDigest.encoded))
+        }
+        let indexDescriptor = Descriptor(mediaType: MediaTypes.index, digest: indexDigest.digestString, size: Int64(index.count))
+        return Containerization.Image(description: .init(reference: "example.com/layers:latest", descriptor: indexDescriptor), contentStore: store)
+    }
 
     /// Takes the lock the way another process would: a separate `open(2)` and `flock(2)`.
     private static func lock(_ path: String, shared: Bool = false) throws -> Int32 {
