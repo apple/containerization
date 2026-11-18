@@ -165,11 +165,17 @@ extension EXT4 {
             }
         }
 
-        private func getDirEntries(dirTree: Data) throws -> [(String, InodeNumber)] {
+        internal func getDirEntries(dirTree: Data) throws -> [(String, InodeNumber)] {
             var children: [(String, InodeNumber)] = []
             var offset = 0
             let entrySize = MemoryLayout<DirectoryEntry>.size
             while offset < dirTree.count {
+                // A malformed image may leave fewer than `entrySize` bytes at the
+                // tail of the block. Stop before reading a fixed-size header that
+                // would run past the buffer and trap in `subdata`.
+                guard offset + entrySize <= dirTree.count else {
+                    break
+                }
                 let dirEntry = dirTree.subdata(in: offset..<offset + entrySize).withUnsafeBytes {
                     $0.loadLittleEndian(as: DirectoryEntry.self)
                 }
@@ -180,7 +186,17 @@ extension EXT4 {
                     offset += Int(dirEntry.recordLength)
                     continue
                 }
-                let nameData = dirTree.subdata(in: offset + 8..<offset + 8 + Int(dirEntry.nameLength))
+                // `nameLength` and `recordLength` are attacker-controlled. Reject an
+                // entry whose name would extend past its record or past the block,
+                // which would otherwise trap in `subdata` on the read below.
+                let nameStart = offset + entrySize
+                let nameLength = Int(dirEntry.nameLength)
+                guard Int(dirEntry.recordLength) >= entrySize + nameLength,
+                    nameStart + nameLength <= dirTree.count
+                else {
+                    break
+                }
+                let nameData = dirTree.subdata(in: nameStart..<nameStart + nameLength)
                 let name = String(data: nameData, encoding: .utf8) ?? ""
                 children.append((name, dirEntry.inode))
                 offset += Int(dirEntry.recordLength)
