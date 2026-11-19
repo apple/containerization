@@ -4428,6 +4428,54 @@ extension IntegrationSuite {
         }
     }
 
+    func testRootfsReadAhead() async throws {
+        let id = "test-rootfs-read-ahead"
+        let bs = try await bootstrap(id)
+        var volume = try bs.rootfs.clone(to: Self.testDir.appending(component: "\(id)-data.ext4").absolutePath())
+        volume.destination = "/data"
+
+        func queues(readAhead: UInt32?) async throws -> (root: UInt32, data: UInt32) {
+            let output = BufferWriter()
+            let container = try LinuxContainer(id, rootfs: bs.rootfs, vmm: bs.vmm) { config in
+                config.rootfsReadAheadKiB = readAhead
+                config.mounts.append(volume)
+                config.bootLog = bs.bootLog
+                config.process.stdout = output
+                config.process.arguments = [
+                    "/bin/sh", "-ec",
+                    """
+                    for mount in / /data; do
+                        device=$(awk -v mount="$mount" '$5 == mount { print $3; exit }' /proc/self/mountinfo)
+                        cat "/sys/dev/block/$device/queue/read_ahead_kb"
+                    done
+                    """,
+                ]
+            }
+            try await container.create()
+            do {
+                try await container.start()
+                let status = try await container.wait()
+                let result = String(decoding: output.data, as: UTF8.self)
+                let values = result.split(separator: "\n")
+                guard status.exitCode == 0, values.count == 2, let root = UInt32(values[0]), let data = UInt32(values[1]) else {
+                    throw IntegrationError.assert(msg: "could not read root and data queues: \(status), \(result)")
+                }
+                try await container.stop()
+                return (root, data)
+            } catch {
+                try? await container.stop()
+                throw error
+            }
+        }
+
+        let baseline = try await queues(readAhead: nil)
+        let requested: UInt32 = baseline.root == 0 ? 128 : 0
+        let configured = try await queues(readAhead: requested)
+        guard configured.root == requested, configured.data == baseline.data else {
+            throw IntegrationError.assert(msg: "expected read-ahead (\(requested), \(baseline.data)) KiB, got \(configured)")
+        }
+    }
+
     func testWritableLayer() async throws {
         let id = "test-writable-layer"
 

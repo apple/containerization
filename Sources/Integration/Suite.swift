@@ -547,6 +547,7 @@ struct IntegrationSuite: AsyncParsableCommand {
             Test("container read-only rootfs", testReadOnlyRootfs),
             Test("container read-only rootfs hosts file", testReadOnlyRootfsHostsFileWritten),
             Test("container read-only rootfs DNS", testReadOnlyRootfsDNSConfigured),
+            Test("container rootfs read-ahead", testRootfsReadAhead),
             Test("container writable layer", testWritableLayer),
             Test("container writable layer journal writeback", testWritableLayerJournalWriteback),
             Test("container writable layer journal ordered", testWritableLayerJournalOrdered),

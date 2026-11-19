@@ -132,6 +132,15 @@ struct LinuxContainerTests {
 
     private static let testRootfs = Mount.block(format: "ext4", source: "/tmp/does-not-need-to-exist.ext4", destination: "/")
 
+    @Test func rootfsReadAheadRequiresBlockRoot() throws {
+        let share = Mount.share(source: "/tmp/rootfs", destination: "/")
+        let config = LinuxContainer.Configuration(process: .init(), rootfsReadAheadKiB: 0)
+        #expect(throws: ContainerizationError.self) {
+            _ = try LinuxContainer("shared-root", rootfs: share, vmm: UnusableVMM(), configuration: config)
+        }
+        _ = try LinuxContainer("shared-root", rootfs: share, vmm: UnusableVMM()) { _ in }
+    }
+
     @Test func seccompProfileIsValidatedAtInit() throws {
         var config = LinuxContainer.Configuration()
         config.process.arguments = ["/bin/true"]
