@@ -96,6 +96,11 @@ public final class LinuxContainer: Container, Sendable {
         public var sockets: [UnixSocketConfiguration] = []
         /// The mounts for the container.
         public var mounts: [Mount] = LinuxContainer.defaultMounts()
+        /// Guest block-device read-ahead for the container root filesystem, in KiB.
+        /// Requires a block rootfs. With a writable layer this applies to the lower device.
+        /// `nil` keeps the guest kernel default. Linux rounds down to whole guest pages,
+        /// and zero disables read-ahead.
+        public var rootfsReadAheadKiB: UInt32?
         /// Paths inside the container that vmexec hides from the workload.
         /// Defaults to the OCI standard set (``LinuxContainer/defaultMaskedPaths()``),
         /// matching the restricted capability baseline. Set to `[]` to opt out,
@@ -140,6 +145,7 @@ public final class LinuxContainer: Container, Sendable {
             interfaces: [any Interface] = [],
             sockets: [UnixSocketConfiguration] = [],
             mounts: [Mount] = LinuxContainer.defaultMounts(),
+            rootfsReadAheadKiB: UInt32? = nil,
             maskedPaths: [String] = LinuxContainer.defaultMaskedPaths(),
             readonlyPaths: [String] = LinuxContainer.defaultReadonlyPaths(),
             dns: DNS? = nil,
@@ -158,6 +164,7 @@ public final class LinuxContainer: Container, Sendable {
             self.interfaces = interfaces
             self.sockets = sockets
             self.mounts = mounts
+            self.rootfsReadAheadKiB = rootfsReadAheadKiB
             self.maskedPaths = maskedPaths
             self.readonlyPaths = readonlyPaths
             self.dns = dns
@@ -394,6 +401,9 @@ public final class LinuxContainer: Container, Sendable {
                 .invalidArgument,
                 message: "container id length \(id.count) exceeds maximum of \(Self.maxIDLength) characters"
             )
+        }
+        if configuration.rootfsReadAheadKiB != nil && !rootfs.isBlock {
+            throw ContainerizationError(.invalidArgument, message: "rootfsReadAheadKiB requires a block root filesystem")
         }
         if let writableLayer {
             guard writableLayer.isBlock else {
@@ -706,6 +716,17 @@ extension LinuxContainer {
     ) async throws {
         guard let rootfsAttachment = attachments.first else {
             throw ContainerizationError(.notFound, message: "rootfs mount not found")
+        }
+
+        if let readAhead = config.rootfsReadAheadKiB {
+            let source = FilePath(rootfsAttachment.source)
+            guard source.removingLastComponent() == "/dev", let device = source.lastComponent, device.kind == .regular else {
+                throw ContainerizationError(.unsupported, message: "cannot identify root block device from \(source)")
+            }
+            try await agent.writeFile(
+                path: "/sys/class/block/\(device.string)/queue/read_ahead_kb",
+                data: Data("\(readAhead)\n".utf8), flags: .init(), mode: 0
+            )
         }
 
         if self.writableLayer != nil {
