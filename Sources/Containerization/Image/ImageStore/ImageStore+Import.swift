@@ -185,7 +185,14 @@ extension ImageStore {
         private func fetch(_ descriptor: Descriptor) async throws {
             let encoded = try descriptor.digest.validatedDigestEncoding()
             if let found = try await self.contentStore.get(digest: descriptor.digest) {
-                try FileManager.default.copyItem(at: found.path, to: ingestDir.appendingPathComponent(encoded))
+                do {
+                    try FileManager.default.copyItem(at: found.path, to: ingestDir.appendingPathComponent(encoded))
+                } catch let err as NSError {
+                    // Another descriptor in the same ingest session may have copied this blob already.
+                    guard err.code == NSFileWriteFileExistsError else {
+                        throw err
+                    }
+                }
                 await progress?([
                     // Count the size of the blob
                     .addSize(descriptor.size),
