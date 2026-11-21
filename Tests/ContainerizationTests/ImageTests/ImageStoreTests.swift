@@ -182,6 +182,45 @@ public class ImageStoreTests: ContainsAuth {
         #expect(message.contains(Self.scratchAmd64Manifest), "\(message)")
     }
 
+    // Rewrite the extracted scratch layout so that its index lists the same image under two names,
+    // as `container image save` or `docker save` of two tags of one image does.
+    private func listScratchUnderTwoNames(in layout: URL) throws {
+        let indexPath = layout.appending(path: "index.json")
+        var index = try JSONDecoder().decode(ContainerizationOCI.Index.self, from: Data(contentsOf: indexPath))
+        var second = index.manifests[0]
+        second.annotations?["io.containerd.image.name"] = "registry.local/integration-tests/scratch:second"
+        second.annotations?["org.opencontainers.image.ref.name"] = "second"
+        index.manifests.append(second)
+        try JSONEncoder().encode(index).write(to: indexPath)
+    }
+
+    @Test(arguments: [false, true])
+    func testLoadIndexListingOneImageUnderTwoNames(alreadyStored: Bool) async throws {
+        if alreadyStored {
+            let first = try extractScratch(removing: [])
+            defer {
+                try? FileManager.default.removeItem(at: first)
+            }
+            _ = try await self.store.load(from: first)
+        }
+
+        let tempDir = try extractScratch(removing: [])
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+        try listScratchUnderTwoNames(in: tempDir)
+
+        let loaded = try await self.store.load(from: tempDir)
+        #expect(
+            Set(loaded.map { $0.reference }) == [
+                "registry.local/integration-tests/scratch:latest",
+                "registry.local/integration-tests/scratch:second",
+            ])
+        let first = try await self.store.get(reference: "registry.local/integration-tests/scratch:latest")
+        let second = try await self.store.get(reference: "registry.local/integration-tests/scratch:second")
+        #expect(first.descriptor.digest == second.descriptor.digest)
+    }
+
     @Test func testGetOrNilMissingReference() async throws {
         #expect(try await self.store.getOrNil(reference: "registry.local/missing:latest") == nil)
     }
