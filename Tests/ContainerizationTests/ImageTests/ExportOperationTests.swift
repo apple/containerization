@@ -73,6 +73,64 @@ final class ExportOperationTests {
         #expect(pushedIndex.mediaType == sourceMediaType)
     }
 
+    /// Child manifests have to be pushed by digest, and only the root index by
+    /// tag. Pushing a platform manifest to `manifests/<tag>` and then the index
+    /// to the same tag leaves registries that keep one manifest per tag (zot,
+    /// Gitea, Forgejo) with an index whose children are gone.
+    /// https://github.com/apple/container/issues/1001
+    @Test func testChildManifestsArePushedByDigest() async throws {
+        let dir = FileManager.default.uniqueTemporaryDirectory(create: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let cs = try LocalContentStore(path: dir)
+
+        var blobs: [Data] = []
+        func descriptor(_ data: Data, _ mediaType: String, platform: Platform? = nil) -> Descriptor {
+            blobs.append(data)
+            return Descriptor(
+                mediaType: mediaType,
+                digest: SHA256.hash(data: data).digestString,
+                size: Int64(data.count),
+                platform: platform)
+        }
+
+        var manifests: [Descriptor] = []
+        for arch in ["amd64", "arm64"] {
+            let config = descriptor(Data("config-\(arch)".utf8), MediaTypes.imageConfig)
+            let layer = descriptor(Data("layer-\(arch)".utf8), MediaTypes.imageLayerGzip)
+            let manifest = Manifest(config: config, layers: [layer])
+            let manifestData = try JSONEncoder().encode(manifest)
+            manifests.append(descriptor(manifestData, MediaTypes.imageManifest, platform: Platform(arch: arch, os: "linux")))
+        }
+
+        let index = Index(mediaType: MediaTypes.index, manifests: manifests)
+        let indexData = try JSONEncoder().encode(index)
+        let indexDesc = descriptor(indexData, MediaTypes.index)
+
+        let seeded = blobs
+        try await cs.ingest { ingestDir in
+            for data in seeded {
+                try data.write(to: ingestDir.appendingPathComponent(SHA256.hash(data: data).encoded))
+            }
+        }
+
+        let capture = CapturingContentClient()
+        let op = ImageStore.ExportOperation(
+            name: "test/repo", tag: "v1", contentStore: cs, client: capture)
+        let pushed = try await op.export(index: indexDesc, platforms: { _ in true })
+
+        // two manifests, two configs, two layers and the index
+        #expect(capture.pushes.count == 7)
+        for push in capture.pushes {
+            if push.descriptor.digest == pushed.digest {
+                #expect(push.ref == "v1")
+            } else {
+                #expect(push.ref == push.descriptor.digest)
+            }
+        }
+        #expect(capture.pushes.filter { $0.ref == "v1" }.count == 1)
+    }
+
     /// Export walks the stored index without a platform filter when none is given,
     /// so a traversing digest on an entry a pull never fetched would reach both a
     /// read of an arbitrary host file and a create/truncate of one. It has to be
@@ -122,6 +180,7 @@ final class ExportOperationTests {
 
 private final class CapturingContentClient: ContentClient, @unchecked Sendable {
     struct Push: Sendable {
+        let ref: String
         let descriptor: Descriptor
         let body: Data
     }
@@ -160,7 +219,7 @@ private final class CapturingContentClient: ContentClient, @unchecked Sendable {
             data.append(contentsOf: buf.readableBytesView)
         }
         lock.withLock {
-            _pushes.append(Push(descriptor: descriptor, body: data))
+            _pushes.append(Push(ref: ref, descriptor: descriptor, body: data))
         }
     }
 }
