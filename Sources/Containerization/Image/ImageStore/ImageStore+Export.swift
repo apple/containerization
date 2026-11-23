@@ -67,7 +67,11 @@ extension ImageStore {
                             }
                             group.addTask {
                                 let readStream = try ReadStream(url: content.path)
-                                try await self.pushContent(descriptor: desc, stream: readStream)
+                                // Everything below the root index is pushed by digest.
+                                // Pushing a child manifest by tag would point the tag at it
+                                // until the index replaces it, and registries that keep one
+                                // manifest per tag would then drop the child the index needs.
+                                try await self.pushContent(descriptor: desc, ref: desc.digest, stream: readStream)
                             }
                         }
                         try await group.waitForAll()
@@ -86,7 +90,7 @@ extension ImageStore {
                 digest: digest.digestString,
                 size: Int64(localIndexData.count))
             let stream = ReadStream(data: localIndexData)
-            try await self.pushContent(descriptor: descriptor, stream: stream)
+            try await self.pushContent(descriptor: descriptor, ref: tag, stream: stream)
             return descriptor
         }
 
@@ -130,13 +134,13 @@ extension ImageStore {
             return try JSONEncoder().encode(idx)
         }
 
-        private func pushContent(descriptor: Descriptor, stream: ReadStream) async throws {
+        private func pushContent(descriptor: Descriptor, ref: String, stream: ReadStream) async throws {
             do {
                 let generator = {
                     try stream.reset()
                     return stream.stream
                 }
-                try await client.push(name: name, ref: tag, descriptor: descriptor, streamGenerator: generator, progress: progress)
+                try await client.push(name: name, ref: ref, descriptor: descriptor, streamGenerator: generator, progress: progress)
                 await progress?([
                     .addSize(descriptor.size),
                     .addItems(1),
