@@ -55,6 +55,9 @@ public final class RegistryClient: ContentClient {
         })
     )
 
+    /// The default for how long a request may wait without receiving data before it fails.
+    public static let defaultReadTimeout: TimeAmount = .seconds(60)
+
     let client: HTTPClient
     /// Client used solely for the token exchange with an authorization server. Redirects are
     /// disallowed so that a redirect cannot move a credential-bearing request to another host.
@@ -105,6 +108,7 @@ public final class RegistryClient: ContentClient {
         retryOptions: RetryOptions? = nil,
         bufferSize: Int = Int(4.mib()),
         tlsConfiguration: TLSConfiguration? = nil,
+        readTimeout: TimeAmount? = RegistryClient.defaultReadTimeout,
         logger: Logger? = nil,
     ) {
         var components = URLComponents()
@@ -118,6 +122,8 @@ public final class RegistryClient: ContentClient {
         self.retryOptions = retryOptions
         self.bufferSize = bufferSize
         var httpConfiguration = HTTPClient.Configuration()
+        // Without a read timeout, a registry that stops sending a body mid-download hangs the request forever.
+        httpConfiguration.timeout.read = readTimeout
 
         // proxy configuration assumes all client requests will go to `base` URL
         self.proxyURL = ProxyUtils.proxyFromEnvironment(scheme: scheme, host: host)
