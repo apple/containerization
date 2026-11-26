@@ -18,6 +18,14 @@ import ContainerizationError
 import ContainerizationOCI
 import Foundation
 
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#endif
+
 extension ImageStore {
     /// A ReferenceManager handles the mappings between an image's
     /// reference and the underlying descriptor inside of a content store.
@@ -74,9 +82,11 @@ extension ImageStore {
         }
 
         public func delete(reference: String) throws {
-            var state = try self.load()
-            state.removeValue(forKey: reference)
-            try self.save(state)
+            try self.withStateLock {
+                var state = try self.load()
+                state.removeValue(forKey: reference)
+                try self.save(state)
+            }
         }
 
         public func delete(image: Image.Description) throws {
@@ -84,9 +94,58 @@ extension ImageStore {
         }
 
         public func create(description: Image.Description) throws {
-            var state = try self.load()
-            state[description.reference] = description.descriptor
-            try self.save(state)
+            try self.withStateLock {
+                var state = try self.load()
+                state[description.reference] = description.descriptor
+                try self.save(state)
+            }
+        }
+
+        /// Serializes read-modify-write of `state.json` across `ImageStore` instances
+        /// and processes sharing this directory. `ImageStore.lock` and this actor exist
+        /// once per instance, so concurrent writers on separate instances would otherwise
+        /// overwrite each other's updates. Because `body` only loads and atomically
+        /// saves `state.json` without suspending, blocking in `flock(2)` is bounded.
+        private func withStateLock<T>(_ body: () throws -> T) throws -> T {
+            let lockPath = self.path.appendingPathComponent("state.json.lock").absolutePath()
+            let fd = try Self.openLockFile(lockPath)
+            defer {
+                close(fd)
+            }
+            try Self.acquireExclusiveLock(fd, path: lockPath)
+            defer {
+                _ = flock(fd, LOCK_UN)
+            }
+            return try body()
+        }
+
+        private static func openLockFile(_ path: String) throws -> Int32 {
+            while true {
+                let fd = open(path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
+                if fd >= 0 {
+                    return fd
+                }
+                let code = errno
+                if code == EINTR {
+                    continue
+                }
+                throw posixError("open \(path)", code)
+            }
+        }
+
+        private static func acquireExclusiveLock(_ fd: Int32, path: String) throws {
+            while flock(fd, LOCK_EX) != 0 {
+                let code = errno
+                if code == EINTR {
+                    continue
+                }
+                throw posixError("lock \(path)", code)
+            }
+        }
+
+        private static func posixError(_ operation: String, _ code: Int32) -> ContainerizationError {
+            let cause = POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
+            return ContainerizationError(.internalError, message: "\(operation) failed: \(cause)", cause: cause)
         }
 
         public func list() throws -> [Image.Description] {
