@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 opts=()
 opts+=("--allow-writing-to-directory" "$1")
 opts+=("generate-documentation")
@@ -30,15 +29,11 @@ opts+=("--disable-indexing")
 opts+=("--transform-for-static-hosting")
 opts+=("--enable-experimental-combined-documentation")
 opts+=("--experimental-documentation-coverage")
-
 if [ ! -z "$2" ] ; then
     opts+=("--hosting-base-path" "$2")
 fi
-
-/usr/bin/swift package ${opts[@]}
-
+/usr/bin/swift package "${opts[@]}"
 echo '{}' > "$1/theme-settings.json"
-
 cat > "$1/index.html" <<'EOF'
 <html lang="en-US">
   <head>
